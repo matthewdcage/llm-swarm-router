@@ -1,0 +1,101 @@
+"""Tests for netllm-agent HTTP surface."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+from netllm_agent.app import create_app
+from netllm_core.models import Backend, BackendHealth, NetllmConfig
+
+
+@pytest.fixture
+def client() -> TestClient:
+    cfg = NetllmConfig()
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    app = create_app(cfg)
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def test_root_help(client: TestClient) -> None:
+    resp = client.get("/")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["service"] == "netllm-agent"
+    assert "openai_base_url" in data
+    assert "/v1/models" in data["endpoints"]["models"]
+
+
+def test_health_endpoint(client: TestClient) -> None:
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+
+
+def test_metrics_endpoint(client: TestClient) -> None:
+    resp = client.get("/metrics")
+    assert resp.status_code == 200
+    assert b"netllm_requests_total" in resp.content
+
+
+def test_netllm_status(client: TestClient) -> None:
+    resp = client.get("/netllm/v1/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "agent_id" in data
+    assert "routing_strategy" in data
+
+
+@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+def test_models_list_empty(mock_scan: AsyncMock, client: TestClient) -> None:
+    mock_scan.return_value = []
+    resp = client.get("/v1/models")
+    assert resp.status_code == 200
+    assert resp.json()["object"] == "list"
+
+
+@patch(
+    "netllm_agent.service.AgentService.proxy_chat_completion",
+    new_callable=AsyncMock,
+)
+def test_chat_completion_proxy(mock_proxy: AsyncMock, client: TestClient) -> None:
+    mock_proxy.return_value = {
+        "id": "cmpl-test",
+        "object": "chat.completion",
+        "choices": [{"message": {"role": "assistant", "content": "hi"}}],
+    }
+    resp = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "hello"}],
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["choices"][0]["message"]["content"] == "hi"
+
+
+def test_heartbeat_registers_peer(client: TestClient) -> None:
+    payload = {
+        "agent_id": "remote-1",
+        "listen_url": "http://192.168.1.99:11400",
+        "role": "peer",
+        "hostname": "remote-mac",
+        "backends": [
+            Backend(
+                id="b1",
+                base_url="http://192.168.1.99:8080/v1",
+                provider="omlx",
+                local=False,
+                health=BackendHealth(status="online", models=["m1"]),
+            ).model_dump(mode="json")
+        ],
+    }
+    resp = client.post("/netllm/v1/heartbeat", json=payload)
+    assert resp.status_code == 204
+    status = client.get("/netllm/v1/status").json()
+    peer_ids = [p["agent_id"] for p in status.get("peers", [])]
+    assert "remote-1" in peer_ids

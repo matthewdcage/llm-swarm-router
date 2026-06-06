@@ -1,0 +1,32 @@
+# Example netllm configuration
+# Copy to ~/.config/netllm/config.toml or run `netllm init`
+
+[agent]
+listen = "127.0.0.1:11400"
+role = "peer"
+advertise = true
+
+[discovery]
+providers = ["omlx", "ollama", "lmstudio"]
+custom_endpoints = []
+
+[swarm]
+peers = []
+mdns = true
+subnet_scan = false
+subnet_cidrs = []
+cluster_token = ""
+heartbeat_interval_s = 10.0
+
+[routing]
+default_strategy = "local_first"
+allow_remote = true
+require_same_model_for_shard = true
+
+# Optional manual backend overrides (per-endpoint API keys via env)
+# [[routing.backends]]
+# base_url = "http://192.168.1.50:8080/v1"
+# provider = "omlx"
+# api_key_env = "OMLX_API_KEY"
+# enabled = true
+# local = true

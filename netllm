@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Repo-local netllm — works without global install or PATH changes.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+exec uv run --directory "$ROOT" netllm "$@"

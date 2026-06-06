@@ -1,0 +1,18 @@
+[project]
+name = "netllm-core"
+version = "0.1.0"
+description = "Core routing, health, and config for netllm"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.6",
+    "tomli-w>=1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/netllm_core"]
