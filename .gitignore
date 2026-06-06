@@ -11,3 +11,4 @@ build/
 .DS_Store
 .cursor/hooks/state/
 .cursor/mcp.json
+docs/architecture-reference.md
