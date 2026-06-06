@@ -175,7 +175,7 @@ def install(
     repo: Path | None = typer.Option(
         None,
         "--repo",
-        help="Path to llm-swam-router checkout (default: auto-detect)",
+        help="Path to llm-swarm-router checkout (default: auto-detect)",
     ),
 ) -> None:
     """Install global `netllm` CLI and register ~/.local/bin in your shell profile."""
@@ -183,7 +183,7 @@ def install(
     if root is None:
         print_error(
             "Repo not found",
-            "Run from the netllm clone or pass --repo /path/to/llm-swam-router",
+            "Run from the netllm clone or pass --repo /path/to/llm-swarm-router",
             hints=[
                 "Dev without global install: [cyan]./netllm status[/] from repo root",
                 "Or: [cyan]uv run netllm status[/]",

@@ -44,8 +44,8 @@ Use any backend you want — **oMLX** (Apple Silicon), **Ollama**, **LM Studio**
 ### macOS / Linux
 
 ```bash
-git clone https://github.com/matthewdcage/llm-swam-router.git
-cd llm-swam-router
+git clone https://github.com/matthewdcage/llm-swarm-router.git
+cd llm-swarm-router
 uv sync
 ./netllm init
 ./netllm serve
