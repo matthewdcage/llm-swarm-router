@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "honcho": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "http://localhost:8787",
+        "--header",
+        "Authorization:${AUTH_HEADER}",
+        "--header",
+        "X-Honcho-User-Name:${USER_NAME}"
+      ],
+      "env": {
+        "AUTH_HEADER": "Bearer local-dev",
+        "USER_NAME": "your-peer-id"
+      }
+    }
+  }
+}
