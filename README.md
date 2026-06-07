@@ -16,12 +16,15 @@
 # swarm-llm
 
 <p align="center">
+  <a href="AGENTS.md"><img src="https://img.shields.io/badge/version-0.2.0-blue?style=for-the-badge" alt="Version 0.2.0"></a>
   <a href="docs/honcho-integration.md"><img src="https://img.shields.io/badge/Docs-Honcho%20integration-FFD700?style=for-the-badge" alt="Documentation"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11+"></a>
   <a href="https://github.com/astral-sh/uv"><img src="https://img.shields.io/badge/Built%20with-uv-DE5FE9?style=for-the-badge&logo=astral&logoColor=white" alt="uv"></a>
   <a href="https://platform.openai.com/docs/api-reference"><img src="https://img.shields.io/badge/API-OpenAI%20compatible-412991?style=for-the-badge&logo=openai&logoColor=white" alt="OpenAI compatible"></a>
 </p>
+
+**v0.2.0 — Agent-native setup.** [AGENTS.md](AGENTS.md), [`.agents/skills/`](.agents/skills/), and Claude Code slash commands (`/netllm-setup`, `/netllm-connect`) guide install and editor wiring in Cursor, Codex, and Claude Code. See [docs/editor-integration.md](docs/editor-integration.md).
 
 **The mesh router for local LLM backends.** Run a lightweight agent on each machine — it discovers oMLX, Ollama, and LM Studio on localhost, finds sibling agents on your LAN via mDNS, and exposes a single **`http://<host>:11400/v1`** endpoint. Point Honcho, Cursor, Open WebUI, or any OpenAI client at it. No cloud hop, no API key collection, no copy-pasting failover URLs into every repo.
 
@@ -48,10 +51,27 @@ git clone https://github.com/matthewdcage/llm-swarm-router.git
 cd llm-swarm-router
 uv sync
 ./netllm init
-./netllm serve
+./netllm serve          # dedicated terminal — agent on :11400
 ```
 
 The `./netllm` wrapper works **immediately** — no global install required.
+
+**Verify** (second terminal, while `serve` is running):
+
+```bash
+scripts/agent-verify-setup.sh
+export OPENAI_BASE_URL=http://127.0.0.1:11400/v1
+export OPENAI_API_KEY=netllm-local
+```
+
+**Agent-assisted setup** (Cursor, Codex, or Claude Code in this repo):
+
+| Tool | How |
+|------|-----|
+| Claude Code | `/netllm-setup` then `/netllm-connect` |
+| Cursor / Codex | Ask to “set up netllm” — loads [AGENTS.md](AGENTS.md) and [`.agents/skills/`](.agents/skills/) |
+
+After editing skills, run `scripts/sync-agent-skills.sh` to refresh `.claude/`, `.cursor/`, and `.github/` copies.
 
 ### Global CLI (optional)
 
