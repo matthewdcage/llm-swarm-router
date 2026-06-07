@@ -26,7 +26,7 @@ def create_app(config: NetllmConfig | None = None) -> FastAPI:
         yield
         service.stop_background()
 
-    app = FastAPI(title="netllm-agent", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="netllm-agent", version="0.2.0", lifespan=lifespan)
     app.state.service = service
     app.state.config = cfg
 
