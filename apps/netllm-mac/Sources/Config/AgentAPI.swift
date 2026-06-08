@@ -1,0 +1,78 @@
+import Foundation
+
+enum AgentAPI {
+    static func status(baseURL: URL) async -> AgentStatusPayload? {
+        guard let json = await fetchJSON(baseURL: baseURL, path: "/netllm/v1/status") else { return nil }
+        let backends = (json["backends"] as? [[String: Any]] ?? []).map(parseBackend)
+        let peers = (json["peers"] as? [[String: Any]] ?? []).map(parsePeer)
+        return AgentStatusPayload(
+            agentId: json["agent_id"] as? String ?? "",
+            hostname: json["hostname"] as? String ?? "",
+            role: json["role"] as? String ?? "peer",
+            listenURL: json["listen_url"] as? String ?? "",
+            routingStrategy: json["routing_strategy"] as? String ?? "",
+            backends: backends,
+            peers: peers
+        )
+    }
+
+    static func models(baseURL: URL) async -> [ModelRow] {
+        guard let json = await fetchJSON(baseURL: baseURL, path: "/v1/models") else { return [] }
+        return (json["data"] as? [[String: Any]] ?? []).compactMap { item in
+            guard let id = item["id"] as? String else { return nil }
+            return ModelRow(
+                id: id,
+                model: id,
+                provider: item["owned_by"] as? String ?? "?",
+                host: "agent",
+                scope: "routed"
+            )
+        }
+    }
+
+    static func isReachable(baseURL: URL) async -> Bool {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/health"))
+        request.timeoutInterval = 2
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            return false
+        }
+    }
+
+    private static func parseBackend(_ dict: [String: Any]) -> BackendStatus {
+        let health = dict["health"] as? [String: Any] ?? [:]
+        return BackendStatus(
+            provider: dict["provider"] as? String ?? "",
+            baseURL: dict["base_url"] as? String ?? "",
+            local: dict["local"] as? Bool ?? true,
+            enabled: dict["enabled"] as? Bool ?? true,
+            health: health["status"] as? String ?? "unknown",
+            modelCount: health["model_count"] as? Int ?? 0,
+            models: health["models"] as? [String] ?? [],
+            inFlight: dict["in_flight"] as? Int ?? 0
+        )
+    }
+
+    private static func parsePeer(_ dict: [String: Any]) -> PeerStatus {
+        PeerStatus(
+            agentId: dict["agent_id"] as? String ?? "",
+            listenURL: dict["listen_url"] as? String ?? "",
+            role: dict["role"] as? String ?? "peer",
+            hostname: dict["hostname"] as? String ?? ""
+        )
+    }
+
+    private static func fetchJSON(baseURL: URL, path: String) async -> [String: Any]? {
+        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        request.timeoutInterval = 5
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            return try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        } catch {
+            return nil
+        }
+    }
+}
