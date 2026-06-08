@@ -256,18 +256,24 @@ struct UpdateBannerCard: View {
                     .buttonStyle(.borderedProminent)
                 } else {
                     Button("Download in Browser") {
-                        controller.openDownloadInBrowser(for: release)
+                        Task { @MainActor in
+                            controller.openDownloadInBrowser(for: release)
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                 }
             } else {
                 Button("Open Download") {
-                    controller.openDownloadInBrowser(for: release)
+                    Task { @MainActor in
+                        controller.openDownloadInBrowser(for: release)
+                    }
                 }
                 .buttonStyle(.borderedProminent)
             }
             Button("Release Notes") {
-                controller.openReleaseNotes(for: release)
+                Task { @MainActor in
+                    controller.openReleaseNotes(for: release)
+                }
             }
             .buttonStyle(.bordered)
         }
