@@ -6,16 +6,25 @@ Install the mesh router as a background **systemd user service** or run from sou
 
 ## Package install (recommended)
 
-Download from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases):
+Download from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases/latest) (e.g. [v0.2.2](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.2) — **alpha** packages for Linux):
 
-| Format | Install |
-|--------|---------|
-| `.deb` | `sudo dpkg -i netllm_*_amd64.deb` |
-| `.rpm` | `sudo rpm -Uvh netllm-*.rpm` |
+| Asset | Install |
+|-------|---------|
+| `netllm_*_amd64.deb` | `sudo dpkg -i netllm_*_amd64.deb` |
+| `netllm-*.rpm` | `sudo rpm -Uvh netllm-*.rpm` |
 
-Enable and start the agent:
+Example (replace version as needed):
 
 ```bash
+sudo dpkg -i netllm_0.2.2_amd64.deb
+# or
+sudo rpm -Uvh netllm-0.2.2-1.x86_64.rpm
+```
+
+Create config and enable the agent:
+
+```bash
+netllm init
 systemctl --user daemon-reload
 systemctl --user enable --now netllm
 netllm status

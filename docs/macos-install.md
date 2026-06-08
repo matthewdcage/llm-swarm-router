@@ -9,7 +9,7 @@ existing Python agent on port **11400** — it does not replace oMLX inference o
 
 ### DMG (recommended for desktop users)
 
-1. Download `llm-swarm-router.dmg` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases).
+1. Download `llm-swarm-router.dmg` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases/latest).
 2. Open the DMG and drag **llm-swarm-router** to **Applications**.
 3. Launch from Applications — the llm-swarm-router bee logo appears in the menu bar (switches for light/dark menu bar).
 4. Complete the welcome wizard (config path, LAN mode, auto-start).

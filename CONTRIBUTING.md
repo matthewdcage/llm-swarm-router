@@ -58,6 +58,14 @@ apps/netllm-mac/Scripts/build.sh release
 
 See [docs/macos-install.md](docs/macos-install.md) and [packaging/README.md](packaging/README.md).
 
+### Linux / Windows packages (optional)
+
+On Ubuntu x86_64: `NETLLM_VERSION=0.0.0-dev ./packaging/linux/build-deb.sh` (and `build-rpm.sh`).
+
+On Windows: `.\packaging\windows\build-zip.ps1 -Version 0.0.0-dev`
+
+See [packaging/README.md](packaging/README.md) and [docs/platform-matrix.md](docs/platform-matrix.md).
+
 ## Before you open a PR
 
 1. **Search existing issues and PRs** — avoid duplicate work.
@@ -69,7 +77,9 @@ See [docs/macos-install.md](docs/macos-install.md) and [packaging/README.md](pac
 ./scripts/ci.sh
 ```
 
-`lint` (~1s) and `test` (~12s) can run separately: `./scripts/ci.sh lint` or `./scripts/ci.sh test`.
+`lint` (~1s), `test` (~12s), and `packaging` (deb/rpm on Linux, zip on Windows) can run separately: `./scripts/ci.sh lint`, `./scripts/ci.sh test`, or `./scripts/ci.sh packaging`.
+
+Full CI (lint → test + packaging-smoke on Ubuntu and Windows): `./scripts/ci.sh`.
 
 5. **Add or update tests** when you change behavior — avoid trivial assertions; cover real paths.
 6. **Update docs** when user-facing behavior, CLI flags, or install steps change.

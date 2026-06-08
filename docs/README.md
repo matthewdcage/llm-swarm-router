@@ -12,6 +12,13 @@ User-facing guides for **llm-swarm-router** (netllm). For developers and agents,
 
 Overview: [platform-matrix.md](platform-matrix.md)
 
+## Releases
+
+| Topic | Doc |
+|-------|-----|
+| Latest release | [v0.2.2 release notes](release-notes/v0.2.2-alpha.md) · [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases) |
+| Linux/Windows QA checklist | [solutions/linux-windows-alpha-qa.md](solutions/linux-windows-alpha-qa.md) |
+
 ## Cross-platform
 
 | Topic | Doc |

@@ -59,6 +59,7 @@ Prefer `./netllm` from the repo root — works without global PATH (`uv run` wra
 | `./scripts/ci.sh` | Lint + test (same as CI) |
 | `./scripts/ci.sh lint` | Ruff check + format --check |
 | `./scripts/ci.sh test` | Run tests |
+| `./scripts/ci.sh packaging` | Build deb/rpm (Linux) or zip (Windows) smoke artifacts |
 | `scripts/agent-verify-setup.sh` | Health + models check after setup |
 | `scripts/sync-agent-skills.sh` | Sync `.agents/skills/` to other tool paths |
 
@@ -141,7 +142,7 @@ Editor wiring reference: [docs/editor-integration.md](docs/editor-integration.md
 ## Testing
 
 - Runner: pytest (`tests/`, asyncio mode auto)
-- CI: `./scripts/ci.sh lint` (Ubuntu) then `./scripts/ci.sh test` (Ubuntu + Windows)
+- CI: `./scripts/ci.sh lint` (Ubuntu) then `./scripts/ci.sh test` + `./scripts/ci.sh packaging` (Ubuntu + Windows)
 - Add tests only for real behavior; avoid trivial assertions
 
 ## Git workflow
@@ -164,8 +165,8 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 ## Learned facts
 
 - Local web dashboard at http://127.0.0.1:11400/ui/ on all platforms; macOS menubar has **Open Dashboard**
-- Linux/Windows beta use `/ui/` + CLI; macOS stable adds menubar app — same agent core
-- Published GitHub Releases attach `llm-swarm-router.dmg` via `.github/workflows/release.yml` (deb/rpm/zip planned)
+- Linux/Windows **alpha** use `/ui/` + CLI; macOS stable adds menubar app — same agent core
+- Published GitHub Releases attach DMG (macOS), `.deb`/`.rpm` (Linux), Windows zip, and `netllm.yaml` (winget snippet) via `.github/workflows/release.yml` — see [docs/platform-matrix.md](docs/platform-matrix.md)
 - `./netllm` wrapper runs `uv run --directory $ROOT netllm` — no global install needed
 - mDNS (swarm discovery) requires zeroconf from `uv sync`; reinstall if `netllm doctor` reports mDNS unavailable
 - `serve` on loopback (`127.0.0.1`) blocks LAN peers — use `--host 0.0.0.0` for swarm

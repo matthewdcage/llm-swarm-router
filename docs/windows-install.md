@@ -6,7 +6,7 @@ Run the mesh router as a **Windows service** or in a foreground terminal.
 
 ## Portable zip (recommended)
 
-Download `netllm-<version>-windows-x64.zip` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases).
+Download `netllm-<version>-windows-x64.zip` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases/latest) (e.g. `netllm-0.2.2-windows-x64.zip` from [v0.2.2](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.2) — **alpha** package for Windows).
 
 1. Extract to a folder (e.g. `%LOCALAPPDATA%\netllm`).
 2. Open PowerShell **as Administrator** in that folder.
@@ -17,15 +17,17 @@ Logs: `%LOCALAPPDATA%\netllm\logs\agent.log` (and service stdout).
 
 **Status:** `netllm status` · dashboard http://127.0.0.1:11400/ui/
 
-`install-service.ps1` adds the package `python\Scripts` folder to your user PATH.
+`install-service.ps1` adds the package `Scripts\` folder (contains `netllm.exe`) to your user PATH. Open a **new** terminal after install so PATH updates apply.
 
 ## Winget
 
-After the release manifest is published:
+Each release attaches a **`netllm.yaml`** manifest snippet (SHA256 + download URL) for maintainers to merge into [winget-pkgs](https://github.com/microsoft/winget-pkgs). After that PR lands:
 
 ```powershell
 winget install matthewdcage.netllm
 ```
+
+Until winget-pkgs is updated, use the portable zip from Releases.
 
 ## Source install (development)
 

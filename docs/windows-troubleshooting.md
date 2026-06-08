@@ -35,7 +35,7 @@ Logs: `%LOCALAPPDATA%\netllm\logs\agent.log`.
 
 | Symptom | Fix |
 |---------|-----|
-| Command not found after zip install | Open a **new** terminal — `install-service.ps1` adds `python\Scripts` to user PATH |
+| Command not found after zip install | Open a **new** terminal — `install-service.ps1` adds `Scripts\` (with `netllm.exe`) to user PATH |
 | Still missing | Use full path: `<extract-dir>\netllm.cmd` |
 | **Source** | `.\netllm` from repo or `uv tool install` via `.\netllm install` |
 

@@ -39,10 +39,10 @@ allowed-tools:
 
 | User preference | Steps |
 |-----------------|-------|
-| **macOS DMG** | Download Release DMG → drag to Applications → launch menubar app → welcome wizard. See [docs/macos-install.md](../../docs/macos-install.md). |
+| **macOS DMG** | Download [latest Release](https://github.com/matthewdcage/llm-swarm-router/releases/latest) `llm-swarm-router.dmg` → drag to Applications → launch menubar app → welcome wizard. See [docs/macos-install.md](../../docs/macos-install.md). |
 | **Homebrew** | `brew tap matthewdcage/netllm <repo>` → `brew install netllm` → `brew services start netllm` |
-| **Linux deb/rpm** | Install package from Releases → `systemctl --user enable --now netllm`. See [docs/linux-install.md](../../docs/linux-install.md). |
-| **Windows zip** | Extract Release zip → run `install-service.ps1` as Admin → `netllm start`. See [docs/windows-install.md](../../docs/windows-install.md). |
+| **Linux deb/rpm** | Install `netllm_*_amd64.deb` or `netllm-*.rpm` from Releases → `netllm init` → `systemctl --user enable --now netllm`. See [docs/linux-install.md](../../docs/linux-install.md). |
+| **Windows zip** | Extract `netllm-*-windows-x64.zip` → run `install-service.ps1` as Admin → `netllm init` → `netllm start`. See [docs/windows-install.md](../../docs/windows-install.md). |
 | **Source / dev** | Workflow below (`uv sync`, `./netllm init`, `./netllm serve`) |
 
 DMG, Homebrew, systemd, and Windows service installs use `netllm start` / `netllm stop`. Source installs keep `./netllm serve` (foreground).

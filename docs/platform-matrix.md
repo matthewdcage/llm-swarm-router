@@ -19,7 +19,7 @@ Cross-platform: [editor-integration.md](editor-integration.md) · Agent help: `.
 | Tier | Platforms | Expectation |
 |------|-----------|-------------|
 | **Stable** | macOS | DMG menubar app on every published GitHub Release |
-| **Beta** | Linux, Windows | deb/rpm/zip on every published Release; breaking changes called out in release notes |
+| **Alpha** | Linux, Windows | First deb/rpm/zip packages on each Release; breaking changes and install UX still settling — see release notes |
 | **Core** | All | HTTP API contract at `:11400` — additive changes only |
 
 ## Install and lifecycle
@@ -56,13 +56,15 @@ Agent lifespan runs provider discovery on start and persists URLs to config (all
 
 ## Release assets (one GitHub Release page)
 
+Latest: [v0.2.2](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.2) (Linux/Windows **alpha**) · [All releases](https://github.com/matthewdcage/llm-swarm-router/releases)
+
 | Asset | Platform |
 |-------|----------|
 | `llm-swarm-router.dmg` | macOS (stable) |
-| `netllm_*_amd64.deb` | Linux (beta) |
-| `netllm-*.rpm` | Linux (beta) |
-| `netllm-*-windows-x64.zip` | Windows (beta) |
-| `winget-manifest.yaml` | Windows winget SHA snippet |
+| `netllm_*_amd64.deb` | Linux (alpha) |
+| `netllm-*.rpm` | Linux (alpha) |
+| `netllm-*-windows-x64.zip` | Windows (alpha) |
+| `netllm.yaml` | Winget manifest snippet (SHA256 + URL for winget-pkgs PR) |
 
 Built by [.github/workflows/release.yml](../.github/workflows/release.yml) on `release: published` (macOS DMG, Linux deb/rpm, Windows zip + winget manifest).
 

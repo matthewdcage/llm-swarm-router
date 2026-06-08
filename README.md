@@ -16,8 +16,10 @@
 # llm-swarm-router
 
 <p align="center">
-  <a href="AGENTS.md"><img src="https://img.shields.io/badge/version-0.2.2_beta-orange?style=for-the-badge" alt="Version 0.2.2 beta"></a>
+  <a href="AGENTS.md"><img src="https://img.shields.io/badge/version-0.2.2-orange?style=for-the-badge" alt="Version 0.2.2"></a>
   <a href="docs/macos-install.md"><img src="https://img.shields.io/badge/macOS-Menubar%20app-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS app"></a>
+  <a href="docs/linux-install.md"><img src="https://img.shields.io/badge/Linux-deb%2Frpm%20alpha-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux alpha"></a>
+  <a href="docs/windows-install.md"><img src="https://img.shields.io/badge/Windows-zip%20alpha-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows alpha"></a>
   <a href="docs/editor-integration.md"><img src="https://img.shields.io/badge/Docs-Editor%20wiring-FFD700?style=for-the-badge" alt="Editor integration"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=for-the-badge" alt="PRs welcome"></a>
@@ -74,11 +76,13 @@ Point **Cursor**, **Claude Code**, **Codex**, **Honcho**, or any compatible clie
 | Platform | Status | Install | Troubleshooting |
 |----------|--------|---------|-----------------|
 | **macOS** | Stable — menubar app + CLI | [docs/macos-install.md](docs/macos-install.md) · [DMG](https://github.com/matthewdcage/llm-swarm-router/releases) | [docs/macos-troubleshooting.md](docs/macos-troubleshooting.md) |
-| **Linux** | Beta — deb/rpm + systemd | [docs/linux-install.md](docs/linux-install.md) | [docs/linux-troubleshooting.md](docs/linux-troubleshooting.md) |
-| **Windows** | Beta — zip + Windows service | [docs/windows-install.md](docs/windows-install.md) | [docs/windows-troubleshooting.md](docs/windows-troubleshooting.md) |
+| **Linux** | Alpha — deb/rpm + systemd | [docs/linux-install.md](docs/linux-install.md) | [docs/linux-troubleshooting.md](docs/linux-troubleshooting.md) |
+| **Windows** | Alpha — zip + Windows service | [docs/windows-install.md](docs/windows-install.md) | [docs/windows-troubleshooting.md](docs/windows-troubleshooting.md) |
 | **All** (dev/CI) | Source — `uv sync` + `./netllm serve` | [CLI / source](#cli--source-install-all-platforms) below | `./netllm doctor` · http://127.0.0.1:11400/ui/ |
 
 Overview: [docs/platform-matrix.md](docs/platform-matrix.md) · Full doc index: [docs/README.md](docs/README.md)
+
+**Latest release:** [v0.2.2](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.2) — stable macOS DMG + **alpha** Linux `.deb`/`.rpm` and Windows zip.
 
 ---
 
@@ -86,7 +90,7 @@ Overview: [docs/platform-matrix.md](docs/platform-matrix.md) · Full doc index: 
 
 **Recommended for Mac users:** download, drag, open. No terminal setup required.
 
-1. Download **`llm-swarm-router.dmg`** from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases) (or [build from source](#build-the-macos-app-developers) if assets are not yet published).
+1. Download **`llm-swarm-router.dmg`** from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases/latest) (or [build from source](#build-the-macos-app-developers)).
 2. Open the DMG and drag **llm-swarm-router** to **Applications**.
 3. Launch from Applications. The bee icon appears in the menu bar.
 4. Complete the short welcome wizard (optional LAN mode, auto-start agent).
@@ -117,22 +121,39 @@ brew services start netllm
 
 ## Linux — install
 
-**Recommended:** `.deb` or `.rpm` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases), then:
+**Recommended:** download from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases/latest):
+
+| Asset | Install |
+|-------|---------|
+| `netllm_*_amd64.deb` | `sudo dpkg -i netllm_*_amd64.deb` |
+| `netllm-*.rpm` | `sudo rpm -Uvh netllm-*.rpm` |
+
+Then enable the **systemd user service**:
 
 ```bash
+netllm init
 systemctl --user daemon-reload
 systemctl --user enable --now netllm
 ```
 
-`netllm status` · dashboard http://127.0.0.1:11400/ui/. Full steps: [docs/linux-install.md](docs/linux-install.md) · Issues: [docs/linux-troubleshooting.md](docs/linux-troubleshooting.md)
+`netllm status` · dashboard http://127.0.0.1:11400/ui/
+
+Full steps: [docs/linux-install.md](docs/linux-install.md) · Issues: [docs/linux-troubleshooting.md](docs/linux-troubleshooting.md)
 
 ---
 
 ## Windows — install
 
-**Recommended:** extract `netllm-*-windows-x64.zip`, run `install-service.ps1` as Administrator, then `netllm init` and `netllm start`.
+**Recommended:** download `netllm-*-windows-x64.zip` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases/latest).
 
-`netllm status` · dashboard http://127.0.0.1:11400/ui/. Full steps: [docs/windows-install.md](docs/windows-install.md) · Issues: [docs/windows-troubleshooting.md](docs/windows-troubleshooting.md)
+1. Extract to a folder (e.g. `%LOCALAPPDATA%\netllm`).
+2. Open PowerShell **as Administrator** in that folder.
+3. Run `.\install-service.ps1` (registers the `NetllmAgent` service and adds `Scripts\` to user PATH).
+4. `netllm init` then `netllm start`.
+
+`netllm status` · dashboard http://127.0.0.1:11400/ui/
+
+Full steps: [docs/windows-install.md](docs/windows-install.md) · Issues: [docs/windows-troubleshooting.md](docs/windows-troubleshooting.md)
 
 ---
 
@@ -186,7 +207,9 @@ Pick a model ID from `./netllm models` (or the app **Settings → Models** tab).
 
 <table>
 <tr><td><b>Native macOS app</b></td><td>Drag-to-Applications install. Menubar supervisor, welcome wizard, full Settings UI (status, backends, models, peers, routing, discovery, doctor). Embeds the Python agent — no separate <code>uv</code> setup for end users.</td></tr>
-<tr><td><b>Zero-touch local discovery</b></td><td>Agent scans on every start — oMLX (<code>:8080</code>, <code>:8088</code>, <code>:8081</code>), Ollama (<code>:11434</code>), LM Studio (<code>:1234</code>). Per-machine overrides in Settings or <code>discovery.provider_urls</code>. Found URLs persist automatically.</td></tr>
+<tr><td><b>Linux &amp; Windows packages (alpha)</b></td><td><code>.deb</code> / <code>.rpm</code> with systemd user unit, or Windows zip + <code>NetllmAgent</code> service — first packaged release for these platforms. Same agent core as macOS. Install from <a href="https://github.com/matthewdcage/llm-swarm-router/releases/latest">GitHub Releases</a>.</td></tr>
+<tr><td><b>Web dashboard (all platforms)</b></td><td><a href="http://127.0.0.1:11400/ui/">http://127.0.0.1:11400/ui/</a> — status, models, peers, discover, copy client env. macOS menubar adds <b>Open Dashboard</b>; Linux/Windows use browser + <code>netllm env</code>.</td></tr>
+<tr><td><b>Zero-touch local discovery</b></td><td>Agent scans on every start — oMLX (<code>:8080</code>+, macOS), Ollama (<code>:11434</code>), LM Studio (<code>:1234</code>), vLLM (<code>:8000</code>). Per-machine overrides in Settings or <code>discovery.provider_urls</code>. Found URLs persist automatically.</td></tr>
 <tr><td><b>Network-wide model catalog</b></td><td>See local and LAN models in one place (<code>netllm models --lan</code> or Settings → Models). Peers advertise what they can run; routing follows your strategy.</td></tr>
 <tr><td><b>Throughput that grows with the mesh</b></td><td>Each node is an independent peer. More machines with the same models installed → more capacity for <code>round_robin</code>, <code>least_load</code>, <code>latency_weighted</code>, and <code>batch_shard</code> workloads.</td></tr>
 <tr><td><b>Dual API surface</b></td><td>OpenAI chat/models/streaming plus Anthropic Messages API with translation to local backends — one URL for every editor.</td></tr>
@@ -200,15 +223,16 @@ Pick a model ID from `./netllm models` (or the app **Settings → Models** tab).
 
 ## How the swarm fits together
 
+Each node runs the same agent (macOS menubar app, Linux systemd package, Windows service, or `./netllm serve`). Peers discover each other on the LAN and share a unified model catalog.
+
 ```
   ┌──────────────┐   mDNS (_netllm._tcp)   ┌──────────────┐
-  │  MacBook     │◄───────────────────────►│  Mac mini    │
-  │  llm-swarm-  │                         │  llm-swarm-  │
-  │  router app  │                         │  router app  │
+  │  Mac / Linux │◄───────────────────────►│  Windows /   │
+  │  netllm      │                         │  Mac mini    │
+  │  :11400      │                         │  :11400      │
   └───┬──────┬───┘                         └───┬──────┬───┘
       │      │                                 │      │
-   oMLX   Ollama                           oMLX   Ollama
-  :8080+  :11434                         :8088   :11434
+   backends  Ollama                        vLLM   LM Studio
       │      │                                 │      │
       └──────┴─────────── :11400/v1 ───────────┴──────┘
                          │
@@ -262,6 +286,30 @@ packaging/scripts/create-dmg.sh    # → dist/llm-swarm-router.dmg
 ```
 
 Python layer packaging (venvstacks): [packaging/README.md](packaging/README.md)
+
+### Build Linux packages (developers)
+
+On Ubuntu or Debian (x86_64):
+
+```bash
+uv sync
+NETLLM_VERSION=0.0.0-dev ./packaging/linux/build-deb.sh
+NETLLM_VERSION=0.0.0-dev ./packaging/linux/build-rpm.sh
+# → dist/*.deb and dist/*.rpm
+```
+
+Rehearse end-user install: `./scripts/emulate-user-install-linux.sh`
+
+### Build Windows zip (developers)
+
+On Windows (PowerShell):
+
+```powershell
+.\packaging\windows\build-zip.ps1 -Version 0.0.0-dev
+# → dist/netllm-0.0.0-dev-windows-x64.zip
+```
+
+Rehearse end-user install (Admin): `.\scripts\emulate-user-install-windows.ps1`
 
 ---
 
@@ -323,7 +371,7 @@ uv sync
 ./scripts/ci.sh
 ```
 
-Fork → branch → PR against `main`. Use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`). CI runs lint on Ubuntu, then tests on Ubuntu and Windows.
+Fork → branch → PR against `main`. Use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`). CI runs lint on Ubuntu, then tests and packaging smoke on Ubuntu and Windows (`./scripts/ci.sh`; see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ---
 
