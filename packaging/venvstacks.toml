@@ -1,0 +1,26 @@
+# netllm venvstacks layer template
+#
+# Framework requirements are generated at build time by packaging/build.py
+# from workspace pyproject.toml files. Single source of truth: workspace deps.
+
+[[runtimes]]
+name = "cpython-3.11"
+python_implementation = "cpython@3.11.10"
+requirements = []
+platforms = [
+    "macosx_arm64",
+]
+
+[[frameworks]]
+name = "framework-netllm"
+runtime = "cpython-3.11"
+# Populated by build.py — do not hand-edit.
+requirements = []
+platforms = [
+    "macosx_arm64",
+]
+
+[tool.uv]
+environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+]

@@ -1,0 +1,56 @@
+import SwiftUI
+
+struct WelcomeView: View {
+    @State private var step = 0
+    @State private var lanMode = false
+    @State private var autoStart = true
+    let config: AppConfig
+    let onComplete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Welcome to netllm")
+                .font(.title2.bold())
+            Text("Mesh router for local LLM backends (oMLX, Ollama, LM Studio).")
+                .foregroundStyle(.secondary)
+
+            switch step {
+            case 0:
+                Text("Config will be stored at:")
+                Text(config.configPath.path).font(.system(.body, design: .monospaced))
+                Button("Continue") { step = 1 }
+            case 1:
+                Toggle("Listen on LAN (0.0.0.0)", isOn: $lanMode)
+                Text("Enable for swarm peers on your network. Set cluster_token in Settings for untrusted LANs.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("Start agent on launch", isOn: $autoStart)
+                HStack {
+                    Button("Back") { step = 0 }
+                    Button("Finish") { finish() }
+                        .keyboardShortcut(.defaultAction)
+                }
+            default:
+                EmptyView()
+            }
+            Spacer()
+        }
+        .padding(24)
+        .frame(minWidth: 480, minHeight: 320)
+    }
+
+    private func finish() {
+        let cfg = config
+        do {
+            try cfg.save(
+                bindHost: "127.0.0.1",
+                port: cfg.port,
+                autoStart: autoStart,
+                lanMode: lanMode
+            )
+        } catch {
+            NSLog("Welcome save failed: \(error)")
+        }
+        onComplete()
+    }
+}
