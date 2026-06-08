@@ -24,7 +24,31 @@
   <a href="https://platform.openai.com/docs/api-reference"><img src="https://img.shields.io/badge/API-OpenAI%20%2B%20Anthropic-412991?style=for-the-badge&logo=openai&logoColor=white" alt="OpenAI + Anthropic APIs"></a>
 </p>
 
-**The mesh router for local LLM backends.** Run a lightweight agent on each machine — it finds oMLX, Ollama, and LM Studio on localhost, discovers sibling agents on your LAN, and exposes one stable endpoint for every editor and tool.
+**Put every machine's GPU to work — without babysitting URLs.**
+
+**The mesh router for local LLM backends.** Run a lightweight agent on each computer — it finds oMLX, Ollama, and LM Studio on localhost, discovers sibling agents on your LAN, and exposes one stable endpoint for every editor and tool.
+
+<p align="center">
+  <img src="assets/screenshots/llm-swarm-router-osx-settings.png" alt="llm-swarm-router Settings — backends online, swarm peers connected, routed model catalog" width="720">
+  <br>
+  <em>One glance: backends, peers, and models — live on your network.</em>
+</p>
+
+### Why I built it
+
+Local AI API servers are excellent on a single machine. oMLX on Apple Silicon, Ollama on a Mac mini, LM Studio on a laptop — each is optimized for its own hardware. But they do not naturally form a mesh across a diverse home lab. Promising projects are on the horizon; I wanted **reliable performance today** — my hardware working for local coding agents **24/7**, without me continuously managing ports, failover lists, and per-repo infrastructure.
+
+I had compute sitting idle and no simple way to log in and use it. Every editor wanted a different `base_url`. Every machine was an island. That is why I built **llm-swarm-router**.
+
+### Who it is for
+
+- **Multi-Mac households and small labs** — MacBook + Mac mini + studio, each running different backends on different ports.
+- **Agent-heavy developers** — Cursor, Claude Code, Codex, Honcho, or any OpenAI/Anthropic client that should hit *your* GPUs, not a cloud tab.
+- **People who want throughput to scale with hardware** — add a node, install the app, and the mesh picks up more models and capacity without re-wiring every project.
+
+### What it is
+
+A **simple-to-install, simple-to-use LLM mesh coordinator** for macOS today (native menubar app; **Linux and Windows installers planned**). Each node runs **independently and with every other node**: auto-detects **oMLX, Ollama, and LM Studio** (custom server URLs supported; **vLLM on the roadmap**), advertises itself on the network, discovers remote agents and their models, and **distributes inference requests** across the swarm. Install llm-swarm-router on more machines with the same workhorse models loaded — **token throughput multiplies** with each connected peer.
 
 | API | Base URL |
 |-----|----------|
@@ -129,21 +153,14 @@ Pick a model ID from `./netllm models` (or the app **Settings → Models** tab).
 
 ## What you get
 
-### macOS Settings
-
-<p align="center">
-  <img src="assets/screenshots/llm-swarm-router-osx-settings.png" alt="llm-swarm-router Settings window — Status tab with backends, peers, and routed models" width="720">
-  <br>
-  <em>Settings — live status, backend/peer/model counts, restart/stop, and full config (Discovery, Swarm, Routing, Doctor).</em>
-</p>
-
 <table>
-<tr><td><b>Native macOS app</b></td><td>Menubar supervisor, welcome wizard, Settings UI (status, backends, models, peers, routing, discovery, doctor). Embeds Python agent — no separate <code>uv</code> install for end users.</td></tr>
-<tr><td><b>Automatic local discovery</b></td><td>Probes oMLX (<code>:8080</code>, <code>:8088</code>, <code>:8081</code>), Ollama (<code>:11434</code>), LM Studio (<code>:1234</code>). Per-machine overrides via <code>discovery.provider_urls</code> in config or Settings.</td></tr>
-<tr><td><b>Dual API surface</b></td><td>OpenAI chat/models/streaming plus Anthropic Messages API with translation to OpenAI-compatible backends.</td></tr>
-<tr><td><b>LAN swarm</b></td><td>Each host is a peer agent. mDNS (<code>_netllm._tcp</code>), subnet scan, and static <code>swarm.peers</code> for multi-Mac meshes.</td></tr>
-<tr><td><b>Routing strategies</b></td><td><code>local_first</code>, <code>failover</code>, <code>round_robin</code>, <code>least_load</code>, <code>latency_weighted</code>, <code>batch_shard</code>.</td></tr>
-<tr><td><b>Health & observability</b></td><td>Per-backend health cache, circuit breaker, Prometheus <code>/metrics</code>, <code>netllm test</code> latency probes, <code>netllm doctor</code>.</td></tr>
+<tr><td><b>Native macOS app</b></td><td>Drag-to-Applications install. Menubar supervisor, welcome wizard, full Settings UI (status, backends, models, peers, routing, discovery, doctor). Embeds the Python agent — no separate <code>uv</code> setup for end users.</td></tr>
+<tr><td><b>Zero-touch local discovery</b></td><td>Agent scans on every start — oMLX (<code>:8080</code>, <code>:8088</code>, <code>:8081</code>), Ollama (<code>:11434</code>), LM Studio (<code>:1234</code>). Per-machine overrides in Settings or <code>discovery.provider_urls</code>. Found URLs persist automatically.</td></tr>
+<tr><td><b>Network-wide model catalog</b></td><td>See local and LAN models in one place (<code>netllm models --lan</code> or Settings → Models). Peers advertise what they can run; routing follows your strategy.</td></tr>
+<tr><td><b>Throughput that grows with the mesh</b></td><td>Each node is an independent peer. More machines with the same models installed → more capacity for <code>round_robin</code>, <code>least_load</code>, <code>latency_weighted</code>, and <code>batch_shard</code> workloads.</td></tr>
+<tr><td><b>Dual API surface</b></td><td>OpenAI chat/models/streaming plus Anthropic Messages API with translation to local backends — one URL for every editor.</td></tr>
+<tr><td><b>LAN swarm</b></td><td>mDNS (<code>_netllm._tcp</code>), subnet scan, and static <code>swarm.peers</code> for home labs, guest Wi‑Fi, and fixed IPs.</td></tr>
+<tr><td><b>Set-and-forget operation</b></td><td>Auto-start on launch, health cache, circuit breaker, <code>netllm doctor</code>, Prometheus <code>/metrics</code> — built to run 24/7 without hand-holding.</td></tr>
 <tr><td><b>Honcho-ready</b></td><td>Drop-in mesh router for Honcho deriver/dialectic flows — <a href="docs/honcho-integration.md">Honcho integration</a>.</td></tr>
 <tr><td><b>Agent-native docs</b></td><td><a href="AGENTS.md">AGENTS.md</a>, <a href=".agents/skills/">skills</a>, Claude Code slash commands for setup, connect, swarm, and troubleshoot.</td></tr>
 </table>
