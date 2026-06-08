@@ -6,6 +6,7 @@ import logging
 import os
 import time
 from collections.abc import AsyncIterator, Mapping
+from pathlib import Path
 from typing import Any
 
 from netllm_core.anthropic_bridge import (
@@ -53,8 +54,21 @@ class AgentService:
         self._batch_ledger = BatchRequestLedger()
         self.startup_warnings: list[str] = []
 
-    async def refresh_local_backends(self) -> list[Backend]:
+    async def refresh_local_backends(
+        self,
+        *,
+        persist_provider_urls: bool = False,
+        config_path: Path | None = None,
+    ) -> list[Backend]:
+        from netllm_core.models import save_config
+        from netllm_discovery.local import merge_discovered_provider_urls
+
         results = await scan_local_providers(self.config)
+        if persist_provider_urls and config_path is not None:
+            before = dict(self.config.discovery.provider_urls)
+            merge_discovered_provider_urls(self.config, results)
+            if self.config.discovery.provider_urls != before:
+                save_config(self.config, config_path)
         local = scan_results_to_backends(
             results,
             agent_id=self.config.agent.agent_id,

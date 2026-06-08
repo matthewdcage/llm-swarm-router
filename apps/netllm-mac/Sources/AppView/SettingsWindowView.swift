@@ -198,7 +198,7 @@ struct SettingsWindowView: View {
 
             SettingsSectionTitle(title: "Quick actions")
             actionButtons {
-                Button("Discover local providers") { model.runDiscover() }
+                Button("Refresh provider scan") { model.runDiscover() }
                 Button("Scan LAN peers") { model.runPeersScan() }
                 Button("Run doctor") { model.runDoctor() }
             }
@@ -242,14 +242,15 @@ struct SettingsWindowView: View {
                     backendRow(backend)
                 }
             } else {
-                Text("No backends — run Discover or start oMLX/Ollama.").foregroundStyle(.secondary)
+                Text("No backends yet — start oMLX or Ollama on this Mac. The agent finds them automatically.")
+                    .foregroundStyle(.secondary)
             }
-            sectionHeader("Local provider scan")
+            sectionHeader("Local providers")
             actionButtons {
-                Button("Run netllm discover") { model.runDiscover() }
+                Button("Refresh scan") { model.runDiscover() }
             }
             if model.discoverProviders.isEmpty && !model.isLoading {
-                Text("Click discover to scan oMLX, Ollama, and LM Studio on this Mac.")
+                Text("The agent scans oMLX, Ollama, and LM Studio when it starts. Refresh after starting backends.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             ForEach(model.discoverProviders) { provider in
@@ -275,7 +276,7 @@ struct SettingsWindowView: View {
             actionButtons {
                 Button("Refresh via discover") { model.runDiscover() }
             }
-            modelList(model.localModels, empty: "Run discover to list models on this Mac.")
+            modelList(model.localModels, empty: "Start oMLX/Ollama — models appear when the agent finds them.")
             sectionHeader("LAN models")
             actionButtons {
                 Button("Scan peers") { model.runPeersScan() }

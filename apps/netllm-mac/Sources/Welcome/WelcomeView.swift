@@ -22,6 +22,9 @@ struct WelcomeView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Toggle("Start agent on launch", isOn: $autoStart)
+                Text("oMLX, Ollama, and LM Studio on this Mac are found automatically — no setup required.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 HStack {
                     Button("Back") { step = 0 }
                     Button("Finish") { finish() }

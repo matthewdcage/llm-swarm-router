@@ -109,11 +109,39 @@ final class SettingsViewModel {
             if routedModels.isEmpty, let status {
                 routedModels = AgentAPI.modelsFromStatus(status)
             }
+            syncDiscoverProvidersFromStatus()
         } else {
             status = nil
             routedModels = []
         }
         bumpUI()
+    }
+
+    /// Agent discovers providers on startup; mirror that in the Settings UI without a manual scan.
+    private func syncDiscoverProvidersFromStatus() {
+        guard let status else { return }
+        let locals = status.backends.filter(\.local)
+        guard !locals.isEmpty else { return }
+        discoverProviders = locals.map { backend in
+            DiscoverProvider(
+                id: backend.provider,
+                name: backend.provider,
+                baseURL: backend.baseURL,
+                status: backend.health,
+                models: backend.models
+            )
+        }
+        localModels = locals.flatMap { backend in
+            backend.models.map { model in
+                ModelRow(
+                    id: "\(backend.provider)-\(model)",
+                    model: model,
+                    provider: backend.provider,
+                    host: backend.baseURL,
+                    scope: "local"
+                )
+            }
+        }
     }
 
     func save() {
