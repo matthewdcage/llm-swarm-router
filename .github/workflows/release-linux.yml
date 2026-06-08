@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - run: sudo apt-get update && sudo apt-get install -y dpkg-dev rpm
       - run: chmod +x packaging/linux/build-deb.sh packaging/linux/build-rpm.sh
       - run: NETLLM_VERSION=0.0.0-dev packaging/linux/build-deb.sh
