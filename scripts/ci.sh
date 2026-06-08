@@ -24,6 +24,8 @@ run_test() {
 
 run_packaging() {
   local version="${NETLLM_VERSION:-0.0.0-dev}"
+  # CI sets NETLLM_VERSION from pyproject (e.g. 0.2.2.1.ci). Local default keeps
+  # 0.0.0-dev to exercise prerelease path mapping in build-rpm.sh.
   mkdir -p dist
   case "$(uname -s)" in
     Linux)

@@ -3,10 +3,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# shellcheck source=rpm-version.sh
+source "$(dirname "$0")/rpm-version.sh"
 VERSION="${NETLLM_VERSION:-0.2.2.1}"
-# RPM Version rejects hyphens. Use dots for prerelease (0.0.0-dev -> 0.0.0.dev).
-# Never use ~ here: bash tilde-expands ~user inside double-quoted paths (breaks tar).
-RPM_VERSION="${VERSION//-/.}"
+RPM_VERSION="$(netllm_rpm_version "$VERSION")"
 RELEASE="${NETLLM_RPM_RELEASE:-1}"
 STAGE="${ROOT}/packaging/linux/rpm-stage"
 TOPDIR="${STAGE}/rpmbuild"

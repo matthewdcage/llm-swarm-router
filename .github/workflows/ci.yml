@@ -59,11 +59,12 @@ jobs:
           enable-cache: true
       - name: Install Linux packaging tools
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y dpkg-dev rpm
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev rpm rsync
       - name: Packaging smoke
-        env:
-          NETLLM_VERSION: 0.0.0-dev
-        run: bash scripts/ci.sh packaging
+        run: |
+          ver="$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          export NETLLM_VERSION="${ver}.ci"
+          bash scripts/ci.sh packaging
         shell: bash
       - name: Verify zip contents
         if: runner.os == 'Windows'
