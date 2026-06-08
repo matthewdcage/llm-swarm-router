@@ -152,8 +152,7 @@ final class MenubarController {
 
     private func updateMenubarIcon() {
         guard let button = statusItem.button else { return }
-        let appearance = button.effectiveAppearance
-        if let icon = BrandAssets.menubarIcon(for: appearance) {
+        if let icon = BrandAssets.menubarIcon(for: NSApp.effectiveAppearance) {
             button.image = icon
         } else {
             button.image = NSImage(

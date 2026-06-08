@@ -8,28 +8,28 @@ enum BrandAssets {
     // MARK: - Menubar (macOS menu bar light/dark)
 
     static func menubarIcon(for appearance: NSAppearance) -> NSImage? {
-        let darkMenuBar = isDarkAqua(appearance)
-        let base = darkMenuBar ? "MenubarIconDark" : "MenubarIconLight"
-        if let image = loadMenubarImage(baseName: base) {
-            return image
+        // Template icons are tinted by AppKit (black → white on dark menu bar).
+        // NSStatusItem.button.effectiveAppearance is often .aqua even on a dark bar,
+        // so manual light/dark PNG swapping is unreliable.
+        if let template = templateMenubarIcon() {
+            return template
         }
-        // Legacy single template icon from older builds.
-        return legacyTemplateMenubarIcon()
+        let darkMenuBar = isDarkMenuBar(appearance)
+        let base = darkMenuBar ? "MenubarIconDark" : "MenubarIconLight"
+        return loadMenubarImage(baseName: base, template: false)
     }
 
     static func menubarIcon() -> NSImage? {
         menubarIcon(for: NSApp.effectiveAppearance)
     }
 
-    // MARK: - In-app UI (settings, welcome — follows window color scheme)
+    // MARK: - In-app UI (settings, welcome — transparent assets, no solid backgrounds)
 
     static func uiLogo(forDarkMode: Bool) -> NSImage? {
         if forDarkMode {
-            return rasterImage(named: "llm-swam-router-icon-white-bg")
-                ?? rasterImage(named: "llm-swam-router-icon-white")
+            return rasterImage(named: "llm-swam-router-icon-white")
         }
-        return rasterImage(named: "llm-swam-router-icon-black-bg")
-            ?? rasterImage(named: "llm-swam-router-icon")
+        return rasterImage(named: "llm-swam-router-icon")
     }
 
     static func applicationIcon() -> NSImage? {
@@ -42,7 +42,6 @@ enum BrandAssets {
 
     static func aboutIcon() -> NSImage? {
         uiLogo(forDarkMode: isDarkAqua(NSApp.effectiveAppearance))
-            ?? rasterImage(named: "llm-swam-router-icon")
             ?? applicationIcon()
     }
 
@@ -52,7 +51,15 @@ enum BrandAssets {
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
-    private static func loadMenubarImage(baseName: String) -> NSImage? {
+    /// Menu bar appearance is not always reflected on NSStatusItem buttons; combine signals.
+    private static func isDarkMenuBar(_ appearance: NSAppearance) -> Bool {
+        if isDarkAqua(appearance) { return true }
+        if isDarkAqua(NSApp.effectiveAppearance) { return true }
+        if UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark" { return true }
+        return false
+    }
+
+    private static func loadMenubarImage(baseName: String, template: Bool) -> NSImage? {
         let image = NSImage(size: NSSize(width: menubarPointSize, height: menubarPointSize))
         var added = false
         for suffix in ["", "@2x"] {
@@ -67,11 +74,14 @@ enum BrandAssets {
             }
         }
         guard added else { return nil }
-        image.isTemplate = false
+        image.isTemplate = template
         return image
     }
 
-    private static func legacyTemplateMenubarIcon() -> NSImage? {
+    private static func templateMenubarIcon() -> NSImage? {
+        if let image = loadMenubarImage(baseName: "MenubarIconLight", template: true) {
+            return image
+        }
         let image = NSImage(size: NSSize(width: menubarPointSize, height: menubarPointSize))
         var added = false
         for name in ["MenubarIcon", "MenubarIcon@2x"] {
@@ -102,7 +112,7 @@ enum BrandAssets {
     }
 }
 
-/// SwiftUI logo that tracks light/dark window appearance.
+/// SwiftUI logo that tracks light/dark window appearance (transparent PNG, no tile background).
 struct BrandImageView: View {
     @Environment(\.colorScheme) private var colorScheme
     var size: CGFloat = 40
@@ -114,6 +124,7 @@ struct BrandImageView: View {
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
+                    .background(Color.clear)
             } else {
                 Image(systemName: "point.3.connected.trianglepath.dotted")
                     .font(.system(size: size * 0.55))
