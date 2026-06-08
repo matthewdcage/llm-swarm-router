@@ -7,7 +7,11 @@ import logging
 import time
 from dataclasses import dataclass, field
 
-from netllm_core.health import is_online, probe_openai_compat_sync
+from netllm_core.health import (
+    is_online,
+    probe_anthropic_compat_sync,
+    probe_openai_compat_sync,
+)
 from netllm_core.models import Backend, RoutingStrategy
 
 logger = logging.getLogger(__name__)
@@ -120,9 +124,14 @@ class RouterPool:
             and now - cached.last_check < HEALTH_TTL_S
         ):
             return cached.online
-        status = probe_openai_compat_sync(
-            backend.base_url, api_key=backend.api_key or None
-        )
+        if backend.api_format == "anthropic":
+            status = probe_anthropic_compat_sync(
+                backend.base_url, api_key=backend.api_key or None
+            )
+        else:
+            status = probe_openai_compat_sync(
+                backend.base_url, api_key=backend.api_key or None
+            )
         online = is_online(status)
         self._health_cache[key] = _HealthEntry(
             last_check=now, online=online, failures=0
@@ -203,12 +212,12 @@ class RouterPool:
             if not pool:
                 return None
             if shard_key and len(pool) > 1:
-                idx = _stable_shard_index(shard_key, len(pool))
+                idx = shard_index(shard_key, len(pool))
                 return pool[idx]
             return pool[0]
 
         if strategy == "batch_shard" and shard_key:
-            idx = _stable_shard_index(shard_key, len(all_candidates))
+            idx = shard_index(shard_key, len(all_candidates))
             return all_candidates[idx]
 
         return all_candidates[0]
@@ -248,6 +257,15 @@ def healthy_backends(
 ) -> list[Backend]:
     p = pool or RouterPool()
     return [b for b in backends if b.enabled and p.is_healthy(b)]
+
+
+def shard_index(shard_key: str, num_endpoints: int) -> int:
+    """Map shard key to backend index (numeric keys use index % N)."""
+    if num_endpoints <= 1:
+        return 0
+    if shard_key.lstrip("-").isdigit():
+        return int(shard_key) % num_endpoints
+    return _stable_shard_index(shard_key, num_endpoints)
 
 
 def _stable_shard_index(shard_key: str, num_endpoints: int) -> int:

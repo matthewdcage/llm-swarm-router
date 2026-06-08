@@ -20,15 +20,30 @@ RoutingStrategy = Literal[
 
 AgentRole = Literal["peer", "gateway"]
 ProviderId = Literal["omlx", "ollama", "lmstudio", "custom", "anthropic", "openai"]
+ApiFormat = Literal["openai", "anthropic"]
+
+ANTHROPIC_CLOUD_BASE_URL = "https://api.anthropic.com"
+
+
+def infer_api_format(provider: ProviderId) -> ApiFormat:
+    if provider == "anthropic":
+        return "anthropic"
+    return "openai"
 
 
 class BackendOverride(BaseModel):
     base_url: str
     provider: ProviderId = "custom"
+    api_format: ApiFormat | None = None
     api_key: str = ""
     api_key_env: str = ""
     enabled: bool = True
     local: bool = True
+
+    def resolved_api_format(self) -> ApiFormat:
+        if self.api_format is not None:
+            return self.api_format
+        return infer_api_format(self.provider)
 
     def resolve_api_key(self) -> str:
         if self.api_key:
@@ -67,11 +82,26 @@ class AgentConfig(BaseModel):
     hostname: str = Field(default_factory=lambda: os.uname().nodename)
 
 
+def default_log_dir() -> Path:
+    return Path.home() / "Library" / "Application Support" / "netllm" / "logs"
+
+
+class UiConfig(BaseModel):
+    auto_start_on_launch: bool = True
+    log_dir: str = ""
+
+
 class NetllmConfig(BaseModel):
     agent: AgentConfig = Field(default_factory=AgentConfig)
     discovery: DiscoveryLocalConfig = Field(default_factory=DiscoveryLocalConfig)
     swarm: DiscoverySwarmConfig = Field(default_factory=DiscoverySwarmConfig)
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
+    ui: UiConfig = Field(default_factory=UiConfig)
+
+    def resolved_log_dir(self) -> Path:
+        if self.ui.log_dir:
+            return Path(self.ui.log_dir).expanduser()
+        return default_log_dir()
 
 
 class BackendHealth(BaseModel):
@@ -90,6 +120,7 @@ class Backend(BaseModel):
     id: str
     base_url: str
     provider: ProviderId = "custom"
+    api_format: ApiFormat = "openai"
     api_key: str = ""
     enabled: bool = True
     local: bool = True
@@ -100,6 +131,9 @@ class Backend(BaseModel):
 
     def cache_key(self) -> str:
         return f"{self.provider}:{self.base_url}"
+
+    def resolve_api_key(self) -> str:
+        return self.api_key
 
 
 def default_config_path() -> Path:

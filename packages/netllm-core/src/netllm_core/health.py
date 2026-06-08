@@ -151,3 +151,90 @@ async def diagnose_backend(
         result["inference_status"] = "inference_failed"
         result["detail"] = str(exc)
     return result
+
+
+async def probe_anthropic_compat(
+    base_url: str,
+    client: httpx.AsyncClient,
+    *,
+    api_key: str | None = None,
+    timeout_s: float = DEFAULT_TIMEOUT,
+) -> dict[str, Any]:
+    """Reachability check for Anthropic Messages API backends."""
+    messages_url = _anthropic_messages_url(base_url)
+    headers: dict[str, str] = {"content-type": "application/json"}
+    if api_key:
+        headers["x-api-key"] = api_key
+    payload = {
+        "model": "claude-3-5-haiku-20241022",
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": "hi"}],
+    }
+    try:
+        resp = await client.post(
+            messages_url, json=payload, headers=headers, timeout=timeout_s
+        )
+        return _anthropic_probe_status(resp)
+    except (httpx.ConnectError, httpx.TimeoutException, Exception) as exc:
+        return status_from_exception(exc, timeout_s)
+
+
+def probe_anthropic_compat_sync(
+    base_url: str,
+    *,
+    api_key: str | None = None,
+    timeout_s: float = DEFAULT_TIMEOUT,
+) -> dict[str, Any]:
+    messages_url = _anthropic_messages_url(base_url)
+    headers: dict[str, str] = {"content-type": "application/json"}
+    if api_key:
+        headers["x-api-key"] = api_key
+    payload = {
+        "model": "claude-3-5-haiku-20241022",
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": "hi"}],
+    }
+    try:
+        with httpx.Client(timeout=timeout_s) as client:
+            resp = client.post(messages_url, json=payload, headers=headers)
+        return _anthropic_probe_status(resp)
+    except (httpx.ConnectError, httpx.TimeoutException, Exception) as exc:
+        return status_from_exception(exc, timeout_s)
+
+
+def _anthropic_messages_url(base_url: str) -> str:
+    root = base_url.rstrip("/")
+    if root.endswith("/v1"):
+        return root + "/messages"
+    return root + "/v1/messages"
+
+
+def _anthropic_probe_status(resp: httpx.Response) -> dict[str, Any]:
+    if resp.status_code == 200:
+        return {
+            "status": "online",
+            "http_status": resp.status_code,
+            "model_count": 0,
+            "models": [],
+        }
+    if resp.status_code in (401, 403):
+        return {
+            "status": "online",
+            "http_status": resp.status_code,
+            "model_count": 0,
+            "models": [],
+            "detail": "authentication required",
+        }
+    if resp.status_code in (400, 404, 422):
+        return {
+            "status": "online",
+            "http_status": resp.status_code,
+            "model_count": 0,
+            "models": [],
+            "detail": "reachable (request rejected)",
+        }
+    return {
+        "status": "error",
+        "http_status": resp.status_code,
+        "detail": resp.text[:200],
+    }
