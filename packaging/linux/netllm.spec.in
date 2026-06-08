@@ -17,13 +17,14 @@ unified router on port 11400 with LAN swarm support.
 
 %build
 uv sync
-mkdir -p %{buildroot}/usr/lib/netllm
-export UV_PROJECT_ENVIRONMENT="%{buildroot}/usr/lib/netllm"
+mkdir -p usr/lib/netllm
+export UV_PROJECT_ENVIRONMENT="${PWD}/usr/lib/netllm"
 uv sync --no-dev --no-editable --python .venv/bin/python
 
 %install
 mkdir -p %{buildroot}/usr/bin
 mkdir -p %{buildroot}/usr/lib/systemd/user
+cp -a usr/lib/netllm %{buildroot}/usr/lib/
 cat > %{buildroot}/usr/bin/netllm << 'EOF'
 #!/usr/bin/env bash
 exec /usr/lib/netllm/bin/netllm "$@"
