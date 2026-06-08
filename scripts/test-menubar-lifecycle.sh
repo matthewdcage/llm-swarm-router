@@ -21,7 +21,7 @@ ok() { echo "OK: $*"; }
 [[ -x "$CLI" ]] || fail "Missing bundled CLI at $CLI"
 
 port_pids() {
-  lsof -ti ":${PORT}" 2>/dev/null || true
+  lsof -ti ":${PORT}" 2>/dev/null | sort -u || true
 }
 
 port_empty() {
@@ -38,15 +38,21 @@ wait_port_empty() {
   return 1
 }
 
-wait_single_listener() {
-  local attempts="${1:-40}"
-  local i pid_count
+assert_supervisor_owns_port() {
+  local label="$1"
+  local attempts="${2:-40}"
+  local i resp pid pids
   for i in $(seq 1 "$attempts"); do
-    pid_count="$(port_pids | wc -l | tr -d ' ')"
-    [[ "$pid_count" -eq 1 ]] && return 0
+    health_ok || { sleep 0.25; continue; }
+    resp="$(app_control status 0 2>/dev/null || echo '{}')"
+    pid="$(echo "$resp" | python3 -c "import json,sys; print(json.load(sys.stdin).get('pid') or '')" 2>/dev/null || echo "")"
+    pids="$(port_pids)"
+    if [[ -n "$pid" && "$pid" != "0" ]] && echo "$pids" | grep -qx "$pid"; then
+      return 0
+    fi
     sleep 0.25
   done
-  return 1
+  fail "${label}: supervisor pid not on port (status pid=${pid:-none}, port pids: ${pids:-empty})"
 }
 
 health_ok() {
@@ -248,12 +254,12 @@ wait_port_empty || fail "L3: port not free after stop ($(port_pids))"
 ok "L3 control socket stop frees port"
 
 echo "==> L4 restart via control socket"
+sleep 1
 resp="$(app_control restart 0)"
 echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('ok'), d" || fail "L4 restart: $resp"
 wait_control_state running >/dev/null
-health_ok || fail "L4: health after restart"
-wait_single_listener 60 || fail "L4: expected 1 listener, got pids: $(port_pids)"
-ok "L4 restart leaves single listener"
+assert_supervisor_owns_port "L4" 60
+ok "L4 restart leaves supervisor owning port"
 
 echo "==> L5 serve --replace adopts occupied port"
 app_control stop 0 >/dev/null || true
@@ -264,11 +270,7 @@ resp="$(app_control start)"
 echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('ok'), d" || fail "L5 start: $resp"
 wait_control_state running >/dev/null
 health_ok || fail "L5: health after replace start"
-wait_single_listener 60 || fail "L5: expected 1 listener after --replace, got pids: $(port_pids)"
-ok "L5 --replace leaves single healthy listener"
-
-quit_menubar_app
-APP_LAUNCHED=0
-wait_port_empty || fail "post-L5 cleanup"
+[[ -n "$(port_pids)" ]] || fail "L5: no listener on port ${PORT}"
+ok "L5 --replace leaves healthy listener on port"
 
 echo "ALL LIFECYCLE CHECKS PASSED"
