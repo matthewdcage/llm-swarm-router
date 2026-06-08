@@ -60,16 +60,16 @@ Point **Cursor**, **Claude Code**, **Codex**, **Honcho**, or any compatible clie
 
 ---
 
-## Platform status
+## Platform docs
 
-| Platform | Status | Install |
-|----------|--------|---------|
-| **macOS** (Apple Silicon) | **Available** — native menubar app + CLI | [DMG from Releases](https://github.com/matthewdcage/llm-swarm-router/releases) or build below |
-| **macOS / Linux** (dev) | **Available** — Python agent + CLI from source | `uv sync` + `./netllm serve` |
-| **Linux** (desktop) | **Available** — systemd user service, `.deb` / `.rpm` | [docs/linux-install.md](docs/linux-install.md) |
-| **Windows** | **Available** — portable zip + Windows service | [docs/windows-install.md](docs/windows-install.md) |
+| Platform | Status | Install | Troubleshooting |
+|----------|--------|---------|-----------------|
+| **macOS** | Stable — menubar app + CLI | [docs/menubar-app.md](docs/menubar-app.md) · [DMG](https://github.com/matthewdcage/llm-swarm-router/releases) | [docs/macos-troubleshooting.md](docs/macos-troubleshooting.md) |
+| **Linux** | Beta — deb/rpm + systemd | [docs/linux-install.md](docs/linux-install.md) | [docs/linux-troubleshooting.md](docs/linux-troubleshooting.md) |
+| **Windows** | Beta — zip + Windows service | [docs/windows-install.md](docs/windows-install.md) | [docs/windows-troubleshooting.md](docs/windows-troubleshooting.md) |
+| **All** (dev/CI) | Source — `uv sync` + `./netllm serve` | [CLI / source](#cli--source-install-all-platforms) below | `./netllm doctor` · `/ui/` on source/latest builds |
 
-Linux and Windows run the **agent and CLI from source** or packaged installs (deb/rpm/zip). All platforms share the **web dashboard** at http://127.0.0.1:11400/ui/. macOS adds a native menubar app. See [docs/platform-matrix.md](docs/platform-matrix.md).
+Overview: [docs/platform-matrix.md](docs/platform-matrix.md)
 
 ---
 
@@ -85,7 +85,7 @@ Linux and Windows run the **agent and CLI from source** or packaged installs (de
 <p align="center">
   <img src="assets/screenshots/llm-swarm-router-osx-menu.png" alt="llm-swarm-router menubar menu showing agent status, routing stats, and Settings" width="320">
   <br>
-  <em>Menubar — agent status, start/stop, Open Dashboard, copy client env, and Settings (⌘,).</em>
+  <em>Menubar — agent status, start/stop, Copy Client Env, Open Status Page, and Settings (⌘,).</em>
 </p>
 
 The app **starts the agent automatically**, **scans for local providers** (oMLX, Ollama, LM Studio), and **persists discovered URLs** to `~/.config/netllm/config.toml`. You do not need to run `netllm discover` manually.
@@ -94,7 +94,7 @@ If macOS blocks the first launch: right-click the app in Applications → **Open
 
 **Terminal:** After first launch, a CLI shim is available at `~/.config/netllm/bin/netllm` (`netllm status`, `netllm models`, etc.).
 
-More detail: [docs/menubar-app.md](docs/menubar-app.md)
+Install: [docs/menubar-app.md](docs/menubar-app.md) · Troubleshooting: [docs/macos-troubleshooting.md](docs/macos-troubleshooting.md)
 
 ### Optional: Homebrew
 
@@ -106,9 +106,30 @@ brew services start netllm
 
 ---
 
-## CLI / source install (macOS & Linux)
+## Linux — install
 
-For development, CI, or Linux hosts without the menubar app:
+**Recommended:** `.deb` or `.rpm` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases), then:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now netllm
+```
+
+`netllm status` after start · `/ui/` on source/latest builds. Full steps: [docs/linux-install.md](docs/linux-install.md) · Issues: [docs/linux-troubleshooting.md](docs/linux-troubleshooting.md)
+
+---
+
+## Windows — install
+
+**Recommended:** extract `netllm-*-windows-x64.zip`, run `install-service.ps1` as Administrator, then `netllm init` and `netllm start`.
+
+`netllm status` after start · `/ui/` on source/latest builds. Full steps: [docs/windows-install.md](docs/windows-install.md) · Issues: [docs/windows-troubleshooting.md](docs/windows-troubleshooting.md)
+
+---
+
+## CLI / source install (all platforms)
+
+For development, CI, or running without packaged installers:
 
 ```bash
 git clone https://github.com/matthewdcage/llm-swarm-router.git
@@ -201,7 +222,7 @@ Config: `~/.config/netllm/config.toml` — see [config.example.toml](config.exam
 ```bash
 ./netllm serve             # foreground agent (dev/CI/Linux)
 ./netllm serve --host 0.0.0.0   # LAN + swarm
-./netllm start|stop|restart     # background (macOS app / Homebrew)
+./netllm start|stop|restart     # background (app / Homebrew / systemd / Windows service)
 ./netllm status            # backends, health, peers
 ./netllm models            # routed catalog
 ./netllm models --lan      # include remote LAN agents

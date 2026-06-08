@@ -3,6 +3,8 @@
 Native menubar wrapper for **llm-swarm-router** (terminal CLI: `netllm`). The app supervises the
 existing Python agent on port **11400** — it does not replace oMLX inference on port 8080.
 
+**Troubleshooting:** [macos-troubleshooting.md](macos-troubleshooting.md) · **All platforms:** [platform-matrix.md](platform-matrix.md)
+
 ## Install channels
 
 ### DMG (recommended for desktop users)
@@ -98,4 +100,4 @@ scripts/test-menubar-e2e.sh
 - **netllm** routes editors to local backends and LAN peers on `:11400`.
 - Config dirs are separate: `~/.omlx/` vs `~/.config/netllm/`.
 
-Wire editors to netllm — see [editor-integration.md](editor-integration.md).
+Wire editors to netllm — see [editor-integration.md](editor-integration.md). Issues: [macos-troubleshooting.md](macos-troubleshooting.md).
