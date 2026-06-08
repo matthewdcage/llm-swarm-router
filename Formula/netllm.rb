@@ -15,7 +15,7 @@ class Netllm < Formula
     virtualenv_create(libexec, "python3.11")
     ENV["UV_PROJECT_ENVIRONMENT"] = libexec.to_s
     cd buildpath do
-      system Formula["uv"].opt_bin/"uv", "sync", "--frozen", "--no-dev",
+      system Formula["uv"].opt_bin/"uv", "sync", "--no-dev",
              "--python", libexec/"bin/python"
     end
     bin.install_symlink libexec/"bin/netllm"
