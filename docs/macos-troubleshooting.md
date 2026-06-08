@@ -10,7 +10,7 @@ curl -sf http://127.0.0.1:11400/health
 netllm status
 ```
 
-Optional UI: http://127.0.0.1:11400/ui/ (source/latest agent) · menubar **Open Status Page** or **Copy Client Env** (all macOS builds).
+Dashboard: http://127.0.0.1:11400/ui/ · menubar **Open Dashboard** or **Copy Client Env**. If `/ui/` is 404, the embedded agent is stale — `./netllm serve` from source or rebuild the menubar app.
 
 From a repo checkout, prefer `./netllm` if PATH is uncertain.
 
@@ -21,7 +21,7 @@ From a repo checkout, prefer `./netllm` if PATH is uncertain.
 | Symptom | Fix |
 |---------|-----|
 | `curl` to `/health` fails | Menubar → **Start Agent**, or `netllm start` |
-| Port 11400 in use | Expected while the menubar app runs the agent. Use menubar **Restart Agent** or `netllm restart` — not a second `netllm serve` |
+| Port 11400 in use | Expected while the menubar app runs the agent. Settings → **Restart Agent** or `netllm restart` — not a second `netllm serve` |
 | DMG app won’t launch | Right-click **llm-swarm-router** in Applications → **Open** once (Gatekeeper) |
 | Homebrew agent down | `brew services restart netllm` · logs: `$(brew --prefix)/var/log/netllm.log` |
 
@@ -60,7 +60,7 @@ DMG/menubar installs: `netllm doctor` does not require a global CLI on PATH.
 | Symptom | Fix |
 |---------|-----|
 | `netllm peers` empty | Use `netllm serve --host 0.0.0.0` (or enable LAN in welcome wizard). Set `swarm.cluster_token` on untrusted networks |
-| mDNS browse fails | `uv sync` (zeroconf). Fallback: `netllm peers --subnet-scan --save` or static `swarm.peers` |
+| mDNS browse fails | Source installs: `uv sync` (zeroconf). Fallback: `netllm peers --subnet-scan --save` or static `swarm.peers` |
 | Guest Wi‑Fi | mDNS often blocked — use static peers |
 
 **Verify:** `netllm peers` and `netllm models --lan`.

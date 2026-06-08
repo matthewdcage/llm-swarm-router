@@ -15,7 +15,7 @@ Download `netllm-<version>-windows-x64.zip` from [GitHub Releases](https://githu
 
 Logs: `%LOCALAPPDATA%\netllm\logs\agent.log` (and service stdout).
 
-**Status:** `netllm status` · optional dashboard at http://127.0.0.1:11400/ui/ (source/latest agent).
+**Status:** `netllm status` · dashboard http://127.0.0.1:11400/ui/
 
 `install-service.ps1` adds the package `python\Scripts` folder to your user PATH.
 

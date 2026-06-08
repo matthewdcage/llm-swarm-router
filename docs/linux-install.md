@@ -23,7 +23,7 @@ netllm status
 
 Logs: `journalctl --user -u netllm -f` and `~/.local/state/netllm/logs/agent.log`
 
-**Status:** `netllm status` · optional dashboard at http://127.0.0.1:11400/ui/ (source/latest agent).
+**Status:** `netllm status` · dashboard http://127.0.0.1:11400/ui/
 
 ## Source install (development)
 

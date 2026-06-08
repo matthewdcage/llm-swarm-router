@@ -154,4 +154,4 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - mDNS (swarm discovery) requires zeroconf from `uv sync`; reinstall if `netllm doctor` reports mDNS unavailable
 - `serve` on loopback (`127.0.0.1`) blocks LAN peers — use `--host 0.0.0.0` for swarm
 - Set `swarm.cluster_token` when listening on `0.0.0.0` on untrusted networks
-- Opening `http://127.0.0.1:11400/` in a browser returns help JSON — not an error
+- Browsers hitting `http://127.0.0.1:11400/` redirect to `/ui/`; curl without `Accept: text/html` gets help JSON

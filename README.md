@@ -67,7 +67,7 @@ Point **Cursor**, **Claude Code**, **Codex**, **Honcho**, or any compatible clie
 | **macOS** | Stable — menubar app + CLI | [docs/menubar-app.md](docs/menubar-app.md) · [DMG](https://github.com/matthewdcage/llm-swarm-router/releases) | [docs/macos-troubleshooting.md](docs/macos-troubleshooting.md) |
 | **Linux** | Beta — deb/rpm + systemd | [docs/linux-install.md](docs/linux-install.md) | [docs/linux-troubleshooting.md](docs/linux-troubleshooting.md) |
 | **Windows** | Beta — zip + Windows service | [docs/windows-install.md](docs/windows-install.md) | [docs/windows-troubleshooting.md](docs/windows-troubleshooting.md) |
-| **All** (dev/CI) | Source — `uv sync` + `./netllm serve` | [CLI / source](#cli--source-install-all-platforms) below | `./netllm doctor` · `/ui/` on source/latest builds |
+| **All** (dev/CI) | Source — `uv sync` + `./netllm serve` | [CLI / source](#cli--source-install-all-platforms) below | `./netllm doctor` · http://127.0.0.1:11400/ui/ |
 
 Overview: [docs/platform-matrix.md](docs/platform-matrix.md)
 
@@ -77,7 +77,7 @@ Overview: [docs/platform-matrix.md](docs/platform-matrix.md)
 
 **Recommended for Mac users:** download, drag, open. No terminal setup required.
 
-1. Download **`llm-swarm-router.dmg`** from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases).
+1. Download **`llm-swarm-router.dmg`** from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases) (or [build from source](#build-the-macos-app-developers) if assets are not yet published).
 2. Open the DMG and drag **llm-swarm-router** to **Applications**.
 3. Launch from Applications. The bee icon appears in the menu bar.
 4. Complete the short welcome wizard (optional LAN mode, auto-start agent).
@@ -85,7 +85,7 @@ Overview: [docs/platform-matrix.md](docs/platform-matrix.md)
 <p align="center">
   <img src="assets/screenshots/llm-swarm-router-osx-menu.png" alt="llm-swarm-router menubar menu showing agent status, routing stats, and Settings" width="320">
   <br>
-  <em>Menubar — agent status, start/stop, Copy Client Env, Open Status Page, and Settings (⌘,).</em>
+  <em>Menubar — agent status, start/stop, Open Dashboard, Copy Client Env, and Settings (⌘,).</em>
 </p>
 
 The app **starts the agent automatically**, **scans for local providers** (oMLX, Ollama, LM Studio), and **persists discovered URLs** to `~/.config/netllm/config.toml`. You do not need to run `netllm discover` manually.
@@ -115,7 +115,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now netllm
 ```
 
-`netllm status` after start · `/ui/` on source/latest builds. Full steps: [docs/linux-install.md](docs/linux-install.md) · Issues: [docs/linux-troubleshooting.md](docs/linux-troubleshooting.md)
+`netllm status` · dashboard http://127.0.0.1:11400/ui/. Full steps: [docs/linux-install.md](docs/linux-install.md) · Issues: [docs/linux-troubleshooting.md](docs/linux-troubleshooting.md)
 
 ---
 
@@ -123,7 +123,7 @@ systemctl --user enable --now netllm
 
 **Recommended:** extract `netllm-*-windows-x64.zip`, run `install-service.ps1` as Administrator, then `netllm init` and `netllm start`.
 
-`netllm status` after start · `/ui/` on source/latest builds. Full steps: [docs/windows-install.md](docs/windows-install.md) · Issues: [docs/windows-troubleshooting.md](docs/windows-troubleshooting.md)
+`netllm status` · dashboard http://127.0.0.1:11400/ui/. Full steps: [docs/windows-install.md](docs/windows-install.md) · Issues: [docs/windows-troubleshooting.md](docs/windows-troubleshooting.md)
 
 ---
 

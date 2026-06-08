@@ -36,12 +36,12 @@ Install details: links in the table above.
 
 | Surface | macOS | Linux | Windows |
 |---------|-------|-------|---------|
-| **Web dashboard** | http://127.0.0.1:11400/ui/ (source/latest agent) | Same | Same |
+| **Web dashboard** | http://127.0.0.1:11400/ui/ | Same | Same |
 | **Menubar / tray** | Native Swift menubar + **Copy Client Env** | — | — |
 | **CLI** | `netllm status`, `discover`, `doctor` | Same | Same |
 | **Config edit** | Settings window or `netllm config-edit` | `netllm config-edit` | `netllm config-edit` |
 
-Menubar **Open Dashboard** (source/latest macOS build) opens `/ui/`. **Copy Client Env** works on all macOS builds.
+Menubar **Open Dashboard** opens `/ui/`. **Copy Client Env** exports editor vars. Rebuild the menubar app if `/ui/` returns 404 (embedded agent stale).
 
 ## Discovery defaults (`netllm init`)
 
@@ -81,7 +81,7 @@ export OPENAI_BASE_URL=http://127.0.0.1:11400/v1
 export OPENAI_API_KEY=netllm-local
 export ANTHROPIC_BASE_URL=http://127.0.0.1:11400
 export ANTHROPIC_API_KEY=netllm-local
-# macOS menubar: Copy Client Env · source/latest: dashboard Copy client env
+# macOS menubar: Copy Client Env · dashboard: Copy client env
 ```
 
 See [editor-integration.md](editor-integration.md).

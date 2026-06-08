@@ -10,7 +10,7 @@ curl -sf http://127.0.0.1:11400/health
 netllm status
 ```
 
-Optional UI: http://127.0.0.1:11400/ui/ (source/latest agent) · else `netllm status`.
+Dashboard: http://127.0.0.1:11400/ui/ · CLI fallback: `netllm status`.
 
 From a repo checkout, use `.\netllm` in PowerShell from the project root.
 
@@ -46,7 +46,7 @@ Logs: `%LOCALAPPDATA%\netllm\logs\agent.log`.
 | Symptom | Fix |
 |---------|-----|
 | `netllm models` empty | Start **Ollama**, **LM Studio**, or **vLLM** on Windows (or WSL — see below) |
-| Discovery missed server | `netllm discover` (or dashboard **Discover providers** on source/latest builds) |
+| Discovery missed server | `netllm discover` or dashboard **Discover providers** |
 
 Default probes: Ollama `:11434`, LM Studio `:1234`, vLLM `:8000`. oMLX is not available on Windows.
 

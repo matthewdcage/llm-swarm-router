@@ -10,7 +10,7 @@ curl -sf http://127.0.0.1:11400/health
 netllm status
 ```
 
-Optional UI: http://127.0.0.1:11400/ui/ (source/latest agent) · else `netllm status`.
+Dashboard: http://127.0.0.1:11400/ui/ · CLI fallback: `netllm status`.
 
 From a repo checkout, use `./netllm` from the project root.
 
@@ -47,7 +47,7 @@ Logs: `journalctl --user -u netllm -f` and `~/.local/state/netllm/logs/agent.log
 |---------|-----|
 | `netllm models` empty | Start **Ollama**, **LM Studio**, or **vLLM** on this host |
 | Wrong ports | Linux defaults omit oMLX. Probes: Ollama `:11434`, LM Studio `:1234`, vLLM `:8000` |
-| Stale config | `netllm discover` (or dashboard **Discover providers** on source/latest builds) |
+| Stale config | `netllm discover` or dashboard **Discover providers** |
 
 **Verify:** `netllm discover` && `netllm models`.
 
