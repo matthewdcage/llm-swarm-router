@@ -15,8 +15,9 @@ final class AgentSupervisor {
             object: server,
             queue: .main
         ) { [weak self] _ in
+            guard let self else { return }
             Task { @MainActor in
-                self?.state = server.state
+                self.state = server.state
             }
         }
     }

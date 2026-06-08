@@ -121,7 +121,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.updateApplicationIcon() }
+            guard let self else { return }
+            Task { @MainActor in
+                self.updateApplicationIcon()
+            }
         }
     }
 
