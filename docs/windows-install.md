@@ -2,6 +2,8 @@
 
 Run the mesh router as a **Windows service** or in a foreground terminal.
 
+**Troubleshooting:** [windows-troubleshooting.md](windows-troubleshooting.md) · **All platforms:** [platform-matrix.md](platform-matrix.md)
+
 ## Portable zip (recommended)
 
 Download `netllm-<version>-windows-x64.zip` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases).
@@ -11,7 +13,11 @@ Download `netllm-<version>-windows-x64.zip` from [GitHub Releases](https://githu
 3. Run `.\install-service.ps1` to register the `NetllmAgent` service.
 4. From any terminal: `netllm init` then `netllm start`.
 
-Logs default to `%LOCALAPPDATA%\netllm\logs`.
+Logs: `%LOCALAPPDATA%\netllm\logs\agent.log` (and service stdout).
+
+**Status:** `netllm status` · optional dashboard at http://127.0.0.1:11400/ui/ (source/latest agent).
+
+`install-service.ps1` adds the package `python\Scripts` folder to your user PATH.
 
 ## Winget
 
@@ -51,10 +57,11 @@ Windows firewalls often block mDNS. Prefer `swarm.peers` in `config.toml` or `ne
 ## Wire editors
 
 ```powershell
+netllm env   # print export lines (same as dashboard Copy client env)
 $env:OPENAI_BASE_URL = "http://127.0.0.1:11400/v1"
 $env:OPENAI_API_KEY = "netllm-local"
 $env:ANTHROPIC_BASE_URL = "http://127.0.0.1:11400"
 $env:ANTHROPIC_API_KEY = "netllm-local"
 ```
 
-See [editor-integration.md](editor-integration.md).
+See [editor-integration.md](editor-integration.md), [platform-matrix.md](platform-matrix.md), and [windows-troubleshooting.md](windows-troubleshooting.md).

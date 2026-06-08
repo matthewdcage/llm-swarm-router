@@ -7,13 +7,22 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from netllm_core.models import NetllmConfig
 from netllm_sdk_anthropic.client import AnthropicUpstreamError
 from netllm_sdk_openai.client import OpenAIUpstreamError
 
+from netllm_agent.admin import (
+    client_env_vars,
+    config_summary,
+    doctor_payload,
+    require_admin_access,
+)
 from netllm_agent.metrics import metrics_bytes
 from netllm_agent.service import AgentService
+
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 def create_app(
@@ -39,14 +48,18 @@ def create_app(
     app.state.config = cfg
 
     @app.get("/")
-    async def root() -> dict[str, Any]:
+    async def root(request: Request) -> Any:
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept:
+            return RedirectResponse(url="/ui/", status_code=307)
         base = service.swarm.local_agent_url()
         return {
             "service": "netllm-agent",
             "status": "running",
             "message": (
-                "OpenAI-compatible router is up. Use /v1/* — not this root path."
+                "OpenAI-compatible router is up. Dashboard: /ui/ — APIs: /v1/*"
             ),
+            "dashboard": f"{base}/ui/",
             "openai_base_url": f"{base}/v1",
             "anthropic_base_url": base,
             "endpoints": {
@@ -55,14 +68,19 @@ def create_app(
                 "chat": f"{base}/v1/chat/completions",
                 "messages": f"{base}/v1/messages",
                 "status": f"{base}/netllm/v1/status",
+                "dashboard": f"{base}/ui/",
                 "metrics": f"{base}/metrics",
             },
             "cli": {
                 "status": "netllm status",
                 "discover": "netllm discover",
+                "env": "netllm env",
                 "test": "netllm test",
             },
         }
+
+    if _STATIC_DIR.is_dir():
+        app.mount("/ui", StaticFiles(directory=str(_STATIC_DIR), html=True), name="ui")
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -89,6 +107,42 @@ def create_app(
     async def netllm_backends() -> dict[str, Any]:
         await service.refresh_local_backends()
         return {"backends": [b.model_dump(mode="json") for b in service.pool.backends]}
+
+    @app.get("/netllm/v1/doctor")
+    async def netllm_doctor(request: Request) -> dict[str, Any]:
+        require_admin_access(request, cfg)
+        await service.refresh_local_backends()
+        return doctor_payload(cfg, service)
+
+    @app.get("/netllm/v1/config")
+    async def netllm_config_summary(request: Request) -> dict[str, Any]:
+        require_admin_access(request, cfg)
+        return config_summary(cfg)
+
+    @app.get("/netllm/v1/client-env")
+    async def netllm_client_env() -> dict[str, Any]:
+        base = service.swarm.local_agent_url()
+        return {"vars": client_env_vars(base)}
+
+    @app.post("/netllm/v1/admin/discover")
+    async def netllm_admin_discover(request: Request) -> dict[str, Any]:
+        require_admin_access(request, cfg)
+        local = await service.refresh_local_backends(
+            persist_provider_urls=True,
+            config_path=config_path,
+        )
+        for backend in local:
+            service.pool.is_healthy(backend, force_refresh=True)
+        online = sum(
+            1
+            for backend in local
+            if backend.enabled and backend.health.status == "online"
+        )
+        return {
+            "ok": True,
+            "backends_registered": len(local),
+            "online": online,
+        }
 
     @app.post("/netllm/v1/heartbeat")
     async def netllm_heartbeat(request: Request) -> Response:

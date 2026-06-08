@@ -18,6 +18,12 @@ packaging/venvstacks.generated.toml
 packaging/requirements-netllm.txt
 apps/netllm-mac/build/
 .DS_Store
-.cursor/hooks/state/
+
+# Cursor — local/personal (shared copies: .cursor/skills/, .cursor/rules/netllm.mdc, mcp.json.example)
+.cursor/plans/
+.cursor/hooks/
+.cursor/hooks.json
 .cursor/mcp.json
+.cursor/rules/graphify.mdc
+
 docs/architecture-reference.md

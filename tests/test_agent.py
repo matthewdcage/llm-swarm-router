@@ -27,6 +27,35 @@ def test_root_help(client: TestClient) -> None:
     assert data["service"] == "netllm-agent"
     assert "openai_base_url" in data
     assert "/v1/models" in data["endpoints"]["models"]
+    assert "/ui/" in data["endpoints"]["dashboard"]
+
+
+def test_root_redirects_browser_to_ui(client: TestClient) -> None:
+    resp = client.get("/", headers={"Accept": "text/html"}, follow_redirects=False)
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "/ui/"
+
+
+def test_ui_dashboard(client: TestClient) -> None:
+    resp = client.get("/ui/")
+    assert resp.status_code == 200
+    assert "netllm dashboard" in resp.text.lower()
+
+
+def test_client_env_endpoint(client: TestClient) -> None:
+    resp = client.get("/netllm/v1/client-env")
+    assert resp.status_code == 200
+    vars_ = resp.json()["vars"]
+    assert vars_["OPENAI_API_KEY"] == "netllm-local"
+    assert vars_["OPENAI_BASE_URL"].endswith("/v1")
+
+
+def test_doctor_endpoint(client: TestClient) -> None:
+    resp = client.get("/netllm/v1/doctor")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "ok" in data
+    assert "issues" in data
 
 
 def test_health_endpoint(client: TestClient) -> None:

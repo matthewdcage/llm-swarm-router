@@ -1,8 +1,12 @@
-# Deprecated: use .github/workflows/release.yml (unified release on publish).
-name: Release macOS app (manual only)
+name: Release
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-macos:
@@ -22,3 +26,8 @@ jobs:
         with:
           name: netllm-mac-dmg
           path: dist/llm-swarm-router.dmg
+      - name: Attach DMG to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/llm-swarm-router.dmg
