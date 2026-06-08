@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Generate AppIcon.icns (light + dark transparent bee) and menubar PNGs from brand assets.
+# Generate AppIcon.icns (transparent bee) and menubar PNGs from brand assets.
+# Prefers actool (light + dark Finder icons); falls back to iconutil when Xcode plugins are unavailable.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -10,6 +11,7 @@ ASSET_CATALOG="$MAC_DIR/build/Assets.xcassets"
 APPICON_SET="$ASSET_CATALOG/AppIcon.appiconset"
 ICNS_OUT="$MAC_DIR/build/AppIcon.icns"
 CAR_OUT="$MAC_DIR/build/Assets.car"
+METHOD_FILE="$MAC_DIR/build/.appicon-method"
 
 SRC_APP_LIGHT="${NETLLM_ICON_APP_LIGHT:-$ASSETS/llm-swam-router-icon.png}"
 SRC_APP_DARK="${NETLLM_ICON_APP_DARK:-$ASSETS/llm-swam-router-icon-white.png}"
@@ -33,7 +35,7 @@ require_asset "$ASSETS/llm-swam-router-icon-white.png"
 require_asset "$ASSETS/llm-swam-router-icon-black-bg.png"
 require_asset "$ASSETS/llm-swam-router-icon-white-bg.png"
 
-rm -rf "$ASSET_CATALOG" "$OUT_BRAND" "$ICNS_OUT" "$CAR_OUT"
+rm -rf "$ASSET_CATALOG" "$OUT_BRAND" "$ICNS_OUT" "$CAR_OUT" "$METHOD_FILE"
 mkdir -p "$APPICON_SET" "$OUT_BRAND"
 
 echo "==> Copying brand assets"
@@ -47,20 +49,21 @@ sips -z 36 36 "$SRC_MENUBAR_DARK" --out "$OUT_BRAND/MenubarIconDark@2x.png" >/de
 cp "$OUT_BRAND/MenubarIconLight.png" "$OUT_BRAND/MenubarIcon.png"
 cp "$OUT_BRAND/MenubarIconLight@2x.png" "$OUT_BRAND/MenubarIcon@2x.png"
 
-echo "==> Building AppIcon (transparent light + dark) via actool"
 make_appicon_png() {
   local src="$1" prefix="$2" size="$3" name="$4"
   sips -z "$size" "$size" "$src" --out "$APPICON_SET/${prefix}${name}" >/dev/null
 }
 
-for size in 16 32 128 256 512; do
-  make_appicon_png "$SRC_APP_LIGHT" "" "$size" "icon_${size}x${size}.png"
-  make_appicon_png "$SRC_APP_LIGHT" "" "$((size * 2))" "icon_${size}x${size}@2x.png"
-  make_appicon_png "$SRC_APP_DARK" "dark_" "$size" "icon_${size}x${size}.png"
-  make_appicon_png "$SRC_APP_DARK" "dark_" "$((size * 2))" "icon_${size}x${size}@2x.png"
-done
+build_appicon_actool() {
+  echo "==> Building AppIcon (transparent light + dark) via actool"
+  for size in 16 32 128 256 512; do
+    make_appicon_png "$SRC_APP_LIGHT" "" "$size" "icon_${size}x${size}.png"
+    make_appicon_png "$SRC_APP_LIGHT" "" "$((size * 2))" "icon_${size}x${size}@2x.png"
+    make_appicon_png "$SRC_APP_DARK" "dark_" "$size" "icon_${size}x${size}.png"
+    make_appicon_png "$SRC_APP_DARK" "dark_" "$((size * 2))" "icon_${size}x${size}@2x.png"
+  done
 
-cat > "$APPICON_SET/Contents.json" <<'JSON'
+  cat > "$APPICON_SET/Contents.json" <<'JSON'
 {
   "images": [
     {"size":"16x16","idiom":"mac","filename":"icon_16x16.png","scale":"1x"},
@@ -88,20 +91,58 @@ cat > "$APPICON_SET/Contents.json" <<'JSON'
 }
 JSON
 
-ACTOOL_OUT="$MAC_DIR/build/actool-out"
-rm -rf "$ACTOOL_OUT"
-mkdir -p "$ACTOOL_OUT"
-xcrun actool "$ASSET_CATALOG" \
-  --compile "$ACTOOL_OUT" \
-  --platform macosx \
-  --minimum-deployment-target 14.0 \
-  --app-icon AppIcon \
-  --output-partial-info-plist "$MAC_DIR/build/AppIcon-partial.plist" \
-  >/dev/null
+  local actool_out="$MAC_DIR/build/actool-out"
+  local actool_log="$MAC_DIR/build/actool.log"
+  rm -rf "$actool_out"
+  mkdir -p "$actool_out"
+  if xcrun actool "$ASSET_CATALOG" \
+    --compile "$actool_out" \
+    --platform macosx \
+    --minimum-deployment-target 14.0 \
+    --app-icon AppIcon \
+    --output-partial-info-plist "$MAC_DIR/build/AppIcon-partial.plist" \
+    >"$actool_log" 2>&1; then
+    cp "$actool_out/AppIcon.icns" "$ICNS_OUT"
+    cp "$actool_out/Assets.car" "$CAR_OUT"
+    echo "actool" >"$METHOD_FILE"
+    return 0
+  fi
+  return 1
+}
 
-cp "$ACTOOL_OUT/AppIcon.icns" "$ICNS_OUT"
-cp "$ACTOOL_OUT/Assets.car" "$CAR_OUT"
+build_appicon_iconutil() {
+  echo "==> Building AppIcon (transparent light) via iconutil fallback"
+  local iconset="$MAC_DIR/build/AppIcon.iconset"
+  rm -rf "$iconset"
+  mkdir -p "$iconset"
+  make_icon() {
+    sips -z "$1" "$1" "$SRC_APP_LIGHT" --out "$iconset/$2" >/dev/null
+  }
+  make_icon 16 icon_16x16.png
+  make_icon 32 icon_16x16@2x.png
+  make_icon 32 icon_32x32.png
+  make_icon 64 icon_32x32@2x.png
+  make_icon 128 icon_128x128.png
+  make_icon 256 icon_128x128@2x.png
+  make_icon 256 icon_256x256.png
+  make_icon 512 icon_256x256@2x.png
+  make_icon 512 icon_512x512.png
+  make_icon 1024 icon_512x512@2x.png
+  iconutil -c icns "$iconset" -o "$ICNS_OUT"
+  rm -f "$CAR_OUT"
+  echo "iconutil" >"$METHOD_FILE"
+}
 
-echo "==> Icons ready: $ICNS_OUT"
-echo "    Assets.car: $CAR_OUT"
+if ! build_appicon_actool; then
+  echo "WARN: actool failed — using iconutil fallback (no dual Finder light/dark)." >&2
+  echo "      In-app/About icons still switch with system appearance." >&2
+  echo "      For full Finder icons: install Xcode, then run: sudo xcodebuild -runFirstLaunch" >&2
+  if [[ -f "$MAC_DIR/build/actool.log" ]]; then
+    rg -i "plugin|ibtoold|xcodebuild -runFirstLaunch" "$MAC_DIR/build/actool.log" >&2 || tail -3 "$MAC_DIR/build/actool.log" >&2
+  fi
+  build_appicon_iconutil
+fi
+
+echo "==> Icons ready: $ICNS_OUT ($(cat "$METHOD_FILE"))"
+[[ -f "$CAR_OUT" ]] && echo "    Assets.car: $CAR_OUT"
 echo "    Brand: $OUT_BRAND"
