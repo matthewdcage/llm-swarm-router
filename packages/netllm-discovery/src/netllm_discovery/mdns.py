@@ -49,7 +49,7 @@ class MdnsAdvertiser:
         listen: str,
         agent_id: str,
         role: str,
-        version: str = "0.2.3",
+        version: str = "0.2.3.1",
     ) -> None:
         self.listen = listen
         self.agent_id = agent_id

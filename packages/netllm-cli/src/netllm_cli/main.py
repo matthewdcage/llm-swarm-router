@@ -58,7 +58,7 @@ from netllm_cli.ui import (
     providers_table,
 )
 
-__version__ = "0.2.3"
+__version__ = "0.2.3.1"
 
 app = typer.Typer(
     name="netllm",

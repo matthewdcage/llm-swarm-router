@@ -25,7 +25,7 @@ From a repo checkout (Mac mini with git clone):
 ./scripts/upgrade-mac-app.sh ~/Downloads/llm-swarm-router.dmg
 ```
 
-Without a clone, use the installer bundled inside the app (v0.2.3+ rebuild) or copy `packaging/scripts/macos-app-install.sh` from the repo:
+Without a clone, use the installer bundled inside the app (v0.2.3.1+ DMG):
 
 ```bash
 INSTALLER="/Applications/llm-swarm-router.app/Contents/Resources/Scripts/macos-app-install.sh"

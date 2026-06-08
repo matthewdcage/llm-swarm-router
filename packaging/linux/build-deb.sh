@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-VERSION="${NETLLM_VERSION:-0.2.3}"
+VERSION="${NETLLM_VERSION:-0.2.3.1}"
 ARCH="${NETLLM_DEB_ARCH:-amd64}"
 STAGE="${ROOT}/packaging/linux/stage"
 PKGROOT="${STAGE}/netllm_${VERSION}_${ARCH}"
