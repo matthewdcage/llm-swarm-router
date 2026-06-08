@@ -202,10 +202,13 @@ final class ServerProcess: @unchecked Sendable {
 
         switch state {
         case .starting:
-            if healthy {
+            // Only mark running when our child process is alive. Another netllm
+            // instance on the same port would also pass /health and cause a
+            // false "running" state (e.g. stale ./netllm serve in a terminal).
+            if healthy, let proc = process, proc.isRunning {
                 consecutiveFailures = 0
                 lastHealthyAt = Date()
-                update(.running(pid: process?.processIdentifier ?? 0))
+                update(.running(pid: proc.processIdentifier))
             }
         case .running(let pid), .unresponsive(let pid):
             if healthy {
