@@ -26,11 +26,20 @@ if [[ -d "$INSTALL_PATH" ]]; then
 fi
 
 echo "==> Mounting DMG and copying to Applications (automates the drag)"
-MOUNT="$(hdiutil attach "$DMG" -nobrowse -quiet | awk 'END {print $3}')"
+# -quiet suppresses mount path output; parse the /Volumes/ line from attach instead.
+MOUNT="$(hdiutil attach "$DMG" -nobrowse 2>&1 | awk '/\/Volumes\// {print $NF; exit}')"
+if [[ -z "$MOUNT" || ! -d "$MOUNT" ]]; then
+  echo "Failed to mount DMG: $DMG" >&2
+  exit 1
+fi
 trap 'hdiutil detach "$MOUNT" -quiet 2>/dev/null || true' EXIT
 SOURCE="$MOUNT/$APP_NAME"
 [[ -d "$SOURCE" ]] || SOURCE="$MOUNT/netllm-mac.app"
-[[ -d "$SOURCE" ]] || { echo "App not found on DMG volume" >&2; exit 1; }
+[[ -d "$SOURCE" ]] || {
+  echo "App not found on DMG volume ($MOUNT). Contents:" >&2
+  ls -la "$MOUNT" >&2 || true
+  exit 1
+}
 ditto "$SOURCE" "$INSTALL_PATH"
 xattr -dr com.apple.quarantine "$INSTALL_PATH" 2>/dev/null || true
 
