@@ -66,8 +66,13 @@ def test_merge_discovered_provider_urls() -> None:
 
 
 @pytest.mark.asyncio
-async def test_scan_finds_omlx_on_alternate_port() -> None:
+async def test_scan_finds_omlx_on_alternate_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     cfg = NetllmConfig()
+    # omlx is macOS-default only; include explicitly so scan runs on Linux/Windows CI.
+    cfg.discovery.providers = ["omlx", "ollama", "lmstudio", "vllm"]
+    monkeypatch.setenv("OMLX_PORT", "8088")
 
     async def fake_probe(url: str, client, api_key: str = "") -> dict | None:
         if url == "http://127.0.0.1:8088/v1":
@@ -124,6 +129,7 @@ def test_linux_default_providers(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.asyncio
 async def test_scan_uses_config_provider_url_before_scan() -> None:
     cfg = NetllmConfig()
+    cfg.discovery.providers = ["omlx", "ollama", "lmstudio", "vllm"]
     cfg.discovery.provider_urls = {"omlx": ["http://127.0.0.1:9999/v1"]}
     seen: list[str] = []
 

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-VERSION="${NETLLM_VERSION:-0.2.1}"
+VERSION="${NETLLM_VERSION:-0.2.2}"
 RELEASE="${NETLLM_RPM_RELEASE:-1}"
 STAGE="${ROOT}/packaging/linux/rpm-stage"
 TOPDIR="${STAGE}/rpmbuild"
@@ -12,7 +12,9 @@ rm -rf "${STAGE}"
 mkdir -p "${TOPDIR}"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 
 tar -czf "${TOPDIR}/SOURCES/netllm-${VERSION}.tar.gz" \
-  --exclude=.git --exclude=dist --exclude=packaging/linux/stage \
+  --exclude=.git --exclude=dist \
+  --exclude=packaging/linux/stage --exclude=packaging/linux/rpm-stage \
+  --exclude=packaging/windows/stage \
   -C "${ROOT}" .
 
 sed "s/@VERSION@/${VERSION}/g; s/@RELEASE@/${RELEASE}/g" \

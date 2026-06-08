@@ -4,13 +4,40 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build (e.g. 0.2.2); defaults to pyproject.toml
+        required: false
+        type: string
 
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      netllm_version: ${{ steps.version.outputs.netllm_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            ver="${{ github.event.release.tag_name }}"
+            ver="${ver#v}"
+          elif [ -n "${{ inputs.version }}" ]; then
+            ver="${{ inputs.version }}"
+            ver="${ver#v}"
+          else
+            ver="$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          fi
+          echo "netllm_version=$ver" >> "$GITHUB_OUTPUT"
+          echo "Building netllm version $ver"
+
   build-macos:
+    needs: resolve-version
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +60,66 @@ jobs:
         with:
           files: dist/llm-swarm-router.dmg
 
+  build-linux:
+    needs: resolve-version
+    runs-on: ubuntu-latest
+    env:
+      NETLLM_VERSION: ${{ needs.resolve-version.outputs.netllm_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: sudo apt-get update && sudo apt-get install -y dpkg-dev rpm
+      - run: chmod +x packaging/linux/build-deb.sh packaging/linux/build-rpm.sh
+      - run: NETLLM_VERSION="$NETLLM_VERSION" packaging/linux/build-deb.sh
+      - run: NETLLM_VERSION="$NETLLM_VERSION" packaging/linux/build-rpm.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: netllm-linux-packages
+          path: |
+            dist/*.deb
+            dist/*.rpm
+      - name: Attach Linux packages to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.deb
+            dist/*.rpm
+
+  build-windows:
+    needs: resolve-version
+    runs-on: windows-latest
+    env:
+      NETLLM_VERSION: ${{ needs.resolve-version.outputs.netllm_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - shell: pwsh
+        run: ./packaging/windows/build-zip.ps1 -Version $env:NETLLM_VERSION
+      - shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist/netllm-*-windows-x64.zip | Select-Object -First 1
+          ./packaging/scripts/update-winget-manifest.ps1 -Version $env:NETLLM_VERSION -ZipPath $zip.FullName
+      - uses: actions/upload-artifact@v4
+        with:
+          name: netllm-windows-zip
+          path: |
+            dist/netllm-*-windows-x64.zip
+            packaging/windows/winget/netllm.yaml
+      - name: Attach Windows zip and winget manifest to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/netllm-*-windows-x64.zip
+            packaging/windows/winget/netllm.yaml
+
   update-homebrew-formula:
+    needs: resolve-version
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     steps:

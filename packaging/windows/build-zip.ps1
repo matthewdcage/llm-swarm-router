@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.2.1"
+    [string]$Version = "0.2.2"
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,7 +15,8 @@ New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 Push-Location $Root
 try {
     uv sync
-    uv pip install -e . --no-dev --target $Prefix
+    $env:UV_PROJECT_ENVIRONMENT = $Prefix
+    uv sync --no-dev --no-editable --python (Join-Path $Root ".venv\Scripts\python.exe")
 } finally {
     Pop-Location
 }
@@ -24,7 +25,7 @@ Copy-Item (Join-Path $PSScriptRoot "install-service.ps1") (Join-Path $Prefix "in
 
 @'
 @echo off
-"%~dp0python\Scripts\netllm.exe" %*
+"%~dp0Scripts\netllm.exe" %*
 '@ | Set-Content -Encoding ASCII (Join-Path $Prefix "netllm.cmd")
 
 $ZipName = "netllm-$Version-windows-x64.zip"

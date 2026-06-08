@@ -64,7 +64,7 @@ Agent lifespan runs provider discovery on start and persists URLs to config (all
 | `netllm-*-windows-x64.zip` | Windows (beta) |
 | `winget-manifest.yaml` | Windows winget SHA snippet |
 
-Built by [.github/workflows/release.yml](../.github/workflows/release.yml) on `release: published`.
+Built by [.github/workflows/release.yml](../.github/workflows/release.yml) on `release: published` (macOS DMG, Linux deb/rpm, Windows zip + winget manifest).
 
 ## Logs
 

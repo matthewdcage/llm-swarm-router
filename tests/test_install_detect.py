@@ -39,11 +39,11 @@ def test_is_app_bundle_env() -> None:
 
 
 def test_is_app_bundle_path_marker() -> None:
-    fake = Path(
+    fake = (
         "/Applications/netllm-mac.app/Contents/Resources/"
         "netllm_packages/netllm_cli/install_detect.py"
     )
-    with patch.object(Path, "resolve", return_value=fake):
+    with patch("netllm_cli.install_detect.__file__", fake):
         assert is_app_bundle() is True
 
 

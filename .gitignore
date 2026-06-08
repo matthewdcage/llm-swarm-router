@@ -14,6 +14,9 @@ build/
 packaging/_build/
 packaging/_export/
 packaging/_artifacts/
+packaging/linux/stage/
+packaging/linux/rpm-stage/
+packaging/windows/stage/
 packaging/requirements/
 packaging/venvstacks.generated.toml
 packaging/requirements-netllm.txt

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-VERSION="${NETLLM_VERSION:-0.2.1}"
+VERSION="${NETLLM_VERSION:-0.2.2}"
 ARCH="${NETLLM_DEB_ARCH:-amd64}"
 STAGE="${ROOT}/packaging/linux/stage"
 PKGROOT="${STAGE}/netllm_${VERSION}_${ARCH}"
@@ -14,9 +14,10 @@ mkdir -p "${PKGROOT}/usr/lib/systemd/user"
 mkdir -p "${PKGROOT}/DEBIAN"
 
 uv sync --directory "${ROOT}"
-uv pip install --python "${ROOT}/.venv/bin/python" \
-  -e "${ROOT}" --no-dev \
-  --target "${PKGROOT}/usr/lib/netllm"
+mkdir -p "${PKGROOT}/usr/lib/netllm"
+export UV_PROJECT_ENVIRONMENT="${PKGROOT}/usr/lib/netllm"
+uv sync --directory "${ROOT}" --no-dev --no-editable \
+  --python "${ROOT}/.venv/bin/python"
 
 cat >"${PKGROOT}/usr/bin/netllm" <<'EOF'
 #!/usr/bin/env bash

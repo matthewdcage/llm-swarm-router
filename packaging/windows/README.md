@@ -1,7 +1,8 @@
 # netllm Windows packaging
 
-Build scripts produce a portable zip with venv + service install helper. MSI/winget
-manifests reference GitHub Release artifacts from `release-windows.yml`.
+Build scripts produce a portable zip with venv + service install helper. Release
+assets are built by [.github/workflows/release.yml](../../.github/workflows/release.yml)
+on `release: published` (deprecated manual workflow: `release-windows.yml`).
 
 ## Layout
 

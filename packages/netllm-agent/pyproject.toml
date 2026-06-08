@@ -1,6 +1,6 @@
 [project]
 name = "netllm-agent"
-version = "0.2.1"
+version = "0.2.2"
 description = "FastAPI agent daemon for netllm swarm routing"
 requires-python = ">=3.11"
 dependencies = [

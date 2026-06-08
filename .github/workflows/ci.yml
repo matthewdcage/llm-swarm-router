@@ -36,3 +36,48 @@ jobs:
       - name: Test
         run: bash scripts/ci.sh test
         shell: bash
+
+  packaging-smoke:
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: netllm-linux-packages
+            artifact_path: |
+              dist/*.deb
+              dist/*.rpm
+          - os: windows-latest
+            artifact: netllm-windows-zip
+            artifact_path: dist/netllm-*-windows-x64.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev rpm
+      - name: Packaging smoke
+        env:
+          NETLLM_VERSION: 0.0.0-dev
+        run: bash scripts/ci.sh packaging
+        shell: bash
+      - name: Verify zip contents
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist/netllm-*-windows-x64.zip | Select-Object -First 1
+          Expand-Archive -Path $zip.FullName -DestinationPath dist/zip-check -Force
+          @('netllm.cmd', 'install-service.ps1') | ForEach-Object {
+            if (-not (Test-Path "dist/zip-check/$_")) { throw "missing $_ in zip" }
+          }
+          if (-not (Test-Path dist/zip-check/Scripts/netllm.exe)) {
+            throw 'missing Scripts/netllm.exe in zip'
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact_path }}
