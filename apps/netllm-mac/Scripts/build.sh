@@ -18,6 +18,10 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 version() {
+  if [[ -n "${NETLLM_VERSION:-}" ]]; then
+    echo "$NETLLM_VERSION"
+    return
+  fi
   # Use workspace Python (3.11+); system python3 on macOS may be 3.9/3.10 without tomllib.
   (cd "$ROOT" && uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
 }

@@ -52,6 +52,7 @@ struct NetllmConfigDocument: Codable, Sendable {
     struct UiSection: Codable, Sendable {
         var auto_start_on_launch: Bool = true
         var log_dir: String = ""
+        var check_for_updates_automatically: Bool = true
     }
 
     var bindHost: String {
@@ -80,6 +81,14 @@ struct NetllmConfigDocument: Codable, Sendable {
     var isLanMode: Bool {
         bindHost == "0.0.0.0"
     }
+}
+
+struct AgentVersionPayload: Sendable {
+    var version: String = ""
+    var platform: String = ""
+    var installMethod: String = ""
+    var openaiSDK: String = ""
+    var anthropicSDK: String = ""
 }
 
 struct AgentStatusPayload: Sendable {

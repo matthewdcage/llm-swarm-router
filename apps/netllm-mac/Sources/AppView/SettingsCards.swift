@@ -180,3 +180,96 @@ enum AppVersionInfo {
         #endif
     }
 }
+
+struct UpdateBannerCard: View {
+    @Bindable var controller: UpdateController
+
+    var body: some View {
+        SettingsSurfaceCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    SettingsSectionTitle(title: "Updates")
+                    Spacer()
+                    Button("Check for Updates") {
+                        Task { await controller.checkOnce(force: true) }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
+                switch controller.state {
+                case .idle:
+                    Text("You're on the latest version (v\(AppVersionInfo.short)).")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                case .checking:
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Checking for updates…")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                case .available(let release):
+                    Text("Update available: v\(release.version) (you have v\(AppVersionInfo.short)).")
+                        .font(.subheadline)
+                    updateActions(release: release, readyDMG: nil)
+                case .downloading:
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Downloading update…")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                case .readyToInstall(_, let release):
+                    Text("Download complete — ready to install v\(release.version).")
+                        .font(.subheadline)
+                    updateActions(release: release, readyDMG: true)
+                case .installing:
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Installing update…")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                case .failed(let message):
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func updateActions(release: GitHubRelease, readyDMG: Bool?) -> some View {
+        HStack(spacing: 8) {
+            if readyDMG == true, InstallLocation.canAutoInstall() {
+                Button("Install and Quit") {
+                    Task { await controller.installFromReadyState() }
+                }
+                .buttonStyle(.borderedProminent)
+            } else if readyDMG == nil {
+                if InstallLocation.canAutoInstall() {
+                    Button("Download Update") {
+                        Task { await controller.downloadUpdate(release: release) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else {
+                    Button("Download in Browser") {
+                        controller.openDownloadInBrowser(for: release)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            } else {
+                Button("Open Download") {
+                    controller.openDownloadInBrowser(for: release)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            Button("Release Notes") {
+                controller.openReleaseNotes(for: release)
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+}

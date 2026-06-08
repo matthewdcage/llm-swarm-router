@@ -15,6 +15,7 @@ import httpx
 import typer
 from netllm_core.config import default_config_path, load_config, save_config
 from netllm_core.models import NetllmConfig
+from netllm_core.version import get_version
 from netllm_discovery.lan import (
     discover_lan_agents,
     models_from_status,
@@ -58,7 +59,7 @@ from netllm_cli.ui import (
     providers_table,
 )
 
-__version__ = "0.2.3.1"
+__version__ = get_version()
 
 app = typer.Typer(
     name="netllm",

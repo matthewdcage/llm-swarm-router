@@ -21,6 +21,8 @@ EXPECTED_HTTP_ROUTES = {
     "/v1/chat/completions",
     "/v1/messages",
     "/netllm/v1/status",
+    "/netllm/v1/version",
+    "/netllm/v1/update/check",
     "/netllm/v1/doctor",
     "/netllm/v1/config",
     "/netllm/v1/client-env",
@@ -86,36 +88,27 @@ def test_fastapi_routes_registered() -> None:
 def test_install_method_darwin_channels() -> None:
     from netllm_cli.install_detect import get_install_method
 
-    with patch("netllm_cli.install_detect.is_app_bundle", return_value=True):
+    core = "netllm_core.install_detect"
+    with patch(f"{core}.is_app_bundle", return_value=True):
         assert get_install_method() == "app"
-    with patch("netllm_cli.install_detect.is_app_bundle", return_value=False):
-        with patch("netllm_cli.install_detect.is_homebrew", return_value=True):
+    with patch(f"{core}.is_app_bundle", return_value=False):
+        with patch(f"{core}.is_homebrew", return_value=True):
             assert get_install_method() == "homebrew"
-    with patch("netllm_cli.install_detect.is_app_bundle", return_value=False):
-        with patch("netllm_cli.install_detect.is_homebrew", return_value=False):
-            with patch(
-                "netllm_cli.install_detect.is_linux_systemd",
-                return_value=False,
-            ):
-                with patch(
-                    "netllm_cli.install_detect.is_windows_service", return_value=False
-                ):
+    with patch(f"{core}.is_app_bundle", return_value=False):
+        with patch(f"{core}.is_homebrew", return_value=False):
+            with patch(f"{core}.is_linux_systemd", return_value=False):
+                with patch(f"{core}.is_windows_service", return_value=False):
                     assert get_install_method() == "source"
 
 
 def test_install_method_windows_service() -> None:
     from netllm_cli.install_detect import get_install_method
 
-    with patch("netllm_cli.install_detect.is_app_bundle", return_value=False):
-        with patch("netllm_cli.install_detect.is_homebrew", return_value=False):
-            with patch(
-                "netllm_cli.install_detect.is_linux_systemd",
-                return_value=False,
-            ):
-                with patch(
-                    "netllm_cli.install_detect.is_windows_service",
-                    return_value=True,
-                ):
+    core = "netllm_core.install_detect"
+    with patch(f"{core}.is_app_bundle", return_value=False):
+        with patch(f"{core}.is_homebrew", return_value=False):
+            with patch(f"{core}.is_linux_systemd", return_value=False):
+                with patch(f"{core}.is_windows_service", return_value=True):
                     assert get_install_method() == "windows-service"
 
 

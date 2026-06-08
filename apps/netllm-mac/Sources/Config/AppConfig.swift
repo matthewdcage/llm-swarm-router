@@ -5,6 +5,7 @@ struct AppConfig: Sendable {
     var bindHost: String
     var port: Int
     var autoStartOnLaunch: Bool
+    var checkForUpdatesAutomatically: Bool
     var role: String
     var advertise: Bool
     var mdns: Bool
@@ -34,6 +35,7 @@ struct AppConfig: Sendable {
         var host = "127.0.0.1"
         var port = 11400
         var autoStart = true
+        var checkUpdates = true
         var role = "peer"
         var advertise = true
         var mdns = true
@@ -49,6 +51,8 @@ struct AppConfig: Sendable {
                     }
                 } else if trimmed.hasPrefix("auto_start_on_launch") {
                     if let v = parseTomlBool(trimmed) { autoStart = v }
+                } else if trimmed.hasPrefix("check_for_updates_automatically") {
+                    if let v = parseTomlBool(trimmed) { checkUpdates = v }
                 } else if trimmed.hasPrefix("role") && trimmed.contains("=") {
                     if let v = parseTomlString(trimmed) { role = v }
                 } else if trimmed.hasPrefix("advertise") {
@@ -64,6 +68,7 @@ struct AppConfig: Sendable {
             bindHost: host,
             port: port,
             autoStartOnLaunch: autoStart,
+            checkForUpdatesAutomatically: checkUpdates,
             role: role,
             advertise: advertise,
             mdns: mdns,
@@ -97,6 +102,7 @@ struct AppConfig: Sendable {
                 "",
                 "[ui]",
                 "auto_start_on_launch = true",
+                "check_for_updates_automatically = true",
             ]
         }
 

@@ -15,6 +15,15 @@
         "AUTH_HEADER": "Bearer local-dev",
         "USER_NAME": "your-peer-id"
       }
+    },
+    "graphify": {
+      "command": "/path/from/graphify-out/.graphify_python",
+      "args": [
+        "-m",
+        "graphify.serve",
+        "/absolute/path/to/repo/graphify-out/graph.json"
+      ],
+      "description": "Graphify Knowledge Graph MCP Server (run graphify update . first)."
     }
   }
 }

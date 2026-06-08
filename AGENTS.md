@@ -108,14 +108,15 @@ Build: `apps/netllm-mac/Scripts/build.sh release` (requires `venvstacks` + `uv s
 
 ## SDK maintenance
 
-Vendor SDKs are isolated in `netllm-sdk-openai` and `netllm-sdk-anthropic` only, `netllm-core` never imports `openai` or `anthropic`.
+Vendor SDKs are isolated in `netllm-sdk-openai` and `netllm-sdk-anthropic` only, `netllm-core` never imports `openai` or `anthropic`. Tracked versions: [docs/sdk-versions.md](docs/sdk-versions.md).
 
 **Bump checklist** (one package per PR):
 
 1. Edit `anthropic>=…` or `openai>=…` in the matching `packages/netllm-sdk-*/pyproject.toml`
-2. `uv sync`
-3. `uv run pytest packages/netllm-sdk-anthropic/tests/ tests/test_anthropic_bridge.py tests/test_agent.py -v`
-4. Read upstream SDK changelog; adjust only `client.py` in that package if needed
+2. `uv sync` and commit `uv.lock`
+3. Update [docs/sdk-versions.md](docs/sdk-versions.md) (resolved version + date)
+4. `./scripts/ci.sh sdk` then `./scripts/ci.sh`
+5. Read upstream SDK changelog; adjust adapter (`client.py`), bridge (`anthropic_bridge.py`), or agent layer per [docs/sdk-versions.md](docs/sdk-versions.md#change-layers)
 
 ## Agent skills
 
@@ -161,6 +162,7 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - Assume `netllm` is on PATH: prefer `./netllm` from repo root in instructions
 - Skip `./netllm doctor` before declaring setup complete
 - Auto-edit user editor `settings.json` without explicit consent
+- macOS menubar in-app install only works from `/Applications/llm-swarm-router.app` or `netllm-mac.app`; web dashboard proxies update checks via `GET /netllm/v1/update/check`
 
 ## Learned facts
 

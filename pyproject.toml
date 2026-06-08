@@ -1,6 +1,6 @@
 [project]
 name = "netllm"
-version = "0.2.3.1"
+version = "0.2.3.2"
 description = "Network LLM router — swarm agents with OpenAI-compatible gateway"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -55,7 +55,11 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests", "packages/netllm-sdk-anthropic/tests"]
+testpaths = [
+    "tests",
+    "packages/netllm-sdk-openai/tests",
+    "packages/netllm-sdk-anthropic/tests",
+]
 
 [tool.ruff]
 line-length = 88

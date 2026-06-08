@@ -43,6 +43,7 @@ Examples of issues we want to hear about:
   `swarm.cluster_token` on untrusted networks
 - Secrets or credentials committed to the repository
 - Supply-chain issues in release artifacts (DMG, deb, rpm, zip)
+- Tampered or mismatched update downloads (menubar verifies SHA256 sidecars when present)
 - mDNS / swarm peer spoofing that leads to request hijacking
 
 ## Out of scope (generally)

@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 # shellcheck source=rpm-version.sh
 source "$(dirname "$0")/rpm-version.sh"
-VERSION="${NETLLM_VERSION:-0.2.3.1}"
+VERSION="${NETLLM_VERSION:-0.2.3.2}"
 RPM_VERSION="$(netllm_rpm_version "$VERSION")"
 RELEASE="${NETLLM_RPM_RELEASE:-1}"
 STAGE="${ROOT}/packaging/linux/rpm-stage"

@@ -127,6 +127,7 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
         "ui": {
             "auto_start_on_launch": cfg.ui.auto_start_on_launch,
             "log_dir": cfg.ui.log_dir or str(cfg.resolved_log_dir()),
+            "check_for_updates_automatically": cfg.ui.check_for_updates_automatically,
         },
     }
 

@@ -29,3 +29,33 @@ updates:
         patterns:
           - openai
           - anthropic
+
+  - package-ecosystem: pip
+    directory: /packages/netllm-sdk-openai
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+    labels:
+      - dependencies
+      - sdk-bump
+    groups:
+      sdk:
+        patterns:
+          - openai
+          - anthropic
+
+  - package-ecosystem: pip
+    directory: /packages/netllm-sdk-anthropic
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+    labels:
+      - dependencies
+      - sdk-bump
+    groups:
+      sdk:
+        patterns:
+          - openai
+          - anthropic

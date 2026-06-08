@@ -1,0 +1,69 @@
+name: SDK Canary
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Sync locked workspace
+        run: uv sync --frozen
+      - name: Install latest vendor SDKs
+        run: uv pip install --upgrade openai anthropic
+      - name: Report canary versions
+        run: uv run python -c "import openai, anthropic; print('openai', openai.__version__); print('anthropic', anthropic.__version__)"
+      - name: SDK contract tests (latest upstream)
+        run: bash scripts/ci.sh sdk
+        shell: bash
+      - name: Open or update sdk-canary issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = "sdk-canary: latest openai/anthropic failed contract tests";
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              "Weekly SDK canary failed after installing the latest `openai` and `anthropic` packages.",
+              "",
+              `Workflow run: ${runUrl}`,
+              "",
+              "Next steps:",
+              "1. Review upstream SDK changelogs",
+              "2. Run `./scripts/ci.sh sdk` locally with latest SDKs",
+              "3. Bump pins in `packages/netllm-sdk-*/pyproject.toml` and update `docs/sdk-versions.md`",
+            ].join("\n");
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: "sdk-canary",
+              per_page: 5,
+            });
+            const existing = issues.find((issue) => issue.title === title);
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Canary failed again.\n\n${body}`,
+              });
+              return;
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ["sdk-canary"],
+            });

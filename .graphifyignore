@@ -1,6 +1,10 @@
 # Exclude embedded runtimes and build artifacts from graphify corpus
 packaging/_build/
 packaging/_export/
+packaging/linux/stage/
+packaging/linux/rpm-stage/
+**/build/Stage/**
+**/site-packages/**
 dist/
 .venv/
 venv/

@@ -14,19 +14,15 @@ from netllm_cli.install_detect import (
     is_source,
 )
 
+_CORE = "netllm_core.install_detect"
+
 
 def test_is_source_by_default() -> None:
     with patch.dict("os.environ", {}, clear=False):
-        with patch("netllm_cli.install_detect.is_app_bundle", return_value=False):
-            with patch("netllm_cli.install_detect.is_homebrew", return_value=False):
-                with patch(
-                    "netllm_cli.install_detect.is_linux_systemd",
-                    return_value=False,
-                ):
-                    with patch(
-                        "netllm_cli.install_detect.is_windows_service",
-                        return_value=False,
-                    ):
+        with patch(f"{_CORE}.is_app_bundle", return_value=False):
+            with patch(f"{_CORE}.is_homebrew", return_value=False):
+                with patch(f"{_CORE}.is_linux_systemd", return_value=False):
+                    with patch(f"{_CORE}.is_windows_service", return_value=False):
                         assert is_source() is True
                         assert get_install_method() == "source"
 
@@ -43,7 +39,7 @@ def test_is_app_bundle_path_marker() -> None:
         "/Applications/netllm-mac.app/Contents/Resources/"
         "netllm_packages/netllm_cli/install_detect.py"
     )
-    with patch("netllm_cli.install_detect.__file__", fake):
+    with patch(f"{_CORE}.__file__", fake):
         assert is_app_bundle() is True
 
 
@@ -52,7 +48,7 @@ def test_is_app_bundle_path_marker_windows_slashes() -> None:
         r"C:\Applications\netllm-mac.app\Contents\Resources"
         r"\netllm_packages\netllm_cli\install_detect.py"
     )
-    with patch("netllm_cli.install_detect.__file__", fake):
+    with patch(f"{_CORE}.__file__", fake):
         assert is_app_bundle() is True
 
 
@@ -68,22 +64,19 @@ def test_user_cli_shim_xdg() -> None:
 
 
 def test_is_linux_systemd_unit_present() -> None:
-    with patch("netllm_cli.install_detect.is_linux_systemd", return_value=True):
-        with patch("netllm_cli.install_detect.is_app_bundle", return_value=False):
-            with patch("netllm_cli.install_detect.is_homebrew", return_value=False):
+    with patch(f"{_CORE}.is_linux_systemd", return_value=True):
+        with patch(f"{_CORE}.is_app_bundle", return_value=False):
+            with patch(f"{_CORE}.is_homebrew", return_value=False):
                 assert get_install_method() == "linux-systemd"
 
 
 def test_is_windows_service_registered() -> None:
-    with patch("netllm_cli.install_detect.sys.platform", "win32"):
-        with patch("netllm_cli.install_detect.is_app_bundle", return_value=False):
-            with patch("netllm_cli.install_detect.is_homebrew", return_value=False):
-                with patch(
-                    "netllm_cli.install_detect.is_linux_systemd",
-                    return_value=False,
-                ):
+    with patch(f"{_CORE}.sys.platform", "win32"):
+        with patch(f"{_CORE}.is_app_bundle", return_value=False):
+            with patch(f"{_CORE}.is_homebrew", return_value=False):
+                with patch(f"{_CORE}.is_linux_systemd", return_value=False):
                     with patch(
-                        "netllm_cli.install_detect.subprocess.run",
+                        f"{_CORE}.subprocess.run",
                         return_value=type(
                             "R",
                             (),
@@ -91,3 +84,29 @@ def test_is_windows_service_registered() -> None:
                         )(),
                     ):
                         assert get_install_method() == "windows-service"
+
+
+def test_can_applications_auto_install_applications_path() -> None:
+    from netllm_core.install_detect import can_applications_auto_install
+
+    with patch.dict(
+        "os.environ",
+        {"NETLLM_BUNDLE_PATH": "/Applications/llm-swarm-router.app"},
+    ):
+        assert can_applications_auto_install() is True
+
+    with patch.dict(
+        "os.environ",
+        {"NETLLM_BUNDLE_PATH": "/Applications/netllm-mac.app"},
+    ):
+        assert can_applications_auto_install() is True
+
+
+def test_can_applications_auto_install_rejects_stage_build() -> None:
+    from netllm_core.install_detect import can_applications_auto_install
+
+    with patch.dict(
+        "os.environ",
+        {"NETLLM_BUNDLE_PATH": "/Users/dev/build/Stage/llm-swarm-router.app"},
+    ):
+        assert can_applications_auto_install() is False

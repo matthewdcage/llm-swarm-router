@@ -5,13 +5,21 @@ final class MenubarController {
     private let statusItem: NSStatusItem
     private let server: ServerProcess
     private let config: AppConfig
+    private let updateController: UpdateController
     private let statsPoller: StatsPoller
     private var statsMenu: NSMenuItem?
+    private var updateMenu: NSMenuItem?
     private let onOpenSettings: () -> Void
 
-    init(server: ServerProcess, config: AppConfig, onOpenSettings: @escaping () -> Void) {
+    init(
+        server: ServerProcess,
+        config: AppConfig,
+        updateController: UpdateController,
+        onOpenSettings: @escaping () -> Void
+    ) {
         self.server = server
         self.config = config
+        self.updateController = updateController
         self.onOpenSettings = onOpenSettings
         self.statsPoller = StatsPoller(host: config.bindHost == "0.0.0.0" ? "127.0.0.1" : config.bindHost, port: config.port)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -35,6 +43,17 @@ final class MenubarController {
                 self.updateStatsSubmenu()
             }
         }
+        NotificationCenter.default.addObserver(
+            forName: .netllmUpdateStateDidChange,
+            object: updateController,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                self.rebuildMenu()
+                self.updateMenubarBadge()
+            }
+        }
     }
 
     private func rebuildMenu() {
@@ -51,6 +70,16 @@ final class MenubarController {
         menu.addItem(header)
         menu.addItem(.separator())
 
+        if let updateLine = updateController.statusLabel {
+            let updateHeader = NSMenuItem(title: updateLine, action: nil, keyEquivalent: "")
+            updateHeader.isEnabled = false
+            updateHeader.attributedTitle = NSAttributedString(
+                string: updateLine,
+                attributes: [.foregroundColor: NSColor.systemOrange]
+            )
+            menu.addItem(updateHeader)
+        }
+
         if server.isRunning {
             menu.addItem(actionItem("Stop Agent", #selector(stopAgent)))
             statsMenu = NSMenuItem(title: "Routing Stats", action: nil, keyEquivalent: "")
@@ -62,6 +91,10 @@ final class MenubarController {
             statsPoller.stop()
         }
 
+        menu.addItem(.separator())
+        updateMenu = NSMenuItem(title: "Updates", action: nil, keyEquivalent: "")
+        updateMenu?.submenu = buildUpdateSubmenu()
+        menu.addItem(updateMenu!)
         menu.addItem(.separator())
         menu.addItem(actionItem("Open Dashboard", #selector(openDashboard)))
         menu.addItem(actionItem("Open Status Page", #selector(openStatus)))
@@ -75,6 +108,55 @@ final class MenubarController {
 
         statusItem.menu = menu
         updateStatsSubmenu()
+        updateMenubarBadge()
+    }
+
+    private func buildUpdateSubmenu() -> NSMenu {
+        let submenu = NSMenu()
+        submenu.addItem(actionItem("Check for Updates…", #selector(checkForUpdates)))
+
+        switch updateController.state {
+        case .available(let release):
+            if InstallLocation.canAutoInstall() {
+                submenu.addItem(actionItem("Download Update v\(release.version)…", #selector(downloadUpdate)))
+            } else {
+                submenu.addItem(actionItem("Download v\(release.version) in Browser", #selector(openUpdateInBrowser)))
+            }
+        case .readyToInstall(_, let release):
+            if InstallLocation.canAutoInstall() {
+                submenu.addItem(actionItem("Install Update v\(release.version)…", #selector(installUpdate)))
+            } else {
+                submenu.addItem(actionItem("Open Download v\(release.version)", #selector(openUpdateInBrowser)))
+            }
+        case .downloading, .installing, .checking:
+            let item = NSMenuItem(title: updateController.statusLabel ?? "Working…", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            submenu.addItem(item)
+        case .failed(let message):
+            let item = NSMenuItem(title: message, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            submenu.addItem(item)
+        case .idle:
+            break
+        }
+
+        if updateController.availableRelease != nil {
+            submenu.addItem(actionItem("Release Notes…", #selector(openReleaseNotes)))
+        }
+        return submenu
+    }
+
+    private func updateMenubarBadge() {
+        guard let button = statusItem.button else { return }
+        let hasUpdate: Bool
+        switch updateController.state {
+        case .available, .readyToInstall:
+            hasUpdate = true
+        default:
+            hasUpdate = false
+        }
+        button.title = hasUpdate ? "●" : ""
+        button.image?.isTemplate = true
     }
 
     private func statusTitle() -> String {
@@ -222,6 +304,29 @@ final class MenubarController {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
+    @objc private func checkForUpdates() {
+        Task { await updateController.checkOnce(force: true) }
+    }
+
+    @objc private func downloadUpdate() {
+        guard case .available(let release) = updateController.state else { return }
+        Task { await updateController.downloadUpdate(release: release) }
+    }
+
+    @objc private func installUpdate() {
+        Task { await updateController.installFromReadyState() }
+    }
+
+    @objc private func openUpdateInBrowser() {
+        guard let release = updateController.availableRelease else { return }
+        updateController.openDownloadInBrowser(for: release)
+    }
+
+    @objc private func openReleaseNotes() {
+        guard let release = updateController.availableRelease else { return }
+        updateController.openReleaseNotes(for: release)
+    }
+
     @objc private func openSettings() { onOpenSettings() }
     @objc private func showAbout() {
         if let icon = BrandAssets.aboutIcon() {

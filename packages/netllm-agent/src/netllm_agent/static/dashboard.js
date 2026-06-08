@@ -17,12 +17,15 @@ const state = {
   config: null,
   configDraft: null,
   status: null,
+  versionInfo: null,
+  updateInfo: null,
   models: [],
   doctor: null,
   envText: "",
   lanPeers: [],
   healthy: false,
   pollTimer: null,
+  updatePollTimer: null,
 };
 
 function showToast(msg) {
@@ -113,8 +116,31 @@ function emptyConfigDraft() {
     discovery: { providers: [...PROVIDERS], provider_urls: {}, custom_endpoints: [] },
     swarm: { mdns: true, subnet_scan: false, subnet_cidrs: [], heartbeat_interval_s: 10, peers: [], cluster_token_set: false },
     routing: { default_strategy: "local_first", allow_remote: true, require_same_model_for_shard: true, backends: [], backend_count: 0 },
-    ui: { auto_start_on_launch: true, log_dir: "" },
+    ui: { auto_start_on_launch: true, log_dir: "", check_for_updates_automatically: true },
   };
+}
+
+function checkForUpdatesAutomatically() {
+  const ui = state.config?.ui || state.configDraft?.ui;
+  if (ui && ui.check_for_updates_automatically === false) return false;
+  return true;
+}
+
+async function loadVersionInfo() {
+  try {
+    state.versionInfo = await api("/netllm/v1/version");
+  } catch {
+    state.versionInfo = null;
+  }
+}
+
+async function loadUpdateCheck(force = false) {
+  try {
+    const q = force ? "?force=1" : "";
+    state.updateInfo = await api(`/netllm/v1/update/check${q}`);
+  } catch (e) {
+    state.updateInfo = { error: e.message, update_available: false };
+  }
 }
 
 function updateStatusBadge() {
@@ -217,10 +243,14 @@ function renderStatusTab() {
   const meta = el("div", "hero-meta");
   meta.style.flex = "1";
   meta.appendChild(textEl("h2", "", "llm-swarm-router"));
+  const versionLine = state.versionInfo?.version
+    ? `v${state.versionInfo.version}`
+    : "Version unknown";
+  meta.appendChild(textEl("p", "muted-sm", versionLine));
+  meta.appendChild(textEl("p", "", state.status?.listen_url || "—"));
   const sub1 = el("p");
   sub1.append("Mesh router for local LLM backends · CLI: ", codeEl("netllm"));
   meta.appendChild(sub1);
-  meta.appendChild(textEl("p", "", state.status?.listen_url || "—"));
   const badge = el("span", `badge ${state.healthy ? "ok" : "warn"}`);
   badge.appendChild(el("span", "dot"));
   badge.appendChild(document.createTextNode(state.healthy ? "Running" : "Unreachable"));
@@ -248,12 +278,32 @@ function renderStatusTab() {
 
   root.appendChild(textEl("div", "section-label", "System"));
   const sys = el("div", "card");
+  appendInfoRow(sys, "Version", state.versionInfo?.version ? `v${state.versionInfo.version}` : "—");
+  appendInfoRow(
+    sys,
+    "OpenAI SDK",
+    state.versionInfo?.sdk_versions?.openai
+      ? `v${state.versionInfo.sdk_versions.openai}`
+      : "—",
+  );
+  appendInfoRow(
+    sys,
+    "Anthropic SDK",
+    state.versionInfo?.sdk_versions?.anthropic
+      ? `v${state.versionInfo.sdk_versions.anthropic}`
+      : "—",
+  );
+  appendInfoRow(sys, "Install method", state.versionInfo?.install_method || "—");
+  appendInfoRow(sys, "Platform", state.versionInfo?.platform || "—");
   appendInfoRow(sys, "Agent ID", state.status?.agent_id);
   appendInfoRow(sys, "Hostname", state.status?.hostname);
   appendInfoRow(sys, "Role", state.status?.role);
   appendInfoRow(sys, "Strategy", state.status?.routing_strategy);
   appendInfoRow(sys, "Listen", state.status?.listen_url);
   root.appendChild(sys);
+
+  root.appendChild(textEl("div", "section-label", "Updates"));
+  root.appendChild(renderUpdateCard());
 
   root.appendChild(textEl("div", "section-label", "Quick actions"));
   const actions = el("div", "topbar-actions");
@@ -270,6 +320,76 @@ function renderStatusTab() {
   const hint = el("div", "card");
   hint.appendChild(textEl("p", "empty", "After changing listen address or port, restart the agent: netllm restart (packaged install) or menubar Settings → Restart Agent."));
   root.appendChild(hint);
+}
+
+function renderUpdateCard() {
+  const card = el("div", "card update-card");
+  const info = state.updateInfo;
+  const actions = el("div", "topbar-actions");
+
+  const checkBtn = textEl("button", "secondary", "Check for updates");
+  checkBtn.onclick = () => {
+    loadUpdateCheck(true)
+      .then(() => {
+        renderStatusTab();
+        showToast("Update check complete");
+      })
+      .catch((e) => showToast(e.message));
+  };
+  actions.appendChild(checkBtn);
+
+  if (!info) {
+    card.appendChild(textEl("p", "empty", "Loading update status…"));
+    card.appendChild(actions);
+    return card;
+  }
+
+  if (info.error && !info.update_available) {
+    card.appendChild(textEl("p", "empty", info.error));
+    card.appendChild(actions);
+    return card;
+  }
+
+  if (info.update_available) {
+    card.appendChild(
+      textEl(
+        "p",
+        "",
+        `Update available: v${info.latest} (you have v${info.current})`
+      )
+    );
+    if (info.upgrade_hint) {
+      const hintRow = el("div", "cmd");
+      hintRow.appendChild(codeEl(info.upgrade_hint));
+      const copy = textEl("button", "secondary", "Copy");
+      copy.onclick = () =>
+        navigator.clipboard
+          .writeText(info.upgrade_hint)
+          .then(() => showToast("Copied upgrade command"));
+      hintRow.appendChild(copy);
+      card.appendChild(hintRow);
+    } else if (info.download_url) {
+      const dl = textEl("button", "", "Download update");
+      dl.onclick = () => window.open(info.download_url, "_blank", "noopener");
+      actions.prepend(dl);
+    }
+  } else {
+    card.appendChild(
+      textEl("p", "empty", `You're on the latest version (v${info.current}).`)
+    );
+  }
+
+  if (info.release_notes_url) {
+    const notes = el("a", "btn secondary");
+    notes.href = info.release_notes_url;
+    notes.target = "_blank";
+    notes.rel = "noopener";
+    notes.textContent = "Release notes";
+    actions.appendChild(notes);
+  }
+
+  card.appendChild(actions);
+  return card;
 }
 
 function renderBackendRow(b) {
@@ -704,6 +824,14 @@ function renderUiTab() {
   root.appendChild(textEl("h1", "page-title", "UI"));
   const card = el("div", "card");
   card.appendChild(
+    checkboxRow("Check for updates automatically", state.configDraft.ui.check_for_updates_automatically !== false, (v) => {
+      state.configDraft.ui.check_for_updates_automatically = v;
+      markDirty();
+      if (v) startUpdatePolling();
+      else stopUpdatePolling();
+    })
+  );
+  card.appendChild(
     checkboxRow("Auto-start on launch (macOS menubar)", !!state.configDraft.ui.auto_start_on_launch, (v) => {
       state.configDraft.ui.auto_start_on_launch = v;
       markDirty();
@@ -885,6 +1013,7 @@ function buildConfigPatch() {
     ui: {
       auto_start_on_launch: d.ui.auto_start_on_launch,
       log_dir: d.ui.log_dir,
+      check_for_updates_automatically: d.ui.check_for_updates_automatically !== false,
     },
   };
   if (d._cluster_token) patch.swarm.cluster_token = d._cluster_token;
@@ -942,8 +1071,26 @@ async function runPeersScan(save) {
 
 async function refresh() {
   await loadHealth();
-  await loadCore();
+  await Promise.all([loadCore(), loadVersionInfo(), loadUpdateCheck()]);
   render();
+}
+
+function startUpdatePolling() {
+  stopUpdatePolling();
+  if (!checkForUpdatesAutomatically()) return;
+  state.updatePollTimer = setInterval(() => {
+    if (document.visibilityState !== "visible") return;
+    loadUpdateCheck()
+      .then(() => {
+        if (state.tab === "status") renderStatusTab();
+      })
+      .catch(() => {});
+  }, 3600000);
+}
+
+function stopUpdatePolling() {
+  if (state.updatePollTimer) clearInterval(state.updatePollTimer);
+  state.updatePollTimer = null;
 }
 
 function startPolling() {
@@ -987,12 +1134,20 @@ document.getElementById("btn-env").addEventListener("click", async () => {
 document.getElementById("btn-save").addEventListener("click", saveConfig);
 
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") startPolling();
-  else stopPolling();
+  if (document.visibilityState === "visible") {
+    startPolling();
+    startUpdatePolling();
+  } else {
+    stopPolling();
+    stopUpdatePolling();
+  }
 });
 
 refresh()
-  .then(() => startPolling())
+  .then(() => {
+    startPolling();
+    startUpdatePolling();
+  })
   .catch((e) => {
     setBanner("Agent unreachable — " + e.message, "error");
     showToast(e.message);

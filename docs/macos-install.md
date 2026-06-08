@@ -66,7 +66,26 @@ uv sync
 | Open oMLX Admin | `http://127.0.0.1:8080/admin` when oMLX is installed |
 | Open Dashboard | Local web UI at `/ui/` (same on Linux/Windows) |
 | Copy Client Env | OpenAI + Anthropic env vars for editors |
+| Check for Updates… | Poll GitHub for stable releases; download/install when app is in `/Applications/` |
 | Settings… (⌘,) | Full `config.toml` editor + live status, backends, models, peers, doctor/test/gateway |
+
+## In-app updates (Applications install)
+
+When **llm-swarm-router** is installed under `/Applications/` (not a Stage/dev build), the menubar app can check, download, and install updates automatically:
+
+1. **Menubar → Updates → Check for Updates…** or wait for the hourly background check.
+2. When an update is available, choose **Download Update** (verifies size + SHA256 sidecar when published).
+3. Choose **Install Update…** — the agent stops, the app quits, and the bundled `macos-app-install.sh` replaces the app and relaunches it.
+
+Disable automatic checks in **Settings → UI → Check for updates automatically** or in `config.toml`:
+
+```toml
+[ui]
+check_for_updates_automatically = false
+```
+
+The web dashboard at `/ui/` also shows version info and download links (via agent proxy to GitHub — no browser CORS). Homebrew installs should use `brew upgrade netllm` instead of in-app DMG install.
+
 
 Settings tabs mirror CLI scope: **Overview**, **Backends** (`discover`), **Models**, **Peers** (`peers`), **Agent/Discovery/Swarm/Routing/UI** config sections, **Doctor & Test** tools. Saves via `netllm config import`; reads via `netllm config export`.
 

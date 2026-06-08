@@ -29,25 +29,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
         controlServer?.handler = self
         try? controlServer?.start()
 
-        menubar = MenubarController(server: server!, config: config) { [weak self] in
+        menubar = MenubarController(
+            server: server!,
+            config: config,
+            updateController: UpdateController.shared
+        ) { [weak self] in
             self?.showSettings()
         }
         ShellEnvWriter.ensureCLIShim(bundleCLI: runtime.bundleCLIPath)
+
+        UpdateController.shared.configure(server: server!)
+        UpdateController.shared.pruneCacheOnLaunch()
+        UpdateController.shared.restartPollingIfNeeded()
 
         if config.needsWelcome || !config.autoStartOnLaunch {
             showWelcome()
         } else if config.autoStartOnLaunch {
             Task { try? server?.start() }
         }
-
-        UpdateController.shared.startPolling()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         controlServer?.stop()
+        let group = DispatchGroup()
+        group.enter()
         Task {
             await server?.stop()
+            group.leave()
         }
+        _ = group.wait(timeout: .now() + 15)
     }
 
     func handleAppControl(_ command: AppControlServer.Command) async -> AppControlServer.Response {
@@ -95,7 +105,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
         let model = SettingsViewModel(runtime: runtime)
         settingsModel = model
         let supervisor = AgentSupervisor(server: server!)
-        let view = SettingsWindowView(model: model, supervisor: supervisor) { [weak self] in
+        let view = SettingsWindowView(
+            model: model,
+            supervisor: supervisor,
+            updateController: UpdateController.shared
+        ) { [weak self] in
             Task {
                 await self?.settingsModel?.refreshLiveData()
                 self?.settingsModel?.needsRestart = false

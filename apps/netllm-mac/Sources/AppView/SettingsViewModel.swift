@@ -6,6 +6,7 @@ import SwiftUI
 final class SettingsViewModel {
     var document = NetllmConfigDocument()
     var status: AgentStatusPayload?
+    var agentVersion: AgentVersionPayload?
     var discoverProviders: [DiscoverProvider] = []
     var lanPeers: [PeerStatus] = []
     var routedModels: [ModelRow] = []
@@ -105,14 +106,19 @@ final class SettingsViewModel {
         updateAgentURL()
         agentReachable = await AgentAPI.isReachable(baseURL: agentBaseURL)
         if agentReachable {
-            status = await AgentAPI.status(baseURL: agentBaseURL)
-            routedModels = await AgentAPI.models(baseURL: agentBaseURL)
+            async let statusTask = AgentAPI.status(baseURL: agentBaseURL)
+            async let versionTask = AgentAPI.version(baseURL: agentBaseURL)
+            async let modelsTask = AgentAPI.models(baseURL: agentBaseURL)
+            status = await statusTask
+            agentVersion = await versionTask
+            routedModels = await modelsTask
             if routedModels.isEmpty, let status {
                 routedModels = AgentAPI.modelsFromStatus(status)
             }
             syncDiscoverProvidersFromStatus()
         } else {
             status = nil
+            agentVersion = nil
             routedModels = []
         }
         bumpUI()

@@ -32,6 +32,7 @@ require_same_model_for_shard = true
 # Shared UI settings (macOS menubar + all platforms via /ui/ dashboard)
 [ui]
 auto_start_on_launch = true
+check_for_updates_automatically = true
 # log_dir = ""  # default: ~/Library/.../logs (macOS), XDG state (Linux), %LOCALAPPDATA% (Windows)
 # serve writes agent.log under log_dir on all platforms
 

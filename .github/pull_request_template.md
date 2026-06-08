@@ -30,6 +30,15 @@
 - [ ] `./netllm doctor` passes locally (if agent/CLI touched)
 - [ ] Docs updated (README, CONTRIBUTING, install guides, AGENTS.md) if user-facing
 
+## SDK bump (only if updating `openai` or `anthropic`)
+
+- [ ] One SDK package per PR (`netllm-sdk-openai` **or** `netllm-sdk-anthropic`)
+- [ ] `uv.lock` updated and committed
+- [ ] [docs/sdk-versions.md](docs/sdk-versions.md) updated (resolved version + date)
+- [ ] Upstream changelog reviewed (link in PR description)
+- [ ] Layer changed: adapter / bridge / agent / probes (see `docs/sdk-versions.md`)
+- [ ] `./scripts/ci.sh sdk` passed
+
 ## Checklist
 
 - [ ] PR is focused: not mixing unrelated changes

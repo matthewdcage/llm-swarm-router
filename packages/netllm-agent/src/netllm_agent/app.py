@@ -10,6 +10,8 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from netllm_core.models import NetllmConfig
+from netllm_core.update import build_update_check_payload, version_payload
+from netllm_core.version import get_version
 from netllm_sdk_anthropic.client import AnthropicUpstreamError
 from netllm_sdk_openai.client import OpenAIUpstreamError
 
@@ -46,7 +48,7 @@ def create_app(
         yield
         service.stop_background()
 
-    app = FastAPI(title="netllm-agent", version="0.2.3.1", lifespan=lifespan)
+    app = FastAPI(title="netllm-agent", version=get_version(), lifespan=lifespan)
     app.state.service = service
     app.state.config = cfg
 
@@ -58,6 +60,7 @@ def create_app(
         base = service.swarm.local_agent_url()
         return {
             "service": "netllm-agent",
+            "version": get_version(),
             "status": "running",
             "message": (
                 "OpenAI-compatible router is up. Dashboard: /ui/ — APIs: /v1/*"
@@ -71,6 +74,8 @@ def create_app(
                 "chat": f"{base}/v1/chat/completions",
                 "messages": f"{base}/v1/messages",
                 "status": f"{base}/netllm/v1/status",
+                "version": f"{base}/netllm/v1/version",
+                "update_check": f"{base}/netllm/v1/update/check",
                 "dashboard": f"{base}/ui/",
                 "metrics": f"{base}/metrics",
             },
@@ -116,6 +121,16 @@ def create_app(
         require_admin_access(request, cfg)
         await service.refresh_local_backends()
         return doctor_payload(cfg, service)
+
+    @app.get("/netllm/v1/version")
+    async def netllm_version(request: Request) -> dict[str, Any]:
+        require_admin_access(request, cfg)
+        return version_payload()
+
+    @app.get("/netllm/v1/update/check")
+    async def netllm_update_check(request: Request, force: bool = False) -> dict[str, Any]:
+        require_admin_access(request, cfg)
+        return await build_update_check_payload(force=force)
 
     @app.get("/netllm/v1/config")
     async def netllm_config_summary(request: Request) -> dict[str, Any]:

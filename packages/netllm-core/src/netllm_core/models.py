@@ -101,6 +101,7 @@ class AgentConfig(BaseModel):
 class UiConfig(BaseModel):
     auto_start_on_launch: bool = True
     log_dir: str = ""
+    check_for_updates_automatically: bool = True
 
 
 class NetllmConfig(BaseModel):

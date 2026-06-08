@@ -31,10 +31,12 @@ You do not need to write code to help:
 ```bash
 git clone https://github.com/matthewdcage/llm-swarm-router.git
 cd llm-swarm-router
-uv sync
+uv sync --frozen   # or uv sync after changing dependencies
 ./netllm init
 ./netllm serve          # agent on http://127.0.0.1:11400
 ```
+
+CI and reproducible installs use the committed `uv.lock` (`uv sync --frozen`).
 
 Use `./netllm` from the repo root during development, it works without a global install.
 
@@ -160,12 +162,15 @@ Targets: `.claude/skills/`, `.cursor/skills/`, `.github/skills/`
 
 ### SDK version bumps
 
-One package per PR. Checklist:
+Tracked in [docs/sdk-versions.md](docs/sdk-versions.md). One package per PR. Checklist:
 
 1. Edit `anthropic>=…` or `openai>=…` in `packages/netllm-sdk-*/pyproject.toml`
-2. `uv sync`
-3. `uv run pytest packages/netllm-sdk-anthropic/tests/ tests/test_anthropic_bridge.py tests/test_agent.py -v`
-4. Read upstream SDK changelog; adjust only `client.py` in that package if needed
+2. `uv sync` and commit `uv.lock` (CI uses `uv sync --frozen`)
+3. Update `docs/sdk-versions.md` (resolved version + date)
+4. `./scripts/ci.sh sdk` then `./scripts/ci.sh`
+5. Read upstream SDK changelog; adjust the layer documented in `docs/sdk-versions.md` (adapter, bridge, or agent)
+
+Dependabot opens weekly PRs with the `sdk-bump` label for `packages/netllm-sdk-*/`. A weekly [sdk-canary workflow](.github/workflows/sdk-canary.yml) tests latest upstream SDKs and opens a `sdk-canary` issue on failure.
 
 ## Testing tips
 

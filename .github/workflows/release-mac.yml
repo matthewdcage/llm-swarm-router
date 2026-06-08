@@ -12,7 +12,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - run: uv sync
+      - run: uv sync --frozen
       - run: uv pip install venvstacks
       - run: apps/netllm-mac/Scripts/build.sh release
         env:

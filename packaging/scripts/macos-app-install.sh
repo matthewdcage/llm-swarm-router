@@ -10,13 +10,21 @@
 #
 # Options:
 #   --install-path PATH   Default: /Applications/llm-swarm-router.app
+#   --in-app-update       Skip menubar quit (caller stops agent and exits)
+#   --wait-for-pid PID    Wait for parent menubar PID before install
+#   --cache-cleanup DIR   Remove DMG and older cached DMGs after success
 #   --no-launch           Install only; do not open the app
 #   --no-verify           Skip post-launch /health and /ui/ checks
 #   --no-stop             Skip process teardown (maintainer debugging only)
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-MOUNT_DMG="$ROOT/packaging/scripts/mount-dmg.sh"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [[ -x "$SCRIPT_DIR/mount-dmg.sh" ]]; then
+  MOUNT_DMG="$SCRIPT_DIR/mount-dmg.sh"
+else
+  ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+  MOUNT_DMG="$ROOT/packaging/scripts/mount-dmg.sh"
+fi
 
 APP_NAME="llm-swarm-router.app"
 LEGACY_APP_NAME="netllm-mac.app"
@@ -29,9 +37,12 @@ INSTALL_PATH="$DEFAULT_INSTALL"
 DO_LAUNCH=1
 DO_VERIFY=1
 DO_STOP=1
+IN_APP_UPDATE=0
+WAIT_PID=""
+CACHE_CLEANUP_DIR=""
 
 usage() {
-  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -40,6 +51,9 @@ while [[ $# -gt 0 ]]; do
     --dmg) DMG="$2"; shift 2 ;;
     --source) SOURCE="$2"; shift 2 ;;
     --install-path) INSTALL_PATH="$2"; shift 2 ;;
+    --in-app-update) IN_APP_UPDATE=1; shift ;;
+    --wait-for-pid) WAIT_PID="$2"; shift 2 ;;
+    --cache-cleanup) CACHE_CLEANUP_DIR="$2"; shift 2 ;;
     --no-launch) DO_LAUNCH=0; shift ;;
     --no-verify) DO_VERIFY=0; shift ;;
     --no-stop) DO_STOP=0; shift ;;
@@ -59,12 +73,13 @@ agent_listen_port() {
   local listen="127.0.0.1:11400"
   if [[ -f "$config" ]]; then
     listen="$(
-      grep -E '^\s*listen\s*=' "$config" 2>/dev/null | head -1 \
-        | sed -E 's/^\s*listen\s*=\s*"([^"]+)".*/\1/' \
+      grep -E '^[[:space:]]*listen[[:space:]]*=' "$config" 2>/dev/null | head -1 \
+        | sed -E 's/^[[:space:]]*listen[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/' \
         || echo "127.0.0.1:11400"
     )"
   fi
   local port="${listen##*:}"
+  port="${port//\"/}"
   if [[ -z "$port" || "$port" == "$listen" ]]; then
     port="11400"
   fi
@@ -88,6 +103,18 @@ wait_for_exit() {
     sleep 0.5
   done
   return 1
+}
+
+wait_for_pid() {
+  local pid="$1"
+  local seconds="${2:-30}"
+  local i
+  [[ -n "$pid" ]] || return 0
+  for ((i = 0; i < seconds * 2; i++)); do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.5
+  done
+  echo "WARN: PID $pid still running after ${seconds}s" >&2
 }
 
 wait_port_free() {
@@ -167,8 +194,24 @@ stop_orphan_agents() {
 
 stop_netllm_stack() {
   stop_homebrew_agent
-  stop_menubar_apps
+  if [[ "$IN_APP_UPDATE" == 0 ]]; then
+    stop_menubar_apps
+  fi
   stop_orphan_agents "$(agent_listen_port)"
+}
+
+cleanup_update_cache() {
+  local dir="$1"
+  local keep_dmg="$2"
+  [[ -n "$dir" && -d "$dir" ]] || return 0
+  local f
+  for f in "$dir"/*.dmg "$dir"/*.dmg.download; do
+    [[ -e "$f" ]] || continue
+    if [[ -n "$keep_dmg" && "$f" == "$keep_dmg" ]]; then
+      continue
+    fi
+    rm -f "$f"
+  done
 }
 
 verify_bundle_contents() {
@@ -255,6 +298,11 @@ resolve_source_app() {
   echo "$source"
 }
 
+if [[ -n "$WAIT_PID" ]]; then
+  echo "==> Waiting for menubar process $WAIT_PID to exit"
+  wait_for_pid "$WAIT_PID" 30
+fi
+
 if [[ "$DO_STOP" == 1 ]]; then
   stop_netllm_stack
 else
@@ -284,6 +332,10 @@ if [[ "$DO_LAUNCH" == 1 ]]; then
   if [[ "$DO_VERIFY" == 1 ]]; then
     verify_agent_endpoints "$(agent_listen_port)"
   fi
+fi
+
+if [[ -n "$CACHE_CLEANUP_DIR" ]]; then
+  cleanup_update_cache "$CACHE_CLEANUP_DIR" "$DMG"
 fi
 
 cat <<EOF

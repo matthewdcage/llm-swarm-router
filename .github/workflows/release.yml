@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       netllm_version: ${{ steps.version.outputs.netllm_version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
     steps:
       - uses: actions/checkout@v4
       - id: version
@@ -27,38 +28,61 @@ jobs:
           if [ "${{ github.event_name }}" = "release" ]; then
             ver="${{ github.event.release.tag_name }}"
             ver="${ver#v}"
+            pre="${{ github.event.release.prerelease }}"
           elif [ -n "${{ inputs.version }}" ]; then
             ver="${{ inputs.version }}"
             ver="${ver#v}"
+            pre="false"
           else
             ver="$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+            pre="false"
+          fi
+          pyproject="$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          if [ "$ver" != "$pyproject" ]; then
+            echo "Release tag v$ver does not match pyproject.toml version $pyproject" >&2
+            exit 1
           fi
           echo "netllm_version=$ver" >> "$GITHUB_OUTPUT"
-          echo "Building netllm version $ver"
+          echo "is_prerelease=$pre" >> "$GITHUB_OUTPUT"
+          echo "Building netllm version $ver (prerelease=$pre)"
 
   build-macos:
     needs: resolve-version
     runs-on: macos-14
+    env:
+      NETLLM_VERSION: ${{ needs.resolve-version.outputs.netllm_version }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - run: uv sync
+      - run: uv sync --frozen
       - run: uv pip install venvstacks
       - run: apps/netllm-mac/Scripts/build.sh release
         env:
           REBUILD_DONOR: force
+          NETLLM_VERSION: ${{ env.NETLLM_VERSION }}
       - run: bash packaging/scripts/create-dmg.sh
+      - run: chmod +x packaging/scripts/write-sha256-sidecar.sh
+      - run: |
+          packaging/scripts/write-sha256-sidecar.sh dist/llm-swarm-router.dmg | tee dist/SHA256SUMS
+      - run: |
+          ver="$(defaults read "$PWD/apps/netllm-mac/build/Stage/llm-swarm-router.app/Contents/Info" CFBundleShortVersionString)"
+          test "$ver" = "$NETLLM_VERSION"
       - uses: actions/upload-artifact@v4
         with:
           name: netllm-mac-dmg
-          path: dist/llm-swarm-router.dmg
-      - name: Attach DMG to release
-        if: github.event_name == 'release'
+          path: |
+            dist/llm-swarm-router.dmg
+            dist/llm-swarm-router.dmg.sha256
+            dist/SHA256SUMS
+      - name: Attach DMG and checksums to release
+        if: github.event_name == 'release' && needs.resolve-version.outputs.is_prerelease == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/llm-swarm-router.dmg
+          files: |
+            dist/llm-swarm-router.dmg
+            dist/llm-swarm-router.dmg.sha256
 
   build-linux:
     needs: resolve-version
@@ -71,27 +95,29 @@ jobs:
         with:
           enable-cache: true
       - run: sudo apt-get update && sudo apt-get install -y dpkg-dev rpm
-      - run: chmod +x packaging/linux/build-deb.sh packaging/linux/build-rpm.sh
+      - run: chmod +x packaging/linux/build-deb.sh packaging/linux/build-rpm.sh packaging/scripts/write-sha256-sidecar.sh
       - run: NETLLM_VERSION="$NETLLM_VERSION" packaging/linux/build-deb.sh
-      - name: Attach deb to release
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.deb
       - run: NETLLM_VERSION="$NETLLM_VERSION" packaging/linux/build-rpm.sh
+      - run: |
+          packaging/scripts/write-sha256-sidecar.sh dist/*.deb dist/*.rpm | tee dist/SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: netllm-linux-packages
           path: |
             dist/*.deb
+            dist/*.deb.sha256
             dist/*.rpm
+            dist/*.rpm.sha256
+            dist/SHA256SUMS
       - name: Attach Linux packages to release
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' && needs.resolve-version.outputs.is_prerelease == 'false'
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.deb
+            dist/*.deb.sha256
             dist/*.rpm
+            dist/*.rpm.sha256
 
   build-windows:
     needs: resolve-version
@@ -109,24 +135,30 @@ jobs:
         run: |
           $zip = Get-ChildItem dist/netllm-*-windows-x64.zip | Select-Object -First 1
           ./packaging/scripts/update-winget-manifest.ps1 -Version $env:NETLLM_VERSION -ZipPath $zip.FullName
+          $hash = (Get-FileHash -Path $zip.FullName -Algorithm SHA256).Hash.ToLower()
+          "$hash  $($zip.Name)" | Out-File -Encoding utf8 "dist/$($zip.Name).sha256"
+          "$hash  $($zip.Name)" | Out-File -Encoding utf8 dist/SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: netllm-windows-zip
           path: |
             dist/netllm-*-windows-x64.zip
+            dist/netllm-*.zip.sha256
+            dist/SHA256SUMS
             packaging/windows/winget/netllm.yaml
       - name: Attach Windows zip and winget manifest to release
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' && needs.resolve-version.outputs.is_prerelease == 'false'
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/netllm-*-windows-x64.zip
+            dist/netllm-*-windows-x64.zip.sha256
             packaging/windows/winget/netllm.yaml
 
   update-homebrew-formula:
     needs: resolve-version
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' && needs.resolve-version.outputs.is_prerelease == 'false'
     steps:
       - uses: actions/checkout@v4
         with:

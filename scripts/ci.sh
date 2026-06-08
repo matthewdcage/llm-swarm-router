@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Local and CI checks. Usage: scripts/ci.sh [lint|test|packaging|all]
+# Local and CI checks. Usage: scripts/ci.sh [lint|test|sdk|packaging|all]
 #   lint      — ruff check + format --check (~1s)
 #   test      — pytest (~12s)
+#   sdk       — vendor SDK adapter + bridge contract tests (~5s)
 #   packaging — build deb/rpm (Linux) or windows zip (Windows); smoke only
 #   all       — lint then test (default; run before opening a PR)
 set -euo pipefail
@@ -11,7 +12,11 @@ cd "$ROOT"
 
 mode="${1:-all}"
 
-uv sync
+if [[ -f uv.lock ]]; then
+  uv sync --frozen
+else
+  uv sync
+fi
 
 run_lint() {
   uv run ruff check packages/ tests/
@@ -20,6 +25,18 @@ run_lint() {
 
 run_test() {
   uv run pytest tests/ -v
+}
+
+run_sdk() {
+  uv run pytest \
+    packages/netllm-sdk-openai/tests/ \
+    packages/netllm-sdk-anthropic/tests/ \
+    tests/test_anthropic_bridge.py \
+    tests/test_anthropic_cloud_compat.py \
+    tests/test_sdk_isolation.py \
+    tests/test_sdk_versions.py \
+    tests/test_sdk_versions_payload.py \
+    -v
 }
 
 run_packaging() {
@@ -71,10 +88,11 @@ run_packaging() {
 case "$mode" in
   lint) run_lint ;;
   test) run_test ;;
+  sdk) run_sdk ;;
   packaging) run_packaging ;;
   all) run_lint && run_test ;;
   *)
-    echo "usage: $0 [lint|test|packaging|all]" >&2
+    echo "usage: $0 [lint|test|sdk|packaging|all]" >&2
     exit 2
     ;;
 esac

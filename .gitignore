@@ -3,7 +3,6 @@ graphify-out/
 __pycache__/
 *.py[cod]
 .venv/
-uv.lock
 .pytest_cache/
 .ruff_cache/
 *.egg-info/

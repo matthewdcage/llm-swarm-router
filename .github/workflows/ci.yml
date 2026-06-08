@@ -37,6 +37,18 @@ jobs:
         run: bash scripts/ci.sh test
         shell: bash
 
+  sdk:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: SDK contract tests
+        run: bash scripts/ci.sh sdk
+        shell: bash
+
   packaging-smoke:
     needs: lint
     strategy:

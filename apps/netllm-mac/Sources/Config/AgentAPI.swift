@@ -1,6 +1,20 @@
 import Foundation
 
 enum AgentAPI {
+    static func version(baseURL: URL) async -> AgentVersionPayload? {
+        guard let json = await fetchJSON(baseURL: baseURL, path: "/netllm/v1/version") else {
+            return nil
+        }
+        let sdk = json["sdk_versions"] as? [String: Any] ?? [:]
+        return AgentVersionPayload(
+            version: json["version"] as? String ?? "",
+            platform: json["platform"] as? String ?? "",
+            installMethod: json["install_method"] as? String ?? "",
+            openaiSDK: sdk["openai"] as? String ?? "",
+            anthropicSDK: sdk["anthropic"] as? String ?? ""
+        )
+    }
+
     static func status(baseURL: URL) async -> AgentStatusPayload? {
         guard let json = await fetchJSON(baseURL: baseURL, path: "/netllm/v1/status") else { return nil }
         let backends = (json["backends"] as? [[String: Any]] ?? []).map(parseBackend)

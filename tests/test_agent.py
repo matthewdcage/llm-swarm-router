@@ -252,3 +252,60 @@ def test_admin_peers_scan(mock_scan: AsyncMock) -> None:
         assert data["ok"] is True
         assert len(data["peers"]) == 1
         assert data["peers"][0]["agent_id"] == "peer-a"
+
+
+def test_netllm_version(client: TestClient) -> None:
+    resp = client.get("/netllm/v1/version")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["version"]
+    assert data["platform"]
+    assert "install_method" in data
+    sdk = data.get("sdk_versions") or {}
+    assert sdk.get("openai")
+    assert sdk.get("anthropic")
+
+
+@patch("netllm_agent.app.build_update_check_payload", new_callable=AsyncMock)
+def test_netllm_update_check(mock_build: AsyncMock, client: TestClient) -> None:
+    mock_build.return_value = {
+        "current": "0.2.3.2",
+        "latest": "0.2.4.0",
+        "update_available": True,
+        "prerelease": False,
+        "release_notes_url": "https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.4.0",
+        "download_url": "https://example.com/llm-swarm-router.dmg",
+        "asset_name": "llm-swarm-router.dmg",
+        "asset_size": 12345,
+        "sha256": "abc",
+        "upgrade_hint": None,
+        "can_auto_install": False,
+        "error": None,
+    }
+    resp = client.get("/netllm/v1/update/check")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["update_available"] is True
+    assert data["latest"] == "0.2.4.0"
+    mock_build.assert_awaited_once_with(force=False)
+
+
+@patch("netllm_agent.app.build_update_check_payload", new_callable=AsyncMock)
+def test_netllm_update_check_force(mock_build: AsyncMock, client: TestClient) -> None:
+    mock_build.return_value = {
+        "current": "0.2.3.2",
+        "latest": "0.2.3.2",
+        "update_available": False,
+        "prerelease": False,
+        "release_notes_url": "https://github.com/matthewdcage/llm-swarm-router/releases/latest",
+        "download_url": None,
+        "asset_name": None,
+        "asset_size": None,
+        "sha256": None,
+        "upgrade_hint": None,
+        "can_auto_install": False,
+        "error": None,
+    }
+    resp = client.get("/netllm/v1/update/check?force=1")
+    assert resp.status_code == 200
+    mock_build.assert_awaited_once_with(force=True)

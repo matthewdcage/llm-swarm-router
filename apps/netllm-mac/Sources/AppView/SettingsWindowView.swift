@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsWindowView: View {
     @Bindable var model: SettingsViewModel
     @Bindable var supervisor: AgentSupervisor
+    @Bindable var updateController: UpdateController
     var onRestartAgent: (() -> Void)?
 
     @State private var tab = "status"
@@ -138,6 +139,8 @@ struct SettingsWindowView: View {
                 }
             )
 
+            UpdateBannerCard(controller: updateController)
+
             HStack {
                 SettingsSectionTitle(title: "Routing stats")
                 Spacer()
@@ -186,6 +189,15 @@ struct SettingsWindowView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     SettingsInfoRow(label: "Platform", value: AppVersionInfo.platformLine)
                     SettingsInfoRow(label: "App version", value: AppVersionInfo.display)
+                    if let agentVersion = model.agentVersion, !agentVersion.version.isEmpty {
+                        SettingsInfoRow(label: "Agent version", value: "v\(agentVersion.version)")
+                    }
+                    if let agentVersion = model.agentVersion, !agentVersion.openaiSDK.isEmpty {
+                        SettingsInfoRow(label: "OpenAI SDK", value: "v\(agentVersion.openaiSDK)")
+                    }
+                    if let agentVersion = model.agentVersion, !agentVersion.anthropicSDK.isEmpty {
+                        SettingsInfoRow(label: "Anthropic SDK", value: "v\(agentVersion.anthropicSDK)")
+                    }
                     SettingsInfoRow(label: "CLI", value: AppBranding.cliCommand)
                     if let status = model.status {
                         SettingsInfoRow(label: "Agent ID", value: status.agentId)
@@ -442,6 +454,14 @@ struct SettingsWindowView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("\(AppBranding.displayName) app")
             Toggle("Auto-start agent on launch", isOn: $model.document.ui.auto_start_on_launch)
+            Toggle("Check for updates automatically", isOn: $model.document.ui.check_for_updates_automatically)
+                .onChange(of: model.document.ui.check_for_updates_automatically) { _, enabled in
+                    if enabled {
+                        updateController.restartPollingIfNeeded()
+                    } else {
+                        updateController.stopPolling()
+                    }
+                }
             HStack {
                 Text("Log directory")
                 TextField("default", text: $model.document.ui.log_dir)

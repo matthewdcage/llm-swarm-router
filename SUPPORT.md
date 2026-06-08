@@ -7,7 +7,7 @@ Start here: [docs/README.md](docs/README.md)
 | Topic | Doc |
 |-------|-----|
 | Platform overview | [docs/platform-matrix.md](docs/platform-matrix.md) |
-| Releases (DMG, deb, rpm, zip) | [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases) · [v0.2.3.1 notes](docs/release-notes/v0.2.3.1.md) |
+| Releases (DMG, deb, rpm, zip) | [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases) · [v0.2.3.2 notes](docs/release-notes/v0.2.3.2.md) |
 | Install (macOS) | [docs/macos-install.md](docs/macos-install.md) |
 | Install (Linux) | [docs/linux-install.md](docs/linux-install.md) |
 | Install (Windows) | [docs/windows-install.md](docs/windows-install.md) |
