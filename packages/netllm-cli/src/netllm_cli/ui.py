@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 import httpx
@@ -11,6 +12,43 @@ from rich.table import Table
 from rich.text import Text
 
 console = Console()
+
+_PROVIDER_LABELS: dict[str, str] = {
+    "omlx": "oMLX",
+    "ollama": "Ollama",
+    "lmstudio": "LM Studio",
+    "vllm": "vLLM",
+    "custom": "custom endpoints",
+}
+
+
+def enabled_provider_summary(providers: list[str]) -> str:
+    """Human-readable list of enabled discovery providers."""
+    labels = [_PROVIDER_LABELS.get(p, p) for p in providers]
+    if not labels:
+        return "configured providers"
+    if len(labels) == 1:
+        return labels[0]
+    return ", ".join(labels[:-1]) + f", or {labels[-1]}"
+
+
+def default_provider_port_hint() -> str:
+    if sys.platform == "darwin":
+        return (
+            "Start oMLX (:8080), Ollama (:11434), LM Studio (:1234), or vLLM (:8000)"
+        )
+    return "Start Ollama (:11434), LM Studio (:1234), or vLLM (:8000)"
+
+
+def mdns_platform_hint() -> str:
+    if sys.platform == "linux":
+        return "Linux LAN discovery uses Avahi via python-zeroconf"
+    if sys.platform == "win32":
+        return (
+            "Windows mDNS may require firewall rules or Bonjour; "
+            "use swarm.peers or netllm peers --subnet-scan"
+        )
+    return "Guest Wi-Fi may block mDNS; use swarm.peers or --subnet-scan"
 
 
 def _listen_host_port(listen: str) -> tuple[str, str]:
@@ -163,6 +201,8 @@ def offline_provider_hints(results: list[dict[str, Any]]) -> list[str]:
         return hints
     for r in offline:
         pid = r.get("id", "")
+        if pid == "omlx" and sys.platform != "darwin":
+            continue
         if pid == "omlx":
             probed = r.get("probed_urls") or []
             port_hint = ", ".join(
@@ -182,6 +222,11 @@ def offline_provider_hints(results: list[dict[str, Any]]) -> list[str]:
             hints.append(
                 "LM Studio: enable the local API server or set "
                 "[cyan]discovery.provider_urls.lmstudio[/]"
+            )
+        elif pid == "vllm":
+            hints.append(
+                "vLLM: run [cyan]vllm serve --host 0.0.0.0 --port 8000[/] or set "
+                "[cyan]discovery.provider_urls.vllm[/] / [cyan]VLLM_PORT[/]"
             )
     return list(dict.fromkeys(hints))
 

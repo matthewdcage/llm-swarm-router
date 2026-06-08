@@ -48,7 +48,7 @@ I had compute sitting idle and no simple way to log in and use it. Every editor 
 
 ### What it is
 
-A **simple-to-install, simple-to-use LLM mesh coordinator** for macOS today (native menubar app; **Linux and Windows installers planned**). Each node runs **independently and with every other node**: auto-detects **oMLX, Ollama, and LM Studio** (custom server URLs supported; **vLLM on the roadmap**), advertises itself on the network, discovers remote agents and their models, and **distributes inference requests** across the swarm. Install llm-swarm-router on more machines with the same workhorse models loaded — **token throughput multiplies** with each connected peer.
+A **simple-to-install, simple-to-use LLM mesh coordinator** for macOS, Linux, and Windows. Each node runs **independently and with every other node**: auto-detects **oMLX** (macOS), **Ollama**, **LM Studio**, and **vLLM** (custom server URLs supported), advertises itself on the network, discovers remote agents and their models, and **distributes inference requests** across the swarm.
 
 | API | Base URL |
 |-----|----------|
@@ -65,10 +65,10 @@ Point **Cursor**, **Claude Code**, **Codex**, **Honcho**, or any compatible clie
 |----------|--------|---------|
 | **macOS** (Apple Silicon) | **Available** — native menubar app + CLI | [DMG from Releases](https://github.com/matthewdcage/llm-swarm-router/releases) or build below |
 | **macOS / Linux** (dev) | **Available** — Python agent + CLI from source | `uv sync` + `./netllm serve` |
-| **Linux** (desktop) | **Coming** — systemd service, `.deb` / `.rpm` packages | Track [cross-platform plan](.cursor/plans/cross-platform_vllm_support_a4b73585.plan.md) |
-| **Windows** | **Coming** — Windows service, MSI / winget | Same roadmap |
+| **Linux** (desktop) | **Available** — systemd user service, `.deb` / `.rpm` | [docs/linux-install.md](docs/linux-install.md) |
+| **Windows** | **Available** — portable zip + Windows service | [docs/windows-install.md](docs/windows-install.md) |
 
-Linux and Windows already run the **agent and CLI from source** today; native installers, background services, and platform-tuned discovery defaults are in active development.
+Linux and Windows run the **agent and CLI from source** or packaged installs (deb/rpm/zip). macOS adds a native menubar app.
 
 ---
 

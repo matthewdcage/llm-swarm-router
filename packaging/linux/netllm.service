@@ -1,0 +1,12 @@
+[Unit]
+Description=netllm mesh router agent
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/netllm serve -q
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

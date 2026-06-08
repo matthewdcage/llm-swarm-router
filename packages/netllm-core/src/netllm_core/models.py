@@ -9,6 +9,18 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from netllm_core.platform import (
+    default_discovery_providers,
+    default_hostname,
+    default_log_dir,
+)
+
+__all__ = [
+    "default_log_dir",
+    "default_discovery_providers",
+    "default_hostname",
+]
+
 RoutingStrategy = Literal[
     "failover",
     "round_robin",
@@ -19,7 +31,9 @@ RoutingStrategy = Literal[
 ]
 
 AgentRole = Literal["peer", "gateway"]
-ProviderId = Literal["omlx", "ollama", "lmstudio", "custom", "anthropic", "openai"]
+ProviderId = Literal[
+    "omlx", "ollama", "lmstudio", "vllm", "custom", "anthropic", "openai"
+]
 ApiFormat = Literal["openai", "anthropic"]
 
 ANTHROPIC_CLOUD_BASE_URL = "https://api.anthropic.com"
@@ -54,7 +68,7 @@ class BackendOverride(BaseModel):
 
 
 class DiscoveryLocalConfig(BaseModel):
-    providers: list[str] = Field(default_factory=lambda: ["omlx", "ollama", "lmstudio"])
+    providers: list[str] = Field(default_factory=default_discovery_providers)
     custom_endpoints: list[str] = Field(default_factory=list)
     # Per-machine overrides, e.g. omlx on :8088 — tried before default port scan.
     provider_urls: dict[str, list[str]] = Field(default_factory=dict)
@@ -81,11 +95,7 @@ class AgentConfig(BaseModel):
     role: AgentRole = "peer"
     advertise: bool = True
     agent_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
-    hostname: str = Field(default_factory=lambda: os.uname().nodename)
-
-
-def default_log_dir() -> Path:
-    return Path.home() / "Library" / "Application Support" / "netllm" / "logs"
+    hostname: str = Field(default_factory=default_hostname)
 
 
 class UiConfig(BaseModel):
@@ -137,7 +147,11 @@ class Backend(BaseModel):
     def resolve_api_key(self) -> str:
         if self.api_key:
             return self.api_key
-        env_map = {"omlx": "OMLX_API_KEY", "ollama": "OLLAMA_API_KEY"}
+        env_map = {
+            "omlx": "OMLX_API_KEY",
+            "ollama": "OLLAMA_API_KEY",
+            "vllm": "VLLM_API_KEY",
+        }
         env_name = env_map.get(self.provider, "")
         if env_name:
             from_env = os.environ.get(env_name, "")

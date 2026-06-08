@@ -47,13 +47,17 @@ allowed-tools:
    ```bash
    curl -sf http://127.0.0.1:11400/health || echo "agent down"
    ```
-   If down: instruct `./netllm serve` (or check wrong port in config)
+   If down, start by install channel:
+   - **Source / dev:** `./netllm serve` (foreground)
+   - **macOS app / Homebrew:** `./netllm start` or menubar → Restart Agent
+   - **Linux deb/rpm:** `systemctl --user enable --now netllm` — see [docs/linux-install.md](../../docs/linux-install.md)
+   - **Windows zip/winget:** `netllm start` after `install-service.ps1` — see [docs/windows-install.md](../../docs/windows-install.md)
 
 4. **Local providers**
    ```bash
    ./netllm discover
    ```
-   Expected ports: oMLX `8080`, Ollama `11434`, LM Studio `1234`
+   Expected ports: Ollama `11434`, LM Studio `1234`, vLLM `8000`; oMLX `8080` on **macOS only**
 
 5. **Config review** — read `~/.config/netllm/config.toml` (or path from user):
    - `agent.listen` — loopback vs `0.0.0.0`
@@ -61,14 +65,19 @@ allowed-tools:
    - `swarm.mdns` — needs zeroconf from `uv sync`
    - `swarm.cluster_token` — should be set when on `0.0.0.0`
 
-6. **Inference test**
+6. **Platform-specific swarm checks** (when `./netllm peers` is empty but LAN routing is expected):
+   - **Linux:** mDNS uses Avahi via `python-zeroconf`; install Avahi if browse fails. Fallback: `swarm.peers` or `./netllm peers --subnet-scan --save`
+   - **Windows:** mDNS is often blocked by firewall or missing Bonjour — prefer static `swarm.peers` or `--subnet-scan`. Allow inbound TCP on agent port (default `11400`) when `serve --host 0.0.0.0`
+   - **All platforms:** Guest Wi‑Fi often blocks mDNS; loopback bind (`127.0.0.1`) hides the agent from LAN peers
+
+7. **Inference test**
    ```bash
    ./netllm test
    ```
 
-7. **Structured report** — for each issue: **Problem** → **Fix** → **Verify command**
+8. **Structured report** — for each issue: **Problem** → **Fix** → **Verify command**
 
-8. **Re-run doctor** after fixes:
+9. **Re-run doctor** after fixes:
    ```bash
    ./netllm doctor && scripts/agent-verify-setup.sh
    ```
@@ -87,8 +96,16 @@ Verify: curl -sf http://127.0.0.1:11400/health
 
 ```
 Problem: discover shows 0/3 online
-Fix: Start Ollama (ollama serve) or oMLX
+Fix: Start Ollama (ollama serve); on macOS also oMLX. Linux/Windows: Ollama, LM Studio, or vLLM — see install docs
 Verify: ./netllm discover && ./netllm models
+```
+
+**Windows swarm — no peers**
+
+```
+Problem: ./netllm peers empty on Windows LAN
+Fix: Add swarm.peers in config or ./netllm peers --subnet-scan --save; allow firewall inbound on :11400
+Verify: ./netllm peers && ./netllm models --lan
 ```
 
 **mDNS unavailable**

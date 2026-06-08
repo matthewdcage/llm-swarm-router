@@ -5,16 +5,16 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
-from typer.testing import CliRunner
-
 from netllm_cli.install_detect import skip_global_path_doctor_check
 from netllm_cli.main import app
+from typer.testing import CliRunner
 
 runner = CliRunner()
 
 
 def test_skip_global_path_doctor_check_in_bundle() -> None:
-    with patch.dict("os.environ", {"NETLLM_BUNDLE_PATH": "/Applications/netllm-mac.app"}):
+    env = {"NETLLM_BUNDLE_PATH": "/Applications/netllm-mac.app"}
+    with patch.dict("os.environ", env):
         assert skip_global_path_doctor_check() is True
 
 

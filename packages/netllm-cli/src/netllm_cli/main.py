@@ -39,10 +39,13 @@ from netllm_cli.lifecycle import control_socket_path, lifecycle_command
 from netllm_cli.ui import (
     agent_unreachable_message,
     console,
+    default_provider_port_hint,
+    enabled_provider_summary,
     inference_status_style,
     listen_url,
     listen_urls,
     mdns_available,
+    mdns_platform_hint,
     models_table,
     offline_provider_hints,
     peers_table,
@@ -154,7 +157,8 @@ def init(
     else:
         print_error(
             "No providers online",
-            "netllm could not reach oMLX, Ollama, or LM Studio on this machine.",
+            f"netllm could not reach "
+            f"{enabled_provider_summary(cfg.discovery.providers)} on this machine.",
             hints=offline_provider_hints(results)
             + [
                 "Start a server, then run [cyan]netllm discover[/]",
@@ -217,7 +221,7 @@ def discover(
         help="Persist online provider base URLs to discovery.provider_urls",
     ),
 ) -> None:
-    """Scan localhost for oMLX, Ollama, and LM Studio."""
+    """Scan localhost for oMLX, Ollama, LM Studio, and vLLM."""
     cfg_path = _config_path_option(config)
     cfg = load_config(cfg_path)
     results = asyncio.run(scan_local_providers(cfg))
@@ -989,7 +993,7 @@ def doctor(
     if not any(r.get("status") == "online" for r in results):
         issues.append((
             "No local inference servers online",
-            "Start oMLX (:8080), Ollama (:11434), or LM Studio (:1234)",
+            default_provider_port_hint(),
         ))
 
     has_anthropic_backend = any(
@@ -1065,7 +1069,7 @@ def doctor(
                 if not self_found and port_owner_pid(listen_port) is not None:
                     issues.append((
                         "mDNS advertise may have failed",
-                        "Stale Bonjour registration? Try netllm serve --replace",
+                        f"Try netllm serve --replace. {mdns_platform_hint()}",
                     ))
             except RuntimeError:
                 pass

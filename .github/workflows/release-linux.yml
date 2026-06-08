@@ -1,0 +1,39 @@
+name: Release Linux
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  deb:
+    runs-on: ubuntu-latest
+    env:
+      NETLLM_VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install dpkg-deb
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev
+      - run: chmod +x packaging/linux/build-deb.sh
+      - run: NETLLM_VERSION="${NETLLM_VERSION#v}" packaging/linux/build-deb.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: netllm-deb
+          path: dist/*.deb
+
+  rpm:
+    runs-on: ubuntu-latest
+    env:
+      NETLLM_VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install rpmbuild
+        run: sudo apt-get update && sudo apt-get install -y rpm
+      - run: chmod +x packaging/linux/build-rpm.sh
+      - run: NETLLM_VERSION="${NETLLM_VERSION#v}" packaging/linux/build-rpm.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: netllm-rpm
+          path: dist/*.rpm
