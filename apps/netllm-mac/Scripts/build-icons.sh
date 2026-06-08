@@ -54,6 +54,14 @@ make_appicon_png() {
   sips -z "$size" "$size" "$src" --out "$APPICON_SET/${prefix}${name}" >/dev/null
 }
 
+# actool needs Xcode.app (not Command Line Tools alone). Skip it to avoid ibtoold plugin errors.
+xcode_app_available() {
+  local devdir
+  devdir="$(xcode-select -p 2>/dev/null)" || return 1
+  [[ "$devdir" == *Xcode.app* ]] || return 1
+  xcodebuild -version >/dev/null 2>&1
+}
+
 build_appicon_actool() {
   echo "==> Building AppIcon (transparent light + dark) via actool"
   for size in 16 32 128 256 512; do
@@ -133,13 +141,15 @@ build_appicon_iconutil() {
   echo "iconutil" >"$METHOD_FILE"
 }
 
-if ! build_appicon_actool; then
-  echo "WARN: actool failed — using iconutil fallback (no dual Finder light/dark)." >&2
-  echo "      In-app/About icons still switch with system appearance." >&2
-  echo "      For full Finder icons: install Xcode, then run: sudo xcodebuild -runFirstLaunch" >&2
-  if [[ -f "$MAC_DIR/build/actool.log" ]]; then
-    rg -i "plugin|ibtoold|xcodebuild -runFirstLaunch" "$MAC_DIR/build/actool.log" >&2 || tail -3 "$MAC_DIR/build/actool.log" >&2
+if [[ "${NETLLM_FORCE_ACTOOL:-}" == "1" ]] || xcode_app_available; then
+  if ! build_appicon_actool; then
+    echo "NOTE: actool unavailable on this Mac — using iconutil for AppIcon.icns." >&2
+    [[ "${NETLLM_VERBOSE:-}" == "1" && -f "$MAC_DIR/build/actool.log" ]] && tail -5 "$MAC_DIR/build/actool.log" >&2
+    build_appicon_iconutil
   fi
+else
+  echo "==> Command Line Tools only (no Xcode.app) — AppIcon via iconutil"
+  echo "    (Settings/About/menubar icons still follow light/dark mode.)"
   build_appicon_iconutil
 fi
 
