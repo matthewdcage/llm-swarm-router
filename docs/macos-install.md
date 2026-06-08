@@ -10,9 +10,30 @@ existing Python agent on port **11400**, it does not replace oMLX inference on p
 ### DMG (recommended for desktop users)
 
 1. Download `llm-swarm-router.dmg` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases/latest).
-2. Open the DMG and drag **llm-swarm-router** to **Applications**.
-3. Launch from Applications, the llm-swarm-router bee logo appears in the menu bar (switches for light/dark menu bar).
-4. Complete the welcome wizard (config path, LAN mode, auto-start).
+2. Open the DMG and drag **llm-swarm-router** to **Applications** (click **Replace** when upgrading).
+3. **Quit** any running menubar instance before replacing (About → Quit), or use the clean upgrade script below.
+4. Launch from Applications, the llm-swarm-router bee logo appears in the menu bar (switches for light/dark menu bar).
+5. Complete the welcome wizard (config path, LAN mode, auto-start).
+
+### Upgrade from a release DMG (clean, recommended)
+
+Avoid `/ui/` 404 and port conflicts after upgrade: stop stale agents, replace the bundle, verify the dashboard.
+
+From a repo checkout (Mac mini with git clone):
+
+```bash
+./scripts/upgrade-mac-app.sh ~/Downloads/llm-swarm-router.dmg
+```
+
+Without a clone, use the installer bundled inside the app (v0.2.3+ rebuild) or copy `packaging/scripts/macos-app-install.sh` from the repo:
+
+```bash
+INSTALLER="/Applications/llm-swarm-router.app/Contents/Resources/Scripts/macos-app-install.sh"
+chmod +x "$INSTALLER"
+"$INSTALLER" --dmg ~/Downloads/llm-swarm-router.dmg
+```
+
+The installer quits the menubar app, stops Homebrew `netllm` if it was running, frees the agent port, replaces `/Applications/llm-swarm-router.app`, launches the new app, and checks `GET /ui/` returns HTTP 200.
 
 The app installs a CLI shim at `~/.config/netllm/bin/netllm` for terminal control.
 
@@ -75,15 +96,13 @@ Verify with `scripts/test-brand-icons.sh` (also run as part of `test-menubar-e2e
 
 ## Test install like an end user (recommended for maintainers)
 
-Quit any running menubar instance, then:
-
 ```bash
 ./scripts/emulate-user-install-mac.sh
 ```
 
-That builds a release DMG, installs to `/Applications/llm-swarm-router.app`, and launches from there, the same path users follow after downloading from Releases.
+That builds a release DMG, runs the same clean install path as `upgrade-mac-app.sh` (stop stale processes → replace bundle → verify `/ui/`), and launches from Applications.
 
-Manual equivalent: open `dist/llm-swarm-router.dmg` → drag to Applications → launch from Applications (right-click **Open** once if Gatekeeper prompts).
+Manual equivalent: quit menubar app → open `dist/llm-swarm-router.dmg` → drag to Applications (**Replace**) → launch (right-click **Open** once if Gatekeeper prompts).
 
 ## Build from source (developers only)
 

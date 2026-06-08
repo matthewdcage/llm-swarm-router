@@ -282,7 +282,10 @@ packaging/scripts/create-dmg.sh    # → dist/llm-swarm-router.dmg
 **Test like an end user** (build → Applications → launch):
 
 ```bash
-./scripts/emulate-user-install-mac.sh
+./scripts/emulate-user-install-mac.sh   # build + clean install
+
+# Upgrade from a downloaded release DMG (stops stale agents, verifies /ui/)
+./scripts/upgrade-mac-app.sh ~/Downloads/llm-swarm-router.dmg
 ```
 
 Python layer packaging (venvstacks): [packaging/README.md](packaging/README.md)

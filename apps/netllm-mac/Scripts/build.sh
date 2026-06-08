@@ -102,6 +102,17 @@ exec "$PYTHONHOME/bin/python3" -m netllm_cli.main "$@"
 WRAPPER
 chmod +x "$APP/Contents/MacOS/netllm-cli"
 
+# Bundled maintainer scripts (DMG upgrade / future in-app updater)
+SCRIPTS_RES="$APP/Contents/Resources/Scripts"
+mkdir -p "$SCRIPTS_RES"
+for script in macos-app-install.sh mount-dmg.sh; do
+  src="$ROOT/packaging/scripts/$script"
+  if [[ -f "$src" ]]; then
+    cp "$src" "$SCRIPTS_RES/$script"
+    chmod +x "$SCRIPTS_RES/$script"
+  fi
+done
+
 # Brand assets + app icon
 BRAND_SRC="$MAC_DIR/build/Brand"
 ICNS_SRC="$MAC_DIR/build/AppIcon.icns"

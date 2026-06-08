@@ -10,7 +10,26 @@ curl -sf http://127.0.0.1:11400/health
 netllm status
 ```
 
-Dashboard: http://127.0.0.1:11400/ui/ · menubar **Open Dashboard** or **Copy Client Env**. If `/ui/` is 404, the embedded agent is stale, `./netllm serve` from source or rebuild the menubar app.
+Dashboard: http://127.0.0.1:11400/ui/ · menubar **Open Dashboard** or **Copy Client Env**.
+
+### `/ui/` returns `{"detail":"Not Found"}`
+
+Usually an **old agent still owns the port** after a drag-to-Applications upgrade (the running process was not quit before replace).
+
+```bash
+# Clean upgrade from a downloaded release DMG
+./scripts/upgrade-mac-app.sh ~/Downloads/llm-swarm-router.dmg
+```
+
+Or manually: menubar **Quit** → `brew services stop netllm` (if used) → confirm `lsof -i :11400` is empty → relaunch from Applications.
+
+Diagnostic:
+
+```bash
+curl -s http://127.0.0.1:11400/ | python3 -m json.tool   # v0.2.3+ includes "dashboard"
+lsof -nP -iTCP:11400 -sTCP:LISTEN
+defaults read /Applications/llm-swarm-router.app/Contents/Info CFBundleShortVersionString
+```
 
 From a repo checkout, prefer `./netllm` if PATH is uncertain.
 
@@ -21,7 +40,7 @@ From a repo checkout, prefer `./netllm` if PATH is uncertain.
 | Symptom | Fix |
 |---------|-----|
 | `curl` to `/health` fails | Menubar → **Start Agent**, or `netllm start` |
-| Port 11400 in use | Expected while the menubar app runs the agent. Settings → **Restart Agent** or `netllm restart`: not a second `netllm serve` |
+| Port 11400 in use | Expected while the menubar app runs the agent. Settings → **Restart Agent** or `netllm restart`: not a second `netllm serve`. After upgrade, run `upgrade-mac-app.sh` if an old process still holds the port |
 | DMG app won’t launch | Right-click **llm-swarm-router** in Applications → **Open** once (Gatekeeper) |
 | Homebrew agent down | `brew services restart netllm` · logs: `$(brew --prefix)/var/log/netllm.log` |
 
