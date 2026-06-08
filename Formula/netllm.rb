@@ -4,7 +4,7 @@ class Netllm < Formula
   desc "Mesh router for local LLM backends — swarm agents with OpenAI/Anthropic gateway"
   homepage "https://github.com/matthewdcage/llm-swarm-router"
   url "https://github.com/matthewdcage/llm-swarm-router/archive/refs/tags/v0.2.0.tar.gz"
-  sha256 "SKIP_CHECKSUM_FOR_EDITABLE_DEV"
+  sha256 "aaefa7de9a83d7e6cfa14991b0f42463a51bec6db518cae8af7cf3862b0718fc"
   license "MIT"
   head "https://github.com/matthewdcage/llm-swarm-router.git", branch: "main"
 
@@ -12,9 +12,12 @@ class Netllm < Formula
   depends_on "uv"
 
   def install
-    venv = virtualenv_create(libexec, "python3.11")
-    system "uv", "pip", "install", "--python=#{libexec}/bin/python",
-           "-e", buildpath.to_s, "--no-dev"
+    virtualenv_create(libexec, "python3.11")
+    ENV["UV_PROJECT_ENVIRONMENT"] = libexec.to_s
+    cd buildpath do
+      system Formula["uv"].opt_bin/"uv", "sync", "--frozen", "--no-dev",
+             "--python", libexec/"bin/python"
+    end
     bin.install_symlink libexec/"bin/netllm"
   end
 
