@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from netllm_core.update import (
+    GitHubReleaseInfo,
+    ReleaseAsset,
     compare_versions,
     fetch_latest_release,
     find_sha256_sidecar,
@@ -13,7 +15,6 @@ from netllm_core.update import (
     select_asset,
     verify_sha256,
 )
-from netllm_core.update import GitHubReleaseInfo, ReleaseAsset
 
 
 def test_compare_versions_numeric() -> None:

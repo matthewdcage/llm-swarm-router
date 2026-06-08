@@ -128,7 +128,9 @@ def create_app(
         return version_payload()
 
     @app.get("/netllm/v1/update/check")
-    async def netllm_update_check(request: Request, force: bool = False) -> dict[str, Any]:
+    async def netllm_update_check(
+        request: Request, force: bool = False
+    ) -> dict[str, Any]:
         require_admin_access(request, cfg)
         return await build_update_check_payload(force=force)
 

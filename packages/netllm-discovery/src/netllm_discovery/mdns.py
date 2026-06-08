@@ -13,8 +13,10 @@ logger = logging.getLogger(__name__)
 try:
     from netllm_core.version import get_version
 except ImportError:  # pragma: no cover - discovery without core in odd layouts
+
     def get_version() -> str:
         return "0.2.3.2"
+
 
 SERVICE_TYPE = "_netllm._tcp.local."
 SERVICE_NAME = "netllm-agent"

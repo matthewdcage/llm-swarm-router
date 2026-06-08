@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from importlib.metadata import PackageNotFoundError, version as pkg_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as pkg_version
 
 _FALLBACK_VERSION = "0.2.3.2"
 

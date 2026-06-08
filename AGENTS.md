@@ -151,7 +151,7 @@ Editor wiring reference: [docs/editor-integration.md](docs/editor-integration.md
 Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow, issue templates, and review expectations.
 
 - Conventional commit messages; focus on why
-- Do not commit `.cursor/plans/`, `.cursor/hooks/`, `.cursor/mcp.json`, `.cursor/rules/graphify.mdc`, or secrets
+- Do not commit `.cursor/plans/`, `.cursor/outreach/`, `.cursor/hooks/`, `.cursor/mcp.json`, `.cursor/rules/graphify.mdc`, or secrets
 - Do not commit unless the user explicitly asks (agents); human contributors open PRs per CONTRIBUTING.md
 
 ## Do not

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import platform
 import re
 import sys
 import time
@@ -130,7 +129,9 @@ def _asset_by_name(assets: tuple[ReleaseAsset, ...], name: str) -> ReleaseAsset 
     return None
 
 
-def _asset_by_glob(assets: tuple[ReleaseAsset, ...], pattern: str) -> ReleaseAsset | None:
+def _asset_by_glob(
+    assets: tuple[ReleaseAsset, ...], pattern: str
+) -> ReleaseAsset | None:
     for asset in assets:
         if fnmatch(asset.name, pattern):
             return asset
