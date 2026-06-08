@@ -9,7 +9,7 @@ When the user asks to install, set up, connect, swarm, or troubleshoot **netllm*
 |--------|------------|
 | First-time install, clone setup | `.cursor/skills/netllm-setup/SKILL.md` |
 | Wire Cursor, Claude Code, Codex, Honcho | `.cursor/skills/netllm-connect-editor/SKILL.md` |
-| LAN mesh, multi-Mac, peers, gateway | `.cursor/skills/netllm-swarm/SKILL.md` |
+| LAN mesh, multi-machine, peers, gateway | `.cursor/skills/netllm-swarm/SKILL.md` |
 | Broken agent, no models, doctor | `.cursor/skills/netllm-doctor/SKILL.md` |
 
 Follow the skill workflow exactly. Prefer `./netllm` from repo root. Project context: [AGENTS.md](../../AGENTS.md).

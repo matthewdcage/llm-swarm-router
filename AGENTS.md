@@ -2,7 +2,7 @@
 
 ## Project overview
 
-**swarm-llm (netllm)** is a mesh router for local LLM backends. Each host runs a lightweight agent that discovers oMLX, Ollama, and LM Studio on localhost, finds sibling agents on the LAN via mDNS, and exposes dual API surfaces: OpenAI-compatible `http://<host>:11400/v1` and Anthropic Messages API `http://<host>:11400/v1/messages` (with translation to local backends).
+**swarm-llm (netllm)** is a mesh router for local LLM backends. Each host runs a lightweight agent that discovers oMLX (macOS), Ollama, LM Studio, and vLLM on localhost, finds sibling agents on the LAN via mDNS, and exposes dual API surfaces: OpenAI-compatible `http://<host>:11400/v1` and Anthropic Messages API `http://<host>:11400/v1/messages` (with translation to local backends).
 
 Tech stack: Python 3.11+, [uv](https://docs.astral.sh/uv/) workspace monorepo, FastAPI agent, Typer CLI.
 
@@ -29,13 +29,13 @@ Prefer `./netllm` from the repo root — works without global PATH (`uv run` wra
 | `./netllm init` | Write config, scan local providers, optional global CLI |
 | `./netllm install` | Global `netllm` via `uv tool install` + shell PATH |
 | `./netllm serve` | Start agent (foreground, default `127.0.0.1:11400`) |
-| `./netllm start` / `stop` / `restart` | Background agent (macOS app or Homebrew service) |
+| `./netllm start` / `stop` / `restart` | Background agent (macOS app, Homebrew, Linux systemd, Windows service) |
 | `./netllm serve --host 0.0.0.0` | LAN + swarm — other machines can reach this agent |
 | `./netllm status` | Agent, backends, swarm peers |
 | `./netllm models` | Routed model catalog |
 | `./netllm models --lan` | Models on remote LAN agents |
 | `./netllm peers` | mDNS browse for swarm agents |
-| `./netllm discover` | Probe oMLX / Ollama / LM Studio on localhost |
+| `./netllm discover` | Probe oMLX / Ollama / LM Studio / vLLM on localhost |
 | `./netllm test` | 1-token latency diagnose (OpenAI backends) |
 | `./netllm test --api anthropic` | 1-token Messages API probe via agent |
 | `./netllm gateway` | Promote agent role to gateway |
@@ -66,7 +66,14 @@ export ANTHROPIC_API_KEY=netllm-local
 
 Use a real `ANTHROPIC_API_KEY` only for cloud failover; local mesh uses `netllm-local`.
 
-Default provider ports: oMLX `:8080`, Ollama `:11434`, LM Studio `:1234`.
+Default provider ports: oMLX `:8080`, Ollama `:11434`, LM Studio `:1234`, vLLM `:8000`.
+
+## Linux and Windows
+
+| Platform | Install doc | Background agent |
+|----------|-------------|------------------|
+| Linux | [docs/linux-install.md](docs/linux-install.md) | `systemctl --user enable --now netllm` (deb/rpm) |
+| Windows | [docs/windows-install.md](docs/windows-install.md) | `NetllmAgent` service via packaged zip |
 
 ## macOS menubar app
 
@@ -99,7 +106,7 @@ Load the matching skill when the user asks to install, connect an editor, set up
 |-------|----------|------------------|
 | `netllm-setup` | install swarm-llm, set up netllm, `/netllm-setup` | `.agents/skills/netllm-setup/SKILL.md` |
 | `netllm-connect-editor` | connect Cursor, wire Claude Code, Codex local model, `/netllm-connect` | `.agents/skills/netllm-connect-editor/SKILL.md` |
-| `netllm-swarm` | LAN swarm, multi-Mac, `/netllm-swarm` | `.agents/skills/netllm-swarm/SKILL.md` |
+| `netllm-swarm` | LAN swarm, multi-machine, `/netllm-swarm` | `.agents/skills/netllm-swarm/SKILL.md` |
 | `netllm-doctor` | netllm broken, no models, agent unreachable, `/netllm-doctor` | `.agents/skills/netllm-doctor/SKILL.md` |
 
 Tool-specific copies: `.claude/skills/`, `.cursor/skills/`, `.github/skills/`. Keep in sync via `scripts/sync-agent-skills.sh`.

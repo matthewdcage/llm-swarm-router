@@ -82,6 +82,38 @@ async def test_scan_finds_omlx_on_alternate_port() -> None:
 
 
 @pytest.mark.asyncio
+async def test_scan_finds_vllm() -> None:
+    cfg = NetllmConfig()
+
+    async def fake_probe(url: str, client, api_key: str = "") -> dict | None:
+        if url == "http://127.0.0.1:8000/v1":
+            return {
+                "status": "online",
+                "model_count": 1,
+                "models": ["meta-llama/Llama-3-8B"],
+                "latency_ms": 20.0,
+                "inference_status": "online",
+            }
+        return None
+
+    with patch("netllm_discovery.local._probe_url", side_effect=fake_probe):
+        results = await scan_local_providers(cfg)
+
+    vllm = next(r for r in results if r["id"] == "vllm")
+    assert vllm["status"] == "online"
+    assert vllm["base_url"] == "http://127.0.0.1:8000/v1"
+
+
+def test_linux_default_providers(monkeypatch: pytest.MonkeyPatch) -> None:
+    from netllm_core.platform import default_discovery_providers
+
+    monkeypatch.setattr("sys.platform", "linux")
+    providers = default_discovery_providers()
+    assert "vllm" in providers
+    assert "omlx" not in providers
+
+
+@pytest.mark.asyncio
 async def test_scan_uses_config_provider_url_before_scan() -> None:
     cfg = NetllmConfig()
     cfg.discovery.provider_urls = {"omlx": ["http://127.0.0.1:9999/v1"]}

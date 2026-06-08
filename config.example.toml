@@ -7,7 +7,7 @@ role = "peer"
 advertise = true
 
 [discovery]
-providers = ["omlx", "ollama", "lmstudio"]
+providers = ["omlx", "ollama", "lmstudio", "vllm"]
 custom_endpoints = []
 # Per-machine overrides (tried before default port scan). Example Mac mini oMLX on 8088:
 # [discovery.provider_urls]
@@ -30,7 +30,7 @@ require_same_model_for_shard = true
 # Optional menubar app settings (defaults apply when section is omitted)
 [ui]
 auto_start_on_launch = true
-# log_dir = ""  # default: ~/Library/Application Support/netllm/logs
+# log_dir = ""  # default: platform-specific (see netllm_core.platform.default_log_dir)
 
 # Optional manual backend overrides (per-endpoint API keys via env)
 # [[routing.backends]]
