@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+MOUNT_DMG="$ROOT/packaging/scripts/mount-dmg.sh"
 APP_NAME="llm-swarm-router.app"
 INSTALL_PATH="/Applications/$APP_NAME"
 DMG="$ROOT/dist/llm-swarm-router.dmg"
@@ -26,9 +27,7 @@ if [[ -d "$INSTALL_PATH" ]]; then
 fi
 
 echo "==> Mounting DMG and copying to Applications (automates the drag)"
-# -quiet suppresses mount path output; parse the /Volumes/ line from attach instead.
-MOUNT="$(hdiutil attach "$DMG" -nobrowse 2>&1 | awk '/\/Volumes\// {print $NF; exit}')"
-if [[ -z "$MOUNT" || ! -d "$MOUNT" ]]; then
+if ! MOUNT="$("$MOUNT_DMG" "$DMG")"; then
   echo "Failed to mount DMG: $DMG" >&2
   exit 1
 fi

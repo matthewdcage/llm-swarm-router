@@ -95,9 +95,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
         guard let runtime else { return }
         let model = SettingsViewModel(runtime: runtime)
         settingsModel = model
-        let view = SettingsWindowView(model: model) { [weak self] in
+        let supervisor = AgentSupervisor(server: server!)
+        let view = SettingsWindowView(model: model, supervisor: supervisor) { [weak self] in
             Task {
-                _ = try? await self?.server?.forceRestart()
                 await self?.settingsModel?.refreshLiveData()
                 self?.settingsModel?.needsRestart = false
             }
@@ -106,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
         let window = NSWindow(contentViewController: hosting)
         window.title = AppBranding.settingsTitle
         window.styleMask = [.titled, .closable, .resizable]
-        window.setContentSize(NSSize(width: 720, height: 560))
+        window.setContentSize(NSSize(width: 780, height: 620))
         window.center()
         window.makeKeyAndOrderFront(nil)
         settingsWindow = window

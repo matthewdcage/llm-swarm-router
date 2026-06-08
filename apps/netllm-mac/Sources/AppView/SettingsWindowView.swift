@@ -2,16 +2,17 @@ import SwiftUI
 
 struct SettingsWindowView: View {
     @Bindable var model: SettingsViewModel
+    @Bindable var supervisor: AgentSupervisor
     var onRestartAgent: (() -> Void)?
 
-    @State private var tab = "overview"
+    @State private var tab = "status"
     @State private var portText = "11400"
 
     var body: some View {
         NavigationSplitView {
             List(selection: $tab) {
-                Section("Live") {
-                    sidebarRow("Overview", "gauge.with.dots.needle.67percent", "overview")
+                Section("Server") {
+                    sidebarRow("Status", "gauge.with.dots.needle.67percent", "status")
                     sidebarRow("Backends", "server.rack", "backends")
                     sidebarRow("Models", "cube.box", "models")
                     sidebarRow("Peers", "point.3.connected.trianglepath.dotted", "peers")
@@ -30,29 +31,22 @@ struct SettingsWindowView: View {
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
         } detail: {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    statusBanner
+                VStack(alignment: .leading, spacing: 20) {
                     tabContent
+                    feedbackBanner
                 }
-                .padding()
+                .padding(20)
                 .id(model.uiRevision)
             }
-            .frame(minWidth: 560, minHeight: 480)
+            .frame(minWidth: 640, minHeight: 520)
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    HStack(spacing: 8) {
-                        BrandImageView(size: 20)
-                        Text(AppBranding.settingsTitle)
-                            .font(.headline)
-                    }
-                }
                 ToolbarItemGroup(placement: .automatic) {
                     Button("Refresh") { Task { await model.reloadAll() } }
                         .disabled(model.isLoading)
                     Button("Save") { model.save() }
                         .disabled(model.isLoading)
                     if model.needsRestart {
-                        Button("Restart Agent") { onRestartAgent?() }
+                        Button("Restart Agent") { restartAgent() }
                             .disabled(model.isLoading)
                     }
                 }
@@ -62,10 +56,16 @@ struct SettingsWindowView: View {
         .onAppear { portText = String(model.document.port) }
     }
 
+    private func restartAgent() {
+        supervisor.restart()
+        onRestartAgent?()
+        Task { await model.refreshLiveData() }
+    }
+
     @ViewBuilder
     private var tabContent: some View {
         switch tab {
-        case "overview": overviewTab
+        case "status", "overview": statusTab
         case "backends": backendsTab
         case "models": modelsTab
         case "peers": peersTab
@@ -75,7 +75,7 @@ struct SettingsWindowView: View {
         case "routing": routingTab
         case "ui": uiTab
         case "tools": toolsTab
-        default: overviewTab
+        default: statusTab
         }
     }
 
@@ -83,57 +83,151 @@ struct SettingsWindowView: View {
         Label(title, systemImage: icon).tag(tag)
     }
 
-    private var statusBanner: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 12) {
-                Circle()
-                    .fill(model.agentReachable ? Color.green : Color.red)
-                    .frame(width: 10, height: 10)
-                Text(model.agentReachable ? "Agent reachable at \(model.agentBaseURL.absoluteString)" : "Agent not reachable — start agent from menubar")
-                    .font(.subheadline)
-                Spacer()
+    @ViewBuilder
+    private var feedbackBanner: some View {
+        if model.isLoading || model.errorMessage != nil || model.message != nil {
+            VStack(alignment: .leading, spacing: 6) {
                 if model.isLoading {
-                    ProgressView().controlSize(.small)
-                    if let action = model.activeAction {
-                        Text(action).font(.caption).foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(model.activeAction ?? "Working…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
+                if let err = model.errorMessage {
+                    Label(err, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                } else if let msg = model.message {
+                    Label(msg, systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
             }
-            if let err = model.errorMessage {
-                Label(err, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            } else if let msg = model.message {
-                Label(msg, systemImage: "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary.opacity(0.35))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
-        .padding(10)
-        .background(.quaternary.opacity(0.4))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
-    private var overviewTab: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Agent status")
-            if let status = model.status {
-                gridRow("Agent ID", status.agentId)
-                gridRow("Hostname", status.hostname)
-                gridRow("Role", status.role)
-                gridRow("Strategy", status.routingStrategy)
-                gridRow("URL", status.listenURL)
-                gridRow("Backends", "\(status.backends.count)")
-                gridRow("Peers", "\(status.peers.count)")
-            } else {
-                Text("Start the agent to see live status.").foregroundStyle(.secondary)
+    private var statusTab: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Status")
+                .font(.largeTitle.weight(.semibold))
+
+            StatusHeroCard(
+                version: AppVersionInfo.short,
+                listenURL: model.status?.listenURL ?? model.agentBaseURL.absoluteString,
+                supervisorLabel: supervisor.statusLabel,
+                isRunning: supervisor.isRunning,
+                isReachable: model.agentReachable,
+                onRestart: { restartAgent() },
+                onStop: {
+                    supervisor.stop()
+                    Task { await model.refreshLiveData() }
+                },
+                onStart: {
+                    supervisor.start()
+                    Task {
+                        try? await Task.sleep(for: .seconds(1))
+                        await model.refreshLiveData()
+                    }
+                }
+            )
+
+            HStack {
+                SettingsSectionTitle(title: "Routing stats")
+                Spacer()
+                Button("Refresh") { Task { await model.reloadAll() } }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .disabled(model.isLoading)
             }
+
+            HStack(spacing: 12) {
+                StatMetricCard(
+                    title: "Backends",
+                    value: backendStatValue,
+                    subtitle: backendStatSubtitle
+                )
+                StatMetricCard(
+                    title: "Peers",
+                    value: "\(model.status?.peers.count ?? 0)",
+                    subtitle: "LAN swarm agents"
+                )
+                StatMetricCard(
+                    title: "Models",
+                    value: "\(model.routedModels.count)",
+                    subtitle: "Routed catalog"
+                )
+            }
+
+            SettingsSectionTitle(title: "Active now")
+            SettingsSurfaceCard {
+                if let status = model.status, model.agentReachable {
+                    Text(activeSummary(status))
+                        .font(.subheadline)
+                } else if supervisor.isRunning {
+                    Text("Agent process is running — waiting for HTTP health at \(model.agentBaseURL.absoluteString).")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Agent stopped — start from the card above or the menu bar.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            SettingsSectionTitle(title: "System")
+            SettingsSurfaceCard {
+                VStack(alignment: .leading, spacing: 8) {
+                    SettingsInfoRow(label: "Platform", value: AppVersionInfo.platformLine)
+                    SettingsInfoRow(label: "App version", value: AppVersionInfo.display)
+                    SettingsInfoRow(label: "CLI", value: AppBranding.cliCommand)
+                    if let status = model.status {
+                        SettingsInfoRow(label: "Agent ID", value: status.agentId)
+                        SettingsInfoRow(label: "Hostname", value: status.hostname)
+                        SettingsInfoRow(label: "Role", value: status.role)
+                        SettingsInfoRow(label: "Strategy", value: status.routingStrategy)
+                    }
+                    SettingsInfoRow(label: "Config", value: AppConfig.defaultConfigPath().path)
+                }
+            }
+
+            SettingsSectionTitle(title: "Quick actions")
             actionButtons {
                 Button("Discover local providers") { model.runDiscover() }
                 Button("Scan LAN peers") { model.runPeersScan() }
                 Button("Run doctor") { model.runDoctor() }
             }
         }
+    }
+
+    private var backendStatValue: String {
+        guard let status = model.status else { return "—" }
+        let online = status.backends.filter { $0.health == "online" }.count
+        return "\(online)/\(status.backends.count)"
+    }
+
+    private var backendStatSubtitle: String {
+        guard let status = model.status else { return "Start agent to load" }
+        let online = status.backends.filter { $0.health == "online" }.count
+        return online > 0 ? "Online backends" : "No backends online"
+    }
+
+    private func activeSummary(_ status: AgentStatusPayload) -> String {
+        let online = status.backends.filter { $0.health == "online" }.count
+        var parts = [
+            "\(online) backend\(online == 1 ? "" : "s") online",
+            "role: \(status.role)",
+            status.routingStrategy,
+        ]
+        if status.peers.count > 0 {
+            parts.insert("\(status.peers.count) peer\(status.peers.count == 1 ? "" : "s")", at: 0)
+        }
+        return parts.joined(separator: " · ")
     }
 
     private var backendsTab: some View {
