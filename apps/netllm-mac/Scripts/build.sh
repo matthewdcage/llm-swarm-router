@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 MAC_DIR="$ROOT/apps/netllm-mac"
 STAGE="$MAC_DIR/build/Stage"
-APP="$STAGE/netllm-mac.app"
+APP="$STAGE/llm-swarm-router.app"
 PYTHON_RES="$APP/Contents/Resources/Python"
 PACKAGES_RES="$APP/Contents/Resources/netllm_packages"
 
@@ -135,5 +135,5 @@ xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 
 echo "==> Staged: $APP"
 echo "    open \"$APP\"                    # launch menubar app"
-echo "    # Drag netllm-mac.app (not Contents/) to /Applications in Finder"
-echo "    packaging/scripts/create-dmg.sh  # optional: dist/netllm-mac.dmg"
+echo "    packaging/scripts/create-dmg.sh           # dist/llm-swarm-router.dmg"
+echo "    scripts/emulate-user-install-mac.sh       # DMG → /Applications (user flow)"
