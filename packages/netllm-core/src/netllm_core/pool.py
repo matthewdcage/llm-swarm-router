@@ -124,14 +124,13 @@ class RouterPool:
             and now - cached.last_check < HEALTH_TTL_S
         ):
             return cached.online
+        probe_key = backend.resolve_api_key() or None
         if backend.api_format == "anthropic":
             status = probe_anthropic_compat_sync(
-                backend.base_url, api_key=backend.api_key or None
+                backend.base_url, api_key=probe_key
             )
         else:
-            status = probe_openai_compat_sync(
-                backend.base_url, api_key=backend.api_key or None
-            )
+            status = probe_openai_compat_sync(backend.base_url, api_key=probe_key)
         online = is_online(status)
         self._health_cache[key] = _HealthEntry(
             last_check=now, online=online, failures=0

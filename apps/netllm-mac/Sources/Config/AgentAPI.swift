@@ -18,7 +18,30 @@ enum AgentAPI {
 
     static func models(baseURL: URL) async -> [ModelRow] {
         guard let json = await fetchJSON(baseURL: baseURL, path: "/v1/models") else { return [] }
-        return (json["data"] as? [[String: Any]] ?? []).compactMap { item in
+        return parseModelRows(from: json["data"] as? [[String: Any]] ?? [])
+    }
+
+    static func modelsFromStatus(_ status: AgentStatusPayload) -> [ModelRow] {
+        var seen = Set<String>()
+        var rows: [ModelRow] = []
+        for backend in status.backends where backend.health == "online" {
+            for model in backend.models where seen.insert(model).inserted {
+                rows.append(
+                    ModelRow(
+                        id: model,
+                        model: model,
+                        provider: backend.provider,
+                        host: backend.baseURL,
+                        scope: "routed"
+                    )
+                )
+            }
+        }
+        return rows.sorted { $0.model.localizedCaseInsensitiveCompare($1.model) == .orderedAscending }
+    }
+
+    private static func parseModelRows(from data: [[String: Any]]) -> [ModelRow] {
+        data.compactMap { item in
             guard let id = item["id"] as? String else { return nil }
             return ModelRow(
                 id: id,

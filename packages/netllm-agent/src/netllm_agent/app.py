@@ -67,6 +67,10 @@ def create_app(config: NetllmConfig | None = None) -> FastAPI:
     # --- Swarm API ---
     @app.get("/netllm/v1/status")
     async def netllm_status() -> dict[str, Any]:
+        await service.refresh_local_backends()
+        for backend in service.pool.backends:
+            if backend.enabled:
+                service.pool.is_healthy(backend)
         return service.status_payload()
 
     @app.get("/netllm/v1/peers")

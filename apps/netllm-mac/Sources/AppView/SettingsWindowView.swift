@@ -159,8 +159,8 @@ struct SettingsWindowView: View {
                 )
                 StatMetricCard(
                     title: "Models",
-                    value: "\(model.routedModels.count)",
-                    subtitle: "Routed catalog"
+                    value: "\(model.routedModelCount)",
+                    subtitle: model.routedModelStatSubtitle
                 )
             }
 

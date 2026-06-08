@@ -127,7 +127,7 @@ class AgentService:
         for b in self.pool.backends:
             if not b.enabled:
                 continue
-            self.pool.is_healthy(b)
+            self.pool.is_healthy(b, force_refresh=True)
             for mid in b.health.models:
                 if mid not in seen:
                     seen[mid] = {
