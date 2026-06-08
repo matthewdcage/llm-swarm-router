@@ -148,8 +148,7 @@ def print_path_notice(*, installed: bool) -> None:
     """Explain PATH for this terminal vs new terminals."""
     if global_cli_on_path():
         console.print(
-            "[green]Global CLI ready:[/] [cyan]netllm[/] → "
-            f"{global_netllm_binary()}"
+            f"[green]Global CLI ready:[/] [cyan]netllm[/] → {global_netllm_binary()}"
         )
         return
 
@@ -161,9 +160,7 @@ def print_path_notice(*, installed: bool) -> None:
 
     lines: list[str] = []
     if installed or global_netllm_installed():
-        lines.append(
-            "[green]Installed[/] [cyan]~/.local/bin/netllm[/] successfully."
-        )
+        lines.append("[green]Installed[/] [cyan]~/.local/bin/netllm[/] successfully.")
 
     if shell_profile_has_local_bin():
         lines.append(

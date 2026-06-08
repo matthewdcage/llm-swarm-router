@@ -173,9 +173,7 @@ def create_app(
                     ),
                     media_type="text/event-stream",
                 )
-            return await service.proxy_chat_completion(
-                payload, headers=request.headers
-            )
+            return await service.proxy_chat_completion(payload, headers=request.headers)
         except OpenAIUpstreamError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 

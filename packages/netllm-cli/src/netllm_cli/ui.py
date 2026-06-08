@@ -34,9 +34,7 @@ def enabled_provider_summary(providers: list[str]) -> str:
 
 def default_provider_port_hint() -> str:
     if sys.platform == "darwin":
-        return (
-            "Start oMLX (:8080), Ollama (:11434), LM Studio (:1234), or vLLM (:8000)"
-        )
+        return "Start oMLX (:8080), Ollama (:11434), LM Studio (:1234), or vLLM (:8000)"
     return "Start Ollama (:11434), LM Studio (:1234), or vLLM (:8000)"
 
 

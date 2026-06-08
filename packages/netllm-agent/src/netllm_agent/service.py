@@ -228,9 +228,7 @@ class AgentService:
 
         while attempt < max_attempts:
             attempt += 1
-            backend = self._select_backend_for_request(
-                model, strategy, attempt, shard
-            )
+            backend = self._select_backend_for_request(model, strategy, attempt, shard)
             if backend is None:
                 break
             backend.in_flight += 1
@@ -291,9 +289,7 @@ class AgentService:
 
         while attempt < max_attempts:
             attempt += 1
-            backend = self._select_backend_for_request(
-                model, strategy, attempt, shard
-            )
+            backend = self._select_backend_for_request(model, strategy, attempt, shard)
             if backend is None:
                 break
             backend.in_flight += 1
@@ -344,18 +340,20 @@ class AgentService:
             return
         if any(b.api_format == "anthropic" for b in self.pool.backends):
             return
-        self.pool.merge_backends([
-            Backend(
-                id="anthropic-cloud",
-                base_url=ANTHROPIC_CLOUD_BASE_URL,
-                provider="anthropic",
-                api_format="anthropic",
-                api_key=api_key,
-                enabled=True,
-                local=False,
-                agent_id=self.config.agent.agent_id,
-            )
-        ])
+        self.pool.merge_backends(
+            [
+                Backend(
+                    id="anthropic-cloud",
+                    base_url=ANTHROPIC_CLOUD_BASE_URL,
+                    provider="anthropic",
+                    api_format="anthropic",
+                    api_key=api_key,
+                    enabled=True,
+                    local=False,
+                    agent_id=self.config.agent.agent_id,
+                )
+            ]
+        )
 
     def _message_backend_candidates(self, model: str) -> list[Backend]:
         openai_backends: list[Backend] = []

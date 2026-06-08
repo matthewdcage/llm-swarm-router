@@ -66,21 +66,25 @@ See [docs/menubar-app.md](docs/menubar-app.md) and [packaging/README.md](packagi
 4. **Run the checks locally** (same as CI):
 
 ```bash
-uv sync
-uv run pytest tests/ -v
-uv run ruff check packages/ tests/
+./scripts/ci.sh
 ```
+
+`lint` (~1s) and `test` (~12s) can run separately: `./scripts/ci.sh lint` or `./scripts/ci.sh test`.
 
 5. **Add or update tests** when you change behavior — avoid trivial assertions; cover real paths.
 6. **Update docs** when user-facing behavior, CLI flags, or install steps change.
 
 ### Optional: pre-commit hooks
 
+Fast feedback on **staged files only** (~3s): ruff lint/format fixes plus whitespace, YAML, and secret checks.
+
 ```bash
 uv sync
 uv run pre-commit install
-uv run pre-commit run --all-files   # dry run before pushing
+uv run pre-commit run --all-files   # optional dry run before pushing
 ```
+
+Pre-commit includes `ruff-format`; CI enforces the same via `./scripts/ci.sh lint`.
 
 ## Pull request workflow
 
@@ -104,7 +108,7 @@ Focus commit messages on **why**, not only what changed.
 
 3. Push and open a PR against `main`. Fill out the PR template completely.
 
-4. CI runs on Ubuntu and Windows (`pytest` + `ruff`). Fix failures before requesting review.
+4. CI runs lint on Ubuntu, then tests on Ubuntu and Windows (`./scripts/ci.sh`). Fix failures before requesting review.
 
 5. Maintainers may ask for changes or suggest splitting large PRs — that is normal.
 
@@ -165,8 +169,8 @@ uv run pytest packages/netllm-sdk-anthropic/tests/ tests/test_anthropic_bridge.p
 # Agent HTTP surface
 uv run pytest tests/test_agent.py -v
 
-# Lint only
-uv run ruff check packages/ tests/
+# Lint only (same as CI lint job)
+./scripts/ci.sh lint
 ```
 
 When adding discovery or routing behavior, include tests that do not require real GPU backends (use mocks/fixtures like existing tests).

@@ -74,9 +74,7 @@ def test_batch_request_ledger_reassign() -> None:
     ]
     first = ledger.assign("batch-1", 0, backends)
     assert first == "http://a/v1"
-    second = ledger.reassign_failed(
-        "batch-1", 0, backends, current_url="http://a/v1"
-    )
+    second = ledger.reassign_failed("batch-1", 0, backends, current_url="http://a/v1")
     assert second == "http://b/v1"
 
 

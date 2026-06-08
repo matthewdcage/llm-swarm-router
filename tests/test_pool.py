@@ -25,9 +25,7 @@ def test_is_healthy_uses_default_omlx_api_key(mock_probe: object) -> None:
     pool = RouterPool()
     pool.set_backends([backend])
     assert pool.is_healthy(backend) is True
-    mock_probe.assert_called_once_with(
-        "http://127.0.0.1:8080/v1", api_key="omlx-local"
-    )
+    mock_probe.assert_called_once_with("http://127.0.0.1:8080/v1", api_key="omlx-local")
 
 
 def test_stable_shard_index_deterministic() -> None:

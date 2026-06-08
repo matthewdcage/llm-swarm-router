@@ -19,4 +19,3 @@ def test_resolved_log_dir_default() -> None:
 def test_resolved_log_dir_override() -> None:
     cfg = NetllmConfig(ui=UiConfig(log_dir="/tmp/netllm-logs"))
     assert cfg.resolved_log_dir() == Path("/tmp/netllm-logs")
-

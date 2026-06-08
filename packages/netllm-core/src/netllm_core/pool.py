@@ -126,9 +126,7 @@ class RouterPool:
             return cached.online
         probe_key = backend.resolve_api_key() or None
         if backend.api_format == "anthropic":
-            status = probe_anthropic_compat_sync(
-                backend.base_url, api_key=probe_key
-            )
+            status = probe_anthropic_compat_sync(backend.base_url, api_key=probe_key)
         else:
             status = probe_openai_compat_sync(backend.base_url, api_key=probe_key)
         online = is_online(status)

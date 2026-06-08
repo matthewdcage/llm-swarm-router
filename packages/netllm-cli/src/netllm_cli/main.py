@@ -294,13 +294,15 @@ def models(
             provider = r.get("id", "?")
             base = r.get("base_url", "")
             for mid in r.get("models") or []:
-                rows.append({
-                    "model": mid,
-                    "provider": provider,
-                    "host": host,
-                    "scope": "local",
-                    "backend": base,
-                })
+                rows.append(
+                    {
+                        "model": mid,
+                        "provider": provider,
+                        "host": host,
+                        "scope": "local",
+                        "backend": base,
+                    }
+                )
         if not rows:
             print_error(
                 "No models found",
@@ -317,8 +319,8 @@ def models(
         warnings: list[str] = []
         if cfg.swarm.mdns and not mdns_available():
             warnings.append(
-            "mDNS not available — reinstall: [cyan]uv sync[/] or "
-            "[cyan]uv tool install --editable . --reinstall[/]"
+                "mDNS not available — reinstall: [cyan]uv sync[/] or "
+                "[cyan]uv tool install --editable . --reinstall[/]"
             )
         peers = asyncio.run(
             discover_lan_agents(
@@ -345,9 +347,7 @@ def models(
         for peer in peers:
             rows.extend(models_from_status(peer))
         models_table(rows, title="Models on LAN agents")
-        console.print(
-            f"\n[dim]{len(rows)} model(s) across {len(peers)} agent(s)[/]"
-        )
+        console.print(f"\n[dim]{len(rows)} model(s) across {len(peers)} agent(s)[/]")
         print_next_steps(
             [
                 ("netllm peers", "List agents without model detail"),
@@ -371,23 +371,27 @@ def models(
                 models_resp = client.get(f"{base.rstrip('/')}/v1/models")
                 models_resp.raise_for_status()
                 for item in models_resp.json().get("data") or []:
-                    rows.append({
-                        "model": item.get("id", ""),
-                        "provider": item.get("owned_by", "?"),
-                        "host": status.get("hostname", "agent"),
-                        "scope": "routed",
-                        "backend": "—",
-                    })
+                    rows.append(
+                        {
+                            "model": item.get("id", ""),
+                            "provider": item.get("owned_by", "?"),
+                            "host": status.get("hostname", "agent"),
+                            "scope": "routed",
+                            "backend": "—",
+                        }
+                    )
     except Exception as exc:
         msg, hints = agent_unreachable_message(base, exc)
         print_error("Agent unreachable", msg, hints=hints)
         raise typer.Exit(1) from exc
 
     if not rows:
-        print_warnings([
-            "Agent is up but no models registered — start oMLX/Ollama on this host",
-            "Run [cyan]netllm discover[/] then restart [cyan]netllm serve[/]",
-        ])
+        print_warnings(
+            [
+                "Agent is up but no models registered — start oMLX/Ollama on this host",
+                "Run [cyan]netllm discover[/] then restart [cyan]netllm serve[/]",
+            ]
+        )
         raise typer.Exit(1)
 
     models_table(rows, title=f"Routed models ({base})")
@@ -411,9 +415,7 @@ def peers(
         "--subnet-scan",
         help="Probe local /24 for agents on :11400 (slow; use if mDNS blocked)",
     ),
-    timeout: float = typer.Option(
-        3.0, "--timeout", "-t", help="mDNS browse seconds"
-    ),
+    timeout: float = typer.Option(3.0, "--timeout", "-t", help="mDNS browse seconds"),
     save: bool = typer.Option(
         False,
         "--save",
@@ -428,8 +430,7 @@ def peers(
 
     if mdns and cfg.swarm.mdns and not mdns_available():
         warnings.append(
-            "mDNS unavailable — [cyan]uv sync[/] or use "
-            "[cyan]--subnet-scan[/]"
+            "mDNS unavailable — [cyan]uv sync[/] or use [cyan]--subnet-scan[/]"
         )
         mdns = False
 
@@ -651,8 +652,7 @@ def serve(
         if lan_base:
             summary += f"[bold]LAN[/]     {lan_base}\n"
         summary += (
-            f"[bold]Config[/]  {cfg_path}\n"
-            f"[bold]Backends[/] {len(online)} online"
+            f"[bold]Config[/]  {cfg_path}\n[bold]Backends[/] {len(online)} online"
         )
         if online:
             names = ", ".join(r.get("name", "?") for r in online)
@@ -780,9 +780,11 @@ def status(
             )
         console.print(table)
     else:
-        print_warnings([
-            "No backends registered — run [cyan]netllm discover[/] on this host",
-        ])
+        print_warnings(
+            [
+                "No backends registered — run [cyan]netllm discover[/] on this host",
+            ]
+        )
 
     peers = data.get("peers") or []
     if peers:
@@ -797,10 +799,12 @@ def status(
             f"{suggested_cli('serve --host 0.0.0.0')} on each machine, then "
             f"{suggested_cli('peers')}"
         )
-        print_warnings([
-            f"No swarm peers yet — {lan_hint}, or add swarm.peers in config",
-            f"Gateway mode: [cyan]{suggested_cli('gateway')}[/] then restart serve",
-        ])
+        print_warnings(
+            [
+                f"No swarm peers yet — {lan_hint}, or add swarm.peers in config",
+                f"Gateway mode: [cyan]{suggested_cli('gateway')}[/] then restart serve",
+            ]
+        )
 
 
 async def _test_anthropic_agent(cfg: NetllmConfig, *, model: str | None) -> None:
@@ -927,10 +931,12 @@ def test(
                 inf = diag.get("inference_status")
                 console.print("  Inference: ", inference_status_style(inf), sep="")
                 if inf == "model_not_found" and model:
-                    print_warnings([
-                        f"Model [cyan]{model}[/] not loaded on this server",
-                        "List models: curl {}/models".format(url.rstrip("/")),
-                    ])
+                    print_warnings(
+                        [
+                            f"Model [cyan]{model}[/] not loaded on this server",
+                            "List models: curl {}/models".format(url.rstrip("/")),
+                        ]
+                    )
                 elif inf in ("offline", "timeout"):
                     print_warnings(offline_provider_hints([t]))
 
@@ -972,22 +978,28 @@ def doctor(
     cfg = load_config(cfg_path) if cfg_path.is_file() else NetllmConfig()
 
     if cfg.agent.listen.startswith("0.0.0.0") and not cfg.swarm.cluster_token:
-        issues.append((
-            "LAN exposure without cluster token",
-            "Set swarm.cluster_token in config when listening on 0.0.0.0",
-        ))
+        issues.append(
+            (
+                "LAN exposure without cluster token",
+                "Set swarm.cluster_token in config when listening on 0.0.0.0",
+            )
+        )
 
     if cfg.agent.role == "gateway" and not cfg.agent.advertise:
-        issues.append((
-            "Gateway not advertising",
-            "Set agent.advertise = true so workers can find the gateway",
-        ))
+        issues.append(
+            (
+                "Gateway not advertising",
+                "Set agent.advertise = true so workers can find the gateway",
+            )
+        )
 
     if cfg.swarm.mdns and cfg.agent.advertise and not mdns_available():
-        issues.append((
-            "mDNS enabled but zeroconf not installed",
-            "Reinstall: uv sync (zeroconf should install with netllm)",
-        ))
+        issues.append(
+            (
+                "mDNS enabled but zeroconf not installed",
+                "Reinstall: uv sync (zeroconf should install with netllm)",
+            )
+        )
 
     from netllm_cli.install_detect import skip_global_path_doctor_check
 
@@ -996,17 +1008,21 @@ def doctor(
         and not global_cli_on_path()
         and not skip_global_path_doctor_check()
     ):
-        issues.append((
-            "Global CLI installed but not on PATH in this terminal",
-            f"Run: {path_export_line()}  — or: source ~/.zshrc",
-        ))
+        issues.append(
+            (
+                "Global CLI installed but not on PATH in this terminal",
+                f"Run: {path_export_line()}  — or: source ~/.zshrc",
+            )
+        )
 
     results = asyncio.run(scan_local_providers(cfg))
     if not any(r.get("status") == "online" for r in results):
-        issues.append((
-            "No local inference servers online",
-            default_provider_port_hint(),
-        ))
+        issues.append(
+            (
+                "No local inference servers online",
+                default_provider_port_hint(),
+            )
+        )
 
     has_anthropic_backend = any(
         b.provider == "anthropic" for b in cfg.routing.backends if b.enabled
@@ -1018,20 +1034,24 @@ def doctor(
             if b.enabled and b.provider == "anthropic" and b.api_key_env
         ]
         if missing_keys:
-            issues.append((
-                "Anthropic cloud failover configured but API key missing",
-                f"Set env var: {missing_keys[0]}",
-            ))
+            issues.append(
+                (
+                    "Anthropic cloud failover configured but API key missing",
+                    f"Set env var: {missing_keys[0]}",
+                )
+            )
 
     from netllm_discovery.lan import local_lan_ip
     from netllm_discovery.mdns import parse_listen_host_port
     from netllm_discovery.runtime import check_listen_port, port_owner_pid
 
     if cfg.agent.listen.startswith("0.0.0.0") and local_lan_ip() is None:
-        issues.append((
-            "LAN listen but no LAN IP detected",
-            "Swarm discovery may fail — check network interface",
-        ))
+        issues.append(
+            (
+                "LAN listen but no LAN IP detected",
+                "Swarm discovery may fail — check network interface",
+            )
+        )
 
     from netllm_cli.install_detect import is_menubar_supervised
 
@@ -1051,15 +1071,19 @@ def doctor(
                         f"Run {suggested_cli('serve --replace')} or "
                         f"{suggested_cli('restart')}"
                     )
-                issues.append((
-                    f"Port {conflict.port} in use by netllm agent{pid_hint}",
-                    fix,
-                ))
+                issues.append(
+                    (
+                        f"Port {conflict.port} in use by netllm agent{pid_hint}",
+                        fix,
+                    )
+                )
             else:
-                issues.append((
-                    f"Port {conflict.port} in use by another process{pid_hint}",
-                    "Free the port or use netllm serve --port <other>",
-                ))
+                issues.append(
+                    (
+                        f"Port {conflict.port} in use by another process{pid_hint}",
+                        "Free the port or use netllm serve --port <other>",
+                    )
+                )
 
     if cfg.swarm.mdns and cfg.agent.advertise and mdns_available():
         _, listen_port = parse_listen_host_port(cfg.agent.listen)
@@ -1075,14 +1099,14 @@ def doctor(
                 from netllm_discovery.lan import browse_mdns_peers
 
                 found = browse_mdns_peers(timeout_s=1.0)
-                self_found = any(
-                    p.get("agent_id") == cfg.agent.agent_id for p in found
-                )
+                self_found = any(p.get("agent_id") == cfg.agent.agent_id for p in found)
                 if not self_found and port_owner_pid(listen_port) is not None:
-                    issues.append((
-                        "mDNS advertise may have failed",
-                        f"Try netllm serve --replace. {mdns_platform_hint()}",
-                    ))
+                    issues.append(
+                        (
+                            "mDNS advertise may have failed",
+                            f"Try netllm serve --replace. {mdns_platform_hint()}",
+                        )
+                    )
             except RuntimeError:
                 pass
 

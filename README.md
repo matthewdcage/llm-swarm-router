@@ -275,16 +275,14 @@ Architecture: [docs/architecture-reference.md](docs/architecture-reference.md)
 ## Development
 
 ```bash
-uv sync
-uv run pytest tests/ -v
-uv run ruff check packages/ tests/
+./scripts/ci.sh
 ```
 
-Optional pre-commit hooks (same ruff rules as CI):
+Optional pre-commit hooks (ruff lint + format on staged files, ~3s):
 
 ```bash
 uv run pre-commit install
-uv run pre-commit run --all-files
+uv run pre-commit run --all-files   # optional; CI uses ./scripts/ci.sh
 ```
 
 After editing agent skills: `scripts/sync-agent-skills.sh`
@@ -313,10 +311,10 @@ git clone https://github.com/matthewdcage/llm-swarm-router.git
 cd llm-swarm-router
 uv sync
 ./netllm init
-uv run pytest tests/ -v && uv run ruff check packages/ tests/
+./scripts/ci.sh
 ```
 
-Fork → branch → PR against `main`. Use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`). CI runs on Ubuntu and Windows.
+Fork → branch → PR against `main`. Use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`). CI runs lint on Ubuntu, then tests on Ubuntu and Windows.
 
 ---
 

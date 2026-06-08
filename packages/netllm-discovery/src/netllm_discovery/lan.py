@@ -254,12 +254,14 @@ def models_from_status(status: dict[str, Any]) -> list[dict[str, str]]:
         scope = "local" if backend.get("local") else "remote"
         host_label = hostname or agent_id or listen
         for model_id in backend.get("health", {}).get("models") or []:
-            rows.append({
-                "model": model_id,
-                "provider": provider,
-                "backend": base_url,
-                "scope": scope,
-                "host": host_label,
-                "agent_id": agent_id,
-            })
+            rows.append(
+                {
+                    "model": model_id,
+                    "provider": provider,
+                    "backend": base_url,
+                    "scope": scope,
+                    "host": host_label,
+                    "agent_id": agent_id,
+                }
+            )
     return rows

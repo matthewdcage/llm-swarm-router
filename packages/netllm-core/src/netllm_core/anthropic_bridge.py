@@ -72,12 +72,14 @@ def openai_to_anthropic_response(
             args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
         except json.JSONDecodeError:
             args = {"raw": args_raw}
-        content.append({
-            "type": "tool_use",
-            "id": tc.get("id") or f"toolu_{uuid.uuid4().hex[:12]}",
-            "name": fn.get("name", ""),
-            "input": args if isinstance(args, dict) else {},
-        })
+        content.append(
+            {
+                "type": "tool_use",
+                "id": tc.get("id") or f"toolu_{uuid.uuid4().hex[:12]}",
+                "name": fn.get("name", ""),
+                "input": args if isinstance(args, dict) else {},
+            }
+        )
     if not content:
         content.append({"type": "text", "text": ""})
 
@@ -129,23 +131,29 @@ async def translate_openai_stream_to_anthropic(
 
         if not started:
             started = True
-            yield _sse_event("message_start", {
-                "type": "message_start",
-                "message": {
-                    "id": msg_id,
-                    "type": "message",
-                    "role": "assistant",
-                    "model": chunk.get("model") or model,
-                    "content": [],
-                    "stop_reason": None,
-                    "usage": {"input_tokens": 0, "output_tokens": 0},
+            yield _sse_event(
+                "message_start",
+                {
+                    "type": "message_start",
+                    "message": {
+                        "id": msg_id,
+                        "type": "message",
+                        "role": "assistant",
+                        "model": chunk.get("model") or model,
+                        "content": [],
+                        "stop_reason": None,
+                        "usage": {"input_tokens": 0, "output_tokens": 0},
+                    },
                 },
-            })
-            yield _sse_event("content_block_start", {
-                "type": "content_block_start",
-                "index": 0,
-                "content_block": {"type": "text", "text": ""},
-            })
+            )
+            yield _sse_event(
+                "content_block_start",
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {"type": "text", "text": ""},
+                },
+            )
             block_started = True
 
         usage = chunk.get("usage")
@@ -157,45 +165,60 @@ async def translate_openai_stream_to_anthropic(
         delta = choice.get("delta") or {}
         if delta.get("content"):
             text_buffer += delta["content"]
-            yield _sse_event("content_block_delta", {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {"type": "text_delta", "text": delta["content"]},
-            })
+            yield _sse_event(
+                "content_block_delta",
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": delta["content"]},
+                },
+            )
         finish = choice.get("finish_reason")
         if finish:
             stop_reason = _FINISH_TO_STOP.get(finish, "end_turn")
 
     if not started:
-        yield _sse_event("message_start", {
-            "type": "message_start",
-            "message": {
-                "id": msg_id,
-                "type": "message",
-                "role": "assistant",
-                "model": model,
-                "content": [],
-                "stop_reason": None,
-                "usage": {"input_tokens": 0, "output_tokens": 0},
+        yield _sse_event(
+            "message_start",
+            {
+                "type": "message_start",
+                "message": {
+                    "id": msg_id,
+                    "type": "message",
+                    "role": "assistant",
+                    "model": model,
+                    "content": [],
+                    "stop_reason": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
             },
-        })
-        yield _sse_event("content_block_start", {
-            "type": "content_block_start",
-            "index": 0,
-            "content_block": {"type": "text", "text": ""},
-        })
+        )
+        yield _sse_event(
+            "content_block_start",
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "text", "text": ""},
+            },
+        )
         block_started = True
 
     if block_started:
-        yield _sse_event("content_block_stop", {
-            "type": "content_block_stop",
-            "index": 0,
-        })
-    yield _sse_event("message_delta", {
-        "type": "message_delta",
-        "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-        "usage": {"output_tokens": output_tokens or max(1, len(text_buffer) // 4)},
-    })
+        yield _sse_event(
+            "content_block_stop",
+            {
+                "type": "content_block_stop",
+                "index": 0,
+            },
+        )
+    yield _sse_event(
+        "message_delta",
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+            "usage": {"output_tokens": output_tokens or max(1, len(text_buffer) // 4)},
+        },
+    )
     yield _sse_event("message_stop", {"type": "message_stop"})
 
 
@@ -233,14 +256,16 @@ def _anthropic_message_to_openai(msg: dict[str, Any]) -> list[dict[str, Any]]:
             if btype == "text":
                 text_parts.append(block.get("text", ""))
             elif btype == "tool_use":
-                tool_calls.append({
-                    "id": block.get("id", f"call_{uuid.uuid4().hex[:12]}"),
-                    "type": "function",
-                    "function": {
-                        "name": block.get("name", ""),
-                        "arguments": json.dumps(block.get("input") or {}),
-                    },
-                })
+                tool_calls.append(
+                    {
+                        "id": block.get("id", f"call_{uuid.uuid4().hex[:12]}"),
+                        "type": "function",
+                        "function": {
+                            "name": block.get("name", ""),
+                            "arguments": json.dumps(block.get("input") or {}),
+                        },
+                    }
+                )
         out: dict[str, Any] = {
             "role": "assistant",
             "content": "\n".join(text_parts) or None,
@@ -264,16 +289,20 @@ def _anthropic_message_to_openai(msg: dict[str, Any]) -> list[dict[str, Any]]:
                 if source.get("type") == "base64":
                     media = source.get("media_type", "image/jpeg")
                     data = source.get("data", "")
-                    image_parts.append({
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{media};base64,{data}"},
-                    })
+                    image_parts.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{media};base64,{data}"},
+                        }
+                    )
             elif btype == "tool_result":
-                results.append({
-                    "role": "tool",
-                    "tool_call_id": block.get("tool_use_id", ""),
-                    "content": _tool_result_content(block.get("content")),
-                })
+                results.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": block.get("tool_use_id", ""),
+                        "content": _tool_result_content(block.get("content")),
+                    }
+                )
         if text_parts or image_parts:
             if image_parts:
                 parts: list[dict[str, Any]] = []
@@ -282,10 +311,13 @@ def _anthropic_message_to_openai(msg: dict[str, Any]) -> list[dict[str, Any]]:
                 parts.extend(image_parts)
                 results.insert(0, {"role": "user", "content": parts})
             else:
-                results.insert(0, {
-                    "role": "user",
-                    "content": "\n".join(text_parts),
-                })
+                results.insert(
+                    0,
+                    {
+                        "role": "user",
+                        "content": "\n".join(text_parts),
+                    },
+                )
         return results or [{"role": "user", "content": ""}]
 
     return [{"role": role, "content": _blocks_to_text(content)}]
@@ -295,9 +327,7 @@ def _tool_result_content(content: Any) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        return "\n".join(
-            b.get("text", "") for b in content if isinstance(b, dict)
-        )
+        return "\n".join(b.get("text", "") for b in content if isinstance(b, dict))
     return str(content)
 
 

@@ -23,9 +23,7 @@
 <!-- How did you verify this? Commands run, manual steps, screenshots -->
 
 ```bash
-uv sync
-uv run pytest tests/ -v
-uv run ruff check packages/ tests/
+./scripts/ci.sh
 ```
 
 - [ ] Tests added or updated for behavior changes

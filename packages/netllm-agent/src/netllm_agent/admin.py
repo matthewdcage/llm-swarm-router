@@ -33,36 +33,45 @@ def doctor_payload(cfg: NetllmConfig, service: AgentService) -> dict[str, Any]:
     issues: list[dict[str, str]] = []
 
     if cfg.agent.listen.startswith("0.0.0.0") and not cfg.swarm.cluster_token:
-        issues.append({
-            "title": "LAN exposure without cluster token",
-            "fix": "Set swarm.cluster_token when listening on 0.0.0.0",
-        })
+        issues.append(
+            {
+                "title": "LAN exposure without cluster token",
+                "fix": "Set swarm.cluster_token when listening on 0.0.0.0",
+            }
+        )
 
     if cfg.agent.role == "gateway" and not cfg.agent.advertise:
-        issues.append({
-            "title": "Gateway not advertising",
-            "fix": "Set agent.advertise = true so workers can find the gateway",
-        })
+        issues.append(
+            {
+                "title": "Gateway not advertising",
+                "fix": "Set agent.advertise = true so workers can find the gateway",
+            }
+        )
 
     enabled = [b for b in service.pool.backends if b.enabled]
     healthy = [b for b in enabled if service.pool.is_healthy(b)]
     if not healthy:
-        issues.append({
-            "title": "No healthy inference backends",
-            "fix": "Start Ollama, LM Studio, or vLLM, then run Discover",
-        })
+        issues.append(
+            {
+                "title": "No healthy inference backends",
+                "fix": "Start Ollama, LM Studio, or vLLM, then run Discover",
+            }
+        )
 
     if cfg.swarm.mdns and cfg.agent.advertise:
         try:
             import zeroconf  # noqa: F401
+
             mdns_ok = True
         except ImportError:
             mdns_ok = False
         if not mdns_ok:
-            issues.append({
-                "title": "mDNS enabled but zeroconf unavailable",
-                "fix": "Reinstall netllm (uv sync) or use static swarm.peers",
-            })
+            issues.append(
+                {
+                    "title": "mDNS enabled but zeroconf unavailable",
+                    "fix": "Reinstall netllm (uv sync) or use static swarm.peers",
+                }
+            )
 
     return {"ok": not issues, "issues": issues}
 

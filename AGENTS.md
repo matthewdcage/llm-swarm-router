@@ -41,8 +41,9 @@ Prefer `./netllm` from the repo root — works without global PATH (`uv run` wra
 | `./netllm gateway` | Promote agent role to gateway |
 | `./netllm doctor` | PATH, mDNS, backend misconfig checks |
 | `./netllm config-edit` | Open `config.toml` in `$EDITOR` |
-| `uv run pytest tests/ -v` | Run tests |
-| `uv run ruff check packages/ tests/` | Lint |
+| `./scripts/ci.sh` | Lint + test (same as CI) |
+| `./scripts/ci.sh lint` | Ruff check + format --check |
+| `./scripts/ci.sh test` | Run tests |
 | `scripts/agent-verify-setup.sh` | Health + models check after setup |
 | `scripts/sync-agent-skills.sh` | Sync `.agents/skills/` to other tool paths |
 
@@ -125,7 +126,7 @@ Editor wiring reference: [docs/editor-integration.md](docs/editor-integration.md
 ## Testing
 
 - Runner: pytest (`tests/`, asyncio mode auto)
-- CI: `uv sync` → `uv run pytest tests/ -v` → `uv run ruff check packages/ tests/`
+- CI: `./scripts/ci.sh lint` (Ubuntu) then `./scripts/ci.sh test` (Ubuntu + Windows)
 - Add tests only for real behavior; avoid trivial assertions
 
 ## Git workflow

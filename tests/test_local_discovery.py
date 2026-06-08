@@ -15,9 +15,17 @@ from netllm_discovery.local import (
 
 
 def test_normalize_openai_base_url() -> None:
-    assert normalize_openai_base_url("http://127.0.0.1:8088") == "http://127.0.0.1:8088/v1"
-    assert normalize_openai_base_url("http://127.0.0.1:8088/v1") == "http://127.0.0.1:8088/v1"
-    assert normalize_openai_base_url("http://127.0.0.1:8088/v1/") == "http://127.0.0.1:8088/v1"
+    assert (
+        normalize_openai_base_url("http://127.0.0.1:8088") == "http://127.0.0.1:8088/v1"
+    )
+    assert (
+        normalize_openai_base_url("http://127.0.0.1:8088/v1")
+        == "http://127.0.0.1:8088/v1"
+    )
+    assert (
+        normalize_openai_base_url("http://127.0.0.1:8088/v1/")
+        == "http://127.0.0.1:8088/v1"
+    )
 
 
 def test_candidate_urls_config_override_first() -> None:

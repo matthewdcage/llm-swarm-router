@@ -28,7 +28,11 @@ def collect(rel: str, exts: set[str]) -> list[Path]:
     if not base.is_dir():
         return []
     for path in base.rglob("*"):
-        if path.is_file() and path.suffix.lower() in exts and not SKIP.intersection(path.parts):
+        if (
+            path.is_file()
+            and path.suffix.lower() in exts
+            and not SKIP.intersection(path.parts)
+        ):
             found.append(path)
     return sorted(found)
 
