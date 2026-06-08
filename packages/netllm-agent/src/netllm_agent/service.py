@@ -3,14 +3,25 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
-from netllm_core.models import Backend, NetllmConfig
+from netllm_core.anthropic_bridge import (
+    anthropic_to_openai_request,
+    openai_to_anthropic_response,
+    translate_openai_stream_to_anthropic,
+)
+from netllm_core.models import (
+    ANTHROPIC_CLOUD_BASE_URL,
+    Backend,
+    NetllmConfig,
+)
 from netllm_core.pool import RouterPool
 from netllm_discovery.local import scan_local_providers, scan_results_to_backends
 from netllm_discovery.swarm import PeerRecord, SwarmRegistry
+from netllm_sdk_anthropic.client import AnthropicUpstream, AnthropicUpstreamError
 from netllm_sdk_openai.client import OpenAIUpstream, OpenAIUpstreamError
 
 from netllm_agent.metrics import (
@@ -18,6 +29,12 @@ from netllm_agent.metrics import (
     BACKEND_IN_FLIGHT,
     REQUEST_LATENCY,
     REQUESTS_TOTAL,
+)
+from netllm_agent.shard import (
+    BatchRequestLedger,
+    ShardContext,
+    backend_for_url,
+    extract_shard_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,6 +50,7 @@ class AgentService:
         self._mdns_advertiser = None
         self._mdns_browser = None
         self._request_count = 0
+        self._batch_ledger = BatchRequestLedger()
         self.startup_warnings: list[str] = []
 
     async def refresh_local_backends(self) -> list[Backend]:
@@ -51,6 +69,7 @@ class AgentService:
             for b in local:
                 if b.base_url.rstrip("/") == override.base_url.rstrip("/"):
                     b.api_key = key
+                    b.api_format = override.resolved_api_format()
                     found = True
             if not found:
                 local.append(
@@ -58,6 +77,7 @@ class AgentService:
                         id=override.base_url,
                         base_url=override.base_url.rstrip("/"),
                         provider=override.provider,
+                        api_format=override.resolved_api_format(),
                         api_key=key,
                         enabled=True,
                         local=override.local,
@@ -117,27 +137,75 @@ class AgentService:
                     }
         return {"object": "list", "data": list(seen.values())}
 
-    def _select_with_failover(
+    def _select_backend_for_request(
         self,
         model: str,
         strategy: str,
         attempt: int,
+        shard: ShardContext | None,
     ) -> Backend | None:
-        use_strategy = strategy if attempt == 1 else "failover"
         if strategy == "batch_shard":
-            use_strategy = "round_robin" if attempt == 1 else "failover"
+            if shard and shard.batch_id is not None and shard.index is not None:
+                candidates = self.pool.backends_for_model(model)
+                if attempt == 1:
+                    url = self._batch_ledger.assign(
+                        shard.batch_id, shard.index, candidates
+                    )
+                else:
+                    current = self._batch_ledger.assignments.get(
+                        (shard.batch_id, shard.index), ""
+                    )
+                    url = self._batch_ledger.reassign_failed(
+                        shard.batch_id,
+                        shard.index,
+                        candidates,
+                        current_url=current,
+                    )
+                if url:
+                    return backend_for_url(url, candidates)
+                return None
+
+            shard_key = shard.shard_key if shard else None
+            if shard_key is None and shard and shard.index is not None:
+                shard_key = str(shard.index)
+            if shard_key:
+                use_strategy = "batch_shard" if attempt == 1 else "failover"
+                return self.pool.select_backend(
+                    model,
+                    use_strategy,  # type: ignore[arg-type]
+                    shard_key=shard_key,
+                    attempt=attempt,
+                )
+
+            if attempt == 1:
+                logger.warning(
+                    "batch_shard without shard context — falling back to round_robin"
+                )
+                return self.pool.select_backend(model, "round_robin")
+            return self.pool.select_backend(model, "failover", attempt=attempt)
+
+        use_strategy = strategy if attempt == 1 else "failover"
+        shard_key = shard.shard_key if shard else None
         return self.pool.select_backend(
             model,
             use_strategy,  # type: ignore[arg-type]
+            shard_key=shard_key,
             attempt=attempt,
         )
+
+    def _mark_shard_success(self, shard: ShardContext | None) -> None:
+        if shard and shard.batch_id is not None and shard.index is not None:
+            self._batch_ledger.mark_done(shard.batch_id, shard.index)
 
     async def proxy_chat_completion(
         self,
         payload: dict[str, Any],
+        *,
+        headers: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         model = payload.get("model", "")
         strategy = self.config.routing.default_strategy
+        shard = extract_shard_context(payload, headers or {})
 
         await self.refresh_local_backends()
         attempt = 0
@@ -146,7 +214,9 @@ class AgentService:
 
         while attempt < max_attempts:
             attempt += 1
-            backend = self._select_with_failover(model, strategy, attempt)
+            backend = self._select_backend_for_request(
+                model, strategy, attempt, shard
+            )
             if backend is None:
                 break
             backend.in_flight += 1
@@ -165,6 +235,7 @@ class AgentService:
                 ).inc()
                 REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency)
                 self._request_count += 1
+                self._mark_shard_success(shard)
                 return result
             except OpenAIUpstreamError as exc:
                 last_error = exc
@@ -192,9 +263,12 @@ class AgentService:
     async def proxy_chat_completion_stream(
         self,
         payload: dict[str, Any],
+        *,
+        headers: Mapping[str, str] | None = None,
     ) -> AsyncIterator[str]:
         model = payload.get("model", "")
         strategy = self.config.routing.default_strategy
+        shard = extract_shard_context(payload, headers or {})
 
         await self.refresh_local_backends()
         attempt = 0
@@ -203,7 +277,9 @@ class AgentService:
 
         while attempt < max_attempts:
             attempt += 1
-            backend = self._select_with_failover(model, strategy, attempt)
+            backend = self._select_backend_for_request(
+                model, strategy, attempt, shard
+            )
             if backend is None:
                 break
             backend.in_flight += 1
@@ -214,7 +290,7 @@ class AgentService:
                     api_key=backend.api_key or "netllm-local",
                 )
                 async for chunk in self._stream_with_metrics(
-                    client, payload, backend, model
+                    client, payload, backend, model, shard
                 ):
                     yield chunk
                 return
@@ -237,12 +313,256 @@ class AgentService:
             raise last_error
         raise OpenAIUpstreamError("No healthy backends available for model")
 
+    @staticmethod
+    def _anthropic_api_key(headers: Mapping[str, str]) -> str:
+        return headers.get("x-api-key") or os.environ.get("ANTHROPIC_API_KEY", "")
+
+    @staticmethod
+    def _anthropic_default_headers(headers: Mapping[str, str]) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for key in ("anthropic-version", "anthropic-beta"):
+            if key in headers:
+                out[key] = headers[key]
+        return out
+
+    def _inject_anthropic_cloud_backend(self, api_key: str) -> None:
+        if not api_key:
+            return
+        if any(b.api_format == "anthropic" for b in self.pool.backends):
+            return
+        self.pool.merge_backends([
+            Backend(
+                id="anthropic-cloud",
+                base_url=ANTHROPIC_CLOUD_BASE_URL,
+                provider="anthropic",
+                api_format="anthropic",
+                api_key=api_key,
+                enabled=True,
+                local=False,
+                agent_id=self.config.agent.agent_id,
+            )
+        ])
+
+    def _message_backend_candidates(self, model: str) -> list[Backend]:
+        openai_backends: list[Backend] = []
+        anthropic_backends: list[Backend] = []
+        for b in self.pool.backends:
+            if not b.enabled:
+                continue
+            if not b.local and not self.pool.allow_remote:
+                continue
+            if b.api_format == "anthropic":
+                anthropic_backends.append(b)
+                continue
+            models = b.health.models
+            if not models or any(
+                m == model or m.startswith(model + ":") for m in models
+            ):
+                openai_backends.append(b)
+        local = [b for b in openai_backends if b.local]
+        remote = [b for b in openai_backends if not b.local]
+        strategy = self.config.routing.default_strategy
+        if strategy == "local_first":
+            ordered = local + remote
+        else:
+            ordered = openai_backends
+        if not ordered:
+            ordered = [
+                b
+                for b in self.pool.backends
+                if b.enabled
+                and b.api_format == "openai"
+                and (b.local or self.pool.allow_remote)
+            ]
+        healthy = [b for b in ordered if self.pool.is_healthy(b)]
+        return (healthy or ordered) + anthropic_backends
+
+    async def proxy_messages(
+        self,
+        payload: dict[str, Any],
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        hdrs = headers or {}
+        model = payload.get("model", "")
+        api_key = self._anthropic_api_key(hdrs)
+
+        await self.refresh_local_backends()
+        self._inject_anthropic_cloud_backend(api_key)
+
+        candidates = self._message_backend_candidates(model)
+        last_error: Exception | None = None
+        max_attempts = max(len(candidates), 1)
+
+        for attempt in range(1, max_attempts + 1):
+            backend = candidates[attempt - 1] if attempt <= len(candidates) else None
+            if backend is None:
+                break
+            backend.in_flight += 1
+            BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
+            t0 = time.monotonic()
+            try:
+                result = await self._messages_on_backend(
+                    backend, payload, model, hdrs, api_key
+                )
+                latency = time.monotonic() - t0
+                self.pool.mark_success(backend, latency * 1000)
+                REQUESTS_TOTAL.labels(
+                    backend=backend.base_url, model=model, status="ok"
+                ).inc()
+                REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency)
+                self._request_count += 1
+                return result
+            except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
+                last_error = exc
+                self.pool.mark_failure(backend)
+                REQUESTS_TOTAL.labels(
+                    backend=backend.base_url, model=model, status="error"
+                ).inc()
+                logger.warning(
+                    "messages backend %s failed (attempt %s): %s",
+                    backend.base_url,
+                    attempt,
+                    exc,
+                )
+            finally:
+                backend.in_flight = max(0, backend.in_flight - 1)
+                BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(
+                    backend.in_flight
+                )
+                self._update_health_metrics()
+
+        if last_error:
+            raise last_error
+        if not api_key:
+            raise AnthropicUpstreamError(
+                "ANTHROPIC_API_KEY required for cloud Messages API",
+                status_code=401,
+            )
+        raise AnthropicUpstreamError("No healthy backends available for model")
+
+    async def proxy_messages_stream(
+        self,
+        payload: dict[str, Any],
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> AsyncIterator[str]:
+        hdrs = headers or {}
+        model = payload.get("model", "")
+        api_key = self._anthropic_api_key(hdrs)
+
+        await self.refresh_local_backends()
+        self._inject_anthropic_cloud_backend(api_key)
+
+        candidates = self._message_backend_candidates(model)
+        last_error: Exception | None = None
+        max_attempts = max(len(candidates), 1)
+
+        for attempt in range(1, max_attempts + 1):
+            backend = candidates[attempt - 1] if attempt <= len(candidates) else None
+            if backend is None:
+                break
+            backend.in_flight += 1
+            BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
+            try:
+                async for chunk in self._messages_stream_on_backend(
+                    backend, payload, model, hdrs, api_key
+                ):
+                    yield chunk
+                return
+            except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
+                last_error = exc
+                self.pool.mark_failure(backend)
+                logger.warning(
+                    "messages stream backend %s failed (attempt %s): %s",
+                    backend.base_url,
+                    attempt,
+                    exc,
+                )
+            finally:
+                backend.in_flight = max(0, backend.in_flight - 1)
+                BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(
+                    backend.in_flight
+                )
+                self._update_health_metrics()
+
+        if last_error:
+            raise last_error
+        if not api_key:
+            raise AnthropicUpstreamError(
+                "ANTHROPIC_API_KEY required for cloud Messages API",
+                status_code=401,
+            )
+        raise AnthropicUpstreamError("No healthy backends available for model")
+
+    async def _messages_on_backend(
+        self,
+        backend: Backend,
+        payload: dict[str, Any],
+        model: str,
+        headers: Mapping[str, str],
+        fallback_api_key: str,
+    ) -> dict[str, Any]:
+        if backend.api_format == "anthropic":
+            key = backend.resolve_api_key() or fallback_api_key
+            if not key:
+                raise AnthropicUpstreamError(
+                    "ANTHROPIC_API_KEY required", status_code=401
+                )
+            client = AnthropicUpstream(
+                key,
+                base_url=backend.base_url,
+                default_headers=self._anthropic_default_headers(headers),
+            )
+            return await client.messages_create(payload)
+        oai_payload = anthropic_to_openai_request(payload)
+        client = OpenAIUpstream(
+            backend.base_url,
+            api_key=backend.api_key or "netllm-local",
+        )
+        result = await client.chat_completion(oai_payload)
+        return openai_to_anthropic_response(result, model=model)
+
+    async def _messages_stream_on_backend(
+        self,
+        backend: Backend,
+        payload: dict[str, Any],
+        model: str,
+        headers: Mapping[str, str],
+        fallback_api_key: str,
+    ) -> AsyncIterator[str]:
+        if backend.api_format == "anthropic":
+            key = backend.resolve_api_key() or fallback_api_key
+            if not key:
+                raise AnthropicUpstreamError(
+                    "ANTHROPIC_API_KEY required", status_code=401
+                )
+            client = AnthropicUpstream(
+                key,
+                base_url=backend.base_url,
+                default_headers=self._anthropic_default_headers(headers),
+            )
+            async for chunk in client.messages_stream(payload):
+                yield chunk
+            return
+        oai_payload = anthropic_to_openai_request(payload)
+        client = OpenAIUpstream(
+            backend.base_url,
+            api_key=backend.api_key or "netllm-local",
+        )
+        async for chunk in translate_openai_stream_to_anthropic(
+            client.chat_completion_stream(oai_payload),
+            model=model,
+        ):
+            yield chunk
+
     async def _stream_with_metrics(
         self,
         client: OpenAIUpstream,
         payload: dict[str, Any],
         backend: Backend,
         model: str,
+        shard: ShardContext | None = None,
     ) -> AsyncIterator[str]:
         t0 = time.monotonic()
         try:
@@ -254,6 +574,7 @@ class AgentService:
                 backend=backend.base_url, model=model, status="ok"
             ).inc()
             REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency)
+            self._mark_shard_success(shard)
         except OpenAIUpstreamError:
             self.pool.mark_failure(backend)
             REQUESTS_TOTAL.labels(
@@ -303,9 +624,10 @@ class AgentService:
             except Exception as exc:
                 warnings.append(
                     f"Swarm mDNS disabled ({exc}). "
-                    "Static peers in swarm.peers still work."
+                    "A prior netllm serve may still be registered — try "
+                    "netllm serve --replace. Static peers in swarm.peers still work."
                 )
-                logger.warning("mDNS startup failed: %s", exc, exc_info=True)
+                logger.warning("mDNS startup failed: %s", exc)
                 if self._mdns_advertiser:
                     self._mdns_advertiser.stop()
                     self._mdns_advertiser = None
