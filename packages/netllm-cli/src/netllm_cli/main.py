@@ -34,7 +34,7 @@ from netllm_cli.install import (
     suggested_cli,
 )
 from netllm_cli.config_json import emit_export, read_import
-from netllm_cli.lifecycle import lifecycle_command
+from netllm_cli.lifecycle import control_socket_path, lifecycle_command
 from netllm_cli.ui import (
     agent_unreachable_message,
     console,
@@ -531,6 +531,7 @@ def serve(
         cfg.agent.listen = f"{h}:{p}"
 
     conflict = check_listen_port(cfg)
+    port_cleared = False
     if conflict:
         replace_cmd = suggested_cli("serve --replace")
         if (
@@ -538,18 +539,51 @@ def serve(
             and conflict.agent_id
             and conflict.agent_id == cfg.agent.agent_id
         ):
-            if not quiet:
-                console.print(
-                    Panel(
-                        f"[green]netllm agent already running[/]\n"
-                        f"  agent_id: {conflict.agent_id}\n"
-                        f"  url: {conflict.url}\n"
-                        f"  pid: {conflict.pid or 'unknown'}",
-                        border_style="green",
+            if replace:
+                if control_socket_path().exists():
+                    if not quiet:
+                        console.print(
+                            "[yellow]Restarting agent via llm-swarm-router app…[/]"
+                        )
+                    raise typer.Exit(
+                        lifecycle_command("restart", timeout=60.0, no_wait=quiet)
                     )
-                )
-            raise typer.Exit(0)
-        if replace and conflict.occupied_by_netllm:
+                if stop_netllm_on_port(conflict.port):
+                    port_cleared = check_listen_port(cfg) is None
+                    if not port_cleared:
+                        conflict = check_listen_port(cfg)
+                        print_error(
+                            "Could not free port",
+                            format_port_conflict_message(conflict),
+                            hints=port_conflict_hints(
+                                conflict, replace_flag=replace_cmd
+                            ),
+                        )
+                        raise typer.Exit(1)
+                else:
+                    print_error(
+                        "Could not restart agent",
+                        "Same agent is running but could not stop it for --replace.",
+                        hints=[
+                            suggested_cli("restart"),
+                            "Or use Settings → Restart Agent in the menubar app",
+                        ],
+                    )
+                    raise typer.Exit(1)
+            else:
+                if not quiet:
+                    console.print(
+                        Panel(
+                            f"[green]netllm agent already running[/]\n"
+                            f"  agent_id: {conflict.agent_id}\n"
+                            f"  url: {conflict.url}\n"
+                            f"  pid: {conflict.pid or 'unknown'}\n\n"
+                            f"  Reload config: [cyan]{suggested_cli('restart')}[/]",
+                            border_style="green",
+                        )
+                    )
+                raise typer.Exit(0)
+        if not port_cleared and replace and conflict.occupied_by_netllm:
             if not quiet:
                 console.print(
                     f"[yellow]Stopping existing netllm agent on port "
@@ -562,7 +596,7 @@ def serve(
                     hints=port_conflict_hints(conflict, replace_flag=replace_cmd),
                 )
                 raise typer.Exit(1)
-        else:
+        elif not port_cleared:
             print_error(
                 "Port already in use",
                 format_port_conflict_message(conflict),
@@ -975,9 +1009,19 @@ def doctor(
         if not skip_port:
             pid_hint = f" (pid {conflict.pid})" if conflict.pid else ""
             if conflict.occupied_by_netllm:
+                if control_socket_path().exists():
+                    fix = (
+                        "Expected while the menubar app runs the agent — use "
+                        f"{suggested_cli('restart')} or Settings → Restart Agent"
+                    )
+                else:
+                    fix = (
+                        f"Run {suggested_cli('serve --replace')} or "
+                        f"{suggested_cli('restart')}"
+                    )
                 issues.append((
                     f"Port {conflict.port} in use by netllm agent{pid_hint}",
-                    "Run netllm serve --replace or stop the existing agent",
+                    fix,
                 ))
             else:
                 issues.append((
