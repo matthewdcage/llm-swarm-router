@@ -47,6 +47,15 @@ def test_is_app_bundle_path_marker() -> None:
         assert is_app_bundle() is True
 
 
+def test_is_app_bundle_path_marker_windows_slashes() -> None:
+    fake = (
+        r"C:\Applications\netllm-mac.app\Contents\Resources"
+        r"\netllm_packages\netllm_cli\install_detect.py"
+    )
+    with patch("netllm_cli.install_detect.__file__", fake):
+        assert is_app_bundle() is True
+
+
 def test_is_homebrew_prefix() -> None:
     with patch.object(sys, "prefix", "/opt/homebrew/Cellar/netllm/0.2.0/libexec"):
         assert is_homebrew() is True

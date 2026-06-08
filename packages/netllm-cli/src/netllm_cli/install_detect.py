@@ -22,13 +22,20 @@ _SYSTEMD_UNIT_PATHS = (
     Path.home() / ".config/systemd/user/netllm.service",
 )
 
+_APP_BUNDLE_MARKER = ".app/Contents/"
+
+
+def _path_str(path: Path) -> str:
+    """Normalize path for cross-platform substring checks."""
+    return str(path).replace("\\", "/")
+
 
 def is_app_bundle() -> bool:
     """Return True if running inside the macOS .app bundle."""
     if os.environ.get("NETLLM_BUNDLE_PATH"):
         return True
     here = Path(__file__).resolve()
-    return ".app/Contents/" in str(here)
+    return _APP_BUNDLE_MARKER in _path_str(here)
 
 
 def get_app_bundle_cli_path() -> Path:
@@ -38,8 +45,8 @@ def get_app_bundle_cli_path() -> Path:
         return Path(env_bundle) / "Contents" / "MacOS" / _APP_BUNDLE_CLI_NAME
 
     here = Path(__file__).resolve()
-    marker = ".app/Contents/"
-    path = str(here)
+    marker = _APP_BUNDLE_MARKER
+    path = _path_str(here)
     idx = path.find(marker)
     if idx == -1:
         for name in _APP_NAMES:
