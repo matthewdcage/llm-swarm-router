@@ -31,7 +31,24 @@ export OPENAI_API_KEY=netllm-local
 
 - Slash commands: `/netllm-setup`, `/netllm-connect`, `/netllm-swarm`, `/netllm-doctor`
 - Project guide: [AGENTS.md](../AGENTS.md), [CLAUDE.md](../CLAUDE.md)
-- Export `OPENAI_BASE_URL` and `OPENAI_API_KEY` in the shell that launches Claude Code when using compatible routing
+
+**OpenAI-compatible routing** (same as Cursor):
+
+```bash
+export OPENAI_BASE_URL=http://127.0.0.1:11400/v1
+export OPENAI_API_KEY=netllm-local
+```
+
+**Native Anthropic Messages API** (routes to local backends via translation):
+
+```bash
+export ANTHROPIC_BASE_URL=http://127.0.0.1:11400
+export ANTHROPIC_API_KEY=netllm-local
+```
+
+Model ID must match `./netllm models` exactly. Verify: `./netllm test --api anthropic --model <id>`.
+
+For cloud Anthropic failover, set a real `ANTHROPIC_API_KEY` and add an `[[routing.backends]]` with `provider = "anthropic"` in config (see [config.example.toml](../config.example.toml)).
 
 ## Codex
 

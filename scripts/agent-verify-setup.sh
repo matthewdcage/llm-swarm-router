@@ -15,6 +15,10 @@ echo "==> health check ($BASE_URL)"
 if ! curl -sf "${BASE_URL}/health" >/dev/null; then
   echo "FAIL: agent not reachable at ${BASE_URL}/health" >&2
   echo "hint: run ./netllm serve in a dedicated terminal" >&2
+  echo "hint: or launch netllm-mac.app / run netllm start (Homebrew service)" >&2
+  if [[ -d "/Applications/netllm-mac.app" ]]; then
+    echo "hint: netllm-mac.app found — open it from Applications" >&2
+  fi
   exit 1
 fi
 echo "OK: health"

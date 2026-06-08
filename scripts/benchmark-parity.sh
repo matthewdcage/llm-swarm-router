@@ -17,6 +17,8 @@ start=$(date +%s.%N)
 for i in $(seq 1 "$N"); do
   curl -sf "${AGENT_URL}/v1/chat/completions" \
     -H "Content-Type: application/json" \
+    -H "X-Netllm-Batch-Id: bench" \
+    -H "X-Netllm-Shard-Index: ${i}" \
     -d "{\"model\":\"${MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"ping ${i}\"}],\"max_tokens\":1}" \
     >/dev/null || echo "  request $i failed (no backend?)"
 done

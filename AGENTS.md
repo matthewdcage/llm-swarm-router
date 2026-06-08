@@ -2,7 +2,7 @@
 
 ## Project overview
 
-**swarm-llm (netllm)** is a mesh router for local LLM backends. Each host runs a lightweight agent that discovers oMLX, Ollama, and LM Studio on localhost, finds sibling agents on the LAN via mDNS, and exposes a single OpenAI-compatible endpoint at `http://<host>:11400/v1`.
+**swarm-llm (netllm)** is a mesh router for local LLM backends. Each host runs a lightweight agent that discovers oMLX, Ollama, and LM Studio on localhost, finds sibling agents on the LAN via mDNS, and exposes dual API surfaces: OpenAI-compatible `http://<host>:11400/v1` and Anthropic Messages API `http://<host>:11400/v1/messages` (with translation to local backends).
 
 Tech stack: Python 3.11+, [uv](https://docs.astral.sh/uv/) workspace monorepo, FastAPI agent, Typer CLI.
 
@@ -29,13 +29,15 @@ Prefer `./netllm` from the repo root — works without global PATH (`uv run` wra
 | `./netllm init` | Write config, scan local providers, optional global CLI |
 | `./netllm install` | Global `netllm` via `uv tool install` + shell PATH |
 | `./netllm serve` | Start agent (foreground, default `127.0.0.1:11400`) |
+| `./netllm start` / `stop` / `restart` | Background agent (macOS app or Homebrew service) |
 | `./netllm serve --host 0.0.0.0` | LAN + swarm — other machines can reach this agent |
 | `./netllm status` | Agent, backends, swarm peers |
 | `./netllm models` | Routed model catalog |
 | `./netllm models --lan` | Models on remote LAN agents |
 | `./netllm peers` | mDNS browse for swarm agents |
 | `./netllm discover` | Probe oMLX / Ollama / LM Studio on localhost |
-| `./netllm test` | 1-token latency diagnose |
+| `./netllm test` | 1-token latency diagnose (OpenAI backends) |
+| `./netllm test --api anthropic` | 1-token Messages API probe via agent |
 | `./netllm gateway` | Promote agent role to gateway |
 | `./netllm doctor` | PATH, mDNS, backend misconfig checks |
 | `./netllm config-edit` | Open `config.toml` in `$EDITOR` |
@@ -55,7 +57,39 @@ export OPENAI_BASE_URL=http://127.0.0.1:11400/v1
 export OPENAI_API_KEY=netllm-local
 ```
 
+Native Anthropic Messages API (Claude Code, etc.):
+
+```bash
+export ANTHROPIC_BASE_URL=http://127.0.0.1:11400
+export ANTHROPIC_API_KEY=netllm-local
+```
+
+Use a real `ANTHROPIC_API_KEY` only for cloud failover; local mesh uses `netllm-local`.
+
 Default provider ports: oMLX `:8080`, Ollama `:11434`, LM Studio `:1234`.
+
+## macOS menubar app
+
+Native app (oMLX-style): [docs/menubar-app.md](docs/menubar-app.md).
+
+| Channel | Install |
+|---------|---------|
+| DMG | GitHub Releases → drag `netllm-mac.app` to Applications |
+| Homebrew | `brew install netllm` + `brew services start netllm` |
+| Source | `./netllm serve` (unchanged dev path) |
+
+Build: `apps/netllm-mac/Scripts/build.sh release` (requires `venvstacks` + `uv sync`).
+
+## SDK maintenance
+
+Vendor SDKs are isolated in `netllm-sdk-openai` and `netllm-sdk-anthropic` only — `netllm-core` never imports `openai` or `anthropic`.
+
+**Bump checklist** (one package per PR):
+
+1. Edit `anthropic>=…` or `openai>=…` in the matching `packages/netllm-sdk-*/pyproject.toml`
+2. `uv sync`
+3. `uv run pytest packages/netllm-sdk-anthropic/tests/ tests/test_anthropic_bridge.py tests/test_agent.py -v`
+4. Read upstream SDK changelog; adjust only `client.py` in that package if needed
 
 ## Agent skills
 

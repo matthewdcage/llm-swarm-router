@@ -35,6 +35,16 @@ allowed-tools:
 - Repo root contains [pyproject.toml](pyproject.toml) with `name = "netllm"` and `[tool.uv.workspace]`
 - At least one inference server (oMLX `:8080`, Ollama `:11434`, LM Studio `:1234`) is optional but warn if none are online after discover
 
+## Install paths
+
+| User preference | Steps |
+|-----------------|-------|
+| **macOS DMG** | Download Release DMG → drag to Applications → launch menubar app → welcome wizard. See [docs/menubar-app.md](../../docs/menubar-app.md). |
+| **Homebrew** | `brew tap matthewdcage/netllm <repo>` → `brew install netllm` → `brew services start netllm` |
+| **Source / dev** | Workflow below (`uv sync`, `./netllm init`, `./netllm serve`) |
+
+DMG and Homebrew use `netllm start` / `netllm stop` for background lifecycle. Source installs keep `./netllm serve` (foreground).
+
 ## Workflow
 
 1. **Locate repo root** — `cd` to directory with `./netllm` wrapper and workspace `pyproject.toml`. If cwd is wrong, ask user for clone path.
