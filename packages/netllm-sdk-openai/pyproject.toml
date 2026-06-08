@@ -1,6 +1,6 @@
 [project]
 name = "netllm-sdk-openai"
-version = "0.2.3.2"
+version = "0.2.3.3"
 description = "OpenAI SDK adapter for netllm upstream calls"
 requires-python = ">=3.11"
 dependencies = [

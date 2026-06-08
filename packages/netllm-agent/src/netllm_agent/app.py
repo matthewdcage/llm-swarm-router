@@ -20,6 +20,7 @@ from netllm_agent.admin import (
     client_env_vars,
     config_summary,
     doctor_payload,
+    logs_payload,
     peers_scan_payload,
     require_admin_access,
     save_config_patch,
@@ -143,6 +144,11 @@ def create_app(
     async def netllm_client_env() -> dict[str, Any]:
         base = service.swarm.local_agent_url()
         return {"vars": client_env_vars(base)}
+
+    @app.get("/netllm/v1/logs")
+    async def netllm_logs(request: Request, tail: int = 200) -> dict[str, Any]:
+        require_admin_access(request, cfg)
+        return logs_payload(cfg, tail=tail)
 
     @app.post("/netllm/v1/admin/discover")
     async def netllm_admin_discover(request: Request) -> dict[str, Any]:

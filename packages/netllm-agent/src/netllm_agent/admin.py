@@ -273,6 +273,53 @@ async def peers_scan_payload(
     return {"ok": True, "peers": found, "warnings": warnings}
 
 
+def tail_log_file(path: Path, n: int) -> tuple[list[str], bool]:
+    """Return the last *n* lines from *path* and whether earlier lines were omitted."""
+    if not path.is_file():
+        return [], False
+    try:
+        size = path.stat().st_size
+        if size == 0:
+            return [], False
+        with path.open("rb") as handle:
+            block = 8192
+            chunks: list[bytes] = []
+            pos = size
+            newline_count = 0
+            while pos > 0 and newline_count <= n:
+                read_len = min(block, pos)
+                pos -= read_len
+                handle.seek(pos)
+                chunks.insert(0, handle.read(read_len))
+                newline_count = b"".join(chunks).count(b"\n")
+            raw_lines = b"".join(chunks).splitlines()
+            truncated = len(raw_lines) > n
+            tail_lines = raw_lines[-n:] if truncated else raw_lines
+            return [
+                line.decode("utf-8", errors="replace") for line in tail_lines
+            ], truncated
+    except OSError:
+        return [], False
+
+
+def logs_payload(cfg: NetllmConfig, *, tail: int = 200) -> dict[str, Any]:
+    """Read-only agent log summary for the local dashboard."""
+    limit = max(1, min(tail, 2000))
+    log_dir = cfg.resolved_log_dir()
+    log_file = log_dir / "agent.log"
+    exists = log_file.is_file()
+    size_bytes = log_file.stat().st_size if exists else 0
+    lines, truncated = tail_log_file(log_file, limit) if exists else ([], False)
+    return {
+        "log_dir": str(log_dir),
+        "log_file": str(log_file),
+        "exists": exists,
+        "size_bytes": size_bytes,
+        "tail": lines,
+        "truncated": truncated,
+    }
+
+
 def client_env_vars(base_url: str) -> dict[str, str]:
     """OpenAI + Anthropic env vars for editor wiring."""
     base = base_url.rstrip("/")

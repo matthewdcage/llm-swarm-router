@@ -7,7 +7,7 @@
   <link rel="icon" href="logo-light.png" type="image/png" media="(prefers-color-scheme: light)" />
   <link rel="icon" href="logo-dark.png" type="image/png" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="logo-light.png" type="image/png" />
-  <link rel="stylesheet" href="dashboard.css?v=0.2.3.2" />
+  <link rel="stylesheet" href="dashboard.css?v=0.2.3.3" />
 </head>
 <body>
   <div class="app">
@@ -34,6 +34,7 @@
       <button type="button" class="nav-item" data-tab="routing">Routing</button>
       <button type="button" class="nav-item" data-tab="ui">UI</button>
       <div class="nav-group-label">Tools</div>
+      <button type="button" class="nav-item" data-tab="logs">Logs</button>
       <button type="button" class="nav-item" data-tab="tools">Doctor &amp; Test</button>
     </nav>
 
@@ -74,11 +75,12 @@
         <section id="tab-swarm" class="tab-panel" aria-label="Swarm config"></section>
         <section id="tab-routing" class="tab-panel" aria-label="Routing config"></section>
         <section id="tab-ui" class="tab-panel" aria-label="UI config"></section>
+        <section id="tab-logs" class="tab-panel" aria-label="Agent logs"></section>
         <section id="tab-tools" class="tab-panel" aria-label="Doctor and tools"></section>
       </main>
     </div>
   </div>
   <div id="toast" role="status" aria-live="polite"></div>
-  <script src="dashboard.js?v=0.2.3.2"></script>
+  <script src="dashboard.js?v=0.2.3.3"></script>
 </body>
 </html>

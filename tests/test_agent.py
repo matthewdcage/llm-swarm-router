@@ -254,6 +254,43 @@ def test_admin_peers_scan(mock_scan: AsyncMock) -> None:
         assert data["peers"][0]["agent_id"] == "peer-a"
 
 
+def test_netllm_logs(client: TestClient) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        log_dir = Path(tmp)
+        log_file = log_dir / "agent.log"
+        log_file.write_text("line one\nline two\nline three\n", encoding="utf-8")
+        cfg = NetllmConfig()
+        cfg.swarm.mdns = False
+        cfg.agent.advertise = False
+        cfg.ui.log_dir = str(log_dir)
+        app = create_app(cfg)
+        with TestClient(app) as logs_client:
+            resp = logs_client.get("/netllm/v1/logs?tail=2")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["exists"] is True
+            assert data["log_file"] == str(log_file)
+            assert data["tail"] == ["line two", "line three"]
+            assert data["truncated"] is True
+            assert data["size_bytes"] == log_file.stat().st_size
+
+
+def test_netllm_logs_missing_file(client: TestClient) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg = NetllmConfig()
+        cfg.swarm.mdns = False
+        cfg.agent.advertise = False
+        cfg.ui.log_dir = str(Path(tmp) / "missing")
+        app = create_app(cfg)
+        with TestClient(app) as logs_client:
+            resp = logs_client.get("/netllm/v1/logs")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["exists"] is False
+            assert data["tail"] == []
+            assert data["size_bytes"] == 0
+
+
 def test_netllm_version(client: TestClient) -> None:
     resp = client.get("/netllm/v1/version")
     assert resp.status_code == 200
@@ -269,7 +306,7 @@ def test_netllm_version(client: TestClient) -> None:
 @patch("netllm_agent.app.build_update_check_payload", new_callable=AsyncMock)
 def test_netllm_update_check(mock_build: AsyncMock, client: TestClient) -> None:
     mock_build.return_value = {
-        "current": "0.2.3.2",
+        "current": "0.2.3.3",
         "latest": "0.2.4.0",
         "update_available": True,
         "prerelease": False,
@@ -293,8 +330,8 @@ def test_netllm_update_check(mock_build: AsyncMock, client: TestClient) -> None:
 @patch("netllm_agent.app.build_update_check_payload", new_callable=AsyncMock)
 def test_netllm_update_check_force(mock_build: AsyncMock, client: TestClient) -> None:
     mock_build.return_value = {
-        "current": "0.2.3.2",
-        "latest": "0.2.3.2",
+        "current": "0.2.3.3",
+        "latest": "0.2.3.3",
         "update_available": False,
         "prerelease": False,
         "release_notes_url": "https://github.com/matthewdcage/llm-swarm-router/releases/latest",

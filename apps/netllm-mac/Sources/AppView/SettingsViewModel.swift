@@ -19,6 +19,7 @@ final class SettingsViewModel {
     var message: String?
     var errorMessage: String?
     var needsRestart = false
+    var agentLogs: AgentLogsPayload?
     private(set) var uiRevision = 0
 
     let configStore: ConfigStore
@@ -108,6 +109,16 @@ final class SettingsViewModel {
             await refreshLiveData()
             setSuccess("Config and live status refreshed.")
         }
+    }
+
+    func fetchLogs() async {
+        guard agentReachable else {
+            agentLogs = nil
+            bumpUI()
+            return
+        }
+        agentLogs = await AgentAPI.logs(baseURL: agentBaseURL, tail: 200)
+        bumpUI()
     }
 
     func refreshLiveData() async {

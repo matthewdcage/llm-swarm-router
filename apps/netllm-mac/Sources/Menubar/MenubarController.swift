@@ -10,17 +10,26 @@ final class MenubarController {
     private var statsMenu: NSMenuItem?
     private var updateMenu: NSMenuItem?
     private let onOpenSettings: () -> Void
+    private let onOpenAbout: () -> Void
+    private let onOpenLogFile: () -> Void
+    private let onOpenLogFolder: () -> Void
 
     init(
         server: ServerProcess,
         config: AppConfig,
         updateController: UpdateController,
-        onOpenSettings: @escaping () -> Void
+        onOpenSettings: @escaping () -> Void,
+        onOpenAbout: @escaping () -> Void,
+        onOpenLogFile: @escaping () -> Void,
+        onOpenLogFolder: @escaping () -> Void
     ) {
         self.server = server
         self.config = config
         self.updateController = updateController
         self.onOpenSettings = onOpenSettings
+        self.onOpenAbout = onOpenAbout
+        self.onOpenLogFile = onOpenLogFile
+        self.onOpenLogFolder = onOpenLogFolder
         self.statsPoller = StatsPoller(host: config.bindHost == "0.0.0.0" ? "127.0.0.1" : config.bindHost, port: config.port)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         updateMenubarIcon()
@@ -100,6 +109,9 @@ final class MenubarController {
         menu.addItem(actionItem("Open Status Page", #selector(openStatus)))
         menu.addItem(actionItem("Open oMLX Admin", #selector(openOmlx)))
         menu.addItem(actionItem("Copy Client Env", #selector(copyEnv)))
+        menu.addItem(.separator())
+        menu.addItem(actionItem("Open Log File", #selector(openLogFile)))
+        menu.addItem(actionItem("Open Log Folder", #selector(openLogFolder)))
         menu.addItem(.separator())
         menu.addItem(actionItem("Settings…", #selector(openSettings), key: ","))
         menu.addItem(actionItem("About \(AppBranding.displayName)", #selector(showAbout)))
@@ -328,18 +340,8 @@ final class MenubarController {
     }
 
     @objc private func openSettings() { onOpenSettings() }
-    @objc private func showAbout() {
-        if let icon = BrandAssets.aboutIcon() {
-            NSApp.applicationIconImage = icon
-        }
-        NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: AppBranding.displayName,
-            .applicationVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.1",
-            .credits: NSAttributedString(
-                string: "\(AppBranding.tagline)\nCLI: \(AppBranding.cliCommand)",
-                attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)]
-            ),
-        ])
-    }
+    @objc private func openLogFile() { onOpenLogFile() }
+    @objc private func openLogFolder() { onOpenLogFolder() }
+    @objc private func showAbout() { onOpenAbout() }
     @objc private func quitApp() { NSApp.terminate(nil) }
 }

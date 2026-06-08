@@ -67,6 +67,24 @@ enum AgentAPI {
         }
     }
 
+    static func logs(baseURL: URL, tail: Int = 200) async -> AgentLogsPayload? {
+        guard let json = await fetchJSON(
+            baseURL: baseURL,
+            path: "/netllm/v1/logs?tail=\(tail)"
+        ) else {
+            return nil
+        }
+        let lines = json["tail"] as? [String] ?? []
+        return AgentLogsPayload(
+            logDir: json["log_dir"] as? String ?? "",
+            logFile: json["log_file"] as? String ?? "",
+            exists: json["exists"] as? Bool ?? false,
+            sizeBytes: parseInt(json["size_bytes"]),
+            tail: lines,
+            truncated: json["truncated"] as? Bool ?? false
+        )
+    }
+
     static func isReachable(baseURL: URL) async -> Bool {
         var request = URLRequest(url: baseURL.appendingPathComponent("/health"))
         request.timeoutInterval = 2

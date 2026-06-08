@@ -26,6 +26,8 @@ const state = {
   healthy: false,
   pollTimer: null,
   updatePollTimer: null,
+  logsPollTimer: null,
+  logs: null,
 };
 
 function showToast(msg) {
@@ -852,6 +854,60 @@ function renderUiTab() {
   root.appendChild(card);
 }
 
+async function loadLogs() {
+  state.logs = await api("/netllm/v1/logs?tail=200");
+}
+
+function renderLogsTab() {
+  const root = document.getElementById("tab-logs");
+  root.replaceChildren();
+  root.appendChild(textEl("h1", "page-title", "Logs"));
+
+  const logs = state.logs;
+  if (!logs) {
+    root.appendChild(textEl("p", "empty", "Loading logs…"));
+    loadLogs()
+      .then(() => {
+        if (state.tab === "logs") renderLogsTab();
+      })
+      .catch((e) => showToast("Logs failed: " + e.message));
+    return;
+  }
+
+  const meta = el("div", "card");
+  appendInfoRow(meta, "Log directory", logs.log_dir);
+  appendInfoRow(meta, "Log file", logs.log_file);
+  appendInfoRow(
+    meta,
+    "Size",
+    logs.exists ? `${logs.size_bytes} bytes` : "File not created yet"
+  );
+  if (logs.truncated) {
+    meta.appendChild(textEl("p", "muted-sm", "Showing the last 200 lines (file has more)."));
+  }
+  root.appendChild(meta);
+
+  const actions = el("div", "card");
+  const refresh = textEl("button", "secondary", "Refresh");
+  refresh.onclick = () => {
+    loadLogs()
+      .then(() => renderLogsTab())
+      .catch((e) => showToast("Refresh failed: " + e.message));
+  };
+  const copyPath = textEl("button", "secondary", "Copy log path");
+  copyPath.onclick = () =>
+    navigator.clipboard.writeText(logs.log_file).then(() => showToast("Copied log path"));
+  const copyDir = textEl("button", "secondary", "Copy log directory");
+  copyDir.onclick = () =>
+    navigator.clipboard.writeText(logs.log_dir).then(() => showToast("Copied log directory"));
+  actions.append(refresh, copyPath, copyDir);
+  root.appendChild(actions);
+
+  const pre = el("pre", "log-view");
+  pre.textContent = (logs.tail || []).join("\n") || (logs.exists ? "" : "(no log output yet)");
+  root.appendChild(pre);
+}
+
 function renderToolsTab() {
   const root = document.getElementById("tab-tools");
   root.replaceChildren();
@@ -964,6 +1020,7 @@ const TAB_RENDERERS = {
   swarm: renderSwarmTab,
   routing: renderRoutingTab,
   ui: renderUiTab,
+  logs: renderLogsTab,
   tools: renderToolsTab,
 };
 
@@ -981,6 +1038,11 @@ function switchTab(tab) {
   document.querySelectorAll(".tab-panel").forEach((panel) => {
     panel.classList.toggle("active", panel.id === `tab-${tab}`);
   });
+  if (tab === "logs") {
+    startLogsPolling();
+  } else {
+    stopLogsPolling();
+  }
   render();
 }
 
@@ -1112,6 +1174,23 @@ function stopPolling() {
   state.pollTimer = null;
 }
 
+function startLogsPolling() {
+  stopLogsPolling();
+  state.logsPollTimer = setInterval(() => {
+    if (document.visibilityState !== "visible" || state.tab !== "logs") return;
+    loadLogs()
+      .then(() => {
+        if (state.tab === "logs") renderLogsTab();
+      })
+      .catch(() => {});
+  }, 10000);
+}
+
+function stopLogsPolling() {
+  if (state.logsPollTimer) clearInterval(state.logsPollTimer);
+  state.logsPollTimer = null;
+}
+
 document.querySelectorAll(".nav-item").forEach((btn) => {
   btn.addEventListener("click", () => switchTab(btn.dataset.tab));
 });
@@ -1137,9 +1216,11 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
     startPolling();
     startUpdatePolling();
+    if (state.tab === "logs") startLogsPolling();
   } else {
     stopPolling();
     stopUpdatePolling();
+    stopLogsPolling();
   }
 });
 

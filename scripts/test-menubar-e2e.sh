@@ -64,6 +64,10 @@ done
 curl -sf "${BASE}/health" >/dev/null || fail "agent not healthy — see $LOG"
 ok "health ${BASE}/health"
 
+echo "==> logs API"
+curl -sf "${BASE}/netllm/v1/logs?tail=10" | rg -q '"log_file"' || fail "logs API"
+ok "GET /netllm/v1/logs"
+
 echo "==> API smoke"
 curl -sf "${BASE}/" | rg -q 'netllm-agent' || fail "root help JSON"
 ok "GET /"

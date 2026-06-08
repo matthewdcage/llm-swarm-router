@@ -15,7 +15,7 @@ try:
 except ImportError:  # pragma: no cover - discovery without core in odd layouts
 
     def get_version() -> str:
-        return "0.2.3.2"
+        return "0.2.3.3"
 
 
 SERVICE_TYPE = "_netllm._tcp.local."

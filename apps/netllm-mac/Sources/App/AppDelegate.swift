@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
     private var controlServer: AppControlServer?
     private var welcomeWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var aboutWindow: NSWindow?
     private var settingsModel: SettingsViewModel?
     private var runtime: PythonRuntime?
 
@@ -32,10 +33,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
         menubar = MenubarController(
             server: server!,
             config: config,
-            updateController: UpdateController.shared
-        ) { [weak self] in
-            self?.showSettings()
-        }
+            updateController: UpdateController.shared,
+            onOpenSettings: { [weak self] in
+                self?.showSettings()
+            },
+            onOpenAbout: { [weak self] in
+                self?.showAbout()
+            },
+            onOpenLogFile: { [weak self] in
+                self?.openLogFile()
+            },
+            onOpenLogFolder: { [weak self] in
+                self?.openLogFolder()
+            }
+        )
         ShellEnvWriter.ensureCLIShim(bundleCLI: runtime.bundleCLIPath)
 
         UpdateController.shared.configure(server: server!)
@@ -92,6 +103,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
         case .status:
             return .success(status: "ok", state: server.state, server: server)
         }
+    }
+
+    func openLogFile() {
+        let logDir = LogPaths.logDirFromConfigFile()
+        let logFile = logDir.appendingPathComponent("agent.log")
+        if FileManager.default.fileExists(atPath: logFile.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([logFile])
+        } else {
+            try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
+            NSWorkspace.shared.open(logDir)
+        }
+    }
+
+    func openLogFolder() {
+        let logDir = LogPaths.logDirFromConfigFile()
+        try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(logDir)
+    }
+
+    func showAbout() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let aboutWindow {
+            aboutWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+        let view = AboutView { [weak self] in
+            self?.aboutWindow?.close()
+            self?.aboutWindow = nil
+        }
+        let hosting = NSHostingController(rootView: view)
+        let window = NSWindow(contentViewController: hosting)
+        window.title = AppBranding.aboutTitle
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        aboutWindow = window
     }
 
     private func showSettings() {

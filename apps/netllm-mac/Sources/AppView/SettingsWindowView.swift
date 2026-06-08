@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @MainActor
@@ -27,6 +28,7 @@ struct SettingsWindowView: View {
                     sidebarRow("UI", "slider.horizontal.3", "ui")
                 }
                 Section("Tools") {
+                    sidebarRow("Logs", "doc.text", "logs")
                     sidebarRow("Doctor & Test", "stethoscope", "tools")
                 }
             }
@@ -76,6 +78,7 @@ struct SettingsWindowView: View {
         case "swarm": swarmTab
         case "routing": routingTab
         case "ui": uiTab
+        case "logs": logsTab
         case "tools": toolsTab
         default: statusTab
         }
@@ -467,6 +470,74 @@ struct SettingsWindowView: View {
                 TextField("default", text: $model.document.ui.log_dir)
             }
             gridRow("Config file", AppConfig.defaultConfigPath().path)
+        }
+    }
+
+    private var logsTab: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Agent log")
+            if !model.agentReachable {
+                Label("Agent unreachable — start the agent to load logs.", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if let logs = model.agentLogs {
+                gridRow("Log directory", logs.logDir)
+                gridRow("Log file", logs.logFile)
+                gridRow(
+                    "Size",
+                    logs.exists ? "\(logs.sizeBytes) bytes" : "File not created yet"
+                )
+                if logs.truncated {
+                    Text("Showing the last 200 lines.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                ScrollView {
+                    Text(logs.tail.joined(separator: "\n"))
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                        .padding(8)
+                }
+                .frame(minHeight: 220)
+                .background(.quaternary.opacity(0.25))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                actionButtons {
+                    Button("Refresh") { Task { await model.fetchLogs() } }
+                    Button("Reveal in Finder") { revealLogFile(logs) }
+                    Button("Open in Console") { openLogInConsole(logs) }
+                }
+            } else {
+                actionButtons {
+                    Button("Load logs") { Task { await model.fetchLogs() } }
+                        .disabled(!model.agentReachable)
+                }
+            }
+        }
+        .task(id: tab) {
+            if tab == "logs" {
+                await model.fetchLogs()
+            }
+        }
+    }
+
+    private func revealLogFile(_ logs: AgentLogsPayload) {
+        let fileURL = URL(fileURLWithPath: logs.logFile)
+        let dirURL = URL(fileURLWithPath: logs.logDir, isDirectory: true)
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+        } else {
+            NSWorkspace.shared.open(dirURL)
+        }
+    }
+
+    private func openLogInConsole(_ logs: AgentLogsPayload) {
+        let fileURL = URL(fileURLWithPath: logs.logFile)
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            NSWorkspace.shared.open(fileURL)
+        } else {
+            NSWorkspace.shared.open(URL(fileURLWithPath: logs.logDir, isDirectory: true))
         }
     }
 
