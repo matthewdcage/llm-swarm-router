@@ -46,6 +46,8 @@ uv sync
 
 Settings tabs mirror CLI scope: **Overview**, **Backends** (`discover`), **Models**, **Peers** (`peers`), **Agent/Discovery/Swarm/Routing/UI** config sections, **Doctor & Test** tools. Saves via `netllm config import`; reads via `netllm config export`.
 
+The app runs doctor via the **bundled** `netllm-cli` inside the `.app` (not your terminal PATH). Doctor skips “global CLI not on PATH” and “port in use by agent” when the menubar app is supervising the agent. For terminals, the app installs `~/.config/netllm/bin/netllm` — add that directory to PATH if you want `netllm` in every shell without `uv tool install`.
+
 ## Lifecycle commands
 
 ```bash

@@ -54,7 +54,9 @@ struct PythonRuntime: Sendable {
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["NETLLM_SUPERVISED"] = "menubar"
         env["NETLLM_BUNDLE_PATH"] = bundleRoot.path
-        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "")
+        let shimBin = ShellEnvWriter.shimPath().deletingLastPathComponent().path
+        env["NETLLM_CLI_SHIM"] = ShellEnvWriter.shimPath().path
+        env["PATH"] = "\(shimBin):/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "")
         return env
     }
 }
