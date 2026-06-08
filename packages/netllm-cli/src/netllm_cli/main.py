@@ -544,6 +544,8 @@ def serve(
         stop_netllm_on_port,
     )
 
+    from netllm_cli.install_detect import is_menubar_supervised
+
     cfg_path = _config_path_option(config)
     cfg = _require_config(cfg_path)
 
@@ -562,7 +564,7 @@ def serve(
             and conflict.agent_id == cfg.agent.agent_id
         ):
             if replace:
-                if control_socket_path().exists():
+                if control_socket_path().exists() and not is_menubar_supervised():
                     if not quiet:
                         console.print(
                             "[yellow]Restarting agent via llm-swarm-router app…[/]"
@@ -1058,7 +1060,26 @@ def doctor(
 
     conflict = check_listen_port(cfg)
     if conflict:
-        skip_port = is_menubar_supervised() and conflict.occupied_by_netllm
+        skip_port = (
+            is_menubar_supervised()
+            and conflict.occupied_by_netllm
+            and control_socket_path().exists()
+        )
+        if skip_port:
+            from netllm_cli.lifecycle.darwin import send_app_control
+
+            try:
+                app_status = send_app_control("status", timeout=2.0)
+                if app_status.get("state") not in {"running", "unresponsive"}:
+                    issues.append(
+                        (
+                            "Menubar supervisor reports agent not running",
+                            "Open Settings → Start or Restart Agent (port may be "
+                            "held by a stale process)",
+                        )
+                    )
+            except OSError:
+                pass
         if not skip_port:
             pid_hint = f" (pid {conflict.pid})" if conflict.pid else ""
             if conflict.occupied_by_netllm:

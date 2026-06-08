@@ -70,22 +70,26 @@ final class ServerProcess: @unchecked Sendable {
     }
 
     func stop() async {
-        guard isRunning || state == .starting else { return }
-        state = .stopping
-        expectingExit = true
         cancelHealthLoop()
-        if let proc = process, proc.isRunning {
-            kill(proc.processIdentifier, SIGTERM)
-            let deadline = Date().addingTimeInterval(stopGraceSeconds)
-            while proc.isRunning && Date() < deadline {
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-            if proc.isRunning {
-                kill(proc.processIdentifier, SIGKILL)
+        if isRunning || state == .starting {
+            state = .stopping
+            expectingExit = true
+            if let proc = process, proc.isRunning {
+                kill(proc.processIdentifier, SIGTERM)
+                let deadline = Date().addingTimeInterval(stopGraceSeconds)
+                while proc.isRunning && Date() < deadline {
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                if proc.isRunning {
+                    kill(proc.processIdentifier, SIGKILL)
+                }
             }
         }
         process = nil
         closeLog()
+        // Always release :11400 on quit — including failed/stopped states where the
+        // supervised child exited 0 but an orphan agent still holds the port.
+        releaseListenPort()
         expectingExit = false
         update(.stopped)
     }
@@ -99,6 +103,7 @@ final class ServerProcess: @unchecked Sendable {
         }
         process = nil
         closeLog()
+        releaseListenPort()
         autoRestartCount = 0
         consecutiveFailures = 0
         expectingExit = false
@@ -121,7 +126,7 @@ final class ServerProcess: @unchecked Sendable {
         let proc = Process()
         if FileManager.default.fileExists(atPath: runtime.bundleCLIPath.path) {
             proc.executableURL = runtime.bundleCLIPath
-            proc.arguments = ["serve", "-q", "--config", configPath.path]
+            proc.arguments = ["serve", "-q", "--replace", "--config", configPath.path]
         } else {
             proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
             proc.arguments = ["netllm", "serve", "-q", "--config", configPath.path]
@@ -148,6 +153,22 @@ final class ServerProcess: @unchecked Sendable {
         closeLog()
         if wasExpecting {
             update(.stopped)
+            return
+        }
+        if code == 0 {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if await self.isPortHealthy() {
+                    let pid = self.portOwnerPid() ?? 0
+                    self.autoRestartCount = 0
+                    self.consecutiveFailures = 0
+                    self.lastHealthyAt = Date()
+                    self.update(.running(pid: pid > 0 ? pid : 0))
+                    self.startHealthCheckLoop()
+                    return
+                }
+                self.tryAutoRestart(reason: "Agent exited with code \(code)")
+            }
             return
         }
         tryAutoRestart(reason: "Agent exited with code \(code)")
@@ -239,5 +260,56 @@ final class ServerProcess: @unchecked Sendable {
     private func closeLog() {
         try? logHandle?.close()
         logHandle = nil
+    }
+
+    /// Stop any netllm agent still bound to our listen port (orphan after app quit).
+    private func releaseListenPort() {
+        let script = """
+        from netllm_discovery.runtime import stop_netllm_on_port
+        stop_netllm_on_port(\(port))
+        """
+        let proc = Process()
+        proc.executableURL = runtime.executable
+        proc.arguments = ["-c", script]
+        proc.environment = runtime.makeEnvironment()
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        try? proc.run()
+        proc.waitUntilExit()
+    }
+
+    @MainActor
+    private func isPortHealthy() async -> Bool {
+        let url = URL(string: "http://\(host):\(port)/health")!
+        var request = URLRequest(url: url, timeoutInterval: 2)
+        request.httpMethod = "GET"
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            return false
+        }
+    }
+
+    private func portOwnerPid() -> Int32? {
+        let script = """
+        from netllm_discovery.process_util import port_owner_pid
+        pid = port_owner_pid(\(port))
+        print(pid if pid is not None else 0)
+        """
+        let proc = Process()
+        let pipe = Pipe()
+        proc.executableURL = runtime.executable
+        proc.arguments = ["-c", script]
+        proc.environment = runtime.makeEnvironment()
+        proc.standardOutput = pipe
+        proc.standardError = FileHandle.nullDevice
+        guard (try? proc.run()) != nil else { return nil }
+        proc.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let pid = Int32(text), pid > 0
+        else { return nil }
+        return pid
     }
 }

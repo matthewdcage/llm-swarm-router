@@ -62,13 +62,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
 
     func applicationWillTerminate(_ notification: Notification) {
         controlServer?.stop()
-        let group = DispatchGroup()
-        group.enter()
-        Task {
-            await server?.stop()
-            group.leave()
+        guard let server else { return }
+        // Do not block the main thread on DispatchGroup.wait while a MainActor Task
+        // runs stop() — that deadlocks and leaves the agent orphaned on :11400.
+        let done = DispatchSemaphore(value: 0)
+        Task { @MainActor in
+            await server.stop()
+            done.signal()
         }
-        _ = group.wait(timeout: .now() + 15)
+        let deadline = Date().addingTimeInterval(15)
+        while done.wait(timeout: .now() + 0.05) == .timedOut, Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
     }
 
     func handleAppControl(_ command: AppControlServer.Command) async -> AppControlServer.Response {

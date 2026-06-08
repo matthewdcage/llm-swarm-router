@@ -210,8 +210,13 @@ struct UpdateBannerCard: View {
                             .foregroundStyle(.secondary)
                     }
                 case .available(let release):
-                    Text("Update available: v\(release.version) (you have v\(AppVersionInfo.short)).")
-                        .font(.subheadline)
+                    if release.hasDMGAsset {
+                        Text("Update available: v\(release.version) (you have v\(AppVersionInfo.short)).")
+                            .font(.subheadline)
+                    } else {
+                        Text("Update available: v\(release.version) — no macOS DMG on this release yet. Open the release page to download when available.")
+                            .font(.subheadline)
+                    }
                     updateActions(release: release, readyDMG: nil)
                 case .downloading:
                     HStack(spacing: 8) {
@@ -249,13 +254,13 @@ struct UpdateBannerCard: View {
                 }
                 .buttonStyle(.borderedProminent)
             } else if readyDMG == nil {
-                if InstallLocation.canAutoInstall() {
+                if release.hasDMGAsset, InstallLocation.canAutoInstall() {
                     Button("Download Update") {
                         Task { await controller.downloadUpdate(release: release) }
                     }
                     .buttonStyle(.borderedProminent)
                 } else {
-                    Button("Download in Browser") {
+                    Button(release.hasDMGAsset ? "Download in Browser" : "Open Release Page") {
                         Task { @MainActor in
                             controller.openDownloadInBrowser(for: release)
                         }

@@ -90,6 +90,34 @@ def test_probe_netllm_agent_returns_status_on_success() -> None:
     assert result["agent_id"] == "x"
 
 
+def test_probe_netllm_agent_degraded_when_status_fails() -> None:
+    class FakeResp:
+        def __init__(self, code: int, payload: dict | None = None) -> None:
+            self.status_code = code
+            self._payload = payload or {}
+
+        def json(self) -> dict:
+            return self._payload
+
+    class FakeClient:
+        def __enter__(self) -> FakeClient:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def get(self, url: str) -> FakeResp:
+            if url.endswith("/health"):
+                return FakeResp(200)
+            return FakeResp(500)
+
+    with patch("netllm_discovery.runtime.httpx.Client", return_value=FakeClient()):
+        result = probe_netllm_agent("http://127.0.0.1:11400")
+
+    assert result is not None
+    assert result.get("degraded") is True
+
+
 def test_check_listen_port_none_when_free() -> None:
     from netllm_discovery.runtime import check_listen_port
 

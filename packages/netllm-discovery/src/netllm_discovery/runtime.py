@@ -38,14 +38,15 @@ def probe_netllm_agent(url: str, *, timeout_s: float = 2.0) -> dict | None:
     """Return status payload if url is a healthy netllm agent."""
     base = url.rstrip("/")
     try:
-        with httpx.Client(timeout=timeout_s) as client:
+        with httpx.Client(timeout=timeout_s, verify=False) as client:
             health = client.get(f"{base}/health")
             if health.status_code != 200:
                 return None
             status = client.get(f"{base}/netllm/v1/status")
-            if status.status_code != 200:
-                return None
-            return status.json()
+            if status.status_code == 200:
+                return status.json()
+            # Degraded agent: /health OK but /status fails (e.g. bundled SSL scan).
+            return {"agent_id": None, "hostname": None, "degraded": True}
     except Exception as exc:
         logger.debug("probe_netllm_agent %s: %s", url, exc)
         return None
@@ -96,10 +97,18 @@ def port_conflict_hints(conflict: PortConflict, *, replace_flag: str) -> list[st
     return hints
 
 
+def _health_responds(url: str, *, timeout_s: float = 2.0) -> bool:
+    try:
+        with httpx.Client(timeout=timeout_s, verify=False) as client:
+            return client.get(f"{url.rstrip('/')}/health").status_code == 200
+    except Exception:
+        return False
+
+
 def stop_netllm_on_port(port: int, *, wait_s: float = 5.0) -> bool:
     """SIGTERM the process on port if it is a netllm agent; wait until port is free."""
     url = f"http://127.0.0.1:{port}"
-    if probe_netllm_agent(url) is None:
+    if probe_netllm_agent(url) is None and not _health_responds(url):
         return False
     pid = port_owner_pid(port)
     if pid is None:

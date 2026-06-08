@@ -14,6 +14,8 @@ struct GitHubRelease: Sendable, Equatable {
     let assetSize: Int
     let sha256URL: URL?
     let releaseNotesURL: URL
+    /// False when the release exists but has no macOS DMG — downloadURL points at the release page.
+    let hasDMGAsset: Bool
 }
 
 @MainActor
@@ -129,6 +131,10 @@ final class UpdateController {
     }
 
     func downloadUpdate(release: GitHubRelease) async {
+        guard release.hasDMGAsset else {
+            openDownloadInBrowser(for: release)
+            return
+        }
         setState(.downloading(progress: nil))
         let destination = cacheDirectory.appendingPathComponent("\(preferredAssetName.replacingOccurrences(of: ".dmg", with: ""))-\(release.version).dmg")
         do {
@@ -242,7 +248,10 @@ final class UpdateController {
         case .checking:
             return "Checking for updates…"
         case .available(let release):
-            return "Update available (v\(release.version))"
+            if release.hasDMGAsset {
+                return "Update available (v\(release.version))"
+            }
+            return "Update available (v\(release.version)) — download manually"
         case .downloading:
             return "Downloading update…"
         case .readyToInstall(_, let release):
@@ -349,22 +358,33 @@ final class ReleasesChecker: Sendable {
                     selected = (name, dl, size)
                 }
             }
-            guard let picked = selected else { return nil }
+            if let picked = selected {
+                let shaURL = assets.compactMap { asset -> URL? in
+                    guard let name = asset["name"] as? String,
+                          name == "\(picked.name).sha256",
+                          let browser = asset["browser_download_url"] as? String else { return nil }
+                    return URL(string: browser)
+                }.first
 
-            let shaURL = assets.compactMap { asset -> URL? in
-                guard let name = asset["name"] as? String,
-                      name == "\(picked.name).sha256",
-                      let browser = asset["browser_download_url"] as? String else { return nil }
-                return URL(string: browser)
-            }.first
+                return GitHubRelease(
+                    version: version,
+                    downloadURL: picked.url,
+                    assetName: picked.name,
+                    assetSize: picked.size,
+                    sha256URL: shaURL,
+                    releaseNotesURL: htmlURL,
+                    hasDMGAsset: true
+                )
+            }
 
             return GitHubRelease(
                 version: version,
-                downloadURL: picked.url,
-                assetName: picked.name,
-                assetSize: picked.size,
-                sha256URL: shaURL,
-                releaseNotesURL: htmlURL
+                downloadURL: htmlURL,
+                assetName: "",
+                assetSize: 0,
+                sha256URL: nil,
+                releaseNotesURL: htmlURL,
+                hasDMGAsset: false
             )
         } catch {
             return nil

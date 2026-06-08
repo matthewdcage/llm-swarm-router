@@ -25,6 +25,11 @@ DEFAULT_API_KEYS: dict[str, str] = {
 }
 
 
+def loopback_async_client(**kwargs: Any) -> httpx.AsyncClient:
+    """HTTP client for localhost probes (bundled macOS Python may lack CA bundle)."""
+    return httpx.AsyncClient(verify=False, **kwargs)
+
+
 def normalize_openai_base_url(url: str) -> str:
     """Ensure OpenAI-compatible base URL ends with /v1 (no trailing slash after)."""
     raw = url.strip().rstrip("/")
@@ -219,7 +224,7 @@ async def scan_local_providers(
     enabled = set(cfg.discovery.providers)
     results: list[dict[str, Any]] = []
 
-    async with httpx.AsyncClient() as client:
+    async with loopback_async_client() as client:
         tasks = []
         for pid, pname, _ports in KNOWN_PROVIDERS:
             if pid not in enabled:

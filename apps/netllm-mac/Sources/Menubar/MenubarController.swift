@@ -129,10 +129,12 @@ final class MenubarController {
 
         switch updateController.state {
         case .available(let release):
-            if InstallLocation.canAutoInstall() {
+            if release.hasDMGAsset, InstallLocation.canAutoInstall() {
                 submenu.addItem(actionItem("Download Update v\(release.version)…", #selector(downloadUpdate)))
-            } else {
+            } else if release.hasDMGAsset {
                 submenu.addItem(actionItem("Download v\(release.version) in Browser", #selector(openUpdateInBrowser)))
+            } else {
+                submenu.addItem(actionItem("Open Release v\(release.version)…", #selector(openUpdateInBrowser)))
             }
         case .readyToInstall(_, let release):
             if InstallLocation.canAutoInstall() {
