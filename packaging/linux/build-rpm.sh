@@ -11,11 +11,19 @@ TOPDIR="${STAGE}/rpmbuild"
 rm -rf "${STAGE}"
 mkdir -p "${TOPDIR}"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 
-tar -czf "${TOPDIR}/SOURCES/netllm-${VERSION}.tar.gz" \
-  --exclude=.git --exclude=dist \
-  --exclude=packaging/linux/stage --exclude=packaging/linux/rpm-stage \
+SRCROOT="${STAGE}/netllm-${VERSION}"
+mkdir -p "${SRCROOT}"
+rsync -a \
+  --exclude=.git \
+  --exclude=dist \
+  --exclude=packaging/linux/stage \
+  --exclude=packaging/linux/rpm-stage \
   --exclude=packaging/windows/stage \
-  -C "${ROOT}" .
+  --exclude=.venv \
+  "${ROOT}/" "${SRCROOT}/"
+
+tar -czf "${TOPDIR}/SOURCES/netllm-${VERSION}.tar.gz" \
+  -C "${STAGE}" "netllm-${VERSION}"
 
 sed "s/@VERSION@/${VERSION}/g; s/@RELEASE@/${RELEASE}/g" \
   "${ROOT}/packaging/linux/netllm.spec.in" >"${TOPDIR}/SPECS/netllm.spec"
