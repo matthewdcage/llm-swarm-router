@@ -4,6 +4,10 @@ name: Release Linux (manual only)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   deb:
     runs-on: ubuntu-latest

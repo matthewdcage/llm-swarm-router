@@ -958,16 +958,29 @@ function renderToolsTab() {
   root.appendChild(envPre);
 }
 
+const BLOCKED_PATH_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 function getByPath(obj, path) {
-  return path.split(".").reduce((o, k) => (o ? o[k] : undefined), obj);
+  return path.split(".").reduce((o, k) => {
+    if (BLOCKED_PATH_KEYS.has(k)) return undefined;
+    return o ? o[k] : undefined;
+  }, obj);
 }
 
 function setByPath(obj, path, value) {
   const parts = path.split(".");
+  if (parts.some((k) => BLOCKED_PATH_KEYS.has(k))) return;
   let cur = obj;
   for (let i = 0; i < parts.length - 1; i++) {
-    if (!cur[parts[i]]) cur[parts[i]] = {};
-    cur = cur[parts[i]];
+    const key = parts[i];
+    if (
+      !Object.prototype.hasOwnProperty.call(cur, key) ||
+      typeof cur[key] !== "object" ||
+      cur[key] === null
+    ) {
+      cur[key] = {};
+    }
+    cur = cur[key];
   }
   cur[parts[parts.length - 1]] = value;
 }
