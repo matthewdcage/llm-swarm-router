@@ -1,5 +1,9 @@
 .graphify-out/
 graphify-out/
+# Local graphify one-off helpers (canonical: scripts/graphify-scoped-update.py)
+scripts/graphify-enrich-rebuild.py
+scripts/graphify-prune-netllmconfig.py
+scripts/graphify-viz-improve.py
 __pycache__/
 *.py[cod]
 .venv/
