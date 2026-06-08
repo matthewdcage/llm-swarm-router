@@ -50,11 +50,13 @@ final class StatsPoller {
             if let backends = status["backends"] as? [[String: Any]] {
                 snap.backends = backends.map { row in
                     let health = row["health"] as? [String: Any] ?? [:]
+                    let models = health["models"] as? [String] ?? []
+                    let modelCount = max(jsonInt(health["model_count"]), models.count)
                     return BackendSnapshot(
                         provider: row["provider"] as? String ?? "?",
                         baseURL: row["base_url"] as? String ?? "",
                         health: health["status"] as? String ?? "unknown",
-                        modelCount: health["model_count"] as? Int ?? 0
+                        modelCount: modelCount
                     )
                 }
                 snap.backendCount = snap.backends.count
@@ -84,5 +86,12 @@ final class StatsPoller {
         } catch {
             return nil
         }
+    }
+
+    private func jsonInt(_ value: Any?) -> Int {
+        if let value = value as? Int { return value }
+        if let value = value as? Double { return Int(value) }
+        if let value = value as? NSNumber { return value.intValue }
+        return 0
     }
 }

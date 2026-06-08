@@ -104,7 +104,7 @@ def create_app(
         await service.refresh_local_backends()
         for backend in service.pool.backends:
             if backend.enabled:
-                service.pool.is_healthy(backend)
+                service.pool.is_healthy(backend, force_refresh=True)
         return service.status_payload()
 
     @app.get("/netllm/v1/peers")

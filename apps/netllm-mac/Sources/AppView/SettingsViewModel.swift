@@ -50,26 +50,34 @@ final class SettingsViewModel {
 
     var routedModelCount: Int {
         if !routedModels.isEmpty { return routedModels.count }
-        return aggregatedModelCountFromStatus
+        let fromStatus = aggregatedModelCountFromStatus
+        if fromStatus > 0 { return fromStatus }
+        return Set(localModels.map(\.model)).count
     }
 
     var routedModelStatSubtitle: String {
         if !routedModels.isEmpty { return "Routed catalog" }
         if aggregatedModelCountFromStatus > 0 {
-            return "From backend health (refresh agent)"
+            return "From backend health"
         }
+        if !localModels.isEmpty { return "From provider discover scan" }
         return "Run Discover or start oMLX/Ollama"
     }
 
     private var aggregatedModelCountFromStatus: Int {
         guard let status else { return 0 }
         var seen = Set<String>()
+        var fallbackCount = 0
         for backend in status.backends where backend.health == "online" {
-            for model in backend.models {
-                seen.insert(model)
+            if backend.models.isEmpty {
+                fallbackCount += backend.modelCount
+            } else {
+                for model in backend.models {
+                    seen.insert(model)
+                }
             }
         }
-        return seen.count
+        return max(seen.count, fallbackCount)
     }
 
     var peerStatSubtitle: String {
@@ -209,6 +217,7 @@ final class SettingsViewModel {
                 }
                 let online = discoverProviders.filter { $0.status == "online" }.count
                 setSuccess("Discover complete: \(online)/\(discoverProviders.count) provider(s) online.")
+                await refreshLiveData()
             }
         }
     }

@@ -80,16 +80,25 @@ enum AgentAPI {
 
     private static func parseBackend(_ dict: [String: Any]) -> BackendStatus {
         let health = dict["health"] as? [String: Any] ?? [:]
+        let models = health["models"] as? [String] ?? []
+        let modelCount = max(parseInt(health["model_count"]), models.count)
         return BackendStatus(
             provider: dict["provider"] as? String ?? "",
             baseURL: dict["base_url"] as? String ?? "",
             local: dict["local"] as? Bool ?? true,
             enabled: dict["enabled"] as? Bool ?? true,
             health: health["status"] as? String ?? "unknown",
-            modelCount: health["model_count"] as? Int ?? 0,
-            models: health["models"] as? [String] ?? [],
-            inFlight: dict["in_flight"] as? Int ?? 0
+            modelCount: modelCount,
+            models: models,
+            inFlight: parseInt(dict["in_flight"])
         )
+    }
+
+    private static func parseInt(_ value: Any?) -> Int {
+        if let value = value as? Int { return value }
+        if let value = value as? Double { return Int(value) }
+        if let value = value as? NSNumber { return value.intValue }
+        return 0
     }
 
     private static func parsePeer(_ dict: [String: Any]) -> PeerStatus {
