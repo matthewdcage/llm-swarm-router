@@ -29,7 +29,7 @@
 
 **Put every machine's GPU to work without babysitting your infrastructure.**
 
-**The mesh router for local LLM backends.** Run a lightweight agent on each computer. It finds oMLX, Ollama, and LM Studio on localhost, discovers sibling agents on your LAN, and exposes one stable endpoint for every editor and tool.
+**The mesh router for local LLM backends.** Run a lightweight agent on each computer. It finds **oMLX**, **Ollama**, **LM Studio**, and **vLLM** on localhost (plus custom OpenAI-compatible server URLs), discovers sibling agents on your LAN, **distributes agent and API calls across every available machine** to spread inference load and boost throughput, and exposes one stable endpoint for every editor and tool.
 
 <p align="center">
   <img src="assets/screenshots/llm-swarm-router-osx-settings.png" alt="llm-swarm-router Settings, backends online, swarm peers connected, routed model catalog" width="720">
@@ -45,9 +45,12 @@ I had compute sitting idle and no simple way to log in and use it. Every editor 
 
 ### Who it is for
 
-- **Multi-Mac households and small labs**: MacBook + Mac mini + studio, each running different backends on different ports.
-- **Agent-heavy developers**: Cursor, Claude Code, Codex, Honcho, or any OpenAI/Anthropic client that should hit *your* GPUs, not a cloud tab.
-- **People who want throughput to scale with hardware**: add a node, install the app, and the mesh picks up more models and capacity without re-wiring every project.
+**If you already run local inference or point tools at a `base_url`, this is for you.**
+
+- **oMLX, Ollama, LM Studio, and vLLM users** — on one machine or many, including custom OpenAI-compatible backends you configure yourself.
+- **OpenAI- and Anthropic-compatible clients** — Cursor, Claude Code, Codex, Honcho, Continue, Cline, custom scripts, or your own app; one stable URL instead of per-machine ports and failover lists.
+- **Multi-machine home labs** — MacBook + Mac mini + Linux box + Windows workstation, each running different backends on different ports.
+- **People who want throughput to scale with hardware** — add a node, install the app, and the mesh picks up more models and capacity without re-wiring every project.
 
 ### What it is
 
