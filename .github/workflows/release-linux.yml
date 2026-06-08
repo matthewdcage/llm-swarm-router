@@ -14,7 +14,7 @@ jobs:
       - run: chmod +x packaging/linux/build-deb.sh packaging/linux/build-rpm.sh
       - run: NETLLM_VERSION=0.0.0-dev packaging/linux/build-deb.sh
       - run: NETLLM_VERSION=0.0.0-dev packaging/linux/build-rpm.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: netllm-linux-packages
           path: |
