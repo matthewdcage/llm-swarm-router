@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version to build (e.g. 0.2.2); defaults to pyproject.toml
+        description: Version to build (e.g. 0.2.2.1); defaults to pyproject.toml
         required: false
         type: string
 

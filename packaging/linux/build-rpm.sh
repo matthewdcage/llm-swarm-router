@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-VERSION="${NETLLM_VERSION:-0.2.2}"
+VERSION="${NETLLM_VERSION:-0.2.2.1}"
 # RPM Version rejects hyphens; map semver prerelease (0.0.0-dev) to 0.0.0~dev
 RPM_VERSION="${VERSION//-/~}"
 RELEASE="${NETLLM_RPM_RELEASE:-1}"
