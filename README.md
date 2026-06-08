@@ -27,7 +27,7 @@
   <a href="https://platform.openai.com/docs/api-reference"><img src="https://img.shields.io/badge/API-OpenAI%20%2B%20Anthropic-412991?style=for-the-badge&logo=openai&logoColor=white" alt="OpenAI + Anthropic APIs"></a>
 </p>
 
-**Put every machine's GPU to work — without babysitting URLs.**
+**Put every machine's GPU to work — without babysitting your infrustructure.**
 
 **The mesh router for local LLM backends.** Run a lightweight agent on each computer — it finds oMLX, Ollama, and LM Studio on localhost, discovers sibling agents on your LAN, and exposes one stable endpoint for every editor and tool.
 
