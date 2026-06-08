@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 @MainActor
 @Observable
@@ -156,14 +157,14 @@ final class SettingsViewModel {
 
     func providerURLBinding(_ provider: String) -> Binding<[String]> {
         Binding(
-            get: { document.discovery.provider_urls[provider] ?? [] },
+            get: { self.document.discovery.provider_urls[provider] ?? [] },
             set: { newValue in
                 if newValue.isEmpty {
-                    document.discovery.provider_urls.removeValue(forKey: provider)
+                    self.document.discovery.provider_urls.removeValue(forKey: provider)
                 } else {
-                    document.discovery.provider_urls[provider] = newValue
+                    self.document.discovery.provider_urls[provider] = newValue
                 }
-                bumpUI()
+                self.bumpUI()
             }
         )
     }
