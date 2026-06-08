@@ -229,7 +229,7 @@ final class MenubarController {
         }
         NSApp.orderFrontStandardAboutPanel(options: [
             .applicationName: AppBranding.displayName,
-            .applicationVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.0",
+            .applicationVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.1",
             .credits: NSAttributedString(
                 string: "\(AppBranding.tagline)\nCLI: \(AppBranding.cliCommand)",
                 attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)]

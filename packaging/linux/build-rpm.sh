@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-VERSION="${NETLLM_VERSION:-0.2.0}"
+VERSION="${NETLLM_VERSION:-0.2.1}"
 RELEASE="${NETLLM_RPM_RELEASE:-1}"
 STAGE="${ROOT}/packaging/linux/rpm-stage"
 TOPDIR="${STAGE}/rpmbuild"

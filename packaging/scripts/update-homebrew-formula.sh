@@ -7,7 +7,7 @@ FORMULA="$ROOT/Formula/netllm.rb"
 TAG="${1:?usage: update-homebrew-formula.sh vX.Y.Z}"
 
 if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
-  echo "error: tag must look like v0.2.0 (got: $TAG)" >&2
+  echo "error: tag must look like v0.2.1 (got: $TAG)" >&2
   exit 1
 fi
 

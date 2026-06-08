@@ -16,7 +16,7 @@
 # llm-swarm-router
 
 <p align="center">
-  <a href="AGENTS.md"><img src="https://img.shields.io/badge/version-0.2.0-blue?style=for-the-badge" alt="Version 0.2.0"></a>
+  <a href="AGENTS.md"><img src="https://img.shields.io/badge/version-0.2.1_beta-orange?style=for-the-badge" alt="Version 0.2.1 beta"></a>
   <a href="docs/macos-install.md"><img src="https://img.shields.io/badge/macOS-Menubar%20app-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS app"></a>
   <a href="docs/editor-integration.md"><img src="https://img.shields.io/badge/Docs-Editor%20wiring-FFD700?style=for-the-badge" alt="Editor integration"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>

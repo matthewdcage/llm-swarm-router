@@ -27,7 +27,7 @@ body:
     attributes:
       label: netllm version
       description: Release tag, `./netllm --version`, or git commit SHA
-      placeholder: "0.2.0 or abc1234"
+      placeholder: "0.2.1 or abc1234"
     validations:
       required: true
 
