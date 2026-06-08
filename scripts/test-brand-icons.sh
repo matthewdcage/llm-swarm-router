@@ -27,11 +27,18 @@ bash "$BUILD_ICONS"
 
 ICNS="$MAC/build/AppIcon.icns"
 CAR="$MAC/build/Assets.car"
+METHOD_FILE="$MAC/build/.appicon-method"
 BRAND="$MAC/build/Brand"
 [[ -f "$ICNS" ]] || fail "AppIcon.icns not generated"
-[[ -f "$CAR" ]] || fail "Assets.car not generated (actool app icon)"
+[[ -f "$METHOD_FILE" ]] || fail "missing .appicon-method (build-icons incomplete)"
+METHOD="$(cat "$METHOD_FILE")"
 file "$ICNS" | rg -qi 'Mac OS X icon' || fail "AppIcon.icns invalid format"
-ok "AppIcon.icns + Assets.car (light/dark transparent)"
+if [[ "$METHOD" == "actool" ]]; then
+  [[ -f "$CAR" ]] || fail "Assets.car not generated (actool app icon)"
+  ok "AppIcon.icns + Assets.car (actool light/dark)"
+else
+  ok "AppIcon.icns (iconutil fallback — actool unavailable on this host)"
+fi
 
 for f in \
   MenubarIconLight.png \
@@ -51,7 +58,9 @@ APP="${NETLLM_APP:-$MAC/build/Stage/llm-swarm-router.app}"
 if [[ -d "$APP" ]]; then
   echo "==> staged app bundle"
   [[ -f "$APP/Contents/Resources/AppIcon.icns" ]] || fail "bundle missing AppIcon.icns"
-  [[ -f "$APP/Contents/Resources/Assets.car" ]] || fail "bundle missing Assets.car"
+  if [[ "${METHOD:-}" == "actool" ]]; then
+    [[ -f "$APP/Contents/Resources/Assets.car" ]] || fail "bundle missing Assets.car"
+  fi
   /usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$APP/Contents/Info.plist" 2>/dev/null \
     | rg -qx 'AppIcon' || fail "Info.plist missing CFBundleIconFile=AppIcon"
   /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$APP/Contents/Info.plist" 2>/dev/null \
