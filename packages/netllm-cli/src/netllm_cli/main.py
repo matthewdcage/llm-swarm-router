@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import httpx
@@ -31,11 +33,14 @@ from netllm_cli.install import (
     print_path_notice,
     suggested_cli,
 )
+from netllm_cli.config_json import emit_export, read_import
+from netllm_cli.lifecycle import lifecycle_command
 from netllm_cli.ui import (
     agent_unreachable_message,
     console,
     inference_status_style,
     listen_url,
+    listen_urls,
     mdns_available,
     models_table,
     offline_provider_hints,
@@ -204,10 +209,15 @@ def install(
 @app.command()
 def discover(
     config: Path | None = typer.Option(None, "--config"),
+    as_json: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
 ) -> None:
     """Scan localhost for oMLX, Ollama, and LM Studio."""
     cfg = load_config(_config_path_option(config))
     results = asyncio.run(scan_local_providers(cfg))
+
+    if as_json:
+        typer.echo(json.dumps({"providers": results}))
+        return
 
     if not results:
         print_error(
@@ -389,6 +399,7 @@ def peers(
         "--save",
         help="Append discovered peer URLs to swarm.peers in config",
     ),
+    as_json: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
 ) -> None:
     """Find netllm agents on the local network."""
     cfg_path = _config_path_option(config)
@@ -409,13 +420,6 @@ def peers(
         if cidrs:
             warnings.append(f"Scanning {', '.join(cidrs)} for agents on :11400")
 
-    print_heading(
-        "LAN agent discovery",
-        "Finding other netllm routers on your network",
-    )
-    if warnings:
-        print_warnings(warnings)
-
     peers_found = asyncio.run(
         discover_lan_agents(
             cfg,
@@ -424,6 +428,17 @@ def peers(
             timeout_s=timeout,
         )
     )
+
+    if as_json:
+        typer.echo(json.dumps({"peers": peers_found, "warnings": warnings}))
+        return
+
+    print_heading(
+        "LAN agent discovery",
+        "Finding other netllm routers on your network",
+    )
+    if warnings:
+        print_warnings(warnings)
 
     if not peers_found:
         print_error(
@@ -490,11 +505,23 @@ def serve(
     config: Path | None = typer.Option(None, "--config"),
     host: str | None = typer.Option(None, "--host", help="Override listen host"),
     port: int | None = typer.Option(None, "--port", help="Override listen port"),
+    replace: bool = typer.Option(
+        False,
+        "--replace",
+        help="Stop an existing netllm agent on this port and start fresh",
+    ),
     quiet: bool = typer.Option(
         False, "--quiet", "-q", help="Minimal startup output (logs only)"
     ),
 ) -> None:
     """Start the netllm agent (foreground)."""
+    from netllm_discovery.runtime import (
+        check_listen_port,
+        format_port_conflict_message,
+        port_conflict_hints,
+        stop_netllm_on_port,
+    )
+
     cfg_path = _config_path_option(config)
     cfg = _require_config(cfg_path)
 
@@ -503,7 +530,47 @@ def serve(
         p = port or int(cfg.agent.listen.split(":")[-1])
         cfg.agent.listen = f"{h}:{p}"
 
-    base = listen_url(cfg.agent.listen)
+    conflict = check_listen_port(cfg)
+    if conflict:
+        replace_cmd = suggested_cli("serve --replace")
+        if (
+            conflict.occupied_by_netllm
+            and conflict.agent_id
+            and conflict.agent_id == cfg.agent.agent_id
+        ):
+            if not quiet:
+                console.print(
+                    Panel(
+                        f"[green]netllm agent already running[/]\n"
+                        f"  agent_id: {conflict.agent_id}\n"
+                        f"  url: {conflict.url}\n"
+                        f"  pid: {conflict.pid or 'unknown'}",
+                        border_style="green",
+                    )
+                )
+            raise typer.Exit(0)
+        if replace and conflict.occupied_by_netllm:
+            if not quiet:
+                console.print(
+                    f"[yellow]Stopping existing netllm agent on port "
+                    f"{conflict.port}…[/]"
+                )
+            if not stop_netllm_on_port(conflict.port):
+                print_error(
+                    "Could not free port",
+                    format_port_conflict_message(conflict),
+                    hints=port_conflict_hints(conflict, replace_flag=replace_cmd),
+                )
+                raise typer.Exit(1)
+        else:
+            print_error(
+                "Port already in use",
+                format_port_conflict_message(conflict),
+                hints=port_conflict_hints(conflict, replace_flag=replace_cmd),
+            )
+            raise typer.Exit(1)
+
+    base, lan_base = listen_urls(cfg.agent.listen)
     warnings: list[str] = []
 
     if cfg.agent.listen.startswith("0.0.0.0"):
@@ -526,8 +593,10 @@ def serve(
             "Starting netllm agent",
             f"role={cfg.agent.role}  strategy={cfg.routing.default_strategy}",
         )
-        summary = (
-            f"[bold]Listen[/]  {base}\n"
+        summary = f"[bold]Listen[/]  {base}\n"
+        if lan_base:
+            summary += f"[bold]LAN[/]     {lan_base}\n"
+        summary += (
             f"[bold]Config[/]  {cfg_path}\n"
             f"[bold]Backends[/] {len(online)} online"
         )
@@ -668,16 +737,96 @@ def status(
         ])
 
 
+async def _test_anthropic_agent(cfg: NetllmConfig, *, model: str | None) -> None:
+    base = listen_url(cfg.agent.listen)
+    test_model = model
+    if not test_model:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(f"{base}/v1/models", timeout=5.0)
+                if resp.status_code == 200:
+                    data = resp.json().get("data") or []
+                    if data:
+                        test_model = data[0].get("id")
+        except httpx.HTTPError:
+            pass
+    if not test_model:
+        print_error(
+            "No model for Anthropic test",
+            "Pass --model or ensure the agent lists models.",
+            hints=[
+                f"Start agent: [cyan]{suggested_cli('serve')}[/]",
+                "List models: [cyan]netllm models[/]",
+            ],
+        )
+        raise typer.Exit(1)
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "netllm-local")
+    payload = {
+        "model": test_model,
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": "hi"}],
+    }
+    headers = {"x-api-key": api_key}
+    console.print(f"\n[bold]Testing Anthropic Messages API[/] via {base}")
+    console.print(f"  [dim]POST /v1/messages[/]  model={test_model}")
+    t0 = time.monotonic()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{base}/v1/messages",
+                json=payload,
+                headers=headers,
+                timeout=30.0,
+            )
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        console.print(f"  HTTP {resp.status_code}  ({latency_ms}ms)")
+        if resp.status_code == 200:
+            body = resp.json()
+            text = ""
+            for block in body.get("content") or []:
+                if block.get("type") == "text":
+                    text = block.get("text", "")
+                    break
+            console.print(f"  Reply: {text[:80]!r}")
+        else:
+            print_error(
+                "Anthropic probe failed",
+                resp.text[:200],
+                hints=[
+                    f"Agent running? curl -sf {base}/health",
+                    "Cloud failover needs ANTHROPIC_API_KEY in env",
+                ],
+            )
+            raise typer.Exit(1)
+    except httpx.HTTPError as exc:
+        print_error(
+            "Agent unreachable",
+            str(exc),
+            hints=[agent_unreachable_message(base)],
+        )
+        raise typer.Exit(1) from exc
+
+
 @app.command()
 def test(
     config: Path | None = typer.Option(None, "--config"),
     backend: str | None = typer.Option(None, "--backend", help="Specific base URL"),
     model: str | None = typer.Option(None, "--model", help="Model to test"),
+    api: str = typer.Option(
+        "openai",
+        "--api",
+        help="API surface: openai (local backends) or anthropic (agent /v1/messages)",
+    ),
 ) -> None:
     """Diagnose a backend (models list + 1-token latency)."""
     cfg = load_config(_config_path_option(config))
 
     async def run() -> None:
+        if api == "anthropic":
+            await _test_anthropic_agent(cfg, model=model)
+            return
+
         from netllm_core.health import diagnose_backend
 
         if backend:
@@ -745,6 +894,7 @@ def gateway_enable(
 @app.command()
 def doctor(
     config: Path | None = typer.Option(None, "--config"),
+    as_json: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
 ) -> None:
     """Check common misconfigurations."""
     cfg_path = _config_path_option(config)
@@ -786,6 +936,78 @@ def doctor(
             "Start oMLX (:8080), Ollama (:11434), or LM Studio (:1234)",
         ))
 
+    has_anthropic_backend = any(
+        b.provider == "anthropic" for b in cfg.routing.backends if b.enabled
+    )
+    if has_anthropic_backend and not os.environ.get("ANTHROPIC_API_KEY"):
+        missing_keys = [
+            b.api_key_env
+            for b in cfg.routing.backends
+            if b.enabled and b.provider == "anthropic" and b.api_key_env
+        ]
+        if missing_keys:
+            issues.append((
+                "Anthropic cloud failover configured but API key missing",
+                f"Set env var: {missing_keys[0]}",
+            ))
+
+    from netllm_discovery.lan import local_lan_ip
+    from netllm_discovery.mdns import parse_listen_host_port
+    from netllm_discovery.runtime import check_listen_port, port_owner_pid
+
+    if cfg.agent.listen.startswith("0.0.0.0") and local_lan_ip() is None:
+        issues.append((
+            "LAN listen but no LAN IP detected",
+            "Swarm discovery may fail — check network interface",
+        ))
+
+    conflict = check_listen_port(cfg)
+    if conflict:
+        pid_hint = f" (pid {conflict.pid})" if conflict.pid else ""
+        if conflict.occupied_by_netllm:
+            issues.append((
+                f"Port {conflict.port} in use by netllm agent{pid_hint}",
+                "Run netllm serve --replace or stop the existing agent",
+            ))
+        else:
+            issues.append((
+                f"Port {conflict.port} in use by another process{pid_hint}",
+                "Free the port or use netllm serve --port <other>",
+            ))
+
+    if cfg.swarm.mdns and cfg.agent.advertise and mdns_available():
+        _, listen_port = parse_listen_host_port(cfg.agent.listen)
+        local_base = listen_url(cfg.agent.listen)
+        agent_up = False
+        try:
+            with httpx.Client(timeout=2.0) as client:
+                agent_up = client.get(f"{local_base}/health").status_code == 200
+        except httpx.HTTPError:
+            agent_up = False
+        if agent_up:
+            try:
+                from netllm_discovery.lan import browse_mdns_peers
+
+                found = browse_mdns_peers(timeout_s=1.0)
+                self_found = any(
+                    p.get("agent_id") == cfg.agent.agent_id for p in found
+                )
+                if not self_found and port_owner_pid(listen_port) is not None:
+                    issues.append((
+                        "mDNS advertise may have failed",
+                        "Stale Bonjour registration? Try netllm serve --replace",
+                    ))
+            except RuntimeError:
+                pass
+
+    if as_json:
+        payload = {
+            "ok": not issues,
+            "issues": [{"title": t, "fix": f} for t, f in issues],
+        }
+        typer.echo(json.dumps(payload))
+        return
+
     if issues:
         console.print("[yellow]Issues found:[/]\n")
         for title, fix in issues:
@@ -794,6 +1016,50 @@ def doctor(
         raise typer.Exit(1)
 
     console.print("[green]All checks passed.[/] Run [cyan]netllm serve[/] to start.")
+
+
+config_app = typer.Typer(help="Import/export config.toml as JSON (settings UI).")
+app.add_typer(config_app, name="config")
+
+
+@config_app.command("export")
+def config_export(
+    config: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Write full config as JSON to stdout."""
+    emit_export(_config_path_option(config))
+
+
+@config_app.command("import")
+def config_import_cmd(
+    config: Path | None = typer.Option(None, "--config"),
+) -> None:
+    """Read JSON from stdin and save to config.toml."""
+    read_import(_config_path_option(config))
+
+
+@app.command()
+def start(
+    timeout: float = typer.Option(60.0, "--timeout", help="Seconds to wait for agent"),
+    no_wait: bool = typer.Option(False, "--no-wait", help="Return after dispatch"),
+) -> None:
+    """Start the netllm agent (macOS app or Homebrew service)."""
+    raise typer.Exit(lifecycle_command("start", timeout=timeout, no_wait=no_wait))
+
+
+@app.command()
+def stop() -> None:
+    """Stop the netllm agent (macOS app or Homebrew service)."""
+    raise typer.Exit(lifecycle_command("stop"))
+
+
+@app.command()
+def restart(
+    timeout: float = typer.Option(60.0, "--timeout", help="Seconds to wait for agent"),
+    no_wait: bool = typer.Option(False, "--no-wait", help="Return after dispatch"),
+) -> None:
+    """Restart the netllm agent (macOS app or Homebrew service)."""
+    raise typer.Exit(lifecycle_command("restart", timeout=timeout, no_wait=no_wait))
 
 
 @app.command()
