@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import logging
-import signal
 import socket
-import subprocess
 import time
 from dataclasses import dataclass
 
@@ -13,6 +11,7 @@ import httpx
 from netllm_core.models import NetllmConfig
 
 from netllm_discovery.mdns import parse_listen_host_port
+from netllm_discovery.process_util import port_owner_pid, terminate_pid
 
 logger = logging.getLogger(__name__)
 
@@ -33,26 +32,6 @@ def is_port_in_use(host: str, port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.5)
         return sock.connect_ex((probe_host, port)) == 0
-
-
-def port_owner_pid(port: int) -> int | None:
-    """Best-effort PID listening on TCP port (macOS/Linux via lsof)."""
-    try:
-        out = subprocess.run(
-            ["lsof", "-ti", f":{port}"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=3.0,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return None
-    if out.returncode != 0 or not out.stdout.strip():
-        return None
-    try:
-        return int(out.stdout.strip().splitlines()[0])
-    except ValueError:
-        return None
 
 
 def probe_netllm_agent(url: str, *, timeout_s: float = 2.0) -> dict | None:
@@ -125,12 +104,7 @@ def stop_netllm_on_port(port: int, *, wait_s: float = 5.0) -> bool:
     pid = port_owner_pid(port)
     if pid is None:
         return False
-    try:
-        import os
-
-        os.kill(pid, signal.SIGTERM)
-    except OSError as exc:
-        logger.warning("could not stop pid %s: %s", pid, exc)
+    if not terminate_pid(pid):
         return False
 
     deadline = time.monotonic() + wait_s

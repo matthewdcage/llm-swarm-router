@@ -82,7 +82,7 @@ Detailed reference: `.agents/skills/netllm-connect-editor/references/editor-sett
 
 | Symptom | Fix |
 |---------|-----|
-| Agent unreachable | `./netllm serve` |
-| No models | Start Ollama/oMLX; `./netllm discover` |
+| Agent unreachable | `./netllm serve` (source) or `netllm start` (packaged install) |
+| No models | Start Ollama/LM Studio/vLLM (oMLX on macOS); `./netllm discover` |
 | Editor errors on model | Model string must match `./netllm models` exactly |
 | Full diagnostic | `./netllm doctor` or `/netllm-doctor` |

@@ -5,7 +5,7 @@ description: |
   Use when the user asks to install swarm-llm, set up netllm, get the router
   running, clone and configure llm-swarm-router, or invokes /netllm-setup.
   Runs uv sync, netllm init, discover, serve verification, and prints OpenAI
-  client env vars. Requires macOS or Linux with uv and git.
+  client env vars. Requires Python 3.11+, uv, and git (macOS, Linux, or Windows).
 version: 1.0.0
 license: MIT
 compatibility:
@@ -29,11 +29,11 @@ allowed-tools:
 
 ## Prerequisites
 
-- macOS or Linux
+- macOS, Linux, or Windows
 - `git` on PATH
 - `uv` on PATH — if missing, tell user to install from https://docs.astral.sh/uv/
 - Repo root contains [pyproject.toml](pyproject.toml) with `name = "netllm"` and `[tool.uv.workspace]`
-- At least one inference server (oMLX `:8080`, Ollama `:11434`, LM Studio `:1234`) is optional but warn if none are online after discover
+- At least one inference server is optional but warn if none are online after discover: Ollama `:11434`, LM Studio `:1234`, vLLM `:8000`; oMLX `:8080` on macOS only
 
 ## Install paths
 
@@ -41,9 +41,11 @@ allowed-tools:
 |-----------------|-------|
 | **macOS DMG** | Download Release DMG → drag to Applications → launch menubar app → welcome wizard. See [docs/menubar-app.md](../../docs/menubar-app.md). |
 | **Homebrew** | `brew tap matthewdcage/netllm <repo>` → `brew install netllm` → `brew services start netllm` |
+| **Linux deb/rpm** | Install package from Releases → `systemctl --user enable --now netllm`. See [docs/linux-install.md](../../docs/linux-install.md). |
+| **Windows zip** | Extract Release zip → run `install-service.ps1` as Admin → `netllm start`. See [docs/windows-install.md](../../docs/windows-install.md). |
 | **Source / dev** | Workflow below (`uv sync`, `./netllm init`, `./netllm serve`) |
 
-DMG and Homebrew use `netllm start` / `netllm stop` for background lifecycle. Source installs keep `./netllm serve` (foreground).
+DMG, Homebrew, systemd, and Windows service installs use `netllm start` / `netllm stop`. Source installs keep `./netllm serve` (foreground).
 
 ## Workflow
 
@@ -72,9 +74,9 @@ DMG and Homebrew use `netllm start` / `netllm stop` for background lifecycle. So
    ```
    Report online vs offline providers. If all offline, warn but continue — agent can still serve when backends come online.
 
-6. **Start the agent** — `./netllm serve` is long-running. Either:
-   - Run in background with logged output, or
-   - Instruct user to run `./netllm serve` in a dedicated terminal and wait for "Starting netllm agent"
+6. **Start the agent**
+   - **Source / dev:** `./netllm serve` (foreground, dedicated terminal) until "Starting netllm agent"
+   - **Packaged (DMG, Homebrew, systemd, Windows service):** `netllm start` then `netllm status`
 
 7. **Verify setup**
    ```bash
@@ -113,7 +115,7 @@ scripts/agent-verify-setup.sh
 |-----------|--------|
 | `uv` not found | Stop; link https://docs.astral.sh/uv/ |
 | Config exists | Use `./netllm discover` instead of `--force` init |
-| No providers online | Continue; tell user to start Ollama/oMLX and run `./netllm discover` |
+| No providers online | Continue; start Ollama/LM Studio/vLLM (or oMLX on macOS); run `./netllm discover` |
 | Port 11400 in use | `./netllm serve --port 11401` and adjust `OPENAI_BASE_URL` |
 | Global CLI PATH confusion | Prefer `./netllm` from repo; run `./netllm doctor` |
 

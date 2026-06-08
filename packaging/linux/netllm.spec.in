@@ -1,0 +1,40 @@
+Name:           netllm
+Version:        @VERSION@
+Release:        @RELEASE@%{?dist}
+Summary:        Mesh router for local LLM backends
+License:        MIT
+URL:            https://github.com/matthewdcage/llm-swarm-router
+Source0:        netllm-%{version}.tar.gz
+BuildArch:      x86_64
+Requires:        python3 >= 3.11
+
+%description
+netllm discovers local OpenAI-compatible inference servers and exposes a
+unified router on port 11400 with LAN swarm support.
+
+%prep
+%setup -q
+
+%build
+uv sync
+uv pip install -e . --no-dev --target %{buildroot}/usr/lib/netllm
+
+%install
+mkdir -p %{buildroot}/usr/bin
+mkdir -p %{buildroot}/usr/lib/systemd/user
+cat > %{buildroot}/usr/bin/netllm << 'EOF'
+#!/usr/bin/env bash
+exec /usr/lib/netllm/bin/netllm "$@"
+EOF
+chmod 755 %{buildroot}/usr/bin/netllm
+install -m 644 packaging/linux/netllm.service %{buildroot}/usr/lib/systemd/user/netllm.service
+
+%files
+/usr/bin/netllm
+/usr/lib/netllm
+/usr/lib/systemd/user/netllm.service
+
+%post
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl daemon-reload || true
+fi

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shlex
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -12,6 +13,14 @@ _APP_BUNDLE_CLI_NAME = "netllm-cli"
 _PATH_CLI = "netllm"
 _USER_CLI_SHIM = Path(".config") / "netllm" / "bin" / "netllm"
 _APP_NAMES = ("llm-swarm-router.app", "netllm-mac.app")
+_WINDOWS_SERVICE_NAME = "NetllmAgent"
+
+_SYSTEMD_UNIT_PATHS = (
+    Path("/etc/systemd/system/netllm.service"),
+    Path("/usr/lib/systemd/system/netllm.service"),
+    Path("/usr/lib/systemd/user/netllm.service"),
+    Path.home() / ".config/systemd/user/netllm.service",
+)
 
 
 def is_app_bundle() -> bool:
@@ -38,7 +47,13 @@ def get_app_bundle_cli_path() -> Path:
             cli = app / "Contents" / "MacOS" / _APP_BUNDLE_CLI_NAME
             if cli.is_file():
                 return cli
-        return Path("/Applications") / _APP_NAMES[0] / "Contents" / "MacOS" / _APP_BUNDLE_CLI_NAME
+        return (
+            Path("/Applications")
+            / _APP_NAMES[0]
+            / "Contents"
+            / "MacOS"
+            / _APP_BUNDLE_CLI_NAME
+        )
     app_root = Path(path[: idx + len(".app")])
     return app_root / "Contents" / "MacOS" / _APP_BUNDLE_CLI_NAME
 
@@ -84,18 +99,55 @@ def is_homebrew() -> bool:
     return "/Cellar/" in prefix or "/homebrew/" in prefix
 
 
+def is_linux_systemd() -> bool:
+    """Return True when a packaged systemd unit for netllm is present."""
+    if sys.platform not in ("linux", "linux2"):
+        return False
+    return any(path.is_file() for path in _SYSTEMD_UNIT_PATHS)
+
+
+def is_windows_service() -> bool:
+    """Return True when the netllm Windows service is registered."""
+    if sys.platform != "win32":
+        return False
+    try:
+        out = subprocess.run(
+            ["sc", "query", _WINDOWS_SERVICE_NAME],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=3.0,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    return out.returncode == 0 and "SERVICE_NAME" in out.stdout.upper()
+
+
 def is_source() -> bool:
     """Return True for editable / pip / uv source installs."""
-    return not is_app_bundle() and not is_homebrew()
+    return (
+        not is_app_bundle()
+        and not is_homebrew()
+        and not is_linux_systemd()
+        and not is_windows_service()
+    )
 
 
 def get_install_method() -> str:
-    """Return install channel: 'app', 'homebrew', or 'source'."""
+    """Return install channel for lifecycle dispatch."""
     if is_app_bundle():
         return "app"
     if is_homebrew():
         return "homebrew"
+    if is_linux_systemd():
+        return "linux-systemd"
+    if is_windows_service():
+        return "windows-service"
     return "source"
+
+
+def windows_service_name() -> str:
+    return _WINDOWS_SERVICE_NAME
 
 
 def get_cli_prefix() -> str:

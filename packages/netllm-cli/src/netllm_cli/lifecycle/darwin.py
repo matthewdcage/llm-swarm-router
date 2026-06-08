@@ -1,4 +1,4 @@
-"""Background agent lifecycle (app control socket, Homebrew services)."""
+"""macOS app control socket and Homebrew services lifecycle."""
 
 from __future__ import annotations
 
@@ -9,11 +9,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from netllm_cli.install_detect import (
-    get_app_bundle_cli_path,
-    is_app_bundle,
-    is_homebrew,
-)
+from netllm_cli.install_detect import get_app_bundle_cli_path, is_homebrew
 
 _APP_NAMES = ("llm-swarm-router.app", "netllm-mac.app")
 
@@ -104,9 +100,9 @@ def lifecycle_command(
     *,
     timeout: float = 60.0,
     no_wait: bool = False,
+    use_app: bool,
 ) -> int:
-    """Run start/stop/restart for the current installation channel."""
-    if is_app_bundle() or control_socket_path().exists():
+    if use_app or control_socket_path().exists():
         try:
             if command == "stop":
                 try:
@@ -136,7 +132,7 @@ def lifecycle_command(
                     f"netllm agent {response.get('state')} "
                     f"on port {response.get('port')}"
                 )
-            elif command == "restart":
+            else:
                 print(f"netllm agent restarted on port {response.get('port')}")
             return 0
         except Exception as exc:
@@ -147,11 +143,4 @@ def lifecycle_command(
         mapping = {"start": "start", "stop": "stop", "restart": "restart"}
         return run_brew_services(mapping[command])
 
-    if command == "start":
-        print(
-            "Background start is available for the macOS app and Homebrew installs."
-        )
-        print("For this install, run foreground agent mode with: netllm serve")
-    else:
-        print("Background stop/restart requires the macOS app or Homebrew service.")
     return 1
