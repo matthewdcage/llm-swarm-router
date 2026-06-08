@@ -101,8 +101,10 @@ chmod +x "$APP/Contents/MacOS/netllm-cli"
 # Brand assets + app icon
 BRAND_SRC="$MAC_DIR/build/Brand"
 ICNS_SRC="$MAC_DIR/build/AppIcon.icns"
+CAR_SRC="$MAC_DIR/build/Assets.car"
 rsync -a "$BRAND_SRC/" "$APP/Contents/Resources/Brand/"
 cp "$ICNS_SRC" "$APP/Contents/Resources/AppIcon.icns"
+[[ -f "$CAR_SRC" ]] && cp "$CAR_SRC" "$APP/Contents/Resources/Assets.car"
 
 # Info.plist
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -117,6 +119,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>llm-swarm-router</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundleIconName</key><string>AppIcon</string>
   <key>CFBundleShortVersionString</key><string>$MARKETING_VERSION</string>
   <key>CFBundleVersion</key><string>$CURRENT_PROJECT_VERSION</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>

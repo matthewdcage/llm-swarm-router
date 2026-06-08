@@ -32,17 +32,20 @@ enum BrandAssets {
         return rasterImage(named: "llm-swam-router-icon")
     }
 
-    static func applicationIcon() -> NSImage? {
+    static func applicationIcon(for appearance: NSAppearance? = nil) -> NSImage? {
+        let resolved = appearance ?? NSApp.effectiveAppearance
+        if let logo = uiLogo(forDarkMode: isDarkAqua(resolved)) {
+            return logo
+        }
         if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
            let icon = NSImage(contentsOf: url) {
             return icon
         }
-        return rasterImage(named: "llm-swam-router-icon-black-bg")
+        return rasterImage(named: "llm-swam-router-icon")
     }
 
     static func aboutIcon() -> NSImage? {
-        uiLogo(forDarkMode: isDarkAqua(NSApp.effectiveAppearance))
-            ?? applicationIcon()
+        applicationIcon(for: NSApp.effectiveAppearance)
     }
 
     // MARK: - Private
