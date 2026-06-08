@@ -18,6 +18,8 @@ struct NetllmConfigDocument: Codable, Sendable {
     struct DiscoverySection: Codable, Sendable {
         var providers: [String] = ["omlx", "ollama", "lmstudio"]
         var custom_endpoints: [String] = []
+        /// Per-machine base URLs (e.g. oMLX on :8088). Empty = auto-scan default ports.
+        var provider_urls: [String: [String]] = [:]
     }
 
     struct SwarmSection: Codable, Sendable {
