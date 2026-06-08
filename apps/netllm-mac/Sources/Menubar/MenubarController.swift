@@ -15,14 +15,8 @@ final class MenubarController {
         self.onOpenSettings = onOpenSettings
         self.statsPoller = StatsPoller(host: config.bindHost == "0.0.0.0" ? "127.0.0.1" : config.bindHost, port: config.port)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = statusItem.button {
-            if let icon = BrandAssets.menubarIcon() {
-                button.image = icon
-                button.image?.accessibilityDescription = "netllm"
-            } else {
-                button.image = NSImage(systemSymbolName: "network", accessibilityDescription: "netllm")
-            }
-        }
+        updateMenubarIcon()
+        observeAppearanceChanges()
         rebuildMenu()
         NotificationCenter.default.addObserver(
             forName: ServerProcess.stateDidChangeNotification,
@@ -70,9 +64,9 @@ final class MenubarController {
         menu.addItem(actionItem("Copy Client Env", #selector(copyEnv)))
         menu.addItem(.separator())
         menu.addItem(actionItem("Settings…", #selector(openSettings), key: ","))
-        menu.addItem(actionItem("About netllm", #selector(showAbout)))
+        menu.addItem(actionItem("About \(AppBranding.displayName)", #selector(showAbout)))
         menu.addItem(.separator())
-        menu.addItem(actionItem("Quit netllm", #selector(quitApp), key: "q"))
+        menu.addItem(actionItem("Quit \(AppBranding.displayName)", #selector(quitApp), key: "q"))
 
         statusItem.menu = menu
         updateStatsSubmenu()
@@ -156,6 +150,38 @@ final class MenubarController {
         return item
     }
 
+    private func updateMenubarIcon() {
+        guard let button = statusItem.button else { return }
+        let appearance = button.effectiveAppearance
+        if let icon = BrandAssets.menubarIcon(for: appearance) {
+            button.image = icon
+        } else {
+            button.image = NSImage(
+                systemSymbolName: "network",
+                accessibilityDescription: AppBranding.displayName
+            )
+        }
+        button.image?.accessibilityDescription = AppBranding.displayName
+    }
+
+    private func observeAppearanceChanges() {
+        let center = NotificationCenter.default
+        center.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.updateMenubarIcon() }
+        }
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.updateMenubarIcon() }
+        }
+    }
+
     private func disabledItem(_ title: String) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
@@ -188,8 +214,12 @@ final class MenubarController {
             NSApp.applicationIconImage = icon
         }
         NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "netllm",
+            .applicationName: AppBranding.displayName,
             .applicationVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2.0",
+            .credits: NSAttributedString(
+                string: "\(AppBranding.tagline)\nCLI: \(AppBranding.cliCommand)",
+                attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)]
+            ),
         ])
     }
     @objc private func quitApp() { NSApp.terminate(nil) }

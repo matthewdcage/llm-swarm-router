@@ -104,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
         }
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: hosting)
-        window.title = "netllm Settings"
+        window.title = AppBranding.settingsTitle
         window.styleMask = [.titled, .closable, .resizable]
         window.setContentSize(NSSize(width: 720, height: 560))
         window.center()
@@ -122,7 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
         }
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: hosting)
-        window.title = "Welcome to netllm"
+        window.title = AppBranding.welcomeTitle
         window.setContentSize(NSSize(width: 520, height: 400))
         window.center()
         window.makeKeyAndOrderFront(nil)

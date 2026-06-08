@@ -39,6 +39,13 @@ struct SettingsWindowView: View {
             }
             .frame(minWidth: 560, minHeight: 480)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 8) {
+                        BrandImageView(size: 20)
+                        Text(AppBranding.settingsTitle)
+                            .font(.headline)
+                    }
+                }
                 ToolbarItemGroup(placement: .automatic) {
                     Button("Refresh") { Task { await model.reloadAll() } }
                         .disabled(model.isLoading)
@@ -315,7 +322,7 @@ struct SettingsWindowView: View {
 
     private var uiTab: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Menubar app")
+            sectionHeader("\(AppBranding.displayName) app")
             Toggle("Auto-start agent on launch", isOn: $model.document.ui.auto_start_on_launch)
             HStack {
                 Text("Log directory")

@@ -9,10 +9,7 @@ struct WelcomeView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Welcome to netllm")
-                .font(.title2.bold())
-            Text("Mesh router for local LLM backends (oMLX, Ollama, LM Studio).")
-                .foregroundStyle(.secondary)
+            BrandedHeader(subtitle: "oMLX, Ollama, LM Studio · CLI: \(AppBranding.cliCommand)")
 
             switch step {
             case 0:

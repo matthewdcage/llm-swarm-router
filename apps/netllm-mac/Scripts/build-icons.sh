@@ -10,7 +10,8 @@ ICONSET="$MAC_DIR/build/AppIcon.iconset"
 ICNS_OUT="$MAC_DIR/build/AppIcon.icns"
 
 SRC_APP="${NETLLM_ICON_APP:-$ASSETS/llm-swam-router-icon-black-bg.png}"
-SRC_MENUBAR="${NETLLM_ICON_MENUBAR:-$ASSETS/llm-swam-router-icon.png}"
+SRC_MENUBAR_LIGHT="${NETLLM_ICON_MENUBAR_LIGHT:-$ASSETS/llm-swam-router-icon.png}"
+SRC_MENUBAR_DARK="${NETLLM_ICON_MENUBAR_DARK:-$ASSETS/llm-swam-router-icon-white.png}"
 
 require_asset() {
   local path="$1"
@@ -21,7 +22,8 @@ require_asset() {
 }
 
 require_asset "$SRC_APP"
-require_asset "$SRC_MENUBAR"
+require_asset "$SRC_MENUBAR_LIGHT"
+require_asset "$SRC_MENUBAR_DARK"
 require_asset "$ASSETS/llm-swam-router-icon.svg"
 require_asset "$ASSETS/llm-swam-router-icon-white.png"
 require_asset "$ASSETS/llm-swam-router-icon-white-bg.png"
@@ -32,9 +34,14 @@ mkdir -p "$ICONSET" "$OUT_BRAND"
 echo "==> Copying brand assets"
 cp "$ASSETS"/llm-swam-router-icon*.png "$ASSETS"/llm-swam-router-icon.svg "$OUT_BRAND/"
 
-echo "==> Building menubar icons from $(basename "$SRC_MENUBAR")"
-sips -z 18 18 "$SRC_MENUBAR" --out "$OUT_BRAND/MenubarIcon.png" >/dev/null
-sips -z 36 36 "$SRC_MENUBAR" --out "$OUT_BRAND/MenubarIcon@2x.png" >/dev/null
+echo "==> Building menubar icons (light + dark menu bar)"
+sips -z 18 18 "$SRC_MENUBAR_LIGHT" --out "$OUT_BRAND/MenubarIconLight.png" >/dev/null
+sips -z 36 36 "$SRC_MENUBAR_LIGHT" --out "$OUT_BRAND/MenubarIconLight@2x.png" >/dev/null
+sips -z 18 18 "$SRC_MENUBAR_DARK" --out "$OUT_BRAND/MenubarIconDark.png" >/dev/null
+sips -z 36 36 "$SRC_MENUBAR_DARK" --out "$OUT_BRAND/MenubarIconDark@2x.png" >/dev/null
+# Legacy names (template fallback)
+cp "$OUT_BRAND/MenubarIconLight.png" "$OUT_BRAND/MenubarIcon.png"
+cp "$OUT_BRAND/MenubarIconLight@2x.png" "$OUT_BRAND/MenubarIcon@2x.png"
 
 echo "==> Building AppIcon.icns from $(basename "$SRC_APP")"
 make_icon() {

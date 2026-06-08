@@ -70,7 +70,7 @@ struct CLIRunner: Sendable {
         var errorDescription: String? {
             switch self {
             case .missingExecutable(let path):
-                return "netllm CLI not found at \(path). Reinstall from build/Stage/netllm-mac.app or run ./netllm install."
+                return "\(AppBranding.cliCommand) CLI not found at \(path). Reinstall \(AppBranding.displayName) from build/Stage/netllm-mac.app or run ./\(AppBranding.cliCommand) install."
             case .failed(let command, let stderr, _):
                 return stderr.isEmpty ? "Command failed: \(command)" : stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             }
