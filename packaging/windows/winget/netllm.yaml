@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
+PackageIdentifier: matthewdcage.netllm
+PackageVersion: 0.2.0
+PackageLocale: en-US
+Publisher: matthewdcage
+PackageName: netllm
+License: MIT
+ShortDescription: Mesh router for local LLM backends with OpenAI and Anthropic APIs
+Moniker: netllm
+Installers:
+  - Architecture: x64
+    InstallerType: zip
+    InstallerUrl: https://github.com/matthewdcage/llm-swarm-router/releases/download/v0.2.0/netllm-0.2.0-windows-x64.zip
+    InstallerSha256: PLACEHOLDER
+ManifestType: singleton
+ManifestVersion: 1.6.0

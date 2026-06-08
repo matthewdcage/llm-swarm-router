@@ -17,6 +17,7 @@ KNOWN_PROVIDERS: list[tuple[str, str, list[int]]] = [
     ("omlx", "oMLX (Apple Silicon)", [8080, 8088, 8081]),
     ("ollama", "Ollama", [11434]),
     ("lmstudio", "LM Studio", [1234, 41334]),
+    ("vllm", "vLLM", [8000, 8001]),
 ]
 
 DEFAULT_API_KEYS: dict[str, str] = {
@@ -77,6 +78,7 @@ def _env_port_candidates(provider_id: str) -> list[str]:
         "omlx": "OMLX_PORT",
         "ollama": "OLLAMA_PORT",
         "lmstudio": "LMSTUDIO_PORT",
+        "vllm": "VLLM_PORT",
     }.get(provider_id, "")
     if not env_name:
         return []
@@ -137,6 +139,7 @@ def _api_key_for_provider(provider_id: str, config: NetllmConfig) -> str:
     env_map = {
         "omlx": "OMLX_API_KEY",
         "ollama": "OLLAMA_API_KEY",
+        "vllm": "VLLM_API_KEY",
     }
     env_name = env_map.get(provider_id, "")
     if env_name:

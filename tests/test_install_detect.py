@@ -19,8 +19,16 @@ def test_is_source_by_default() -> None:
     with patch.dict("os.environ", {}, clear=False):
         with patch("netllm_cli.install_detect.is_app_bundle", return_value=False):
             with patch("netllm_cli.install_detect.is_homebrew", return_value=False):
-                assert is_source() is True
-                assert get_install_method() == "source"
+                with patch(
+                    "netllm_cli.install_detect.is_linux_systemd",
+                    return_value=False,
+                ):
+                    with patch(
+                        "netllm_cli.install_detect.is_windows_service",
+                        return_value=False,
+                    ):
+                        assert is_source() is True
+                        assert get_install_method() == "source"
 
 
 def test_is_app_bundle_env() -> None:
@@ -48,3 +56,29 @@ def test_is_homebrew_prefix() -> None:
 def test_user_cli_shim_xdg() -> None:
     with patch.dict("os.environ", {"XDG_CONFIG_HOME": "/tmp/xdg"}):
         assert get_user_cli_shim_path() == Path("/tmp/xdg/netllm/bin/netllm")
+
+
+def test_is_linux_systemd_unit_present() -> None:
+    with patch("netllm_cli.install_detect.is_linux_systemd", return_value=True):
+        with patch("netllm_cli.install_detect.is_app_bundle", return_value=False):
+            with patch("netllm_cli.install_detect.is_homebrew", return_value=False):
+                assert get_install_method() == "linux-systemd"
+
+
+def test_is_windows_service_registered() -> None:
+    with patch("netllm_cli.install_detect.sys.platform", "win32"):
+        with patch("netllm_cli.install_detect.is_app_bundle", return_value=False):
+            with patch("netllm_cli.install_detect.is_homebrew", return_value=False):
+                with patch(
+                    "netllm_cli.install_detect.is_linux_systemd",
+                    return_value=False,
+                ):
+                    with patch(
+                        "netllm_cli.install_detect.subprocess.run",
+                        return_value=type(
+                            "R",
+                            (),
+                            {"returncode": 0, "stdout": "SERVICE_NAME: NetllmAgent"},
+                        )(),
+                    ):
+                        assert get_install_method() == "windows-service"
