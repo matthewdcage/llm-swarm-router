@@ -12,8 +12,14 @@ PACKAGES_RES="$APP/Contents/Resources/netllm_packages"
 MODE="${1:-release}"
 REBUILD_DONOR="${REBUILD_DONOR:-auto}"
 
+if ! command -v uv >/dev/null 2>&1; then
+  echo "error: uv is required — install from https://docs.astral.sh/uv/ then run: uv sync" >&2
+  exit 1
+fi
+
 version() {
-  python3 -c "import tomllib; print(tomllib.load(open('$ROOT/pyproject.toml','rb'))['project']['version'])"
+  # Use workspace Python (3.11+); system python3 on macOS may be 3.9/3.10 without tomllib.
+  (cd "$ROOT" && uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
 }
 
 MARKETING_VERSION="$(version)"
