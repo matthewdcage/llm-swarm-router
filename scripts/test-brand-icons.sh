@@ -26,10 +26,12 @@ echo "==> build-icons.sh"
 bash "$BUILD_ICONS"
 
 ICNS="$MAC/build/AppIcon.icns"
+CAR="$MAC/build/Assets.car"
 BRAND="$MAC/build/Brand"
 [[ -f "$ICNS" ]] || fail "AppIcon.icns not generated"
+[[ -f "$CAR" ]] || fail "Assets.car not generated (actool app icon)"
 file "$ICNS" | rg -qi 'Mac OS X icon' || fail "AppIcon.icns invalid format"
-ok "AppIcon.icns"
+ok "AppIcon.icns + Assets.car (light/dark transparent)"
 
 for f in \
   MenubarIconLight.png \
@@ -49,8 +51,11 @@ APP="${NETLLM_APP:-$MAC/build/Stage/llm-swarm-router.app}"
 if [[ -d "$APP" ]]; then
   echo "==> staged app bundle"
   [[ -f "$APP/Contents/Resources/AppIcon.icns" ]] || fail "bundle missing AppIcon.icns"
+  [[ -f "$APP/Contents/Resources/Assets.car" ]] || fail "bundle missing Assets.car"
   /usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$APP/Contents/Info.plist" 2>/dev/null \
     | rg -qx 'AppIcon' || fail "Info.plist missing CFBundleIconFile=AppIcon"
+  /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$APP/Contents/Info.plist" 2>/dev/null \
+    | rg -qx 'AppIcon' || fail "Info.plist missing CFBundleIconName=AppIcon"
   [[ -f "$APP/Contents/Resources/Brand/MenubarIconLight.png" ]] || fail "bundle missing light menubar icon"
   [[ -f "$APP/Contents/Resources/Brand/MenubarIconDark.png" ]] || fail "bundle missing dark menubar icon"
   [[ -f "$APP/Contents/Resources/Brand/llm-swam-router-icon.svg" ]] || fail "bundle missing SVG"

@@ -13,9 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        if let icon = BrandAssets.applicationIcon() {
-            NSApp.applicationIconImage = icon
-        }
+        updateApplicationIcon()
+        observeInterfaceTheme()
 
         let runtime = PythonRuntime()
         self.runtime = runtime
@@ -110,6 +109,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
         window.center()
         window.makeKeyAndOrderFront(nil)
         settingsWindow = window
+    }
+
+    private func updateApplicationIcon() {
+        NSApp.applicationIconImage = BrandAssets.applicationIcon(for: NSApp.effectiveAppearance)
+    }
+
+    private func observeInterfaceTheme() {
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.updateApplicationIcon() }
+        }
     }
 
     private func showWelcome() {
