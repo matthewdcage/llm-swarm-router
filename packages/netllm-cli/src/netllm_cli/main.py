@@ -923,7 +923,13 @@ def doctor(
             "Reinstall: uv sync (zeroconf should install with netllm)",
         ))
 
-    if global_netllm_installed() and not global_cli_on_path():
+    from netllm_cli.install_detect import skip_global_path_doctor_check
+
+    if (
+        global_netllm_installed()
+        and not global_cli_on_path()
+        and not skip_global_path_doctor_check()
+    ):
         issues.append((
             "Global CLI installed but not on PATH in this terminal",
             f"Run: {path_export_line()}  — or: source ~/.zshrc",
@@ -961,19 +967,23 @@ def doctor(
             "Swarm discovery may fail — check network interface",
         ))
 
+    from netllm_cli.install_detect import is_menubar_supervised
+
     conflict = check_listen_port(cfg)
     if conflict:
-        pid_hint = f" (pid {conflict.pid})" if conflict.pid else ""
-        if conflict.occupied_by_netllm:
-            issues.append((
-                f"Port {conflict.port} in use by netllm agent{pid_hint}",
-                "Run netllm serve --replace or stop the existing agent",
-            ))
-        else:
-            issues.append((
-                f"Port {conflict.port} in use by another process{pid_hint}",
-                "Free the port or use netllm serve --port <other>",
-            ))
+        skip_port = is_menubar_supervised() and conflict.occupied_by_netllm
+        if not skip_port:
+            pid_hint = f" (pid {conflict.pid})" if conflict.pid else ""
+            if conflict.occupied_by_netllm:
+                issues.append((
+                    f"Port {conflict.port} in use by netllm agent{pid_hint}",
+                    "Run netllm serve --replace or stop the existing agent",
+                ))
+            else:
+                issues.append((
+                    f"Port {conflict.port} in use by another process{pid_hint}",
+                    "Free the port or use netllm serve --port <other>",
+                ))
 
     if cfg.swarm.mdns and cfg.agent.advertise and mdns_available():
         _, listen_port = parse_listen_host_port(cfg.agent.listen)

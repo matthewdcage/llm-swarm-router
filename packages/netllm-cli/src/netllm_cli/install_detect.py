@@ -106,3 +106,18 @@ def get_cli_prefix() -> str:
 def get_cli_command_prefix() -> str:
     """Return a shell-safe CLI command prefix for display/copy-paste."""
     return shlex.quote(get_cli_prefix())
+
+
+def is_menubar_supervised() -> bool:
+    """True when the macOS menubar app supervises the agent process."""
+    return os.environ.get("NETLLM_SUPERVISED") == "menubar"
+
+
+def skip_global_path_doctor_check() -> bool:
+    """App bundle uses embedded CLI — global uv-tool PATH is optional."""
+    if is_app_bundle() or is_menubar_supervised():
+        return True
+    resolved = shutil.which(_PATH_CLI)
+    if resolved and _is_app_managed_cli(Path(resolved)):
+        return True
+    return False
