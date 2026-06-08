@@ -1,0 +1,28 @@
+# Normalize line endings for cross-platform collaboration
+* text=auto eol=lf
+
+# Shell scripts always LF
+*.sh text eol=lf
+
+# Windows scripts keep CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.dmg binary
+*.zip binary
+*.deb binary
+*.rpm binary
+
+# Linguist overrides (docs and generated artifacts)
+graphify-out/ linguist-generated=true
+.graphify-out/ linguist-generated=true
+packaging/_build/ linguist-vendored=true
+uv.lock linguist-generated=true

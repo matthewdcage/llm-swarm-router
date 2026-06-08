@@ -59,6 +59,7 @@ final class MenubarController {
         }
 
         menu.addItem(.separator())
+        menu.addItem(actionItem("Open Dashboard", #selector(openDashboard)))
         menu.addItem(actionItem("Open Status Page", #selector(openStatus)))
         menu.addItem(actionItem("Open oMLX Admin", #selector(openOmlx)))
         menu.addItem(actionItem("Copy Client Env", #selector(copyEnv)))
@@ -189,6 +190,10 @@ final class MenubarController {
 
     @objc private func startAgent() { Task { try? server.start() } }
     @objc private func stopAgent() { Task { await server.stop() } }
+    @objc private func openDashboard() {
+        let host = AppConfig.connectableHost(for: config.bindHost)
+        NSWorkspace.shared.open(URL(string: "http://\(host):\(config.port)/ui/")!)
+    }
     @objc private func openStatus() {
         let host = AppConfig.connectableHost(for: config.bindHost)
         NSWorkspace.shared.open(URL(string: "http://\(host):\(config.port)/")!)

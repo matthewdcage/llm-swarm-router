@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync
+      - run: uv pip install venvstacks
+      - run: apps/netllm-mac/Scripts/build.sh release
+        env:
+          REBUILD_DONOR: force
+      - run: bash packaging/scripts/create-dmg.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: netllm-mac-dmg
+          path: dist/llm-swarm-router.dmg
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install packaging tools
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev rpm
+      - run: chmod +x packaging/linux/build-deb.sh packaging/linux/build-rpm.sh
+      - name: Build deb and rpm
+        env:
+          NETLLM_VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${NETLLM_VERSION#v}"
+          NETLLM_VERSION="$VERSION" packaging/linux/build-deb.sh
+          NETLLM_VERSION="$VERSION" packaging/linux/build-rpm.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: netllm-linux-packages
+          path: |
+            dist/*.deb
+            dist/*.rpm
+
+  build-windows:
+    runs-on: windows-latest
+    outputs:
+      winget_sha256: ${{ steps.hash.outputs.sha }}
+      winget_zip: ${{ steps.hash.outputs.zip }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build portable zip
+        shell: pwsh
+        env:
+          NETLLM_VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          $version = $env:NETLLM_VERSION.TrimStart('v')
+          ./packaging/windows/build-zip.ps1 -Version $version
+      - name: Compute zip SHA256
+        id: hash
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem dist/netllm-*-windows-x64.zip | Select-Object -First 1
+          $hash = (Get-FileHash $zip.FullName -Algorithm SHA256).Hash
+          "sha=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "zip=$($zip.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+      - uses: actions/upload-artifact@v4
+        with:
+          name: netllm-windows-zip
+          path: dist/netllm-*-windows-x64.zip
+
+  publish:
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Write winget manifest snippet
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          WINGET_SHA256: ${{ needs.build-windows.outputs.winget_sha256 }}
+          WINGET_ZIP: ${{ needs.build-windows.outputs.winget_zip }}
+        run: |
+          VER="${RELEASE_TAG#v}"
+          cat > artifacts/winget-manifest.yaml <<EOF
+          PackageVersion: ${VER}
+          Installers:
+            - InstallerUrl: https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${WINGET_ZIP}
+              InstallerSha256: ${WINGET_SHA256}
+          EOF
+      - name: Attach all release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/llm-swarm-router.dmg
+            artifacts/*.deb
+            artifacts/*.rpm
+            artifacts/netllm-*-windows-x64.zip
+            artifacts/winget-manifest.yaml
