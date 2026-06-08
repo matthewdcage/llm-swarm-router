@@ -9,7 +9,9 @@ from netllm_core.models import (
     DiscoverySwarmConfig,
     NetllmConfig,
     RoutingConfig,
+    UiConfig,
     default_config_path,
+    default_log_dir,
     load_config,
     save_config,
 )
@@ -23,7 +25,9 @@ __all__ = [
     "DiscoverySwarmConfig",
     "NetllmConfig",
     "RoutingConfig",
+    "UiConfig",
     "default_config_path",
+    "default_log_dir",
     "load_config",
     "save_config",
 ]
