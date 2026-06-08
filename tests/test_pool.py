@@ -10,6 +10,26 @@ from netllm_core.pool import BatchDedupLedger, RouterPool, _stable_shard_index
 _MOCK_ONLINE = {"status": "online", "models": ["m"], "model_count": 1}
 
 
+def test_backend_resolve_api_key_defaults_omlx() -> None:
+    backend = Backend(id="x", base_url="http://127.0.0.1:8080/v1", provider="omlx")
+    assert backend.resolve_api_key() == "omlx-local"
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_is_healthy_uses_default_omlx_api_key(mock_probe: object) -> None:
+    backend = Backend(
+        id="x",
+        base_url="http://127.0.0.1:8080/v1",
+        provider="omlx",
+    )
+    pool = RouterPool()
+    pool.set_backends([backend])
+    assert pool.is_healthy(backend) is True
+    mock_probe.assert_called_once_with(
+        "http://127.0.0.1:8080/v1", api_key="omlx-local"
+    )
+
+
 def test_stable_shard_index_deterministic() -> None:
     a = _stable_shard_index("session-1", 3)
     b = _stable_shard_index("session-1", 3)

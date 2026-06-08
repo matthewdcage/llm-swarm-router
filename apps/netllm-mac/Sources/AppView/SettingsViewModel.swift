@@ -46,6 +46,30 @@ final class SettingsViewModel {
         return "\(connected)"
     }
 
+    var routedModelCount: Int {
+        if !routedModels.isEmpty { return routedModels.count }
+        return aggregatedModelCountFromStatus
+    }
+
+    var routedModelStatSubtitle: String {
+        if !routedModels.isEmpty { return "Routed catalog" }
+        if aggregatedModelCountFromStatus > 0 {
+            return "From backend health (refresh agent)"
+        }
+        return "Run Discover or start oMLX/Ollama"
+    }
+
+    private var aggregatedModelCountFromStatus: Int {
+        guard let status else { return 0 }
+        var seen = Set<String>()
+        for backend in status.backends where backend.health == "online" {
+            for model in backend.models {
+                seen.insert(model)
+            }
+        }
+        return seen.count
+    }
+
     var peerStatSubtitle: String {
         let connected = connectedPeerCount
         let discovered = discoveredLanPeerCount
@@ -82,6 +106,9 @@ final class SettingsViewModel {
         if agentReachable {
             status = await AgentAPI.status(baseURL: agentBaseURL)
             routedModels = await AgentAPI.models(baseURL: agentBaseURL)
+            if routedModels.isEmpty, let status {
+                routedModels = AgentAPI.modelsFromStatus(status)
+            }
         } else {
             status = nil
             routedModels = []

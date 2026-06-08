@@ -133,7 +133,16 @@ class Backend(BaseModel):
         return f"{self.provider}:{self.base_url}"
 
     def resolve_api_key(self) -> str:
-        return self.api_key
+        if self.api_key:
+            return self.api_key
+        env_map = {"omlx": "OMLX_API_KEY", "ollama": "OLLAMA_API_KEY"}
+        env_name = env_map.get(self.provider, "")
+        if env_name:
+            from_env = os.environ.get(env_name, "")
+            if from_env:
+                return from_env
+        defaults: dict[str, str] = {"omlx": "omlx-local"}
+        return defaults.get(self.provider, "")
 
 
 def default_config_path() -> Path:
