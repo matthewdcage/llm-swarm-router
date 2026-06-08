@@ -31,7 +31,7 @@ allowed-tools:
 
 - macOS, Linux, or Windows
 - `git` on PATH
-- `uv` on PATH — if missing, tell user to install from https://docs.astral.sh/uv/
+- `uv` on PATH: if missing, tell user to install from https://docs.astral.sh/uv/
 - Repo root contains [pyproject.toml](pyproject.toml) with `name = "netllm"` and `[tool.uv.workspace]`
 - At least one inference server is optional but warn if none are online after discover: Ollama `:11434`, LM Studio `:1234`, vLLM `:8000`; oMLX `:8080` on macOS only
 
@@ -51,7 +51,7 @@ After the agent is running, open **http://127.0.0.1:11400/ui/** (all platforms) 
 
 ## Workflow
 
-1. **Locate repo root** — `cd` to directory with `./netllm` wrapper and workspace `pyproject.toml`. If cwd is wrong, ask user for clone path.
+1. **Locate repo root**, `cd` to directory with `./netllm` wrapper and workspace `pyproject.toml`. If cwd is wrong, ask user for clone path.
 
 2. **Check tools**
    ```bash
@@ -63,7 +63,7 @@ After the agent is running, open **http://127.0.0.1:11400/ui/** (all platforms) 
    uv sync
    ```
 
-4. **Initialize config** — run from repo root:
+4. **Initialize config**, run from repo root:
    ```bash
    ./netllm init
    ```
@@ -74,7 +74,7 @@ After the agent is running, open **http://127.0.0.1:11400/ui/** (all platforms) 
    ```bash
    ./netllm discover
    ```
-   Report online vs offline providers. If all offline, warn but continue — agent can still serve when backends come online.
+   Report online vs offline providers. If all offline, warn but continue, agent can still serve when backends come online.
 
 6. **Start the agent**
    - **Source / dev:** `./netllm serve` (foreground, dedicated terminal) until "Starting netllm agent"
@@ -86,13 +86,13 @@ After the agent is running, open **http://127.0.0.1:11400/ui/** (all platforms) 
    ```
    If script fails with "agent not running", ensure step 6 completed.
 
-8. **Print client wiring** — show user:
+8. **Print client wiring**, show user:
    ```bash
    export OPENAI_BASE_URL=http://127.0.0.1:11400/v1
    export OPENAI_API_KEY=netllm-local
    ```
 
-9. **Next step** — offer `/netllm-connect` or the `netllm-connect-editor` skill to wire Cursor, Claude Code, or Codex.
+9. **Next step**, offer `/netllm-connect` or the `netllm-connect-editor` skill to wire Cursor, Claude Code, or Codex.
 
 ## Examples
 

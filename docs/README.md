@@ -32,8 +32,8 @@ Overview: [platform-matrix.md](platform-matrix.md)
 | Path | Purpose |
 |------|---------|
 | [`packages/`](../packages/) | Python source of truth (uv workspace) |
-| [`apps/`](../apps/) | Native apps — macOS menubar today (`apps/netllm-mac/`) |
-| [`packaging/`](../packaging/) | Release builds per OS — [packaging/README.md](../packaging/README.md) |
+| [`apps/`](../apps/) | Native apps: macOS menubar today (`apps/netllm-mac/`) |
+| [`packaging/`](../packaging/) | Release builds per OS: [packaging/README.md](../packaging/README.md) |
 | [`docs/`](.) | Install, troubleshoot, and editor guides (this folder) |
 | [`tests/`](../tests/) | Cross-package integration tests |
 | [`scripts/`](../scripts/) | CI, skill sync, install emulation |

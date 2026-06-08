@@ -20,10 +20,10 @@ or rebuild from `main` if you run from source.
 
 Instead, report privately by one of:
 
-1. **GitHub Security Advisories** — use
+1. **GitHub Security Advisories**, use
    [Report a vulnerability](https://github.com/matthewdcage/llm-swarm-router/security/advisories/new)
    on the repository (preferred).
-2. **Email** — contact the maintainer via the address listed on their
+2. **Email**, contact the maintainer via the address listed on their
    [GitHub profile](https://github.com/matthewdcage) or a private message on GitHub.
 
 Include as much detail as you can:
@@ -49,7 +49,7 @@ Examples of issues we want to hear about:
 
 - Denial of service against a single-user local agent on loopback
 - Misconfiguration by the operator (e.g. binding `0.0.0.0` on a public network
-  without a cluster token) — we document safer defaults in
+  without a cluster token), we document safer defaults in
   [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md)
 - Vulnerabilities in third-party LLM backends (Ollama, LM Studio, oMLX, vLLM)
   unless netllm introduces a new attack surface

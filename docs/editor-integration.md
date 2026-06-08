@@ -74,7 +74,7 @@ export OPENAI_BASE_URL=http://<gateway-ip>:11400/v1
 
 ## Agent-assisted setup
 
-In Claude Code, run `/netllm-setup` then `/netllm-connect`. In Cursor or Codex, ask to "set up netllm" — the agent loads skills from `.cursor/skills/` or `.agents/skills/`.
+In Claude Code, run `/netllm-setup` then `/netllm-connect`. In Cursor or Codex, ask to "set up netllm", the agent loads skills from `.cursor/skills/` or `.agents/skills/`.
 
 Detailed reference: `.agents/skills/netllm-connect-editor/references/editor-settings.md`
 

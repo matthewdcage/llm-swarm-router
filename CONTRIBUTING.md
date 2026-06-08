@@ -1,6 +1,6 @@
 # Contributing to llm-swarm-router
 
-Thank you for helping make **llm-swarm-router** (netllm) a better mesh router for local LLM backends. This project is open source and community-driven — bug reports, docs fixes, platform support, and feature PRs are all welcome.
+Thank you for helping make **llm-swarm-router** (netllm) a better mesh router for local LLM backends. This project is open source and community-driven, bug reports, docs fixes, platform support, and feature PRs are all welcome.
 
 ## Quick links
 
@@ -8,7 +8,7 @@ Thank you for helping make **llm-swarm-router** (netllm) a better mesh router fo
 |-------|-------|
 | Bug or regression | [Open a bug report](https://github.com/matthewdcage/llm-swarm-router/issues/new?template=bug_report.yml) |
 | Feature idea | [Open a feature request](https://github.com/matthewdcage/llm-swarm-router/issues/new?template=feature_request.yml) |
-| Security issue | [SECURITY.md](SECURITY.md) — please do **not** open a public issue |
+| Security issue | [SECURITY.md](SECURITY.md): please do **not** open a public issue |
 | Code of conduct | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
 | Agent/AI context | [AGENTS.md](AGENTS.md) |
 | Architecture | [AGENTS.md](AGENTS.md) |
@@ -18,11 +18,11 @@ Thank you for helping make **llm-swarm-router** (netllm) a better mesh router fo
 
 You do not need to write code to help:
 
-- **Reproduce and document bugs** — versions, OS, backends, config snippets, and `netllm doctor` output
-- **Improve docs** — install guides, editor wiring, swarm setup, typos
-- **Add tests** — especially for routing, discovery, and API contract behavior
-- **Platform coverage** — Linux systemd, Windows service, macOS menubar, packaging
-- **Review PRs** — constructive feedback on design and edge cases
+- **Reproduce and document bugs**: versions, OS, backends, config snippets, and `netllm doctor` output
+- **Improve docs**: install guides, editor wiring, swarm setup, typos
+- **Add tests**: especially for routing, discovery, and API contract behavior
+- **Platform coverage**: Linux systemd, Windows service, macOS menubar, packaging
+- **Review PRs**: constructive feedback on design and edge cases
 
 ## Development setup
 
@@ -36,7 +36,7 @@ uv sync
 ./netllm serve          # agent on http://127.0.0.1:11400
 ```
 
-Use `./netllm` from the repo root during development — it works without a global install.
+Use `./netllm` from the repo root during development, it works without a global install.
 
 **Verify** (second terminal, while `serve` is running):
 
@@ -68,9 +68,9 @@ See [packaging/README.md](packaging/README.md) and [docs/platform-matrix.md](doc
 
 ## Before you open a PR
 
-1. **Search existing issues and PRs** — avoid duplicate work.
+1. **Search existing issues and PRs**, avoid duplicate work.
 2. **Open an issue first** for large features or architectural changes so we can align on approach.
-3. **Keep PRs focused** — one logical change per PR is easier to review and merge.
+3. **Keep PRs focused**, one logical change per PR is easier to review and merge.
 4. **Run the checks locally** (same as CI):
 
 ```bash
@@ -81,7 +81,7 @@ See [packaging/README.md](packaging/README.md) and [docs/platform-matrix.md](doc
 
 Full CI (lint → test + packaging-smoke on Ubuntu and Windows): `./scripts/ci.sh`.
 
-5. **Add or update tests** when you change behavior — avoid trivial assertions; cover real paths.
+5. **Add or update tests** when you change behavior, avoid trivial assertions; cover real paths.
 6. **Update docs** when user-facing behavior, CLI flags, or install steps change.
 
 ### Optional: pre-commit hooks
@@ -120,15 +120,15 @@ Focus commit messages on **why**, not only what changed.
 
 4. CI runs lint on Ubuntu, then tests on Ubuntu and Windows (`./scripts/ci.sh`). Fix failures before requesting review.
 
-5. Maintainers may ask for changes or suggest splitting large PRs — that is normal.
+5. Maintainers may ask for changes or suggest splitting large PRs, that is normal.
 
 ### PR size guidance
 
 | Size | Guidance |
 |------|----------|
-| Small (&lt; ~200 lines) | Docs, focused bugfix, single-package change — fastest path to merge |
-| Medium | New CLI command, discovery tweak, test expansion — include test plan in PR |
-| Large | New platform surface, routing strategy, packaging pipeline — issue discussion first |
+| Small (&lt; ~200 lines) | Docs, focused bugfix, single-package change: fastest path to merge |
+| Medium | New CLI command, discovery tweak, test expansion: include test plan in PR |
+| Large | New platform surface, routing strategy, packaging pipeline: issue discussion first |
 
 ## Code style
 
@@ -136,7 +136,7 @@ This repo uses consistent Python tooling:
 
 | Tool | Config |
 |------|--------|
-| Formatter / linter | [ruff](https://docs.astral.sh/ruff/) — line length 88, rules `E`, `F`, `I`, `UP` |
+| Formatter / linter | [ruff](https://docs.astral.sh/ruff/): line length 88, rules `E`, `F`, `I`, `UP` |
 | Type checking | basedpyright, mode `standard`, Python 3.11 |
 | Tests | pytest, asyncio mode `auto` |
 
@@ -144,8 +144,8 @@ This repo uses consistent Python tooling:
 
 - Match existing package layout under `packages/`
 - Typer + Rich patterns for CLI changes in `netllm-cli`
-- Vendor SDKs stay isolated: `netllm-sdk-openai` and `netllm-sdk-anthropic` only — `netllm-core` must not import `openai` or `anthropic`
-- Do not delete files — move to `archived/` and log the action (project convention)
+- Vendor SDKs stay isolated: `netllm-sdk-openai` and `netllm-sdk-anthropic` only: `netllm-core` must not import `openai` or `anthropic`
+- Do not delete files: move to `archived/` and log the action (project convention)
 - Do not commit secrets, API keys, or `.cursor/mcp.json`
 
 ### Agent skills
@@ -194,7 +194,7 @@ When adding discovery or routing behavior, include tests that do not require rea
 | Windows packages | `packaging/windows/` | [docs/windows-install.md](docs/windows-install.md) |
 | Core agent | `packages/netllm-agent/` | [AGENTS.md](AGENTS.md) |
 
-Cross-platform changes should preserve the shared agent contract on `:11400` — see [docs/platform-matrix.md](docs/platform-matrix.md).
+Cross-platform changes should preserve the shared agent contract on `:11400`, see [docs/platform-matrix.md](docs/platform-matrix.md).
 
 ## Graphify (optional, for architecture work)
 
@@ -208,11 +208,11 @@ See `graphify-out/GRAPH_REPORT.md` for community structure. Do not commit genera
 
 ## Recognition
 
-Contributors are credited through git history and release notes. The project is licensed under [MIT](LICENSE) — copyright is held by **netllm contributors**.
+Contributors are credited through git history and release notes. The project is licensed under [MIT](LICENSE), copyright is held by **netllm contributors**.
 
 ## Questions?
 
 - **Usage / setup:** open a [bug report](https://github.com/matthewdcage/llm-swarm-router/issues/new?template=bug_report.yml) with the `question` label context, or check [docs/editor-integration.md](docs/editor-integration.md)
 - **Design discussion:** open a [feature request](https://github.com/matthewdcage/llm-swarm-router/issues/new?template=feature_request.yml) before large PRs
 
-We appreciate every contribution — from a one-line doc fix to a new routing strategy.
+We appreciate every contribution, from a one-line doc fix to a new routing strategy.

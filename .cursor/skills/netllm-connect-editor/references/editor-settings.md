@@ -16,7 +16,7 @@ Always run `./netllm models` first and use an **exact** model ID from the table.
 4. Select that model in the chat/composer model picker.
 5. Verify: `./netllm test --model <your-model>`
 
-**Common failure:** model name in Cursor does not match backend — symptoms include empty responses or `model_not_found` in `./netllm test`.
+**Common failure:** model name in Cursor does not match backend, symptoms include empty responses or `model_not_found` in `./netllm test`.
 
 ## Claude Code
 
@@ -26,7 +26,7 @@ Always run `./netllm models` first and use an **exact** model ID from the table.
    export OPENAI_API_KEY=netllm-local
    ```
 2. When using OpenAI-compatible routing in project config, point `base_url` at the same URL.
-3. Model selection depends on Claude Code version — use a model ID from `./netllm models` where custom endpoints are supported.
+3. Model selection depends on Claude Code version, use a model ID from `./netllm models` where custom endpoints are supported.
 4. Project context: [AGENTS.md](../../../AGENTS.md) and slash commands in `.claude/commands/`.
 
 ## Codex (OpenAI Codex CLI)
@@ -48,7 +48,7 @@ When using an OpenAI-compatible custom endpoint (extension or org policy depende
 - API key: `netllm-local`
 - Model: from `./netllm models`
 
-Copilot cloud models are separate — this path applies only when the user explicitly configures a compatible local endpoint.
+Copilot cloud models are separate, this path applies only when the user explicitly configures a compatible local endpoint.
 
 ## Honcho
 

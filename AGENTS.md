@@ -14,7 +14,7 @@ Tech stack: Python 3.11+, [uv](https://docs.astral.sh/uv/) workspace monorepo, F
 | netllm-sdk-openai | `packages/netllm-sdk-openai/` | OpenAI SDK upstream adapter |
 | netllm-sdk-anthropic | `packages/netllm-sdk-anthropic/` | Anthropic SDK upstream adapter |
 | netllm-discovery | `packages/netllm-discovery/` | Local scan, swarm registry, mDNS |
-| netllm-agent | `packages/netllm-agent/` | FastAPI — `/v1/*`, `/netllm/v1/*`, `/metrics` |
+| netllm-agent | `packages/netllm-agent/` | FastAPI: `/v1/*`, `/netllm/v1/*`, `/metrics` |
 | netllm-cli | `packages/netllm-cli/` | Typer CLI |
 
 Honcho integration: [docs/honcho-integration.md](docs/honcho-integration.md).
@@ -24,9 +24,9 @@ Honcho integration: [docs/honcho-integration.md](docs/honcho-integration.md).
 | Path | Purpose |
 |------|---------|
 | `packages/` | Python source of truth (uv workspace) |
-| `apps/` | Native apps — macOS menubar today (`apps/netllm-mac/`) |
-| `packaging/` | Release builds per OS — [packaging/README.md](packaging/README.md) |
-| `docs/` | User install/troubleshoot/editor guides — [docs/README.md](docs/README.md) |
+| `apps/` | Native apps: macOS menubar today (`apps/netllm-mac/`) |
+| `packaging/` | Release builds per OS: [packaging/README.md](packaging/README.md) |
+| `docs/` | User install/troubleshoot/editor guides: [docs/README.md](docs/README.md) |
 | `tests/` | Cross-package integration tests |
 | `scripts/` | CI, skill sync, install emulation |
 | `Formula/` | Homebrew formula |
@@ -36,7 +36,7 @@ Edit skills only under `.agents/`; run `scripts/sync-agent-skills.sh` after chan
 
 ## Key commands
 
-Prefer `./netllm` from the repo root — works without global PATH (`uv run` wrapper in [netllm](netllm)).
+Prefer `./netllm` from the repo root, works without global PATH (`uv run` wrapper in [netllm](netllm)).
 
 | Command | Purpose |
 |---------|---------|
@@ -45,7 +45,7 @@ Prefer `./netllm` from the repo root — works without global PATH (`uv run` wra
 | `./netllm install` | Global `netllm` via `uv tool install` + shell PATH |
 | `./netllm serve` | Start agent (foreground, default `127.0.0.1:11400`) |
 | `./netllm start` / `stop` / `restart` | Background agent (macOS app, Homebrew, Linux systemd, Windows service) |
-| `./netllm serve --host 0.0.0.0` | LAN + swarm — other machines can reach this agent |
+| `./netllm serve --host 0.0.0.0` | LAN + swarm: other machines can reach this agent |
 | `./netllm status` | Agent, backends, swarm peers |
 | `./netllm models` | Routed model catalog |
 | `./netllm models --lan` | Models on remote LAN agents |
@@ -108,7 +108,7 @@ Build: `apps/netllm-mac/Scripts/build.sh release` (requires `venvstacks` + `uv s
 
 ## SDK maintenance
 
-Vendor SDKs are isolated in `netllm-sdk-openai` and `netllm-sdk-anthropic` only — `netllm-core` never imports `openai` or `anthropic`.
+Vendor SDKs are isolated in `netllm-sdk-openai` and `netllm-sdk-anthropic` only, `netllm-core` never imports `openai` or `anthropic`.
 
 **Bump checklist** (one package per PR):
 
@@ -156,19 +156,19 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 ## Do not
 
 - Edit user `.env` files or replace keys/values unless explicitly directed
-- Delete files — move to `archived/` and log the action (project convention)
+- Delete files: move to `archived/` and log the action (project convention)
 - Commit secrets, API keys, or real credentials
-- Assume `netllm` is on PATH — prefer `./netllm` from repo root in instructions
+- Assume `netllm` is on PATH: prefer `./netllm` from repo root in instructions
 - Skip `./netllm doctor` before declaring setup complete
 - Auto-edit user editor `settings.json` without explicit consent
 
 ## Learned facts
 
 - Local web dashboard at http://127.0.0.1:11400/ui/ on all platforms; macOS menubar has **Open Dashboard**
-- Linux/Windows **alpha** use `/ui/` + CLI; macOS stable adds menubar app — same agent core
-- Published GitHub Releases attach DMG (macOS), `.deb`/`.rpm` (Linux), Windows zip, and `netllm.yaml` (winget snippet) via `.github/workflows/release.yml` — see [docs/platform-matrix.md](docs/platform-matrix.md)
-- `./netllm` wrapper runs `uv run --directory $ROOT netllm` — no global install needed
+- Linux/Windows **alpha** use `/ui/` + CLI; macOS stable adds menubar app: same agent core
+- Published GitHub Releases attach DMG (macOS), `.deb`/`.rpm` (Linux), Windows zip, and `netllm.yaml` (winget snippet) via `.github/workflows/release.yml`: see [docs/platform-matrix.md](docs/platform-matrix.md)
+- `./netllm` wrapper runs `uv run --directory $ROOT netllm`: no global install needed
 - mDNS (swarm discovery) requires zeroconf from `uv sync`; reinstall if `netllm doctor` reports mDNS unavailable
-- `serve` on loopback (`127.0.0.1`) blocks LAN peers — use `--host 0.0.0.0` for swarm
+- `serve` on loopback (`127.0.0.1`) blocks LAN peers: use `--host 0.0.0.0` for swarm
 - Set `swarm.cluster_token` when listening on `0.0.0.0` on untrusted networks
 - Browsers hitting `http://127.0.0.1:11400/` redirect to `/ui/`; curl without `Accept: text/html` gets help JSON

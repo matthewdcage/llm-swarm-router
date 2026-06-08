@@ -1,4 +1,4 @@
-# Linux install — netllm
+# Linux install: netllm
 
 Install the mesh router as a background **systemd user service** or run from source.
 
@@ -6,7 +6,7 @@ Install the mesh router as a background **systemd user service** or run from sou
 
 ## Package install (recommended)
 
-Download from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases/latest) (e.g. [v0.2.2](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.2) — **alpha** packages for Linux):
+Download from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases/latest) (e.g. [v0.2.2](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.2), **alpha** packages for Linux):
 
 | Asset | Install |
 |-------|---------|

@@ -31,7 +31,7 @@ Validation for v0.2.2 alpha packaging and install paths.
 
 ## Manual checklist (host required)
 
-Run on bare metal or VM — not macOS.
+Run on bare metal or VM, not macOS.
 
 **Linux:** [`scripts/emulate-user-install-linux.sh`](../scripts/emulate-user-install-linux.sh)
 

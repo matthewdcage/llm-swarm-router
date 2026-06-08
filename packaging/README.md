@@ -41,7 +41,7 @@ Output: `dist/netllm-mac.dmg` (release workflow renames to `llm-swarm-router.dmg
 ```
 packaging/
 ├── _build/         # venvstacks intermediate layers (gitignored)
-├── _export/        # venvstacks export — embedded into the .app
+├── _export/        # venvstacks export, embedded into the .app
 └── requirements-netllm.txt  # generated at build time
 ```
 
@@ -50,7 +50,7 @@ packaging/
 | Runtime (`cpython-3.11`) | Python 3.11.10 |
 | Framework (`framework-netllm`) | FastAPI, uvicorn, zeroconf, SDKs, workspace deps |
 
-No application layer — the Swift menubar app is the application surface.
+No application layer, the Swift menubar app is the application surface.
 Workspace packages (`netllm_*`) are rsync'd as pure source into the bundle.
 
 ## Linux (deb / rpm)

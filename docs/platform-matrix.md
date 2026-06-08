@@ -1,4 +1,4 @@
-# Platform matrix — netllm
+# Platform matrix: netllm
 
 Single reference for install channels, UI surfaces, and stability tiers across macOS, Linux, and Windows.
 
@@ -19,8 +19,8 @@ Cross-platform: [editor-integration.md](editor-integration.md) · Agent help: `.
 | Tier | Platforms | Expectation |
 |------|-----------|-------------|
 | **Stable** | macOS | DMG menubar app on every published GitHub Release |
-| **Alpha** | Linux, Windows | First deb/rpm/zip packages on each Release; breaking changes and install UX still settling — see release notes |
-| **Core** | All | HTTP API contract at `:11400` — additive changes only |
+| **Alpha** | Linux, Windows | First deb/rpm/zip packages on each Release; breaking changes and install UX still settling: see release notes |
+| **Core** | All | HTTP API contract at `:11400`: additive changes only |
 
 ## Install and lifecycle
 
@@ -30,7 +30,7 @@ Cross-platform: [editor-integration.md](editor-integration.md) · Agent help: `.
 | **macOS** | Homebrew `brew install netllm` | `brew services start netllm` | Homebrew |
 | **Linux** | `.deb` / `.rpm` from Releases | systemd user unit `netllm` | `linux-systemd` when package installed |
 | **Windows** | `netllm-*-windows-x64.zip` | `NetllmAgent` Windows service | `windows-service` after `install-service.ps1` |
-| **All** | Source: `uv sync` + `./netllm serve` | Foreground terminal | N/A — use `netllm serve` |
+| **All** | Source: `uv sync` + `./netllm serve` | Foreground terminal | N/A: use `netllm serve` |
 
 Install details: links in the table above.
 
@@ -39,7 +39,7 @@ Install details: links in the table above.
 | Surface | macOS | Linux | Windows |
 |---------|-------|-------|---------|
 | **Web dashboard** | http://127.0.0.1:11400/ui/ | Same | Same |
-| **Menubar / tray** | Native Swift menubar + **Copy Client Env** | — | — |
+| **Menubar / tray** | Native Swift menubar + **Copy Client Env** | - |: |
 | **CLI** | `netllm status`, `discover`, `doctor` | Same | Same |
 | **Config edit** | Settings window or `netllm config-edit` | `netllm config-edit` | `netllm config-edit` |
 

@@ -43,11 +43,11 @@ Load detailed per-editor steps from [references/editor-settings.md](references/e
    ```
    Pick a model ID from output; note it for the user.
 
-2. **Ask which editor** — Cursor, Claude Code, Codex, VS Code Copilot, or Honcho. If user already named one, skip.
+2. **Ask which editor**, Cursor, Claude Code, Codex, VS Code Copilot, or Honcho. If user already named one, skip.
 
-3. **Apply editor-specific config** — follow [references/editor-settings.md](references/editor-settings.md). Never auto-edit `settings.json` without explicit user consent; show copy-paste instructions instead.
+3. **Apply editor-specific config**, follow [references/editor-settings.md](references/editor-settings.md). Never auto-edit `settings.json` without explicit user consent; show copy-paste instructions instead.
 
-4. **Set shell env** — pick one API surface:
+4. **Set shell env**, pick one API surface:
 
    OpenAI-compatible (Cursor, Codex, Copilot):
    ```bash
@@ -69,7 +69,7 @@ Load detailed per-editor steps from [references/editor-settings.md](references/e
    ./netllm test --api anthropic --model <id>  # Anthropic path
    ```
 
-6. **Report** — editor, base URL, model name, verification result. If `model_not_found`, model string does not match backend — re-run `./netllm models`.
+6. **Report**, editor, base URL, model name, verification result. If `model_not_found`, model string does not match backend, re-run `./netllm models`.
 
 ## Examples
 
@@ -86,10 +86,10 @@ Load detailed per-editor steps from [references/editor-settings.md](references/e
 |-----------|--------|
 | Agent not running | Run `netllm-setup` skill or `./netllm serve` |
 | Empty model list | Start Ollama/oMLX; `./netllm discover`; restart serve |
-| Dockerized Honcho | Use `http://host.docker.internal:11400/v1` — see [docs/honcho-integration.md](../../../docs/honcho-integration.md) |
+| Dockerized Honcho | Use `http://host.docker.internal:11400/v1`: see [docs/honcho-integration.md](../../../docs/honcho-integration.md) |
 | Remote swarm gateway | Point client at gateway URL from `./netllm peers` |
 
 ## Do not
 
 - Modify user editor settings files without explicit permission
-- Use cloud API keys when routing through netllm — `netllm-local` is sufficient
+- Use cloud API keys when routing through netllm: `netllm-local` is sufficient

@@ -1,4 +1,4 @@
-# Windows troubleshooting — netllm
+# Windows troubleshooting: netllm
 
 Install guide: [windows-install.md](windows-install.md) · Overview: [platform-matrix.md](platform-matrix.md)
 
@@ -21,9 +21,9 @@ From a repo checkout, use `.\netllm` in PowerShell from the project root.
 | Symptom | Fix |
 |---------|-----|
 | `curl` to `/health` fails | **Service install:** `netllm start` (after `install-service.ps1` as Admin) |
-| Service won’t start | Run `sc query NetllmAgent` — re-run `install-service.ps1` from extract folder |
+| Service won’t start | Run `sc query NetllmAgent`: re-run `install-service.ps1` from extract folder |
 | **Source install** | `.\netllm serve` in a terminal |
-| Port 11400 in use | `netstat -ano \| findstr 11400` — stop duplicate with `netllm stop` |
+| Port 11400 in use | `netstat -ano \| findstr 11400`: stop duplicate with `netllm stop` |
 
 Logs: `%LOCALAPPDATA%\netllm\logs\agent.log`.
 
@@ -35,7 +35,7 @@ Logs: `%LOCALAPPDATA%\netllm\logs\agent.log`.
 
 | Symptom | Fix |
 |---------|-----|
-| Command not found after zip install | Open a **new** terminal — `install-service.ps1` adds `Scripts\` (with `netllm.exe`) to user PATH |
+| Command not found after zip install | Open a **new** terminal: `install-service.ps1` adds `Scripts\` (with `netllm.exe`) to user PATH |
 | Still missing | Use full path: `<extract-dir>\netllm.cmd` |
 | **Source** | `.\netllm` from repo or `uv tool install` via `.\netllm install` |
 
@@ -45,7 +45,7 @@ Logs: `%LOCALAPPDATA%\netllm\logs\agent.log`.
 
 | Symptom | Fix |
 |---------|-----|
-| `netllm models` empty | Start **Ollama**, **LM Studio**, or **vLLM** on Windows (or WSL — see below) |
+| `netllm models` empty | Start **Ollama**, **LM Studio**, or **vLLM** on Windows (or WSL: see below) |
 | Discovery missed server | `netllm discover` or dashboard **Discover providers** |
 
 Default probes: Ollama `:11434`, LM Studio `:1234`, vLLM `:8000`. oMLX is not available on Windows.
@@ -68,7 +68,7 @@ Default probes: Ollama `:11434`, LM Studio `:1234`, vLLM `:8000`. oMLX is not av
 
 | Symptom | Fix |
 |---------|-----|
-| `netllm peers` empty | Windows firewalls often block mDNS — use static `swarm.peers` or `netllm peers --subnet-scan --save` |
+| `netllm peers` empty | Windows firewalls often block mDNS: use static `swarm.peers` or `netllm peers --subnet-scan --save` |
 | LAN routing | `netllm serve --host 0.0.0.0` and allow **inbound TCP on port 11400** in Windows Firewall |
 | Cluster security | Set `swarm.cluster_token` when listening on `0.0.0.0` |
 
@@ -79,7 +79,7 @@ Default probes: Ollama `:11434`, LM Studio `:1234`, vLLM `:8000`. oMLX is not av
 ## Service / Admin issues
 
 - `install-service.ps1` requires **Administrator** PowerShell.
-- After moving the extract folder, re-run `install-service.ps1` — the service points at the original `netllm.exe` path.
+- After moving the extract folder, re-run `install-service.ps1`: the service points at the original `netllm.exe` path.
 
 ---
 

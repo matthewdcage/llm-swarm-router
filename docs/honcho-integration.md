@@ -108,4 +108,4 @@ Keep Honcho embedded routing until:
 2. Streaming chat works through netllm for dialectic
 3. Connector batch runs show equal or better throughput
 
-Do **not** delete Honcho `src/llm/endpoint_pool.py` until the above pass — netllm is a parallel consumer path first.
+Do **not** delete Honcho `src/llm/endpoint_pool.py` until the above pass, netllm is a parallel consumer path first.

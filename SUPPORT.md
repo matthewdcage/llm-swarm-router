@@ -34,7 +34,7 @@ Start here: [docs/README.md](docs/README.md)
 
 3. Ask in [Discussions → Q&A](https://github.com/matthewdcage/llm-swarm-router/discussions/new?category=q-a)
    for setup help, or open a [bug report](https://github.com/matthewdcage/llm-swarm-router/issues/new?template=bug_report.yml)
-   if something is clearly broken (include OS, version, backends, config — redact secrets).
+   if something is clearly broken (include OS, version, backends, config, redact secrets).
 
 ## Contributing fixes
 

@@ -35,7 +35,7 @@ allowed-tools:
 
 ## Workflow
 
-1. **Per machine — init if needed**
+1. **Per machine: init if needed**
    ```bash
    ./netllm init
    ```
@@ -44,12 +44,12 @@ allowed-tools:
    ```bash
    ./netllm serve --host 0.0.0.0
    ```
-   Packaged installs (systemd, Windows service, macOS app) may already bind via config — use `./netllm start` / `./netllm restart` after changing listen address.
+   Packaged installs (systemd, Windows service, macOS app) may already bind via config, use `./netllm start` / `./netllm restart` after changing listen address.
    Confirm `agent.advertise = true` in `~/.config/netllm/config.toml` (default in [config.example.toml](../../../config.example.toml)).
 
-3. **Firewall** — when listening on `0.0.0.0`, allow inbound TCP on the agent port (default `11400`) on each host.
+3. **Firewall**, when listening on `0.0.0.0`, allow inbound TCP on the agent port (default `11400`) on each host.
 
-4. **Security on untrusted LANs** — recommend setting `swarm.cluster_token` in config when using `0.0.0.0`. Warn user if token is empty.
+4. **Security on untrusted LANs**, recommend setting `swarm.cluster_token` in config when using `0.0.0.0`. Warn user if token is empty.
 
 5. **Discover peers** (from any machine on the LAN)
    ```bash
@@ -61,7 +61,7 @@ allowed-tools:
    ./netllm peers --subnet-scan --save   # persist to swarm.peers
    ```
 
-6. **Optional gateway** — on one designated machine:
+6. **Optional gateway**, on one designated machine:
    ```bash
    ./netllm gateway
    ./netllm serve --host 0.0.0.0   # restart after role change
@@ -74,7 +74,7 @@ allowed-tools:
    ./netllm status
    ```
 
-8. **Manual peers** — if mDNS blocked, add to config:
+8. **Manual peers**, if mDNS blocked, add to config:
    ```toml
    [swarm]
    peers = ["http://192.168.1.50:11400", "http://192.168.1.51:11400"]
@@ -105,7 +105,7 @@ allowed-tools:
 | mDNS unavailable | `uv sync` or `./netllm doctor`; static peers still work |
 | Linux browse empty | Ensure Avahi running; see [docs/linux-install.md](../../docs/linux-install.md) |
 | Windows browse empty | Prefer `swarm.peers` or `--subnet-scan`; see [docs/windows-install.md](../../docs/windows-install.md) |
-| Loopback only | `127.0.0.1` bind hides agent from LAN — must use `0.0.0.0` |
+| Loopback only | `127.0.0.1` bind hides agent from LAN: must use `0.0.0.0` |
 | Models missing remotely | Remote host needs online backends; check `./netllm status --url <peer>` |
 
 ## Do not

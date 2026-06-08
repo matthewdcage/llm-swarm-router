@@ -32,7 +32,7 @@
 
 ## Checklist
 
-- [ ] PR is focused — not mixing unrelated changes
+- [ ] PR is focused: not mixing unrelated changes
 - [ ] Conventional commit message(s) (`feat:`, `fix:`, `docs:`, etc.)
 - [ ] No secrets, API keys, or `.cursor/mcp.json` committed
 - [ ] Agent skills synced (`scripts/sync-agent-skills.sh`) if `.agents/skills/` changed

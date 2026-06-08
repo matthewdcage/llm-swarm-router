@@ -1,4 +1,4 @@
-# Linux troubleshooting — netllm
+# Linux troubleshooting: netllm
 
 Install guide: [linux-install.md](linux-install.md) · Overview: [platform-matrix.md](platform-matrix.md)
 
@@ -23,7 +23,7 @@ From a repo checkout, use `./netllm` from the project root.
 | `curl` to `/health` fails | **Packaged:** `systemctl --user enable --now netllm` then `netllm status` |
 | Service not running | `journalctl --user -u netllm -f` for errors |
 | **Source install** | `./netllm serve` in a terminal (foreground) |
-| Port 11400 in use | `ss -ltnp \| grep 11400` or `netllm doctor` — stop duplicate agent with `netllm stop` or kill stale process |
+| Port 11400 in use | `ss -ltnp \| grep 11400` or `netllm doctor`: stop duplicate agent with `netllm stop` or kill stale process |
 
 Logs: `journalctl --user -u netllm -f` and `~/.local/state/netllm/logs/agent.log`.
 
@@ -37,7 +37,7 @@ Logs: `journalctl --user -u netllm -f` and `~/.local/state/netllm/logs/agent.log
 |---------|-----|
 | `systemctl --user` commands fail | Ensure lingering is enabled for your user, or run from a graphical session |
 | Unit not found after deb install | `systemctl --user daemon-reload` |
-| Service starts then exits | Check `journalctl --user -u netllm -n 50` — often missing config; run `netllm init` |
+| Service starts then exits | Check `journalctl --user -u netllm -n 50`: often missing config; run `netllm init` |
 
 ---
 
