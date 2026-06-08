@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 RPM_VERSION_SH = ROOT / "packaging" / "linux" / "rpm-version.sh"
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="RPM shell script tests require Linux/bash packaging toolchain",
+)
 
 
 def _rpm_version(semver: str) -> str:
