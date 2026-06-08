@@ -23,6 +23,11 @@ default_strategy = "local_first"
 allow_remote = true
 require_same_model_for_shard = true
 
+# Optional menubar app settings (defaults apply when section is omitted)
+[ui]
+auto_start_on_launch = true
+# log_dir = ""  # default: ~/Library/Application Support/netllm/logs
+
 # Optional manual backend overrides (per-endpoint API keys via env)
 # [[routing.backends]]
 # base_url = "http://192.168.1.50:8080/v1"
@@ -30,3 +35,12 @@ require_same_model_for_shard = true
 # api_key_env = "OMLX_API_KEY"
 # enabled = true
 # local = true
+
+# Anthropic cloud failover for native Messages API clients (Claude Code, etc.)
+# [[routing.backends]]
+# base_url = "https://api.anthropic.com"
+# provider = "anthropic"
+# api_format = "anthropic"
+# api_key_env = "ANTHROPIC_API_KEY"
+# enabled = true
+# local = false

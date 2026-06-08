@@ -36,10 +36,30 @@ Replace comma-separated `LLM_OPENAI_COMPATIBLE_BASE_URLS` with one URL:
 
 ```bash
 LLM_OPENAI_COMPATIBLE_BASE_URL=http://host.docker.internal:11400/v1
-CONNECTOR_LLM_ROUTING_STRATEGY=batch_shard  # handled by netllm agent
+CONNECTOR_LLM_ROUTING_STRATEGY=batch_shard
 ```
 
-The connector-runner pool UI becomes optional — netllm owns discovery and sharding.
+Configure netllm for connector batch sharding:
+
+```toml
+[routing]
+default_strategy = "batch_shard"
+```
+
+Each parallel connector worker should send shard headers (or an OpenAI `user` field) so requests stick to the correct backend:
+
+```http
+X-Netllm-Batch-Id: enrichment-run-abc123
+X-Netllm-Shard-Index: 17
+```
+
+Or without custom headers:
+
+```json
+{"user": "netllm:enrichment-run-abc123:17", "model": "...", "messages": [...]}
+```
+
+On failure, the agent reassigns that index to the next healthy backend (Honcho-style failed-index retry). Without shard context, `batch_shard` falls back to round-robin with a warning in agent logs.
 
 ## Swarm (multi-Mac)
 
@@ -62,7 +82,7 @@ Before removing Honcho's embedded `endpoint_pool`:
 | Feature | Honcho embedded | netllm |
 |---------|-----------------|--------|
 | Multi-endpoint failover | Yes | Yes |
-| Batch sharding | Yes (connectors) | Yes (agent strategies) |
+| Batch sharding | Yes (connectors) | Yes (`batch_shard` + shard headers) |
 | Per-endpoint API keys | Yes | Yes (`routing.backends`) |
 | Health cache + circuit breaker | Yes | Yes |
 | LAN discovery | No | Yes |

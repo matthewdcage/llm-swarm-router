@@ -47,18 +47,27 @@ Load detailed per-editor steps from [references/editor-settings.md](references/e
 
 3. **Apply editor-specific config** — follow [references/editor-settings.md](references/editor-settings.md). Never auto-edit `settings.json` without explicit user consent; show copy-paste instructions instead.
 
-4. **Set shell env (shared baseline)**
+4. **Set shell env** — pick one API surface:
+
+   OpenAI-compatible (Cursor, Codex, Copilot):
    ```bash
    export OPENAI_BASE_URL=http://127.0.0.1:11400/v1
    export OPENAI_API_KEY=netllm-local
    ```
-   For LAN gateway, replace host with gateway IP (e.g. `http://192.168.1.10:11400/v1`).
+
+   Native Anthropic Messages API (Claude Code):
+   ```bash
+   export ANTHROPIC_BASE_URL=http://127.0.0.1:11400
+   export ANTHROPIC_API_KEY=netllm-local
+   ```
+
+   For LAN gateway, replace host with gateway IP (e.g. `http://192.168.1.10:11400`).
 
 5. **Verify inference**
    ```bash
-   ./netllm test
+   ./netllm test --model <id>              # OpenAI path
+   ./netllm test --api anthropic --model <id>  # Anthropic path
    ```
-   Or minimal curl chat completion with the chosen model ID.
 
 6. **Report** — editor, base URL, model name, verification result. If `model_not_found`, model string does not match backend — re-run `./netllm models`.
 

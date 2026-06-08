@@ -1,4 +1,5 @@
 .graphify-out/
+graphify-out/
 __pycache__/
 *.py[cod]
 .venv/
@@ -7,7 +8,15 @@ uv.lock
 .ruff_cache/
 *.egg-info/
 dist/
+apps/netllm-mac/.build/
 build/
+packaging/_build/
+packaging/_export/
+packaging/_artifacts/
+packaging/requirements/
+packaging/venvstacks.generated.toml
+packaging/requirements-netllm.txt
+apps/netllm-mac/build/
 .DS_Store
 .cursor/hooks/state/
 .cursor/mcp.json
