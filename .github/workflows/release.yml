@@ -62,6 +62,8 @@ jobs:
         env:
           REBUILD_DONOR: force
           NETLLM_VERSION: ${{ env.NETLLM_VERSION }}
+      - run: bash scripts/test-menubar-e2e.sh
+      - run: bash scripts/test-menubar-lifecycle.sh
       - run: bash packaging/scripts/create-dmg.sh
       - run: chmod +x packaging/scripts/write-sha256-sidecar.sh
       - run: |

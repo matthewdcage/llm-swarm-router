@@ -49,6 +49,22 @@ jobs:
         run: bash scripts/ci.sh sdk
         shell: bash
 
+  menubar-lifecycle:
+    needs: lint
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv pip install venvstacks
+      - run: apps/netllm-mac/Scripts/build.sh release
+        env:
+          REBUILD_DONOR: force
+      - run: bash scripts/test-menubar-e2e.sh
+      - run: bash scripts/test-menubar-lifecycle.sh
+
   packaging-smoke:
     needs: lint
     strategy:
