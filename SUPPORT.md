@@ -2,12 +2,12 @@
 
 ## Documentation
 
-Start here:
+Start here: [docs/README.md](docs/README.md)
 
 | Topic | Doc |
 |-------|-----|
 | Platform overview | [docs/platform-matrix.md](docs/platform-matrix.md) |
-| Install (macOS) | [docs/menubar-app.md](docs/menubar-app.md) |
+| Install (macOS) | [docs/macos-install.md](docs/macos-install.md) |
 | Install (Linux) | [docs/linux-install.md](docs/linux-install.md) |
 | Install (Windows) | [docs/windows-install.md](docs/windows-install.md) |
 | Troubleshoot (macOS) | [docs/macos-troubleshooting.md](docs/macos-troubleshooting.md) |
@@ -17,7 +17,7 @@ Start here:
 | LAN swarm / multi-machine | [AGENTS.md](AGENTS.md) · skills in `.agents/skills/netllm-swarm/` |
 | Quick diagnostic | `./netllm doctor` · `.agents/skills/netllm-doctor/` |
 | Honcho integration | [docs/honcho-integration.md](docs/honcho-integration.md) |
-| Architecture | [docs/architecture-reference.md](docs/architecture-reference.md) |
+| Architecture | [AGENTS.md](AGENTS.md) |
 
 ## Getting help
 

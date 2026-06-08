@@ -1,6 +1,6 @@
 # macOS troubleshooting — netllm
 
-Install guide: [menubar-app.md](menubar-app.md) · Overview: [platform-matrix.md](platform-matrix.md)
+Install guide: [macos-install.md](macos-install.md) · Overview: [platform-matrix.md](platform-matrix.md)
 
 ## First steps (all issues)
 

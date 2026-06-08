@@ -7,6 +7,7 @@ uv.lock
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+# Local build / analysis output (not shipped; safe to delete on clone)
 dist/
 apps/netllm-mac/.build/
 build/
@@ -25,5 +26,3 @@ apps/netllm-mac/build/
 .cursor/hooks.json
 .cursor/mcp.json
 .cursor/rules/graphify.mdc
-
-docs/architecture-reference.md

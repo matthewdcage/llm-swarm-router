@@ -23,4 +23,4 @@ open apps/netllm-mac/build/Stage/netllm-mac.app
 | `Sources/Welcome/` | First-run wizard |
 | `Sources/Updater/` | GitHub Releases checker |
 
-See [docs/menubar-app.md](../../docs/menubar-app.md) for user-facing documentation.
+See [docs/macos-install.md](../../docs/macos-install.md) for user-facing documentation.

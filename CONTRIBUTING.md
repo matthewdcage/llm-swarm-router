@@ -11,7 +11,7 @@ Thank you for helping make **llm-swarm-router** (netllm) a better mesh router fo
 | Security issue | [SECURITY.md](SECURITY.md) — please do **not** open a public issue |
 | Code of conduct | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
 | Agent/AI context | [AGENTS.md](AGENTS.md) |
-| Architecture | [docs/architecture-reference.md](docs/architecture-reference.md) |
+| Architecture | [AGENTS.md](AGENTS.md) |
 | Platform matrix | [docs/platform-matrix.md](docs/platform-matrix.md) |
 
 ## Ways to contribute
@@ -56,7 +56,7 @@ uv sync
 apps/netllm-mac/Scripts/build.sh release
 ```
 
-See [docs/menubar-app.md](docs/menubar-app.md) and [packaging/README.md](packaging/README.md).
+See [docs/macos-install.md](docs/macos-install.md) and [packaging/README.md](packaging/README.md).
 
 ## Before you open a PR
 
@@ -179,10 +179,10 @@ When adding discovery or routing behavior, include tests that do not require rea
 
 | Platform | Primary paths | Doc |
 |----------|---------------|-----|
-| macOS menubar | `apps/netllm-mac/` | [docs/menubar-app.md](docs/menubar-app.md) |
+| macOS menubar | `apps/netllm-mac/` | [docs/macos-install.md](docs/macos-install.md) |
 | Linux packages | `packaging/linux/` | [docs/linux-install.md](docs/linux-install.md) |
 | Windows packages | `packaging/windows/` | [docs/windows-install.md](docs/windows-install.md) |
-| Core agent | `packages/netllm-agent/` | [docs/architecture-reference.md](docs/architecture-reference.md) |
+| Core agent | `packages/netllm-agent/` | [AGENTS.md](AGENTS.md) |
 
 Cross-platform changes should preserve the shared agent contract on `:11400` — see [docs/platform-matrix.md](docs/platform-matrix.md).
 

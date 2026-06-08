@@ -2,11 +2,13 @@
 
 Single reference for install channels, UI surfaces, and stability tiers across macOS, Linux, and Windows.
 
+**Release builds:** macOS DMG/venvstacks, Linux deb/rpm, and Windows zip scripts live under [packaging/README.md](../packaging/README.md) (`packaging/`, `Formula/` for Homebrew).
+
 ## Documentation by platform
 
 | Platform | Install | Troubleshooting |
 |----------|---------|-----------------|
-| **macOS** | [menubar-app.md](menubar-app.md) | [macos-troubleshooting.md](macos-troubleshooting.md) |
+| **macOS** | [macos-install.md](macos-install.md) | [macos-troubleshooting.md](macos-troubleshooting.md) |
 | **Linux** | [linux-install.md](linux-install.md) | [linux-troubleshooting.md](linux-troubleshooting.md) |
 | **Windows** | [windows-install.md](windows-install.md) | [windows-troubleshooting.md](windows-troubleshooting.md) |
 

@@ -39,7 +39,7 @@ allowed-tools:
 
 | User preference | Steps |
 |-----------------|-------|
-| **macOS DMG** | Download Release DMG → drag to Applications → launch menubar app → welcome wizard. See [docs/menubar-app.md](../../docs/menubar-app.md). |
+| **macOS DMG** | Download Release DMG → drag to Applications → launch menubar app → welcome wizard. See [docs/macos-install.md](../../docs/macos-install.md). |
 | **Homebrew** | `brew tap matthewdcage/netllm <repo>` → `brew install netllm` → `brew services start netllm` |
 | **Linux deb/rpm** | Install package from Releases → `systemctl --user enable --now netllm`. See [docs/linux-install.md](../../docs/linux-install.md). |
 | **Windows zip** | Extract Release zip → run `install-service.ps1` as Admin → `netllm start`. See [docs/windows-install.md](../../docs/windows-install.md). |

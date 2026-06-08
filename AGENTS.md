@@ -17,7 +17,22 @@ Tech stack: Python 3.11+, [uv](https://docs.astral.sh/uv/) workspace monorepo, F
 | netllm-agent | `packages/netllm-agent/` | FastAPI — `/v1/*`, `/netllm/v1/*`, `/metrics` |
 | netllm-cli | `packages/netllm-cli/` | Typer CLI |
 
-Deeper notes: [docs/architecture-reference.md](docs/architecture-reference.md). Honcho integration: [docs/honcho-integration.md](docs/honcho-integration.md).
+Honcho integration: [docs/honcho-integration.md](docs/honcho-integration.md).
+
+## Repository layout
+
+| Path | Purpose |
+|------|---------|
+| `packages/` | Python source of truth (uv workspace) |
+| `apps/` | Native apps — macOS menubar today (`apps/netllm-mac/`) |
+| `packaging/` | Release builds per OS — [packaging/README.md](packaging/README.md) |
+| `docs/` | User install/troubleshoot/editor guides — [docs/README.md](docs/README.md) |
+| `tests/` | Cross-package integration tests |
+| `scripts/` | CI, skill sync, install emulation |
+| `Formula/` | Homebrew formula |
+| `.agents/skills/` | Canonical agent skills → sync via `scripts/sync-agent-skills.sh` to `.claude/`, `.cursor/`, `.github/` |
+
+Edit skills only under `.agents/`; run `scripts/sync-agent-skills.sh` after changes.
 
 ## Key commands
 
@@ -80,7 +95,7 @@ Cross-platform matrix: [docs/platform-matrix.md](docs/platform-matrix.md). Agent
 
 ## macOS menubar app
 
-Native app (oMLX-style): [docs/menubar-app.md](docs/menubar-app.md) · Troubleshooting: [docs/macos-troubleshooting.md](docs/macos-troubleshooting.md).
+Native app (oMLX-style): [docs/macos-install.md](docs/macos-install.md) · Troubleshooting: [docs/macos-troubleshooting.md](docs/macos-troubleshooting.md).
 
 | Channel | Install |
 |---------|---------|

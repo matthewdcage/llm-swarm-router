@@ -17,7 +17,7 @@
 
 <p align="center">
   <a href="AGENTS.md"><img src="https://img.shields.io/badge/version-0.2.0-blue?style=for-the-badge" alt="Version 0.2.0"></a>
-  <a href="docs/menubar-app.md"><img src="https://img.shields.io/badge/macOS-Menubar%20app-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS app"></a>
+  <a href="docs/macos-install.md"><img src="https://img.shields.io/badge/macOS-Menubar%20app-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS app"></a>
   <a href="docs/editor-integration.md"><img src="https://img.shields.io/badge/Docs-Editor%20wiring-FFD700?style=for-the-badge" alt="Editor integration"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=for-the-badge" alt="PRs welcome"></a>
@@ -58,18 +58,27 @@ A **simple-to-install, simple-to-use LLM mesh coordinator** for macOS, Linux, an
 
 Point **Cursor**, **Claude Code**, **Codex**, **Honcho**, or any compatible client at that URL. No cloud hop, no per-repo failover URLs, no lock-in to a single backend.
 
+### Who reads what
+
+| Audience | Start here |
+|----------|------------|
+| Installing on your machine | [docs/platform-matrix.md](docs/platform-matrix.md) · [docs/README.md](docs/README.md) |
+| Agent or developer in this repo | [AGENTS.md](AGENTS.md) |
+| Opening a PR | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Help / triage | [SUPPORT.md](SUPPORT.md) · `./netllm doctor` |
+
 ---
 
 ## Platform docs
 
 | Platform | Status | Install | Troubleshooting |
 |----------|--------|---------|-----------------|
-| **macOS** | Stable — menubar app + CLI | [docs/menubar-app.md](docs/menubar-app.md) · [DMG](https://github.com/matthewdcage/llm-swarm-router/releases) | [docs/macos-troubleshooting.md](docs/macos-troubleshooting.md) |
+| **macOS** | Stable — menubar app + CLI | [docs/macos-install.md](docs/macos-install.md) · [DMG](https://github.com/matthewdcage/llm-swarm-router/releases) | [docs/macos-troubleshooting.md](docs/macos-troubleshooting.md) |
 | **Linux** | Beta — deb/rpm + systemd | [docs/linux-install.md](docs/linux-install.md) | [docs/linux-troubleshooting.md](docs/linux-troubleshooting.md) |
 | **Windows** | Beta — zip + Windows service | [docs/windows-install.md](docs/windows-install.md) | [docs/windows-troubleshooting.md](docs/windows-troubleshooting.md) |
 | **All** (dev/CI) | Source — `uv sync` + `./netllm serve` | [CLI / source](#cli--source-install-all-platforms) below | `./netllm doctor` · http://127.0.0.1:11400/ui/ |
 
-Overview: [docs/platform-matrix.md](docs/platform-matrix.md)
+Overview: [docs/platform-matrix.md](docs/platform-matrix.md) · Full doc index: [docs/README.md](docs/README.md)
 
 ---
 
@@ -94,7 +103,7 @@ If macOS blocks the first launch: right-click the app in Applications → **Open
 
 **Terminal:** After first launch, a CLI shim is available at `~/.config/netllm/bin/netllm` (`netllm status`, `netllm models`, etc.).
 
-Install: [docs/menubar-app.md](docs/menubar-app.md) · Troubleshooting: [docs/macos-troubleshooting.md](docs/macos-troubleshooting.md)
+Install: [docs/macos-install.md](docs/macos-install.md) · Troubleshooting: [docs/macos-troubleshooting.md](docs/macos-troubleshooting.md)
 
 ### Optional: Homebrew
 
@@ -268,7 +277,7 @@ Python layer packaging (venvstacks): [packaging/README.md](packaging/README.md)
 | **netllm-cli** | Typer CLI |
 | **netllm-mac** | Native macOS menubar app (`apps/netllm-mac/`) |
 
-Architecture: [docs/architecture-reference.md](docs/architecture-reference.md)
+Architecture and package roles: [AGENTS.md](AGENTS.md)
 
 ---
 
