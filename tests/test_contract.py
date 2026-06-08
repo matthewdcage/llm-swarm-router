@@ -131,3 +131,4 @@ def test_ui_route_serves_dashboard() -> None:
         resp = client.get("/ui/")
         assert resp.status_code == 200
         assert "dashboard" in resp.text.lower()
+        assert "llm-swarm-router" in resp.text.lower()

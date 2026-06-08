@@ -14,10 +14,13 @@ from netllm_sdk_anthropic.client import AnthropicUpstreamError
 from netllm_sdk_openai.client import OpenAIUpstreamError
 
 from netllm_agent.admin import (
+    apply_config_patch,
     client_env_vars,
     config_summary,
     doctor_payload,
+    peers_scan_payload,
     require_admin_access,
+    save_config_patch,
 )
 from netllm_agent.metrics import metrics_bytes
 from netllm_agent.service import AgentService
@@ -43,7 +46,7 @@ def create_app(
         yield
         service.stop_background()
 
-    app = FastAPI(title="netllm-agent", version="0.2.1", lifespan=lifespan)
+    app = FastAPI(title="netllm-agent", version="0.2.3", lifespan=lifespan)
     app.state.service = service
     app.state.config = cfg
 
@@ -143,6 +146,41 @@ def create_app(
             "backends_registered": len(local),
             "online": online,
         }
+
+    @app.post("/netllm/v1/admin/config")
+    async def netllm_admin_config(request: Request) -> dict[str, Any]:
+        require_admin_access(request, cfg)
+        patch = await request.json()
+        if not isinstance(patch, dict):
+            raise HTTPException(status_code=400, detail="Expected JSON object")
+        listen_before = cfg.agent.listen
+        result = save_config_patch(
+            cfg,
+            patch,
+            config_path=config_path,
+            listen_before=listen_before,
+        )
+        merged = apply_config_patch(cfg, patch)
+        cfg.agent = merged.agent
+        cfg.discovery = merged.discovery
+        cfg.swarm = merged.swarm
+        cfg.routing = merged.routing
+        cfg.ui = merged.ui
+        app.state.config = cfg
+        service.config = merged
+        return result
+
+    @app.post("/netllm/v1/admin/peers-scan")
+    async def netllm_admin_peers_scan(
+        request: Request,
+        save: bool = False,
+    ) -> dict[str, Any]:
+        require_admin_access(request, cfg)
+        return await peers_scan_payload(
+            cfg,
+            save=save,
+            config_path=config_path,
+        )
 
     @app.post("/netllm/v1/heartbeat")
     async def netllm_heartbeat(request: Request) -> Response:

@@ -3,160 +3,82 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>netllm — local dashboard</title>
-  <style>
-    :root {
-      --bg: #0f1419;
-      --surface: #1a2332;
-      --border: #2d3a4f;
-      --text: #e8edf4;
-      --muted: #8b9cb3;
-      --accent: #3d8bfd;
-      --ok: #3dd68c;
-      --warn: #f5a623;
-      --mono: "SF Mono", "Cascadia Code", "Consolas", monospace;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.5;
-    }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 0.75rem;
-      padding: 1rem 1.5rem;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
-    }
-    header h1 { margin: 0; font-size: 1.125rem; }
-    .sub { color: var(--muted); font-size: 0.8125rem; }
-    .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-    button {
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      border-radius: 6px;
-      padding: 0.45rem 0.85rem;
-      font-size: 0.8125rem;
-      cursor: pointer;
-    }
-    button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
-    button:disabled { opacity: 0.5; }
-    main { padding: 1.25rem 1.5rem 2rem; max-width: 1100px; margin: 0 auto; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
-    section {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1rem;
-    }
-    section h2 {
-      margin: 0 0 0.65rem;
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--muted);
-    }
-    .stat { font-size: 1.4rem; font-weight: 600; }
-    .badge {
-      display: inline-block;
-      padding: 0.15rem 0.5rem;
-      border-radius: 4px;
-      font-size: 0.75rem;
-    }
-    .badge.ok { background: rgba(61, 214, 140, 0.15); color: var(--ok); }
-    .badge.warn { background: rgba(245, 166, 35, 0.15); color: var(--warn); }
-    pre {
-      font-family: var(--mono);
-      font-size: 0.8125rem;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 0.75rem;
-      overflow-x: auto;
-      white-space: pre-wrap;
-      margin: 0.5rem 0 0;
-    }
-    table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
-    th, td { text-align: left; padding: 0.4rem 0.3rem; border-bottom: 1px solid var(--border); }
-    th { color: var(--muted); }
-    .full { grid-column: 1 / -1; }
-    .issue { margin: 0.4rem 0; padding: 0.45rem; background: var(--bg); border-radius: 6px; font-size: 0.8125rem; }
-    .issue .title { color: var(--warn); font-weight: 600; }
-    .issue .fix { color: var(--muted); font-size: 0.75rem; }
-    #toast {
-      position: fixed;
-      bottom: 1rem;
-      right: 1rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      padding: 0.6rem 1rem;
-      border-radius: 8px;
-      font-size: 0.8125rem;
-      opacity: 0;
-      transition: opacity 0.2s;
-    }
-    #toast.show { opacity: 1; }
-    code { font-family: var(--mono); font-size: 0.8em; }
-  </style>
+  <title>llm-swarm-router — dashboard</title>
+  <link rel="icon" href="logo-light.png" type="image/png" media="(prefers-color-scheme: light)" />
+  <link rel="icon" href="logo-dark.png" type="image/png" media="(prefers-color-scheme: dark)" />
+  <link rel="icon" href="logo-light.png" type="image/png" />
+  <link rel="stylesheet" href="dashboard.css?v=0.2.3.2" />
 </head>
 <body>
-  <header>
-    <div>
-      <h1>netllm dashboard</h1>
-      <div class="sub" id="agent-line">Loading…</div>
+  <div class="app">
+    <nav class="sidebar" aria-label="Dashboard navigation">
+      <div class="sidebar-brand">
+        <picture class="brand-logo">
+          <source srcset="logo-dark.png" media="(prefers-color-scheme: dark)" />
+          <img src="logo-light.png" alt="" width="32" height="32" />
+        </picture>
+        <div>
+          <strong>llm-swarm-router</strong>
+          <span>Mesh router for local LLM backends</span>
+        </div>
+      </div>
+      <div class="nav-group-label">Server</div>
+      <button type="button" class="nav-item active" data-tab="status">Status</button>
+      <button type="button" class="nav-item" data-tab="backends">Backends</button>
+      <button type="button" class="nav-item" data-tab="models">Models</button>
+      <button type="button" class="nav-item" data-tab="peers">Peers</button>
+      <div class="nav-group-label">Config</div>
+      <button type="button" class="nav-item" data-tab="agent">Agent</button>
+      <button type="button" class="nav-item" data-tab="discovery">Servers</button>
+      <button type="button" class="nav-item" data-tab="swarm">Swarm</button>
+      <button type="button" class="nav-item" data-tab="routing">Routing</button>
+      <button type="button" class="nav-item" data-tab="ui">UI</button>
+      <div class="nav-group-label">Tools</div>
+      <button type="button" class="nav-item" data-tab="tools">Doctor &amp; Test</button>
+    </nav>
+
+    <div class="main">
+      <header class="topbar">
+        <div class="topbar-status">
+          <picture class="brand-logo topbar-logo">
+            <source srcset="logo-dark.png" media="(prefers-color-scheme: dark)" />
+            <img src="logo-light.png" alt="" width="28" height="28" />
+          </picture>
+          <div>
+            <div class="topbar-title">llm-swarm-router</div>
+            <div class="topbar-meta">
+              <span id="status-badge" class="badge warn"><span class="dot"></span>Checking…</span>
+              <span id="agent-status-line" class="sub">Loading…</span>
+            </div>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <button type="button" id="btn-discover">Discover</button>
+          <button type="button" class="secondary" id="btn-env">Copy client env</button>
+          <a class="btn secondary" id="btn-status-json" href="/" target="_blank" rel="noopener">Status JSON</a>
+          <a class="btn secondary" href="http://127.0.0.1:8080/admin" target="_blank" rel="noopener">oMLX Admin</a>
+          <button type="button" class="secondary" id="btn-refresh">Refresh</button>
+          <button type="button" id="btn-save" disabled>Save</button>
+        </div>
+      </header>
+
+      <div id="global-banner" hidden></div>
+
+      <main class="content">
+        <section id="tab-status" class="tab-panel active" aria-label="Status"></section>
+        <section id="tab-backends" class="tab-panel" aria-label="Backends"></section>
+        <section id="tab-models" class="tab-panel" aria-label="Models"></section>
+        <section id="tab-peers" class="tab-panel" aria-label="Peers"></section>
+        <section id="tab-agent" class="tab-panel" aria-label="Agent config"></section>
+        <section id="tab-discovery" class="tab-panel" aria-label="Discovery config"></section>
+        <section id="tab-swarm" class="tab-panel" aria-label="Swarm config"></section>
+        <section id="tab-routing" class="tab-panel" aria-label="Routing config"></section>
+        <section id="tab-ui" class="tab-panel" aria-label="UI config"></section>
+        <section id="tab-tools" class="tab-panel" aria-label="Doctor and tools"></section>
+      </main>
     </div>
-    <div class="actions">
-      <button type="button" id="btn-discover">Discover providers</button>
-      <button type="button" class="secondary" id="btn-env">Copy client env</button>
-      <button type="button" class="secondary" id="btn-refresh">Refresh</button>
-    </div>
-  </header>
-  <main class="grid">
-    <section>
-      <h2>Agent</h2>
-      <div class="stat" id="role-stat">—</div>
-      <p class="sub" id="listen-line"></p>
-    </section>
-    <section>
-      <h2>Backends</h2>
-      <div class="stat" id="backend-stat">—</div>
-      <p class="sub" id="strategy-line"></p>
-    </section>
-    <section>
-      <h2>Swarm peers</h2>
-      <div class="stat" id="peer-stat">—</div>
-    </section>
-    <section>
-      <h2>Doctor</h2>
-      <div id="doctor-badge"></div>
-      <div id="doctor-issues"></div>
-    </section>
-    <section class="full">
-      <h2>Models</h2>
-      <div id="models-table"></div>
-    </section>
-    <section class="full">
-      <h2>Backends detail</h2>
-      <div id="backends-table"></div>
-    </section>
-    <section class="full">
-      <h2>Client environment</h2>
-      <pre id="env-block"></pre>
-    </section>
-    <section class="full">
-      <h2>Configuration (read-only)</h2>
-      <pre id="config-block"></pre>
-      <p class="sub">Edit with <code>netllm config-edit</code> in a terminal.</p>
-    </section>
-  </main>
-  <div id="toast"></div>
-  <script src="dashboard.js"></script>
+  </div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="dashboard.js?v=0.2.3.2"></script>
 </body>
 </html>

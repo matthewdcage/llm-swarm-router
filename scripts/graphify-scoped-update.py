@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from graphify.analyze import god_nodes, surprising_connections, suggest_questions
+from graphify.analyze import god_nodes, suggest_questions, surprising_connections
 from graphify.build import build_from_json
 from graphify.cluster import cluster, score_all
 from graphify.export import to_json

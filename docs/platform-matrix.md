@@ -56,7 +56,7 @@ Agent lifespan runs provider discovery on start and persists URLs to config (all
 
 ## Release assets (one GitHub Release page)
 
-Latest: [v0.2.2.1](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.2.1) (macOS patch; Linux/Windows **alpha**) · [All releases](https://github.com/matthewdcage/llm-swarm-router/releases)
+Latest: [v0.2.3](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3) (web dashboard; Linux/Windows **alpha**) · [All releases](https://github.com/matthewdcage/llm-swarm-router/releases)
 
 | Asset | Platform |
 |-------|----------|

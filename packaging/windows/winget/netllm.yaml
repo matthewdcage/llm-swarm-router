@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
 PackageIdentifier: matthewdcage.netllm
-PackageVersion: 0.2.2
+PackageVersion: 0.2.3
 PackageLocale: en-US
 Publisher: matthewdcage
 PackageName: netllm
@@ -10,7 +10,7 @@ Moniker: netllm
 Installers:
   - Architecture: x64
     InstallerType: zip
-    InstallerUrl: https://github.com/matthewdcage/llm-swarm-router/releases/download/v0.2.2/netllm-0.2.2-windows-x64.zip
+    InstallerUrl: https://github.com/matthewdcage/llm-swarm-router/releases/download/v0.2.3/netllm-0.2.3-windows-x64.zip
     InstallerSha256: PLACEHOLDER
 ManifestType: singleton
 ManifestVersion: 1.6.0

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 from netllm_agent.app import create_app
-from netllm_core.models import Backend, BackendHealth, NetllmConfig
+from netllm_core.models import Backend, BackendHealth, NetllmConfig, load_config
 
 
 @pytest.fixture
@@ -39,7 +41,10 @@ def test_root_redirects_browser_to_ui(client: TestClient) -> None:
 def test_ui_dashboard(client: TestClient) -> None:
     resp = client.get("/ui/")
     assert resp.status_code == 200
-    assert "netllm dashboard" in resp.text.lower()
+    assert "dashboard" in resp.text.lower()
+    assert "llm-swarm-router" in resp.text.lower()
+    assert "dashboard.css" in resp.text
+    assert "dashboard.js" in resp.text
 
 
 def test_client_env_endpoint(client: TestClient) -> None:
@@ -184,3 +189,66 @@ def test_messages_stream_proxy(_mock_stream, client: TestClient) -> None:
     )
     assert resp.status_code == 200
     assert "message_stop" in resp.text
+
+
+def test_admin_config_save_round_trip() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg_path = Path(tmp) / "config.toml"
+        cfg = NetllmConfig()
+        cfg.swarm.mdns = False
+        cfg.agent.advertise = False
+        from netllm_core.models import save_config
+
+        save_config(cfg, cfg_path)
+        app = create_app(cfg, config_path=cfg_path)
+        with TestClient(app) as client:
+            resp = client.post(
+                "/netllm/v1/admin/config",
+                json={"routing": {"default_strategy": "round_robin"}},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["ok"] is True
+            assert data["path"] == str(cfg_path)
+            reloaded = load_config(cfg_path)
+            assert reloaded.routing.default_strategy == "round_robin"
+            summary = client.get("/netllm/v1/config").json()
+            assert summary["routing"]["default_strategy"] == "round_robin"
+
+
+def test_admin_config_requires_loopback() -> None:
+    from unittest.mock import MagicMock
+
+    from fastapi import HTTPException
+    from netllm_agent.admin import require_admin_access
+
+    cfg = NetllmConfig()
+    request = MagicMock()
+    request.client.host = "203.0.113.1"
+    request.headers.get.return_value = ""
+    with pytest.raises(HTTPException) as exc:
+        require_admin_access(request, cfg)
+    assert exc.value.status_code == 403
+
+
+@patch("netllm_discovery.lan.subnet_scan_agents", new_callable=AsyncMock)
+def test_admin_peers_scan(mock_scan: AsyncMock) -> None:
+    mock_scan.return_value = [
+        {
+            "agent_id": "peer-a",
+            "listen_url": "http://10.0.0.5:11400",
+            "role": "peer",
+            "hostname": "other-mac",
+        }
+    ]
+    cfg = NetllmConfig()
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    app = create_app(cfg)
+    with TestClient(app) as client:
+        resp = client.post("/netllm/v1/admin/peers-scan")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert len(data["peers"]) == 1
+        assert data["peers"][0]["agent_id"] == "peer-a"
