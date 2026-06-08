@@ -23,6 +23,7 @@ class AnthropicUpstream:
         api_key: str,
         *,
         base_url: str | None = None,
+        default_headers: dict[str, str] | None = None,
         connect_timeout: float = 5.0,
         read_timeout: float = 120.0,
     ) -> None:
@@ -32,6 +33,8 @@ class AnthropicUpstream:
         kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout}
         if base_url:
             kwargs["base_url"] = base_url.rstrip("/")
+        if default_headers:
+            kwargs["default_headers"] = default_headers
         self._client = AsyncAnthropic(**kwargs)
 
     async def messages_create(self, payload: dict[str, Any]) -> dict[str, Any]:
