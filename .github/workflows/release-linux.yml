@@ -8,7 +8,7 @@ jobs:
   deb:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v5
       - run: sudo apt-get update && sudo apt-get install -y dpkg-dev rpm
       - run: chmod +x packaging/linux/build-deb.sh packaging/linux/build-rpm.sh
