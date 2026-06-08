@@ -72,10 +72,14 @@ rsync -a "$EXPORT/" "$PYTHON_RES/"
 for pkg in netllm-core netllm-cli netllm-agent netllm-discovery netllm-sdk-openai netllm-sdk-anthropic; do
   src="$ROOT/packages/$pkg/src"
   if [[ -d "$src" ]]; then
+    mkdir -p "$PACKAGES_RES/$pkg/src"
     rsync -a "$src/" "$PACKAGES_RES/$pkg/src/"
   fi
 done
-rsync -a "$ROOT/src/netllm/" "$PACKAGES_RES/netllm/" 2>/dev/null || true
+if [[ -d "$ROOT/src/netllm" ]]; then
+  mkdir -p "$PACKAGES_RES/netllm"
+  rsync -a "$ROOT/src/netllm/" "$PACKAGES_RES/netllm/"
+fi
 
 # CLI wrapper
 cat > "$APP/Contents/MacOS/netllm-cli" <<'WRAPPER'
