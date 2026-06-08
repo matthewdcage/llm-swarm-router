@@ -26,3 +26,19 @@ def test_auth_still_online() -> None:
     resp = _FakeResponse(401, "")
     status = status_from_response(resp)  # type: ignore[arg-type]
     assert is_online(status)
+
+
+def test_anthropic_probe_auth_still_online() -> None:
+    from netllm_core.health import _anthropic_probe_status
+
+    resp = _FakeResponse(401, "")
+    status = _anthropic_probe_status(resp)  # type: ignore[arg-type]
+    assert is_online(status)
+
+
+def test_anthropic_probe_reachable_on_400() -> None:
+    from netllm_core.health import _anthropic_probe_status
+
+    resp = _FakeResponse(400, "bad request")
+    status = _anthropic_probe_status(resp)  # type: ignore[arg-type]
+    assert is_online(status)

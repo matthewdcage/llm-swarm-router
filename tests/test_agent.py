@@ -99,3 +99,59 @@ def test_heartbeat_registers_peer(client: TestClient) -> None:
     status = client.get("/netllm/v1/status").json()
     peer_ids = [p["agent_id"] for p in status.get("peers", [])]
     assert "remote-1" in peer_ids
+
+
+def test_root_lists_messages_endpoint(client: TestClient) -> None:
+    resp = client.get("/")
+    data = resp.json()
+    assert "/v1/messages" in data["endpoints"]["messages"]
+
+
+@patch(
+    "netllm_agent.service.AgentService.proxy_messages",
+    new_callable=AsyncMock,
+)
+def test_messages_proxy(mock_proxy: AsyncMock, client: TestClient) -> None:
+    mock_proxy.return_value = {
+        "id": "msg_test",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": "hello"}],
+        "model": "test-model",
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+    }
+    resp = client.post(
+        "/v1/messages",
+        json={
+            "model": "test-model",
+            "max_tokens": 10,
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+        headers={"x-api-key": "test-key"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["content"][0]["text"] == "hello"
+
+
+async def _fake_messages_stream(*_args, **_kwargs):
+    yield 'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+
+
+@patch(
+    "netllm_agent.service.AgentService.proxy_messages_stream",
+    side_effect=_fake_messages_stream,
+)
+def test_messages_stream_proxy(_mock_stream, client: TestClient) -> None:
+    resp = client.post(
+        "/v1/messages",
+        json={
+            "model": "test-model",
+            "max_tokens": 10,
+            "stream": True,
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+        headers={"x-api-key": "test-key"},
+    )
+    assert resp.status_code == 200
+    assert "message_stop" in resp.text

@@ -1,0 +1,13 @@
+{
+  "id": "chatcmpl-test",
+  "object": "chat.completion",
+  "model": "llama3.2:latest",
+  "choices": [
+    {
+      "index": 0,
+      "message": {"role": "assistant", "content": "Hi there!"},
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14}
+}
