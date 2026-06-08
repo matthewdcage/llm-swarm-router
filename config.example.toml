@@ -9,6 +9,10 @@ advertise = true
 [discovery]
 providers = ["omlx", "ollama", "lmstudio"]
 custom_endpoints = []
+# Per-machine overrides (tried before default port scan). Example Mac mini oMLX on 8088:
+# [discovery.provider_urls]
+# omlx = ["http://127.0.0.1:8088/v1"]
+# ollama = ["http://127.0.0.1:11434/v1"]
 
 [swarm]
 peers = []

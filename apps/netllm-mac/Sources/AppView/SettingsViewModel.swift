@@ -126,12 +126,31 @@ final class SettingsViewModel {
         }
     }
 
-    func runDiscover() {
+    func providerURLBinding(_ provider: String) -> Binding<[String]> {
+        Binding(
+            get: { document.discovery.provider_urls[provider] ?? [] },
+            set: { newValue in
+                if newValue.isEmpty {
+                    document.discovery.provider_urls.removeValue(forKey: provider)
+                } else {
+                    document.discovery.provider_urls[provider] = newValue
+                }
+                bumpUI()
+            }
+        )
+    }
+
+    func runDiscover(saveURLs: Bool = true) {
         Task {
             await runAction("Discovering local providers…") {
-                let json = try parseCLIJSON(command: ["discover", "--json"])
+                var command = ["discover", "--json"]
+                if saveURLs { command.append("--save-urls") }
+                let json = try parseCLIJSON(command: command)
                 guard let providers = json["providers"] as? [[String: Any]] else {
                     throw ActionError.unexpectedResponse("discover")
+                }
+                if saveURLs {
+                    document = try configStore.load()
                 }
                 discoverProviders = providers.map { row in
                     DiscoverProvider(

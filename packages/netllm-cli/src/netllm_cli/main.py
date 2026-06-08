@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import httpx
 import typer
@@ -18,10 +19,11 @@ from netllm_discovery.lan import (
     discover_lan_agents,
     models_from_status,
 )
-from netllm_discovery.local import scan_local_providers
+from netllm_discovery.local import merge_discovered_provider_urls, scan_local_providers
 from rich.panel import Panel
 from rich.table import Table
 
+from netllm_cli.config_json import emit_export, read_import
 from netllm_cli.install import (
     ensure_global_cli,
     find_repo_root,
@@ -33,7 +35,6 @@ from netllm_cli.install import (
     print_path_notice,
     suggested_cli,
 )
-from netllm_cli.config_json import emit_export, read_import
 from netllm_cli.lifecycle import control_socket_path, lifecycle_command
 from netllm_cli.ui import (
     agent_unreachable_message,
@@ -210,13 +211,26 @@ def install(
 def discover(
     config: Path | None = typer.Option(None, "--config"),
     as_json: bool = typer.Option(False, "--json", help="Emit machine-readable JSON"),
+    save_urls: bool = typer.Option(
+        False,
+        "--save-urls",
+        help="Persist online provider base URLs to discovery.provider_urls",
+    ),
 ) -> None:
     """Scan localhost for oMLX, Ollama, and LM Studio."""
-    cfg = load_config(_config_path_option(config))
+    cfg_path = _config_path_option(config)
+    cfg = load_config(cfg_path)
     results = asyncio.run(scan_local_providers(cfg))
 
+    if save_urls:
+        cfg = merge_discovered_provider_urls(cfg, results)
+        save_config(cfg, cfg_path)
+
     if as_json:
-        typer.echo(json.dumps({"providers": results}))
+        payload: dict[str, Any] = {"providers": results}
+        if save_urls:
+            payload["provider_urls"] = cfg.discovery.provider_urls
+        typer.echo(json.dumps(payload))
         return
 
     if not results:
@@ -233,6 +247,8 @@ def discover(
     providers_table(results, title="Local LLM providers")
     online = sum(1 for r in results if r.get("status") == "online")
     console.print(f"\n[dim]{online}/{len(results)} online[/]")
+    if save_urls:
+        console.print("[dim]Saved online provider URLs to config[/]")
 
     hints = offline_provider_hints(results)
     if hints:

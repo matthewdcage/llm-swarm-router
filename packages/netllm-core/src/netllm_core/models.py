@@ -56,6 +56,8 @@ class BackendOverride(BaseModel):
 class DiscoveryLocalConfig(BaseModel):
     providers: list[str] = Field(default_factory=lambda: ["omlx", "ollama", "lmstudio"])
     custom_endpoints: list[str] = Field(default_factory=list)
+    # Per-machine overrides, e.g. omlx on :8088 — tried before default port scan.
+    provider_urls: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class DiscoverySwarmConfig(BaseModel):

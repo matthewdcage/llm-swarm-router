@@ -361,6 +361,24 @@ struct SettingsWindowView: View {
                     set: { model.toggleProvider(provider, enabled: $0) }
                 ))
             }
+            sectionHeader("Provider URLs")
+            Text("Leave empty to auto-scan default ports (oMLX: 8080, 8088, 8081).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ForEach(SettingsViewModel.providers, id: \.self) { provider in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(provider.capitalized)
+                        .font(.caption.weight(.medium))
+                    EditableStringList(
+                        items: model.providerURLBinding(provider),
+                        placeholder: "http://127.0.0.1:8088/v1",
+                        defaultNew: provider == "omlx"
+                            ? "http://127.0.0.1:8088/v1"
+                            : "http://127.0.0.1:\(provider == "ollama" ? "11434" : "1234")/v1"
+                    )
+                }
+            }
+            .id("provider-urls-\(model.uiRevision)")
             sectionHeader("Custom endpoints")
             EditableStringList(
                 items: $model.document.discovery.custom_endpoints,

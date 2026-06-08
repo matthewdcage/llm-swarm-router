@@ -164,14 +164,25 @@ def offline_provider_hints(results: list[dict[str, Any]]) -> list[str]:
     for r in offline:
         pid = r.get("id", "")
         if pid == "omlx":
+            probed = r.get("probed_urls") or []
+            port_hint = ", ".join(
+                str(u).split(":")[-1].split("/")[0] for u in probed[:4]
+            )
             hints.append(
-                "oMLX: open the app or run "
-                "[cyan]omlx serve --host 0.0.0.0 --port 8080[/]"
+                "oMLX: start the server or set "
+                "[cyan]discovery.provider_urls.omlx[/] in config "
+                f"(scanned ports: {port_hint or '8080, 8088, 8081'})"
             )
         elif pid == "ollama":
-            hints.append("Ollama: run [cyan]ollama serve[/]")
+            hints.append(
+                "Ollama: run [cyan]ollama serve[/] or set "
+                "[cyan]OLLAMA_HOST[/] / [cyan]discovery.provider_urls.ollama[/]"
+            )
         elif pid == "lmstudio":
-            hints.append("LM Studio: enable the local API server in the app")
+            hints.append(
+                "LM Studio: enable the local API server or set "
+                "[cyan]discovery.provider_urls.lmstudio[/]"
+            )
     return list(dict.fromkeys(hints))
 
 
