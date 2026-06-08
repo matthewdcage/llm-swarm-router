@@ -3,8 +3,16 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="macos-app-install.sh port parsing uses BSD sed and bash paths",
+)
 
 # Mirrors agent_listen_port() in packaging/scripts/macos-app-install.sh
 _PORT_FROM_CONFIG = r"""
