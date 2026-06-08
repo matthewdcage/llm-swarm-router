@@ -10,8 +10,9 @@ RPM_VERSION_SH = ROOT / "packaging" / "linux" / "rpm-version.sh"
 
 
 def _rpm_version(semver: str) -> str:
+    cmd = f'source "{RPM_VERSION_SH}"; netllm_rpm_version "$1"'
     result = subprocess.run(
-        ["bash", "-c", f'source "{RPM_VERSION_SH}"; netllm_rpm_version "$1"', "_", semver],
+        ["bash", "-c", cmd, "_", semver],
         capture_output=True,
         text=True,
         check=True,
@@ -26,7 +27,9 @@ def test_dev_prerelease_uses_dots_not_tilde() -> None:
 def test_rpm_version_never_contains_tilde() -> None:
     for semver in ("0.0.0-dev", "0.2.2.1", "0.2.2.1.ci", "1.0.0-rc.1"):
         mapped = _rpm_version(semver)
-        assert "~" not in mapped, f"unsafe tilde in RPM path for {semver!r} -> {mapped!r}"
+        assert "~" not in mapped, (
+            f"unsafe tilde in RPM path for {semver!r} -> {mapped!r}"
+        )
 
 
 def test_tarball_path_does_not_tilde_expand_dev_prerelease() -> None:
