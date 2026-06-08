@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import socket
 import threading
+import time
 from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,15 @@ class MdnsAdvertiser:
             return
 
         try:
+            from zeroconf import NonUniqueNameException
+        except ImportError:
+            NonUniqueNameException = type(  # type: ignore[misc, assignment]
+                "NonUniqueNameException",
+                (Exception,),
+                {},
+            )
+
+        try:
             host, port = parse_listen_host_port(self.listen)
             advertise_host, addr = _advertise_address(self.listen)
             listen_url = f"http://{advertise_host}:{port}"
@@ -105,7 +115,28 @@ class MdnsAdvertiser:
                 properties={k: v.encode() for k, v in props.items()},
                 server=f"{self.agent_id}.local.",
             )
-            zc.register_service(info)
+
+            def _register() -> None:
+                try:
+                    zc.unregister_service(info)
+                except Exception:
+                    pass
+                zc.register_service(info)
+
+            try:
+                _register()
+            except NonUniqueNameException:
+                logger.warning(
+                    "mDNS name collision for %s — retrying after unregister",
+                    self.agent_id,
+                )
+                try:
+                    zc.unregister_service(info)
+                except Exception:
+                    pass
+                time.sleep(0.5)
+                _register()
+
             self._zeroconf = zc
             self._info = info
             logger.info("mDNS advertised %s on port %s", listen_url, port)

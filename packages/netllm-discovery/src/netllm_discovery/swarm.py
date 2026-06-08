@@ -33,13 +33,9 @@ class SwarmRegistry:
         self._task: asyncio.Task[None] | None = None
 
     def local_agent_url(self) -> str:
-        listen = self.config.agent.listen
-        if listen.startswith("http"):
-            return listen.rstrip("/")
-        host, _, port = listen.partition(":")
-        if not host or host == "0.0.0.0":
-            host = "127.0.0.1"
-        return f"http://{host}:{port or '11400'}"
+        from netllm_discovery.lan import agent_url_from_listen
+
+        return agent_url_from_listen(self.config.agent.listen)
 
     def register_peer(self, record: PeerRecord) -> None:
         record.last_seen = time.time()
