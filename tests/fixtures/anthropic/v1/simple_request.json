@@ -1,0 +1,8 @@
+{
+  "model": "llama3.2:latest",
+  "max_tokens": 1024,
+  "system": "You are a helpful assistant.",
+  "messages": [
+    {"role": "user", "content": "Hello"}
+  ]
+}
