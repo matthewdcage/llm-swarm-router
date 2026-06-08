@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="${NETLLM_APP:-$ROOT/apps/netllm-mac/build/Stage/netllm-mac.app}"
+APP="${NETLLM_APP:-$ROOT/apps/netllm-mac/build/Stage/llm-swarm-router.app}"
 CLI="$APP/Contents/MacOS/netllm-cli"
 TEST_PORT="${NETLLM_TEST_PORT:-11401}"
 BASE="http://127.0.0.1:${TEST_PORT}"
@@ -98,7 +98,7 @@ fi
 
 echo "==> DMG packaging"
 bash "$ROOT/packaging/scripts/create-dmg.sh"
-[[ -f "$ROOT/dist/netllm-mac.dmg" ]] || fail "DMG not created"
-ok "dist/netllm-mac.dmg"
+[[ -f "$ROOT/dist/llm-swarm-router.dmg" ]] || fail "DMG not created"
+ok "dist/llm-swarm-router.dmg"
 
 echo "ALL E2E CHECKS PASSED"

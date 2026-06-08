@@ -7,8 +7,8 @@ existing Python agent on port **11400** — it does not replace oMLX inference o
 
 ### DMG (recommended for desktop users)
 
-1. Download `netllm-mac.dmg` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases).
-2. Drag **netllm** to Applications.
+1. Download `llm-swarm-router.dmg` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases).
+2. Open the DMG and drag **llm-swarm-router** to **Applications**.
 3. Launch from Applications — the llm-swarm-router bee logo appears in the menu bar (switches for light/dark menu bar).
 4. Complete the welcome wizard (config path, LAN mode, auto-start).
 
@@ -70,21 +70,25 @@ Source files live in `assets/` (see `assets/README.md`):
 `build.sh` runs `Scripts/build-icons.sh` to produce `AppIcon.icns` and scaled menubar PNGs.
 Verify with `scripts/test-brand-icons.sh` (also run as part of `test-menubar-e2e.sh`).
 
-## Build from source
+## Test install like an end user (recommended for maintainers)
+
+Quit any running menubar instance, then:
+
+```bash
+./scripts/emulate-user-install-mac.sh
+```
+
+That builds a release DMG, installs to `/Applications/llm-swarm-router.app`, and launches from there — the same path users follow after downloading from Releases.
+
+Manual equivalent: open `dist/llm-swarm-router.dmg` → drag to Applications → launch from Applications (right-click **Open** once if Gatekeeper prompts).
+
+## Build from source (developers only)
 
 ```bash
 uv sync
 apps/netllm-mac/Scripts/build.sh release
-open apps/netllm-mac/build/Stage/netllm-mac.app
-
-# End-to-end verification
-scripts/test-menubar-e2e.sh
-```
-
-Optional DMG:
-
-```bash
 packaging/scripts/create-dmg.sh
+scripts/test-menubar-e2e.sh
 ```
 
 ## Coexistence with oMLX

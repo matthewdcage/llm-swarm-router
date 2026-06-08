@@ -15,7 +15,7 @@ from netllm_cli.install_detect import (
     is_homebrew,
 )
 
-_APP_NAME = "netllm-mac.app"
+_APP_NAMES = ("llm-swarm-router.app", "netllm-mac.app")
 
 
 def app_support_dir() -> Path:
@@ -31,7 +31,11 @@ def app_bundle_path() -> Path:
     try:
         return cli_path.parents[2]
     except IndexError:
-        return Path("/Applications") / _APP_NAME
+        for name in _APP_NAMES:
+            candidate = Path("/Applications") / name
+            if candidate.is_dir():
+                return candidate
+        return Path("/Applications") / _APP_NAMES[0]
 
 
 def open_macos_app() -> None:

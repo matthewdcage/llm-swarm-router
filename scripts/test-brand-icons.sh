@@ -45,7 +45,7 @@ do
 done
 ok "menubar + brand staging"
 
-APP="${NETLLM_APP:-$MAC/build/Stage/netllm-mac.app}"
+APP="${NETLLM_APP:-$MAC/build/Stage/llm-swarm-router.app}"
 if [[ -d "$APP" ]]; then
   echo "==> staged app bundle"
   [[ -f "$APP/Contents/Resources/AppIcon.icns" ]] || fail "bundle missing AppIcon.icns"

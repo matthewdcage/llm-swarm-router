@@ -11,7 +11,7 @@ from pathlib import Path
 _APP_BUNDLE_CLI_NAME = "netllm-cli"
 _PATH_CLI = "netllm"
 _USER_CLI_SHIM = Path(".config") / "netllm" / "bin" / "netllm"
-_APP_NAME = "netllm-mac.app"
+_APP_NAMES = ("llm-swarm-router.app", "netllm-mac.app")
 
 
 def is_app_bundle() -> bool:
@@ -33,8 +33,12 @@ def get_app_bundle_cli_path() -> Path:
     path = str(here)
     idx = path.find(marker)
     if idx == -1:
-        app = Path("/Applications") / _APP_NAME
-        return app / "Contents" / "MacOS" / _APP_BUNDLE_CLI_NAME
+        for name in _APP_NAMES:
+            app = Path("/Applications") / name
+            cli = app / "Contents" / "MacOS" / _APP_BUNDLE_CLI_NAME
+            if cli.is_file():
+                return cli
+        return Path("/Applications") / _APP_NAMES[0] / "Contents" / "MacOS" / _APP_BUNDLE_CLI_NAME
     app_root = Path(path[: idx + len(".app")])
     return app_root / "Contents" / "MacOS" / _APP_BUNDLE_CLI_NAME
 
