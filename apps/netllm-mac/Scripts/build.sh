@@ -133,4 +133,6 @@ codesign -f -s - "$APP" 2>/dev/null || true
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 
 echo "==> Staged: $APP"
-echo "    open \"$APP\"  # or drag to /Applications"
+echo "    open \"$APP\"                    # launch menubar app"
+echo "    # Drag netllm-mac.app (not Contents/) to /Applications in Finder"
+echo "    packaging/scripts/create-dmg.sh  # optional: dist/netllm-mac.dmg"
