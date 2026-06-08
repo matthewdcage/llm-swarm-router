@@ -2,6 +2,16 @@
 
 Single reference for install channels, UI surfaces, and stability tiers across macOS, Linux, and Windows.
 
+## Documentation by platform
+
+| Platform | Install | Troubleshooting |
+|----------|---------|-----------------|
+| **macOS** | [menubar-app.md](menubar-app.md) | [macos-troubleshooting.md](macos-troubleshooting.md) |
+| **Linux** | [linux-install.md](linux-install.md) | [linux-troubleshooting.md](linux-troubleshooting.md) |
+| **Windows** | [windows-install.md](windows-install.md) | [windows-troubleshooting.md](windows-troubleshooting.md) |
+
+Cross-platform: [editor-integration.md](editor-integration.md) · Agent help: `./netllm doctor`
+
 ## Stability tiers
 
 | Tier | Platforms | Expectation |
@@ -20,18 +30,18 @@ Single reference for install channels, UI surfaces, and stability tiers across m
 | **Windows** | `netllm-*-windows-x64.zip` | `NetllmAgent` Windows service | `windows-service` after `install-service.ps1` |
 | **All** | Source: `uv sync` + `./netllm serve` | Foreground terminal | N/A — use `netllm serve` |
 
-Details: [menubar-app.md](menubar-app.md), [linux-install.md](linux-install.md), [windows-install.md](windows-install.md).
+Install details: links in the table above.
 
 ## UI surfaces
 
 | Surface | macOS | Linux | Windows |
 |---------|-------|-------|---------|
-| **Web dashboard** | http://127.0.0.1:11400/ui/ | Same | Same |
-| **Menubar / tray** | Native Swift menubar | — | — |
-| **CLI** | `netllm status`, `discover`, `env`, `doctor` | Same | Same |
+| **Web dashboard** | http://127.0.0.1:11400/ui/ (source/latest agent) | Same | Same |
+| **Menubar / tray** | Native Swift menubar + **Copy Client Env** | — | — |
+| **CLI** | `netllm status`, `discover`, `doctor` | Same | Same |
 | **Config edit** | Settings window or `netllm config-edit` | `netllm config-edit` | `netllm config-edit` |
 
-Menubar **Open Dashboard** opens the same `/ui/` page as Linux and Windows browsers.
+Menubar **Open Dashboard** (source/latest macOS build) opens `/ui/`. **Copy Client Env** works on all macOS builds.
 
 ## Discovery defaults (`netllm init`)
 
@@ -67,12 +77,11 @@ Override with `[ui] log_dir` in `config.toml`.
 ## Wire editors
 
 ```bash
-netllm env          # print export lines
-# or copy from dashboard → Copy client env
 export OPENAI_BASE_URL=http://127.0.0.1:11400/v1
 export OPENAI_API_KEY=netllm-local
 export ANTHROPIC_BASE_URL=http://127.0.0.1:11400
 export ANTHROPIC_API_KEY=netllm-local
+# macOS menubar: Copy Client Env · source/latest: dashboard Copy client env
 ```
 
 See [editor-integration.md](editor-integration.md).

@@ -2,6 +2,8 @@
 
 Install the mesh router as a background **systemd user service** or run from source.
 
+**Troubleshooting:** [linux-troubleshooting.md](linux-troubleshooting.md) · **All platforms:** [platform-matrix.md](platform-matrix.md)
+
 ## Package install (recommended)
 
 Download from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases):
@@ -21,7 +23,7 @@ netllm status
 
 Logs: `journalctl --user -u netllm -f` and `~/.local/state/netllm/logs/agent.log`
 
-**Dashboard:** open http://127.0.0.1:11400/ui/ for status, backends, peers, and copy client env.
+**Status:** `netllm status` · optional dashboard at http://127.0.0.1:11400/ui/ (source/latest agent).
 
 ## Source install (development)
 
@@ -54,6 +56,6 @@ export ANTHROPIC_BASE_URL=http://127.0.0.1:11400
 export ANTHROPIC_API_KEY=netllm-local
 ```
 
-Platform overview: [platform-matrix.md](platform-matrix.md).
+Platform overview: [platform-matrix.md](platform-matrix.md) · Troubleshooting: [linux-troubleshooting.md](linux-troubleshooting.md)
 
 See [editor-integration.md](editor-integration.md).

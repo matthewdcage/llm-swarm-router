@@ -2,6 +2,8 @@
 
 Run the mesh router as a **Windows service** or in a foreground terminal.
 
+**Troubleshooting:** [windows-troubleshooting.md](windows-troubleshooting.md) · **All platforms:** [platform-matrix.md](platform-matrix.md)
+
 ## Portable zip (recommended)
 
 Download `netllm-<version>-windows-x64.zip` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases).
@@ -13,7 +15,7 @@ Download `netllm-<version>-windows-x64.zip` from [GitHub Releases](https://githu
 
 Logs: `%LOCALAPPDATA%\netllm\logs\agent.log` (and service stdout).
 
-**Dashboard:** open http://127.0.0.1:11400/ui/ for status, backends, peers, and copy client env.
+**Status:** `netllm status` · optional dashboard at http://127.0.0.1:11400/ui/ (source/latest agent).
 
 `install-service.ps1` adds the package `python\Scripts` folder to your user PATH.
 
@@ -62,4 +64,4 @@ $env:ANTHROPIC_BASE_URL = "http://127.0.0.1:11400"
 $env:ANTHROPIC_API_KEY = "netllm-local"
 ```
 
-See [editor-integration.md](editor-integration.md) and [platform-matrix.md](platform-matrix.md).
+See [editor-integration.md](editor-integration.md), [platform-matrix.md](platform-matrix.md), and [windows-troubleshooting.md](windows-troubleshooting.md).
