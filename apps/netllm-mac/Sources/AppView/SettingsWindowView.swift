@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct SettingsWindowView: View {
     @Bindable var model: SettingsViewModel
     @Bindable var supervisor: AgentSupervisor

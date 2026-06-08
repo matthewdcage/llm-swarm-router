@@ -23,12 +23,16 @@ final class MenubarController {
             object: server,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.rebuildMenu() }
+            guard let self else { return }
+            Task { @MainActor in
+                self.rebuildMenu()
+            }
         }
         statsPoller.onUpdate = { [weak self] in
+            guard let self else { return }
             Task { @MainActor in
-                self?.refreshStatusHeader()
-                self?.updateStatsSubmenu()
+                self.refreshStatusHeader()
+                self.updateStatsSubmenu()
             }
         }
     }
@@ -171,14 +175,20 @@ final class MenubarController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.updateMenubarIcon() }
+            guard let self else { return }
+            Task { @MainActor in
+                self.updateMenubarIcon()
+            }
         }
         DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.updateMenubarIcon() }
+            guard let self else { return }
+            Task { @MainActor in
+                self.updateMenubarIcon()
+            }
         }
     }
 
