@@ -32,6 +32,10 @@ file "$ICNS" | rg -qi 'Mac OS X icon' || fail "AppIcon.icns invalid format"
 ok "AppIcon.icns"
 
 for f in \
+  MenubarIconLight.png \
+  MenubarIconLight@2x.png \
+  MenubarIconDark.png \
+  MenubarIconDark@2x.png \
   MenubarIcon.png \
   MenubarIcon@2x.png \
   llm-swam-router-icon.png \
@@ -47,7 +51,8 @@ if [[ -d "$APP" ]]; then
   [[ -f "$APP/Contents/Resources/AppIcon.icns" ]] || fail "bundle missing AppIcon.icns"
   /usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$APP/Contents/Info.plist" 2>/dev/null \
     | rg -qx 'AppIcon' || fail "Info.plist missing CFBundleIconFile=AppIcon"
-  [[ -f "$APP/Contents/Resources/Brand/MenubarIcon.png" ]] || fail "bundle missing menubar icon"
+  [[ -f "$APP/Contents/Resources/Brand/MenubarIconLight.png" ]] || fail "bundle missing light menubar icon"
+  [[ -f "$APP/Contents/Resources/Brand/MenubarIconDark.png" ]] || fail "bundle missing dark menubar icon"
   [[ -f "$APP/Contents/Resources/Brand/llm-swam-router-icon.svg" ]] || fail "bundle missing SVG"
   ok "app bundle brand resources"
 else

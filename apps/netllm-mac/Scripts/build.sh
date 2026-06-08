@@ -113,7 +113,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleExecutable</key><string>netllm-mac</string>
   <key>CFBundleIdentifier</key><string>com.netllm.mac</string>
-  <key>CFBundleName</key><string>netllm</string>
+  <key>CFBundleName</key><string>llm-swarm-router</string>
+  <key>CFBundleDisplayName</key><string>llm-swarm-router</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleShortVersionString</key><string>$MARKETING_VERSION</string>

@@ -1,6 +1,6 @@
-# netllm macOS Menubar App
+# llm-swarm-router macOS Menubar App
 
-Native menubar wrapper for the netllm mesh router (oMLX-style). The app supervises the
+Native menubar wrapper for **llm-swarm-router** (terminal CLI: `netllm`). The app supervises the
 existing Python agent on port **11400** — it does not replace oMLX inference on port 8080.
 
 ## Install channels
@@ -9,7 +9,7 @@ existing Python agent on port **11400** — it does not replace oMLX inference o
 
 1. Download `netllm-mac.dmg` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases).
 2. Drag **netllm** to Applications.
-3. Launch from Applications — the netllm bee logo appears in the menu bar.
+3. Launch from Applications — the llm-swarm-router bee logo appears in the menu bar (switches for light/dark menu bar).
 4. Complete the welcome wizard (config path, LAN mode, auto-start).
 
 The app installs a CLI shim at `~/.config/netllm/bin/netllm` for terminal control.
