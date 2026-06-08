@@ -9,3 +9,10 @@
 | `llm-swam-router-icon.svg` | Source vector — bundled in app `Resources/Brand/` |
 
 Build pipeline: `apps/netllm-mac/Scripts/build-icons.sh` (called from `build.sh`).
+
+## Screenshots (README)
+
+| File | Use |
+|------|-----|
+| `screenshots/llm-swarm-router-osx-menu.png` | Menubar dropdown — macOS install section |
+| `screenshots/llm-swarm-router-osx-settings.png` | Settings Status tab — features section |
