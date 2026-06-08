@@ -16,7 +16,7 @@
 # llm-swarm-router
 
 <p align="center">
-  <a href="AGENTS.md"><img src="https://img.shields.io/badge/version-0.2.3.3-orange?style=for-the-badge" alt="Version 0.2.3.3"></a>
+  <a href="AGENTS.md"><img src="https://img.shields.io/badge/version-0.2.3.4-orange?style=for-the-badge" alt="Version 0.2.3.4"></a>
   <a href="docs/macos-install.md"><img src="https://img.shields.io/badge/macOS-Menubar%20app-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS app"></a>
   <a href="docs/linux-install.md"><img src="https://img.shields.io/badge/Linux-deb%2Frpm%20alpha-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux alpha"></a>
   <a href="docs/windows-install.md"><img src="https://img.shields.io/badge/Windows-zip%20alpha-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows alpha"></a>
@@ -85,7 +85,7 @@ Point **Cursor**, **Claude Code**, **Codex**, **Honcho**, or any compatible clie
 
 Overview: [docs/platform-matrix.md](docs/platform-matrix.md) · Full doc index: [docs/README.md](docs/README.md)
 
-**Latest release:** [v0.2.3.3](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.3): macOS About fix + Logs (menubar, Settings, web); [v0.2.3.2](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.2) auto-update; [v0.2.3](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3) native-parity web dashboard at `/ui/`.
+**Latest release:** [v0.2.3.4](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.4): macOS quit/orphan agent fixes + CI lifecycle gates; [v0.2.3.3](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.3) About + Logs; [v0.2.3.2](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.2) auto-update.
 
 ---
 
