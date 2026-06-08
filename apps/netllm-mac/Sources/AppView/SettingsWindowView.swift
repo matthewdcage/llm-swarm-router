@@ -154,8 +154,8 @@ struct SettingsWindowView: View {
                 )
                 StatMetricCard(
                     title: "Peers",
-                    value: "\(model.status?.peers.count ?? 0)",
-                    subtitle: "LAN swarm agents"
+                    value: model.peerStatValue,
+                    subtitle: model.peerStatSubtitle
                 )
                 StatMetricCard(
                     title: "Models",
@@ -224,8 +224,12 @@ struct SettingsWindowView: View {
             "role: \(status.role)",
             status.routingStrategy,
         ]
-        if status.peers.count > 0 {
-            parts.insert("\(status.peers.count) peer\(status.peers.count == 1 ? "" : "s")", at: 0)
+        let connected = model.connectedPeerCount
+        let discovered = model.discoveredLanPeerCount
+        if connected > 0 {
+            parts.insert("\(connected) peer\(connected == 1 ? "" : "s") connected", at: 0)
+        } else if discovered > 0 {
+            parts.insert("\(discovered) peer\(discovered == 1 ? "" : "s") on LAN", at: 0)
         }
         return parts.joined(separator: " · ")
     }

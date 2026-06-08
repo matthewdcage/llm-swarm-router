@@ -29,6 +29,38 @@ final class SettingsViewModel {
     static let providers = ["omlx", "ollama", "lmstudio"]
     static let roles = ["peer", "gateway"]
 
+    /// Peers the running agent is routing through (`/netllm/v1/status`).
+    var connectedPeerCount: Int { status?.peers.count ?? 0 }
+
+    /// Unique agents from the last `peers --subnet-scan` (may not be connected yet).
+    var discoveredLanPeerCount: Int {
+        Set(lanPeers.map(\.listenURL)).count
+    }
+
+    var peerStatValue: String {
+        let connected = connectedPeerCount
+        let discovered = discoveredLanPeerCount
+        if discovered > 0, discovered != connected {
+            return "\(connected)/\(discovered)"
+        }
+        return "\(connected)"
+    }
+
+    var peerStatSubtitle: String {
+        let connected = connectedPeerCount
+        let discovered = discoveredLanPeerCount
+        if discovered > connected {
+            return "Connected / found on LAN"
+        }
+        if connected > 0 {
+            return "Connected swarm agents"
+        }
+        if discovered > 0 {
+            return "Found on LAN"
+        }
+        return "LAN swarm agents"
+    }
+
     init(runtime: PythonRuntime, configPath: URL = AppConfig.defaultConfigPath()) {
         configStore = ConfigStore(runtime: runtime, configPath: configPath)
         cli = CLIRunner(runtime: runtime, configPath: configPath)
