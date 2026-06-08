@@ -73,6 +73,11 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y dpkg-dev rpm
       - run: chmod +x packaging/linux/build-deb.sh packaging/linux/build-rpm.sh
       - run: NETLLM_VERSION="$NETLLM_VERSION" packaging/linux/build-deb.sh
+      - name: Attach deb to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.deb
       - run: NETLLM_VERSION="$NETLLM_VERSION" packaging/linux/build-rpm.sh
       - uses: actions/upload-artifact@v4
         with:
@@ -131,6 +136,7 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: bash packaging/scripts/update-homebrew-formula.sh "$RELEASE_TAG"
       - name: Open formula bump PR
+        continue-on-error: true
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           GH_TOKEN: ${{ github.token }}
