@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import tempfile
 from pathlib import Path
 
 # Mirrors agent_listen_port() in packaging/scripts/macos-app-install.sh
@@ -26,7 +27,7 @@ echo "$port"
 
 
 def _port_from_config(config_text: str) -> str:
-    config = Path("/tmp/netllm-test-config.toml")
+    config = Path(tempfile.gettempdir()) / "netllm-test-config.toml"
     config.write_text(config_text, encoding="utf-8")
     result = subprocess.run(
         ["bash", "-c", _PORT_FROM_CONFIG, "_", str(config)],
@@ -49,7 +50,7 @@ def test_listen_port_custom_value() -> None:
 
 def test_bsd_sed_backslash_s_leaves_trailing_quote() -> None:
     """Document the bug: \\s in sed -E fails on macOS, leaving port=11400\"."""
-    config = Path("/tmp/netllm-test-broken-config.toml")
+    config = Path(tempfile.gettempdir()) / "netllm-test-broken-config.toml"
     config.write_text('[agent]\nlisten = "127.0.0.1:11400"\n', encoding="utf-8")
     broken = r"""
 config="$1"
