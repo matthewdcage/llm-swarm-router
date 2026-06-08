@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from netllm_core.models import NetllmConfig
-from netllm_sdk_anthropic.client import AnthropicUpstream, AnthropicUpstreamError
+from netllm_sdk_anthropic.client import AnthropicUpstreamError
 from netllm_sdk_openai.client import OpenAIUpstreamError
 
 from netllm_agent.metrics import metrics_bytes
@@ -40,10 +40,12 @@ def create_app(config: NetllmConfig | None = None) -> FastAPI:
                 "OpenAI-compatible router is up. Use /v1/* — not this root path."
             ),
             "openai_base_url": f"{base}/v1",
+            "anthropic_base_url": base,
             "endpoints": {
                 "health": f"{base}/health",
                 "models": f"{base}/v1/models",
                 "chat": f"{base}/v1/chat/completions",
+                "messages": f"{base}/v1/messages",
                 "status": f"{base}/netllm/v1/status",
                 "metrics": f"{base}/metrics",
             },
@@ -100,10 +102,14 @@ def create_app(config: NetllmConfig | None = None) -> FastAPI:
         try:
             if stream:
                 return StreamingResponse(
-                    service.proxy_chat_completion_stream(payload),
+                    service.proxy_chat_completion_stream(
+                        payload, headers=request.headers
+                    ),
                     media_type="text/event-stream",
                 )
-            return await service.proxy_chat_completion(payload)
+            return await service.proxy_chat_completion(
+                payload, headers=request.headers
+            )
         except OpenAIUpstreamError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -112,21 +118,19 @@ def create_app(config: NetllmConfig | None = None) -> FastAPI:
     async def anthropic_messages(request: Request) -> Any:
         payload = await request.json()
         stream = bool(payload.get("stream"))
-        import os
+        hdrs = {k.lower(): v for k, v in request.headers.items()}
 
-        api_key = request.headers.get("x-api-key") or os.environ.get(
-            "ANTHROPIC_API_KEY", ""
-        )
-        if not api_key:
-            raise HTTPException(status_code=401, detail="ANTHROPIC_API_KEY required")
-
-        client = AnthropicUpstream(api_key)
         try:
             if stream:
-                gen = client.messages_stream(payload)
-                return StreamingResponse(gen, media_type="text/event-stream")
-            return await client.messages_create(payload)
+                return StreamingResponse(
+                    service.proxy_messages_stream(payload, headers=hdrs),
+                    media_type="text/event-stream",
+                )
+            return await service.proxy_messages(payload, headers=hdrs)
         except AnthropicUpstreamError as exc:
+            status = exc.status_code or 502
+            raise HTTPException(status_code=status, detail=str(exc)) from exc
+        except OpenAIUpstreamError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return app
