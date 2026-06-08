@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   build-macos:
@@ -43,13 +44,22 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: bash packaging/scripts/update-homebrew-formula.sh "$RELEASE_TAG"
-      - name: Commit formula bump
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/netllm.rb
-          git diff --staged --quiet && echo "Formula already up to date" && exit 0
-          git commit -m "chore(homebrew): bump formula to ${RELEASE_TAG}"
-          git push
+      - name: Open formula bump PR
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="homebrew/${RELEASE_TAG}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add Formula/netllm.rb
+          if git diff --staged --quiet; then
+            echo "Formula already up to date"
+            exit 0
+          fi
+          git commit -m "chore(homebrew): bump formula to ${RELEASE_TAG}"
+          git push -u origin "$BRANCH"
+          gh pr create --base main --head "$BRANCH" \
+            --title "chore(homebrew): bump formula to ${RELEASE_TAG}" \
+            --body "Automated Homebrew formula bump for ${RELEASE_TAG}. Merge to update the tap."
