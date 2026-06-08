@@ -50,6 +50,7 @@ dev = [
     "basedpyright>=1.20",
     "httpx>=0.28",
     "venvstacks>=0.5",
+    "pre-commit>=4.0",
 ]
 
 [tool.pytest.ini_options]

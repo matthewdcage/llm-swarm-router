@@ -47,6 +47,8 @@ allowed-tools:
 
 DMG, Homebrew, systemd, and Windows service installs use `netllm start` / `netllm stop`. Source installs keep `./netllm serve` (foreground).
 
+After the agent is running, open **http://127.0.0.1:11400/ui/** (all platforms) for status, backends, and copy client env. Run `netllm env` for the same export lines in the terminal. See [docs/platform-matrix.md](../../docs/platform-matrix.md).
+
 ## Workflow
 
 1. **Locate repo root** — `cd` to directory with `./netllm` wrapper and workspace `pyproject.toml`. If cwd is wrong, ask user for clone path.

@@ -2,6 +2,8 @@
 
 Install the mesh router as a background **systemd user service** or run from source.
 
+**Troubleshooting:** [linux-troubleshooting.md](linux-troubleshooting.md) · **All platforms:** [platform-matrix.md](platform-matrix.md)
+
 ## Package install (recommended)
 
 Download from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases):
@@ -19,7 +21,9 @@ systemctl --user enable --now netllm
 netllm status
 ```
 
-Logs: `journalctl --user -u netllm -f`
+Logs: `journalctl --user -u netllm -f` and `~/.local/state/netllm/logs/agent.log`
+
+**Status:** `netllm status` · optional dashboard at http://127.0.0.1:11400/ui/ (source/latest agent).
 
 ## Source install (development)
 
@@ -45,10 +49,13 @@ mDNS uses Avahi via `python-zeroconf`. If browse is empty, set static peers in `
 ## Wire editors
 
 ```bash
+netllm env   # print export lines (same as dashboard Copy client env)
 export OPENAI_BASE_URL=http://127.0.0.1:11400/v1
 export OPENAI_API_KEY=netllm-local
 export ANTHROPIC_BASE_URL=http://127.0.0.1:11400
 export ANTHROPIC_API_KEY=netllm-local
 ```
+
+Platform overview: [platform-matrix.md](platform-matrix.md) · Troubleshooting: [linux-troubleshooting.md](linux-troubleshooting.md)
 
 See [editor-integration.md](editor-integration.md).

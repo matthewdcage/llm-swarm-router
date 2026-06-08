@@ -70,18 +70,20 @@ Default provider ports: oMLX `:8080`, Ollama `:11434`, LM Studio `:1234`, vLLM `
 
 ## Linux and Windows
 
-| Platform | Install doc | Background agent |
-|----------|-------------|------------------|
-| Linux | [docs/linux-install.md](docs/linux-install.md) | `systemctl --user enable --now netllm` (deb/rpm) |
-| Windows | [docs/windows-install.md](docs/windows-install.md) | `NetllmAgent` service via packaged zip |
+| Platform | Install | Troubleshooting | Background agent | UI |
+|----------|---------|-----------------|------------------|-----|
+| Linux | [docs/linux-install.md](docs/linux-install.md) | [docs/linux-troubleshooting.md](docs/linux-troubleshooting.md) | `systemctl --user enable --now netllm` (deb/rpm) | http://127.0.0.1:11400/ui/ |
+| Windows | [docs/windows-install.md](docs/windows-install.md) | [docs/windows-troubleshooting.md](docs/windows-troubleshooting.md) | `NetllmAgent` service via packaged zip | http://127.0.0.1:11400/ui/ |
+
+Cross-platform matrix: [docs/platform-matrix.md](docs/platform-matrix.md). Agent graph wiki: `graphify-out/wiki/index.md` (after `graphify update .`).
 
 ## macOS menubar app
 
-Native app (oMLX-style): [docs/menubar-app.md](docs/menubar-app.md).
+Native app (oMLX-style): [docs/menubar-app.md](docs/menubar-app.md) · Troubleshooting: [docs/macos-troubleshooting.md](docs/macos-troubleshooting.md).
 
 | Channel | Install |
 |---------|---------|
-| DMG | GitHub Releases → drag `netllm-mac.app` to Applications |
+| DMG | GitHub Releases → drag `llm-swarm-router.app` to Applications |
 | Homebrew | `brew install netllm` + `brew services start netllm` |
 | Source | `./netllm serve` (unchanged dev path) |
 
@@ -128,9 +130,11 @@ Editor wiring reference: [docs/editor-integration.md](docs/editor-integration.md
 
 ## Git workflow
 
+Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow, issue templates, and review expectations.
+
 - Conventional commit messages; focus on why
-- Do not commit `.cursor/mcp.json`, `.cursor/hooks/state/`, or secrets
-- Do not commit unless the user explicitly asks
+- Do not commit `.cursor/plans/`, `.cursor/hooks/`, `.cursor/mcp.json`, `.cursor/rules/graphify.mdc`, or secrets
+- Do not commit unless the user explicitly asks (agents); human contributors open PRs per CONTRIBUTING.md
 
 ## Do not
 
@@ -143,6 +147,9 @@ Editor wiring reference: [docs/editor-integration.md](docs/editor-integration.md
 
 ## Learned facts
 
+- Local web dashboard at http://127.0.0.1:11400/ui/ on all platforms; macOS menubar has **Open Dashboard**
+- Linux/Windows beta use `/ui/` + CLI; macOS stable adds menubar app — same agent core
+- Published GitHub Releases attach `llm-swarm-router.dmg` via `.github/workflows/release.yml` (deb/rpm/zip planned)
 - `./netllm` wrapper runs `uv run --directory $ROOT netllm` — no global install needed
 - mDNS (swarm discovery) requires zeroconf from `uv sync`; reinstall if `netllm doctor` reports mDNS unavailable
 - `serve` on loopback (`127.0.0.1`) blocks LAN peers — use `--host 0.0.0.0` for swarm

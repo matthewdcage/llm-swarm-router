@@ -1,0 +1,10 @@
+# Exclude embedded runtimes and build artifacts from graphify corpus
+packaging/_build/
+packaging/_export/
+dist/
+.venv/
+venv/
+graphify-out/obsidian/
+**/__pycache__/
+*.pyc
+.git/
