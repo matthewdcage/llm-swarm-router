@@ -13,14 +13,34 @@ from rich.text import Text
 console = Console()
 
 
-def listen_url(listen: str) -> str:
-    """Normalize agent listen address to a full http URL."""
+def _listen_host_port(listen: str) -> tuple[str, str]:
     if listen.startswith("http"):
-        return listen.rstrip("/")
+        from urllib.parse import urlparse
+
+        parsed = urlparse(listen)
+        return parsed.hostname or "127.0.0.1", str(parsed.port or 11400)
     host, _, port = listen.partition(":")
-    if not host or host == "0.0.0.0":
-        host = "127.0.0.1"
-    return f"http://{host}:{port or '11400'}"
+    return host or "127.0.0.1", port or "11400"
+
+
+def listen_urls(listen: str) -> tuple[str, str | None]:
+    """Return (local client URL, optional LAN URL when bound to 0.0.0.0)."""
+    from netllm_discovery.lan import agent_url_from_listen, local_lan_ip
+
+    host, port = _listen_host_port(listen)
+    if host == "0.0.0.0":
+        client = f"http://127.0.0.1:{port}"
+        lan = agent_url_from_listen(listen, lan_ip=local_lan_ip())
+        if lan.rstrip("/") == client:
+            return client, None
+        return client, lan
+    return f"http://{host}:{port}", None
+
+
+def listen_url(listen: str) -> str:
+    """Normalize agent listen address to a full http URL for local clients."""
+    client, _ = listen_urls(listen)
+    return client
 
 
 def print_heading(title: str, subtitle: str = "") -> None:
