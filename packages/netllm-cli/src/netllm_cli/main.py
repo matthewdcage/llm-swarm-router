@@ -703,7 +703,7 @@ def serve(
     import uvicorn
     from netllm_agent.app import create_app
 
-    fastapi_app = create_app(cfg)
+    fastapi_app = create_app(cfg, config_path=cfg_path)
     host_part, _, port_part = cfg.agent.listen.partition(":")
     uvicorn.run(
         fastapi_app,

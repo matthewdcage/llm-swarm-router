@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -15,13 +16,20 @@ from netllm_agent.metrics import metrics_bytes
 from netllm_agent.service import AgentService
 
 
-def create_app(config: NetllmConfig | None = None) -> FastAPI:
+def create_app(
+    config: NetllmConfig | None = None,
+    *,
+    config_path: Path | None = None,
+) -> FastAPI:
     cfg = config or NetllmConfig()
     service = AgentService(cfg)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        await service.refresh_local_backends()
+        await service.refresh_local_backends(
+            persist_provider_urls=True,
+            config_path=config_path,
+        )
         service.start_background()
         yield
         service.stop_background()
