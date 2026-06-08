@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 from netllm_core.health import diagnose_backend, probe_openai_compat
-from netllm_core.models import Backend, BackendHealth, NetllmConfig
+from netllm_core.models import Backend, BackendHealth, NetllmConfig, infer_api_format
 
 KNOWN_PROVIDERS: list[tuple[str, str, list[str]]] = [
     (
@@ -152,11 +152,13 @@ def scan_results_to_backends(
         url = r["base_url"]
         pid = r.get("id", "custom")
         api_key = r.get("api_key") or _api_key_for_provider(str(pid), cfg)
+        provider = pid  # type: ignore[arg-type]
         backends.append(
             Backend(
                 id=str(uuid.uuid5(uuid.NAMESPACE_URL, url)),
                 base_url=url,
-                provider=pid,  # type: ignore[arg-type]
+                provider=provider,
+                api_format=infer_api_format(provider),
                 api_key=api_key,
                 enabled=True,
                 local=local,

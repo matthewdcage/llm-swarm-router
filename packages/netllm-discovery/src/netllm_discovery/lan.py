@@ -68,7 +68,8 @@ async def fetch_agent_status(
         if resp.status_code != 200:
             return None
         data = resp.json()
-        data.setdefault("listen_url", base_url.rstrip("/"))
+        # Probe URL is what LAN clients must use (status may report loopback).
+        data["listen_url"] = base_url.rstrip("/")
         return data
     except Exception as exc:
         logger.debug("agent status failed %s: %s", base_url, exc)
@@ -235,8 +236,8 @@ async def discover_lan_agents(
                 status["source"] = entry.get("source", "scan")
                 enriched.append(status)
 
-    local_url = agent_url_from_listen(cfg.agent.listen).rstrip("/")
-    enriched = [p for p in enriched if p.get("listen_url", "").rstrip("/") != local_url]
+    local_id = cfg.agent.agent_id
+    enriched = [p for p in enriched if p.get("agent_id", "") != local_id]
     enriched.sort(key=lambda p: (p.get("hostname", ""), p.get("agent_id", "")))
     return enriched
 
