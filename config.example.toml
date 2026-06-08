@@ -7,6 +7,8 @@ role = "peer"
 advertise = true
 
 [discovery]
+# macOS default (netllm init): omlx, ollama, lmstudio, vllm
+# Linux/Windows default (netllm init): ollama, lmstudio, vllm (no omlx)
 providers = ["omlx", "ollama", "lmstudio", "vllm"]
 custom_endpoints = []
 # Per-machine overrides (tried before default port scan). Example Mac mini oMLX on 8088:
@@ -27,10 +29,11 @@ default_strategy = "local_first"
 allow_remote = true
 require_same_model_for_shard = true
 
-# Optional menubar app settings (defaults apply when section is omitted)
+# Shared UI settings (macOS menubar + all platforms via /ui/ dashboard)
 [ui]
 auto_start_on_launch = true
-# log_dir = ""  # default: platform-specific (see netllm_core.platform.default_log_dir)
+# log_dir = ""  # default: ~/Library/.../logs (macOS), XDG state (Linux), %LOCALAPPDATA% (Windows)
+# serve writes agent.log under log_dir on all platforms
 
 # Optional manual backend overrides (per-endpoint API keys via env)
 # [[routing.backends]]

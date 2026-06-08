@@ -41,6 +41,7 @@ uv sync
 | Routing Stats | Per-backend health (●/○), peer count, role, model preview |
 | Open Status Page | `http://127.0.0.1:11400/` |
 | Open oMLX Admin | `http://127.0.0.1:8080/admin` when oMLX is installed |
+| Open Dashboard | Local web UI at `/ui/` (same on Linux/Windows) |
 | Copy Client Env | OpenAI + Anthropic env vars for editors |
 | Settings… (⌘,) | Full `config.toml` editor + live status, backends, models, peers, doctor/test/gateway |
 

@@ -1,0 +1,14 @@
+# Default reviewers for community PRs (GitHub auto-requests review).
+# See CONTRIBUTING.md for contributor workflow.
+
+* @matthewdcage
+
+/packages/netllm-core/ @matthewdcage
+/packages/netllm-agent/ @matthewdcage
+/packages/netllm-discovery/ @matthewdcage
+/packages/netllm-cli/ @matthewdcage
+/packages/netllm-sdk-openai/ @matthewdcage
+/packages/netllm-sdk-anthropic/ @matthewdcage
+/apps/netllm-mac/ @matthewdcage
+/packaging/ @matthewdcage
+/docs/ @matthewdcage

@@ -11,7 +11,11 @@ Download `netllm-<version>-windows-x64.zip` from [GitHub Releases](https://githu
 3. Run `.\install-service.ps1` to register the `NetllmAgent` service.
 4. From any terminal: `netllm init` then `netllm start`.
 
-Logs default to `%LOCALAPPDATA%\netllm\logs`.
+Logs: `%LOCALAPPDATA%\netllm\logs\agent.log` (and service stdout).
+
+**Dashboard:** open http://127.0.0.1:11400/ui/ for status, backends, peers, and copy client env.
+
+`install-service.ps1` adds the package `python\Scripts` folder to your user PATH.
 
 ## Winget
 
@@ -51,10 +55,11 @@ Windows firewalls often block mDNS. Prefer `swarm.peers` in `config.toml` or `ne
 ## Wire editors
 
 ```powershell
+netllm env   # print export lines (same as dashboard Copy client env)
 $env:OPENAI_BASE_URL = "http://127.0.0.1:11400/v1"
 $env:OPENAI_API_KEY = "netllm-local"
 $env:ANTHROPIC_BASE_URL = "http://127.0.0.1:11400"
 $env:ANTHROPIC_API_KEY = "netllm-local"
 ```
 
-See [editor-integration.md](editor-integration.md).
+See [editor-integration.md](editor-integration.md) and [platform-matrix.md](platform-matrix.md).

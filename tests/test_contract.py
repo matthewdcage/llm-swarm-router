@@ -21,6 +21,10 @@ EXPECTED_HTTP_ROUTES = {
     "/v1/chat/completions",
     "/v1/messages",
     "/netllm/v1/status",
+    "/netllm/v1/doctor",
+    "/netllm/v1/config",
+    "/netllm/v1/client-env",
+    "/netllm/v1/admin/discover",
 }
 
 
@@ -97,3 +101,33 @@ def test_install_method_darwin_channels() -> None:
                     "netllm_cli.install_detect.is_windows_service", return_value=False
                 ):
                     assert get_install_method() == "source"
+
+
+def test_install_method_windows_service() -> None:
+    from netllm_cli.install_detect import get_install_method
+
+    with patch("netllm_cli.install_detect.is_app_bundle", return_value=False):
+        with patch("netllm_cli.install_detect.is_homebrew", return_value=False):
+            with patch(
+                "netllm_cli.install_detect.is_linux_systemd",
+                return_value=False,
+            ):
+                with patch(
+                    "netllm_cli.install_detect.is_windows_service",
+                    return_value=True,
+                ):
+                    assert get_install_method() == "windows-service"
+
+
+def test_ui_route_serves_dashboard() -> None:
+    from fastapi.testclient import TestClient
+    from netllm_agent.app import create_app
+    from netllm_core.models import NetllmConfig
+
+    cfg = NetllmConfig()
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    with TestClient(create_app(cfg)) as client:
+        resp = client.get("/ui/")
+        assert resp.status_code == 200
+        assert "dashboard" in resp.text.lower()

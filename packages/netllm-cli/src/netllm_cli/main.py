@@ -698,14 +698,26 @@ def serve(
         print_warnings(warnings)
         console.print(
             "[dim]Press Ctrl+C to stop. "
-            "Opening [cyan]/[/] in a browser shows a help JSON — not an error.[/]\n"
+            "Dashboard: [cyan]" + base + "/ui/[/] · API help JSON at [cyan]/[/][/]\n"
         )
     elif warnings:
         for w in warnings:
             console.print(f"[yellow]note:[/] {w}", file=sys.stderr)
 
+    import logging
+
     import uvicorn
     from netllm_agent.app import create_app
+
+    log_dir = cfg.resolved_log_dir()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / "agent.log"
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
+    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        logging.getLogger(logger_name).addHandler(file_handler)
 
     fastapi_app = create_app(cfg, config_path=cfg_path)
     host_part, _, port_part = cfg.agent.listen.partition(":")
@@ -1117,13 +1129,13 @@ def start(
     timeout: float = typer.Option(60.0, "--timeout", help="Seconds to wait for agent"),
     no_wait: bool = typer.Option(False, "--no-wait", help="Return after dispatch"),
 ) -> None:
-    """Start the netllm agent (macOS app or Homebrew service)."""
+    """Start the netllm agent (menubar app, Homebrew, systemd, or Windows service)."""
     raise typer.Exit(lifecycle_command("start", timeout=timeout, no_wait=no_wait))
 
 
 @app.command()
 def stop() -> None:
-    """Stop the netllm agent (macOS app or Homebrew service)."""
+    """Stop the netllm agent (menubar app, Homebrew, systemd, or Windows service)."""
     raise typer.Exit(lifecycle_command("stop"))
 
 
@@ -1132,7 +1144,7 @@ def restart(
     timeout: float = typer.Option(60.0, "--timeout", help="Seconds to wait for agent"),
     no_wait: bool = typer.Option(False, "--no-wait", help="Return after dispatch"),
 ) -> None:
-    """Restart the netllm agent (macOS app or Homebrew service)."""
+    """Restart the netllm agent (menubar app, Homebrew, systemd, or Windows service)."""
     raise typer.Exit(lifecycle_command("restart", timeout=timeout, no_wait=no_wait))
 
 

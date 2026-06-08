@@ -1,23 +1,17 @@
-name: Release Windows
+# Deprecated: use .github/workflows/release.yml (unified release on publish).
+name: Release Windows (manual only)
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
 
 jobs:
   zip:
     runs-on: windows-latest
-    env:
-      NETLLM_VERSION: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - name: Build portable zip
-        shell: pwsh
-        run: |
-          $version = $env:NETLLM_VERSION.TrimStart('v')
-          ./packaging/windows/build-zip.ps1 -Version $version
+      - shell: pwsh
+        run: ./packaging/windows/build-zip.ps1 -Version 0.0.0-dev
       - uses: actions/upload-artifact@v4
         with:
           name: netllm-windows-zip

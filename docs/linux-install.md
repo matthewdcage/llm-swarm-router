@@ -19,7 +19,9 @@ systemctl --user enable --now netllm
 netllm status
 ```
 
-Logs: `journalctl --user -u netllm -f`
+Logs: `journalctl --user -u netllm -f` and `~/.local/state/netllm/logs/agent.log`
+
+**Dashboard:** open http://127.0.0.1:11400/ui/ for status, backends, peers, and copy client env.
 
 ## Source install (development)
 
@@ -45,10 +47,13 @@ mDNS uses Avahi via `python-zeroconf`. If browse is empty, set static peers in `
 ## Wire editors
 
 ```bash
+netllm env   # print export lines (same as dashboard Copy client env)
 export OPENAI_BASE_URL=http://127.0.0.1:11400/v1
 export OPENAI_API_KEY=netllm-local
 export ANTHROPIC_BASE_URL=http://127.0.0.1:11400
 export ANTHROPIC_API_KEY=netllm-local
 ```
+
+Platform overview: [platform-matrix.md](platform-matrix.md).
 
 See [editor-integration.md](editor-integration.md).

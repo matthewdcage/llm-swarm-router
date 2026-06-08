@@ -35,6 +35,19 @@ def test_lifecycle_linux_systemd() -> None:
     sysd.assert_called_once_with("start")
 
 
+def test_lifecycle_windows_service() -> None:
+    with patch(
+        "netllm_cli.lifecycle.get_install_method", return_value="windows-service"
+    ):
+        with patch(
+            "netllm_cli.lifecycle.windows.lifecycle_command",
+            return_value=0,
+        ) as win:
+            rc = lifecycle_command("restart")
+    assert rc == 0
+    win.assert_called_once_with("restart")
+
+
 def test_lifecycle_app_socket_start() -> None:
     with patch("netllm_cli.lifecycle.get_install_method", return_value="app"):
         with patch("netllm_cli.lifecycle.darwin.send_app_control_with_launch") as send:

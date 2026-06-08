@@ -20,6 +20,7 @@
   <a href="docs/menubar-app.md"><img src="https://img.shields.io/badge/macOS-Menubar%20app-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS app"></a>
   <a href="docs/editor-integration.md"><img src="https://img.shields.io/badge/Docs-Editor%20wiring-FFD700?style=for-the-badge" alt="Editor integration"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=for-the-badge" alt="PRs welcome"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11+"></a>
   <a href="https://platform.openai.com/docs/api-reference"><img src="https://img.shields.io/badge/API-OpenAI%20%2B%20Anthropic-412991?style=for-the-badge&logo=openai&logoColor=white" alt="OpenAI + Anthropic APIs"></a>
 </p>
@@ -68,7 +69,7 @@ Point **Cursor**, **Claude Code**, **Codex**, **Honcho**, or any compatible clie
 | **Linux** (desktop) | **Available** — systemd user service, `.deb` / `.rpm` | [docs/linux-install.md](docs/linux-install.md) |
 | **Windows** | **Available** — portable zip + Windows service | [docs/windows-install.md](docs/windows-install.md) |
 
-Linux and Windows run the **agent and CLI from source** or packaged installs (deb/rpm/zip). macOS adds a native menubar app.
+Linux and Windows run the **agent and CLI from source** or packaged installs (deb/rpm/zip). All platforms share the **web dashboard** at http://127.0.0.1:11400/ui/. macOS adds a native menubar app. See [docs/platform-matrix.md](docs/platform-matrix.md).
 
 ---
 
@@ -84,7 +85,7 @@ Linux and Windows run the **agent and CLI from source** or packaged installs (de
 <p align="center">
   <img src="assets/screenshots/llm-swarm-router-osx-menu.png" alt="llm-swarm-router menubar menu showing agent status, routing stats, and Settings" width="320">
   <br>
-  <em>Menubar — agent status, start/stop, routing stats, copy client env, and Settings (⌘,).</em>
+  <em>Menubar — agent status, start/stop, Open Dashboard, copy client env, and Settings (⌘,).</em>
 </p>
 
 The app **starts the agent automatically**, **scans for local providers** (oMLX, Ollama, LM Studio), and **persists discovered URLs** to `~/.config/netllm/config.toml`. You do not need to run `netllm discover` manually.
@@ -258,10 +259,46 @@ uv run pytest tests/ -v
 uv run ruff check packages/ tests/
 ```
 
+Optional pre-commit hooks (same ruff rules as CI):
+
+```bash
+uv run pre-commit install
+uv run pre-commit run --all-files
+```
+
 After editing agent skills: `scripts/sync-agent-skills.sh`
+
+Human contributor guide: [CONTRIBUTING.md](CONTRIBUTING.md) · Agent context: [AGENTS.md](AGENTS.md)
+
+---
+
+## Contributing
+
+**llm-swarm-router** is an open-source community project. We welcome bug reports, documentation improvements, platform fixes, and feature PRs.
+
+| Action | Link |
+|--------|------|
+| Report a bug | [Bug report template](https://github.com/matthewdcage/llm-swarm-router/issues/new?template=bug_report.yml) |
+| Suggest a feature | [Feature request template](https://github.com/matthewdcage/llm-swarm-router/issues/new?template=feature_request.yml) |
+| Development setup & PR workflow | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Code of conduct | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
+| Security disclosure | [SECURITY.md](SECURITY.md) |
+| Help & docs index | [SUPPORT.md](SUPPORT.md) |
+
+**Quick start for contributors:**
+
+```bash
+git clone https://github.com/matthewdcage/llm-swarm-router.git
+cd llm-swarm-router
+uv sync
+./netllm init
+uv run pytest tests/ -v && uv run ruff check packages/ tests/
+```
+
+Fork → branch → PR against `main`. Use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`). CI runs on Ubuntu and Windows.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Copyright (c) netllm contributors.

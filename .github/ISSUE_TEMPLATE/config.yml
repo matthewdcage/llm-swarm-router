@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question / setup help
+    url: https://github.com/matthewdcage/llm-swarm-router/issues/new?template=bug_report.yml
+    about: Use a bug report with setup details, or check SUPPORT.md and docs first
+  - name: Security vulnerability
+    url: https://github.com/matthewdcage/llm-swarm-router/security/advisories/new
+    about: Report security issues privately — do not open a public issue
+  - name: Contributing guide
+    url: https://github.com/matthewdcage/llm-swarm-router/blob/main/CONTRIBUTING.md
+    about: Development setup, PR workflow, and code style

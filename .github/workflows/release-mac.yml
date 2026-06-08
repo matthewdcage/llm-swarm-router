@@ -1,8 +1,7 @@
-name: Release macOS app
+# Deprecated: use .github/workflows/release.yml (unified release on publish).
+name: Release macOS app (manual only)
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
 
 jobs:
@@ -10,34 +9,16 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-
-      - name: Sync dependencies
-        run: uv sync
-
-      - name: Install venvstacks
-        run: uv pip install venvstacks
-
-      - name: Build app bundle
-        run: apps/netllm-mac/Scripts/build.sh release
+      - run: uv sync
+      - run: uv pip install venvstacks
+      - run: apps/netllm-mac/Scripts/build.sh release
         env:
           REBUILD_DONOR: force
-
-      - name: Create DMG
-        run: bash packaging/scripts/create-dmg.sh
-
-      - name: Upload DMG artifact
-        uses: actions/upload-artifact@v4
+      - run: bash packaging/scripts/create-dmg.sh
+      - uses: actions/upload-artifact@v4
         with:
           name: netllm-mac-dmg
           path: dist/llm-swarm-router.dmg
-
-      - name: Attach to release
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/llm-swarm-router.dmg
