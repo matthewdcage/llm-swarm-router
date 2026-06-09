@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct MenubarPopoverView: View {
     @Bindable var model: MenubarAppModel
 
@@ -178,7 +179,7 @@ struct MenubarPopoverView: View {
     private func popoverLink(
         _ title: String,
         systemImage: String,
-        action: @escaping () -> Void
+        action: @MainActor @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
@@ -188,6 +189,7 @@ struct MenubarPopoverView: View {
     }
 }
 
+@MainActor
 private struct MenubarUpdateActions: View {
     @Bindable var model: MenubarAppModel
 

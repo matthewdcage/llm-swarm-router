@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct MenubarStatusLabel: View {
     @Bindable var model: MenubarAppModel
 
