@@ -17,7 +17,7 @@
 
 <p align="center">
   <a href="https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.3.0.1"><img src="https://img.shields.io/badge/version-0.3.0.1-orange?style=for-the-badge" alt="Version 0.3.0.1"></a>
-  <a href="https://github.com/matthewdcage/llm-swarm-router/stargazers"><img src="https://img.shields.io/github/stars/matthewdcage/llm-swarm-router?style=for-the-badge&logo=github&logoColor=white" alt="GitHub stars"></a>
+  <a href="https://github.com/matthewdcage/llm-swarm-router/stargazers"><img src="https://img.shields.io/badge/Star%20on-GitHub-%E2%AD%90-181717?style=for-the-badge&logo=github&logoColor=white" alt="Star on GitHub"></a>
   <a href="docs/macos-install.md"><img src="https://img.shields.io/badge/macOS-Menubar%20app-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS app"></a>
   <a href="docs/linux-install.md"><img src="https://img.shields.io/badge/Linux-deb%2Frpm%20alpha-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux alpha"></a>
   <a href="docs/windows-install.md"><img src="https://img.shields.io/badge/Windows-zip%20alpha-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows alpha"></a>
@@ -33,9 +33,9 @@
 **The mesh router for local LLM backends.** Run a lightweight agent on each computer. It finds **oMLX**, **Ollama**, **LM Studio**, and **vLLM** on localhost (plus custom OpenAI-compatible server URLs), discovers sibling agents on your LAN, **distributes agent and API calls across every available machine** to spread inference load and boost throughput, and exposes one stable endpoint for every editor and tool.
 
 <p align="center">
-  <img src="assets/screenshots/llm-swarm-router-osx-settings.png" alt="llm-swarm-router Settings, backends online, swarm peers connected, routed model catalog" width="720">
+  <img src="assets/screenshots/llm-swarm-router-osx-settings.png" alt="llm-swarm-router Settings v0.3.0.1 Status tab with backends, peers, and routed model catalog" width="720">
   <br>
-  <em>One glance: backends, peers, and models, live on your network.</em>
+  <em>Settings (v0.3.0.1): backends, peers, and routed models at a glance.</em>
 </p>
 
 ### Why I built it
@@ -100,9 +100,9 @@ Overview: [docs/platform-matrix.md](docs/platform-matrix.md) · Full doc index: 
 4. Complete the short welcome wizard (optional LAN mode, auto-start agent).
 
 <p align="center">
-  <img src="assets/screenshots/llm-swarm-router-osx-menu.png" alt="llm-swarm-router menubar menu showing agent status, routing stats, and Settings" width="320">
+  <img src="assets/screenshots/llm-swarm-router-osx-menu.png" alt="llm-swarm-router MenuBarExtra popover v0.3.0.1 showing agent status, routing stats, and quick actions" width="360">
   <br>
-  <em>Menubar, agent status, start/stop, Open Dashboard, Copy Client Env, and Settings (⌘,).</em>
+  <em>MenuBarExtra popover: agent status, routing stats, Open Dashboard, Copy Client Env, and Settings.</em>
 </p>
 
 The app **starts the agent automatically**, **scans for local providers** (oMLX, Ollama, LM Studio), and **persists discovered URLs** to `~/.config/netllm/config.toml`. You do not need to run `netllm discover` manually.
