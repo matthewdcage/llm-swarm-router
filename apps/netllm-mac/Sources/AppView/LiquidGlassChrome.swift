@@ -12,15 +12,23 @@ struct NetllmCardChrome: ViewModifier {
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        #if LIQUID_GLASS_SDK
         if #available(macOS 26.0, *), LiquidGlassChrome.isRuntimeAvailable {
             content
                 .glassEffect(.regular, in: shape)
         } else {
-            content
-                .background(Color(nsColor: .controlBackgroundColor))
-                .clipShape(shape)
-                .overlay(shape.strokeBorder(DesignTokens.cardStroke(), lineWidth: 1))
+            fallbackChrome(content: content, shape: shape)
         }
+        #else
+        fallbackChrome(content: content, shape: shape)
+        #endif
+    }
+
+    private func fallbackChrome(content: Content, shape: RoundedRectangle) -> some View {
+        content
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(DesignTokens.cardStroke(), lineWidth: 1))
     }
 }
 
