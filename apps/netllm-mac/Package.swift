@@ -1,9 +1,9 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 5.9
 import PackageDescription
 
 let package = Package(
     name: "netllm-mac",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
             name: "NetllmMac",
