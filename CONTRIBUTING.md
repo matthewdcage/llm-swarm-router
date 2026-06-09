@@ -76,12 +76,16 @@ See [packaging/README.md](packaging/README.md) and [docs/platform-matrix.md](doc
 4. **Run the checks locally** (same as CI):
 
 ```bash
-./scripts/ci.sh
+./scripts/verify-before-pr.sh
 ```
 
-`lint` (~1s), `test` (~12s), and `packaging` (deb/rpm on Linux, zip on Windows) can run separately: `./scripts/ci.sh lint`, `./scripts/ci.sh test`, or `./scripts/ci.sh packaging`.
+On macOS, that runs lint + test + `swift build -c release` for the menubar app. Add `--full` to run menubar e2e when `apps/netllm-mac/build/Stage/llm-swarm-router.app` exists.
 
-Full CI (lint → test + packaging-smoke on Ubuntu and Windows): `./scripts/ci.sh`.
+`lint` (~1s), `test` (~20s), and `packaging` (deb/rpm on Linux, zip on Windows) can run separately: `./scripts/ci.sh lint`, `./scripts/ci.sh test`, or `./scripts/ci.sh packaging`.
+
+**macOS menubar changes:** also read [docs/ci-and-release.md](docs/ci-and-release.md) — CI uses `macos-14` / Swift 5.10; Tahoe-only APIs must be SDK-gated.
+
+Full CI (lint → test + packaging-smoke + menubar-lifecycle on macOS): see [docs/ci-and-release.md](docs/ci-and-release.md).
 
 5. **Add or update tests** when you change behavior, avoid trivial assertions; cover real paths.
 6. **Update docs** when user-facing behavior, CLI flags, or install steps change.

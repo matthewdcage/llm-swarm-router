@@ -60,6 +60,8 @@ Prefer `./netllm` from the repo root, works without global PATH (`uv run` wrappe
 | `./scripts/ci.sh lint` | Ruff check + format --check |
 | `./scripts/ci.sh test` | Run tests |
 | `./scripts/ci.sh packaging` | Build deb/rpm (Linux) or zip (Windows) smoke artifacts |
+| `scripts/verify-before-pr.sh` | Pre-push gate: lint + test + macOS `swift build -c release` |
+| `scripts/verify-before-pr.sh --full` | Above + menubar e2e when Stage `.app` exists |
 | `scripts/agent-verify-setup.sh` | Health + models check after setup |
 | `scripts/sync-agent-skills.sh` | Sync `.agents/skills/` to other tool paths |
 
@@ -106,6 +108,10 @@ Native app (oMLX-style): [docs/macos-install.md](docs/macos-install.md) · Troub
 
 Build: `apps/netllm-mac/Scripts/build.sh release` (requires `venvstacks` + `uv sync`).
 
+**CI / release:** [docs/ci-and-release.md](docs/ci-and-release.md) — PR jobs, macOS Swift constraints, release tag workflow.
+
+macOS menubar PRs must pass `menubar-lifecycle` on GitHub (`macos-14`, Swift 5.10): keep `Package.swift` at **swift-tools 5.9**, mark menubar SwiftUI views `@MainActor`, gate Tahoe `glassEffect` behind `LIQUID_GLASS_SDK` in `build.sh`. Run `scripts/verify-before-pr.sh` before push.
+
 ## SDK maintenance
 
 Vendor SDKs are isolated in `netllm-sdk-openai` and `netllm-sdk-anthropic` only, `netllm-core` never imports `openai` or `anthropic`. Tracked versions: [docs/sdk-versions.md](docs/sdk-versions.md).
@@ -143,7 +149,8 @@ Editor wiring reference: [docs/editor-integration.md](docs/editor-integration.md
 ## Testing
 
 - Runner: pytest (`tests/`, asyncio mode auto)
-- CI: `./scripts/ci.sh lint` (Ubuntu) then `./scripts/ci.sh test` + `./scripts/ci.sh packaging` (Ubuntu + Windows)
+- CI: `./scripts/ci.sh lint` (Ubuntu) then `./scripts/ci.sh test` + `./scripts/ci.sh packaging` (Ubuntu + Windows); macOS `menubar-lifecycle` on PRs that touch `apps/netllm-mac/` or packaging
+- Pre-push: `scripts/verify-before-pr.sh` (see [docs/ci-and-release.md](docs/ci-and-release.md))
 - Add tests only for real behavior; avoid trivial assertions
 
 ## Git workflow
@@ -178,5 +185,9 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - Before quitting the macOS app, use **Stop** so the agent subprocess exits; otherwise an orphan can hold `:11400` and block the next launch.
 - oMLX discovery probes `:8080` by default; backends on other ports need `[discovery].custom_endpoints` or `[[routing.backends]]` in `~/.config/netllm/config.toml`.
 - macOS in-app auto-update notifies only when the latest GitHub release includes a `llm-swarm-router.dmg` asset.
+- Release tag must match root `pyproject.toml` version; bump all workspace packages + `uv lock` before `gh release create`.
+- `scripts/agent-verify-setup.sh` uses global `netllm` when on PATH — prefer `./netllm` for repo-local smoke.
+- After editing `design-tokens.json`, run `scripts/generate-dashboard-tokens.py` (CI enforces via `--check`).
+- Phase 1–2 Apple AI platform work shipped in **v0.3.0.0** (App Intents, MenuBarExtra, routing policies).
 
-Updated: 2026-06-08
+Updated: 2026-06-09

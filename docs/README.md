@@ -16,7 +16,7 @@ Overview: [platform-matrix.md](platform-matrix.md)
 
 | Topic | Doc |
 |-------|-----|
-| Latest release | [v0.2.3.5 release notes](release-notes/v0.2.3.5.md) · [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases) |
+| Latest release | [v0.3.0.0 release notes](release-notes/v0.3.0.0.md) · [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases) |
 | Prior alpha (Linux/Windows) | [v0.2.2 release notes](release-notes/v0.2.2-alpha.md) |
 | Linux/Windows QA checklist | [solutions/linux-windows-alpha-qa.md](solutions/linux-windows-alpha-qa.md) |
 
@@ -27,6 +27,13 @@ Overview: [platform-matrix.md](platform-matrix.md)
 | Wire Cursor, Claude Code, Codex, Honcho | [editor-integration.md](editor-integration.md) |
 | Honcho (Docker / deriver) | [honcho-integration.md](honcho-integration.md) |
 | Quick diagnostic | `./netllm doctor` from repo root or global install |
+
+## Developers & agents
+
+| Topic | Doc |
+|-------|-----|
+| CI, macOS build, release | [ci-and-release.md](ci-and-release.md) |
+| Pre-push verification | `scripts/verify-before-pr.sh` from repo root |
 
 ## Repository map
 

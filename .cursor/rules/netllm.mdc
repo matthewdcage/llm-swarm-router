@@ -1,9 +1,11 @@
 ---
-description: Route netllm install, editor connect, swarm, and troubleshoot requests to project skills
+description: Route netllm install, editor connect, swarm, troubleshoot, PR/release, and macOS CI requests to project skills and docs
 alwaysApply: false
 ---
 
 When the user asks to install, set up, connect, swarm, or troubleshoot **netllm** or **swarm-llm**, load the matching skill from `.cursor/skills/`:
+
+For **PR checks, release, macOS menubar builds, or CI failures** on `menubar-lifecycle`: read [docs/ci-and-release.md](../../docs/ci-and-release.md) and run `scripts/verify-before-pr.sh` before claiming green. Do not bump `Package.swift` to Swift 6 without updating runners.
 
 | Intent | Skill path |
 |--------|------------|

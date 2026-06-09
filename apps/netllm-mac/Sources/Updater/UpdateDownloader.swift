@@ -50,7 +50,20 @@ final class UpdateDownloader: NSObject, URLSessionDownloadDelegate, @unchecked S
             continuation = nil
             return
         }
-        continuation?.resume(returning: (location, response))
+        // URLSession deletes `location` when this delegate returns — stage before resuming.
+        let staged = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: false)
+            .appendingPathExtension("dmg")
+        do {
+            do {
+                try FileManager.default.moveItem(at: location, to: staged)
+            } catch {
+                try FileManager.default.copyItem(at: location, to: staged)
+            }
+            continuation?.resume(returning: (staged, response))
+        } catch {
+            continuation?.resume(throwing: error)
+        }
         continuation = nil
     }
 

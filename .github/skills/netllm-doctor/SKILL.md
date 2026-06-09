@@ -122,6 +122,8 @@ Verify: ./netllm peers
 |-----------|--------|
 | Doctor passes but editor fails | Run `netllm-connect-editor` skill: likely model name mismatch |
 | Wrong netllm on PATH | `./netllm install` from repo or use `./netllm` only |
+| `agent-verify-setup.sh` fails but `./netllm models` works | Script prefers global `netllm`; use `./netllm models` or unset global from PATH |
+| Doctor "port in use" while testing | Expected if `serve` or menubar app is running |
 | Config missing | `./netllm init` |
 
 ## Do not

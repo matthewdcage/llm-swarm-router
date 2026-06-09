@@ -36,6 +36,8 @@ apps/netllm-mac/Scripts/build.sh release --no-rebuild-donor   # reuse _export/
 
 Output: `dist/netllm-mac.dmg` (release workflow renames to `llm-swarm-router.dmg`).
 
+**CI note:** GitHub `menubar-lifecycle` runs on `macos-14` (Swift 5.10, macOS 15 SDK). Keep `apps/netllm-mac/Package.swift` at swift-tools **5.9**; Liquid Glass compiles only when the host SDK is macOS 26+ (`LIQUID_GLASS_SDK` in `build.sh`). Details: [docs/ci-and-release.md](../docs/ci-and-release.md).
+
 ### macOS layout
 
 ```
