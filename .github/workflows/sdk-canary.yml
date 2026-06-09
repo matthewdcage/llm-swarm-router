@@ -28,7 +28,7 @@ jobs:
         shell: bash
       - name: Open or update sdk-canary issue
         if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const title = "sdk-canary: latest openai/anthropic failed contract tests";
