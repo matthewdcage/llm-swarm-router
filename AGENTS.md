@@ -164,7 +164,7 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - Auto-edit user editor `settings.json` without explicit consent
 - macOS menubar in-app install only works from `/Applications/llm-swarm-router.app` or `netllm-mac.app`; web dashboard proxies update checks via `GET /netllm/v1/update/check`
 
-## Learned facts
+## Learned Workspace Facts
 
 - Local web dashboard at http://127.0.0.1:11400/ui/ on all platforms; macOS menubar has **Open Dashboard**
 - Linux/Windows **alpha** use `/ui/` + CLI; macOS stable adds menubar app: same agent core
@@ -174,3 +174,9 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - `serve` on loopback (`127.0.0.1`) blocks LAN peers: use `--host 0.0.0.0` for swarm
 - Set `swarm.cluster_token` when listening on `0.0.0.0` on untrusted networks
 - Browsers hitting `http://127.0.0.1:11400/` redirect to `/ui/`; curl without `Accept: text/html` gets help JSON
+- Do not run the macOS menubar app and `./netllm serve` together; both bind `:11400`. Use the app day-to-day; use the CLI for `--host 0.0.0.0` swarm mode.
+- Before quitting the macOS app, use **Stop** so the agent subprocess exits; otherwise an orphan can hold `:11400` and block the next launch.
+- oMLX discovery probes `:8080` by default; backends on other ports need `[discovery].custom_endpoints` or `[[routing.backends]]` in `~/.config/netllm/config.toml`.
+- macOS in-app auto-update notifies only when the latest GitHub release includes a `llm-swarm-router.dmg` asset.
+
+Updated: 2026-06-08
