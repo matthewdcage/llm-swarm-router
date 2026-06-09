@@ -450,6 +450,8 @@ struct SettingsWindowView: View {
                 backendOverrideEditor(index: index)
                     .id(model.document.routing.backends[index].base_url)
             }
+            sectionHeader("Cloud failover")
+            CloudFailoverSettings()
         }
     }
 
