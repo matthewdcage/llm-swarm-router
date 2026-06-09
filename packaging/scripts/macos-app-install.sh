@@ -10,21 +10,13 @@
 #
 # Options:
 #   --install-path PATH   Default: /Applications/llm-swarm-router.app
-#   --in-app-update       Skip menubar quit (caller stops agent and exits)
-#   --wait-for-pid PID    Wait for parent menubar PID before install
-#   --cache-cleanup DIR   Remove DMG and older cached DMGs after success
 #   --no-launch           Install only; do not open the app
 #   --no-verify           Skip post-launch /health and /ui/ checks
 #   --no-stop             Skip process teardown (maintainer debugging only)
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [[ -x "$SCRIPT_DIR/mount-dmg.sh" ]]; then
-  MOUNT_DMG="$SCRIPT_DIR/mount-dmg.sh"
-else
-  ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-  MOUNT_DMG="$ROOT/packaging/scripts/mount-dmg.sh"
-fi
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+MOUNT_DMG="$ROOT/packaging/scripts/mount-dmg.sh"
 
 APP_NAME="llm-swarm-router.app"
 LEGACY_APP_NAME="netllm-mac.app"
@@ -37,12 +29,9 @@ INSTALL_PATH="$DEFAULT_INSTALL"
 DO_LAUNCH=1
 DO_VERIFY=1
 DO_STOP=1
-IN_APP_UPDATE=0
-WAIT_PID=""
-CACHE_CLEANUP_DIR=""
 
 usage() {
-  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -51,9 +40,6 @@ while [[ $# -gt 0 ]]; do
     --dmg) DMG="$2"; shift 2 ;;
     --source) SOURCE="$2"; shift 2 ;;
     --install-path) INSTALL_PATH="$2"; shift 2 ;;
-    --in-app-update) IN_APP_UPDATE=1; shift ;;
-    --wait-for-pid) WAIT_PID="$2"; shift 2 ;;
-    --cache-cleanup) CACHE_CLEANUP_DIR="$2"; shift 2 ;;
     --no-launch) DO_LAUNCH=0; shift ;;
     --no-verify) DO_VERIFY=0; shift ;;
     --no-stop) DO_STOP=0; shift ;;
@@ -73,13 +59,12 @@ agent_listen_port() {
   local listen="127.0.0.1:11400"
   if [[ -f "$config" ]]; then
     listen="$(
-      grep -E '^[[:space:]]*listen[[:space:]]*=' "$config" 2>/dev/null | head -1 \
+      grep -E '^\s*listen\s*=' "$config" 2>/dev/null | head -1 \
         | sed -E 's/^[[:space:]]*listen[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/' \
         || echo "127.0.0.1:11400"
     )"
   fi
   local port="${listen##*:}"
-  port="${port//\"/}"
   if [[ -z "$port" || "$port" == "$listen" ]]; then
     port="11400"
   fi
@@ -103,18 +88,6 @@ wait_for_exit() {
     sleep 0.5
   done
   return 1
-}
-
-wait_for_pid() {
-  local pid="$1"
-  local seconds="${2:-30}"
-  local i
-  [[ -n "$pid" ]] || return 0
-  for ((i = 0; i < seconds * 2; i++)); do
-    kill -0 "$pid" 2>/dev/null || return 0
-    sleep 0.5
-  done
-  echo "WARN: PID $pid still running after ${seconds}s" >&2
 }
 
 wait_port_free() {
@@ -194,24 +167,8 @@ stop_orphan_agents() {
 
 stop_netllm_stack() {
   stop_homebrew_agent
-  if [[ "$IN_APP_UPDATE" == 0 ]]; then
-    stop_menubar_apps
-  fi
+  stop_menubar_apps
   stop_orphan_agents "$(agent_listen_port)"
-}
-
-cleanup_update_cache() {
-  local dir="$1"
-  local keep_dmg="$2"
-  [[ -n "$dir" && -d "$dir" ]] || return 0
-  local f
-  for f in "$dir"/*.dmg "$dir"/*.dmg.download; do
-    [[ -e "$f" ]] || continue
-    if [[ -n "$keep_dmg" && "$f" == "$keep_dmg" ]]; then
-      continue
-    fi
-    rm -f "$f"
-  done
 }
 
 verify_bundle_contents() {
@@ -265,13 +222,19 @@ verify_agent_endpoints() {
   echo "==> Verified ${base}/ui/ (HTTP 200)"
 }
 
+# Global set by resolve_source_app; trap registered in main script scope so
+# $DMG_MOUNT is in scope when the EXIT trap fires (avoids "unbound variable"
+# from local vars going out of scope after a $() subshell returns).
+DMG_MOUNT=""
+SOURCE_APP=""
+
 resolve_source_app() {
   if [[ -n "$SOURCE" ]]; then
     [[ -d "$SOURCE" ]] || {
       echo "Source app not found: $SOURCE" >&2
       exit 1
     }
-    echo "$SOURCE"
+    SOURCE_APP="$SOURCE"
     return 0
   fi
 
@@ -280,28 +243,21 @@ resolve_source_app() {
     exit 1
   }
 
-  echo "==> Mounting DMG" >&2
-  local mount source
-  if ! mount="$("$MOUNT_DMG" "$DMG")"; then
+  echo "==> Mounting DMG"
+  if ! DMG_MOUNT="$("$MOUNT_DMG" "$DMG")"; then
     echo "Failed to mount DMG: $DMG" >&2
     exit 1
   fi
-  trap 'hdiutil detach "$mount" -quiet 2>/dev/null || true' EXIT
 
-  source="$mount/$APP_NAME"
-  [[ -d "$source" ]] || source="$mount/$LEGACY_APP_NAME"
+  local source="$DMG_MOUNT/$APP_NAME"
+  [[ -d "$source" ]] || source="$DMG_MOUNT/$LEGACY_APP_NAME"
   [[ -d "$source" ]] || {
-    echo "App not found on DMG volume ($mount). Contents:" >&2
-    ls -la "$mount" >&2 || true
+    echo "App not found on DMG volume ($DMG_MOUNT). Contents:" >&2
+    ls -la "$DMG_MOUNT" >&2 || true
     exit 1
   }
-  echo "$source"
+  SOURCE_APP="$source"
 }
-
-if [[ -n "$WAIT_PID" ]]; then
-  echo "==> Waiting for menubar process $WAIT_PID to exit"
-  wait_for_pid "$WAIT_PID" 30
-fi
 
 if [[ "$DO_STOP" == 1 ]]; then
   stop_netllm_stack
@@ -309,7 +265,9 @@ else
   echo "WARN: --no-stop set; stale processes may cause /ui/ 404 after install" >&2
 fi
 
-SOURCE_APP="$(resolve_source_app)"
+resolve_source_app
+# Trap registered here in main script scope so $DMG_MOUNT is always in scope.
+[[ -z "$DMG_MOUNT" ]] || trap 'hdiutil detach "$DMG_MOUNT" -quiet 2>/dev/null || true' EXIT
 
 if [[ -d "$LEGACY_INSTALL" && "$INSTALL_PATH" != "$LEGACY_INSTALL" ]]; then
   echo "==> Removing legacy /Applications install ($LEGACY_APP_NAME)"
@@ -332,10 +290,6 @@ if [[ "$DO_LAUNCH" == 1 ]]; then
   if [[ "$DO_VERIFY" == 1 ]]; then
     verify_agent_endpoints "$(agent_listen_port)"
   fi
-fi
-
-if [[ -n "$CACHE_CLEANUP_DIR" ]]; then
-  cleanup_update_cache "$CACHE_CLEANUP_DIR" "$DMG"
 fi
 
 cat <<EOF
