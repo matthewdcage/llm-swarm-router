@@ -28,6 +28,10 @@ trap cleanup EXIT
 echo "==> brand icons"
 bash "$ROOT/scripts/test-brand-icons.sh"
 
+echo "==> bundled install scripts (mount-dmg path, in-app flags)"
+bash "$ROOT/tests/test_bundled_install_scripts.sh"
+bash "$ROOT/tests/test_macos_app_install_flags.sh"
+
 echo "==> bundled CLI version"
 VER="$("$CLI" --version 2>/dev/null | tail -1)"
 [[ "$VER" == netllm\ * ]] || fail "unexpected version: $VER"
