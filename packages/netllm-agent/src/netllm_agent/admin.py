@@ -123,6 +123,8 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
             "require_same_model_for_shard": cfg.routing.require_same_model_for_shard,
             "backends": _backend_override_export(cfg),
             "backend_count": len(cfg.routing.backends),
+            "policies": [p.model_dump(mode="json") for p in cfg.routing.policies],
+            "policy_count": len(cfg.routing.policies),
         },
         "ui": {
             "auto_start_on_launch": cfg.ui.auto_start_on_launch,
@@ -199,6 +201,30 @@ def apply_config_patch(cfg: NetllmConfig, patch: dict[str, Any]) -> NetllmConfig
                     merged["api_key"] = str(entry["api_key"])
                 merged_backends.append(merged)
             current["routing"]["backends"] = merged_backends
+        if "policies" in routing_patch:
+            merged_policies: list[dict[str, Any]] = []
+            for entry in routing_patch["policies"] or []:
+                if not isinstance(entry, dict):
+                    continue
+                name = str(entry.get("name", "")).strip()
+                if (
+                    not name
+                    and not entry.get("model_prefix")
+                    and not entry.get("api_format")
+                ):
+                    continue
+                merged_policies.append(
+                    {
+                        "name": name,
+                        "model_prefix": str(entry.get("model_prefix", "")),
+                        "api_format": entry.get("api_format"),
+                        "strategy": entry.get("strategy"),
+                        "prefer_provider": entry.get("prefer_provider"),
+                        "allow_cloud": bool(entry.get("allow_cloud", False)),
+                        "enabled": entry.get("enabled", True),
+                    }
+                )
+            current["routing"]["policies"] = merged_policies
 
     return NetllmConfig.model_validate(current)
 

@@ -15,23 +15,24 @@ struct SettingsWindowView: View {
         NavigationSplitView {
             List(selection: $tab) {
                 Section("Server") {
-                    sidebarRow("Status", "gauge.with.dots.needle.67percent", "status")
-                    sidebarRow("Backends", "server.rack", "backends")
-                    sidebarRow("Models", "cube.box", "models")
-                    sidebarRow("Peers", "point.3.connected.trianglepath.dotted", "peers")
+                    sidebarRow("Status", "gauge.with.dots.needle.67percent", "status", "Server status")
+                    sidebarRow("Backends", "server.rack", "backends", "Backends")
+                    sidebarRow("Models", "cube.box", "models", "Models")
+                    sidebarRow("Peers", "point.3.connected.trianglepath.dotted", "peers", "Swarm peers")
                 }
                 Section("Config") {
-                    sidebarRow("Agent", "antenna.radiowaves.left.and.right", "agent")
-                    sidebarRow("Discovery", "magnifyingglass", "discovery")
-                    sidebarRow("Swarm", "network", "swarm")
-                    sidebarRow("Routing", "arrow.triangle.branch", "routing")
-                    sidebarRow("UI", "slider.horizontal.3", "ui")
+                    sidebarRow("Agent", "antenna.radiowaves.left.and.right", "agent", "Agent settings")
+                    sidebarRow("Discovery", "magnifyingglass", "discovery", "Discovery settings")
+                    sidebarRow("Swarm", "network", "swarm", "Swarm settings")
+                    sidebarRow("Routing", "arrow.triangle.branch", "routing", "Routing settings")
+                    sidebarRow("UI", "slider.horizontal.3", "ui", "App UI settings")
                 }
                 Section("Tools") {
-                    sidebarRow("Logs", "doc.text", "logs")
-                    sidebarRow("Doctor & Test", "stethoscope", "tools")
+                    sidebarRow("Logs", "doc.text", "logs", "Agent logs")
+                    sidebarRow("Doctor & Test", "stethoscope", "tools", "Doctor and test tools")
                 }
             }
+            .accessibilityLabel("Settings sections")
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
         } detail: {
             ScrollView {
@@ -84,8 +85,16 @@ struct SettingsWindowView: View {
         }
     }
 
-    private func sidebarRow(_ title: String, _ icon: String, _ tag: String) -> some View {
-        Label(title, systemImage: icon).tag(tag)
+    private func sidebarRow(
+        _ title: String,
+        _ icon: String,
+        _ tag: String,
+        _ accessibilityHint: String
+    ) -> some View {
+        Label(title, systemImage: icon)
+            .tag(tag)
+            .accessibilityLabel(title)
+            .accessibilityHint(accessibilityHint)
     }
 
     @ViewBuilder
@@ -442,6 +451,18 @@ struct SettingsWindowView: View {
             }
             Toggle("Allow remote backends", isOn: $model.document.routing.allow_remote)
             Toggle("Require same model for batch shard", isOn: $model.document.routing.require_same_model_for_shard)
+            sectionHeader("Routing policies")
+            Text(
+                "First matching policy applies. Cloud routing requires allow_cloud on an explicit policy row."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            actionButtons {
+                Button("Add routing policy") { model.addRoutingPolicy() }
+            }
+            ForEach(model.document.routing.policies.indices, id: \.self) { index in
+                routingPolicyEditor(index: index)
+            }
             sectionHeader("Backend overrides")
             actionButtons {
                 Button("Add backend override") { model.addBackendOverride() }
@@ -573,6 +594,45 @@ struct SettingsWindowView: View {
         }
         .buttonStyle(.bordered)
         .disabled(model.isLoading)
+    }
+
+    @ViewBuilder
+    private func routingPolicyEditor(index: Int) -> some View {
+        let binding = $model.document.routing.policies[index]
+        VStack(alignment: .leading, spacing: 6) {
+            TextField("Name", text: binding.name)
+            TextField("Model prefix", text: binding.model_prefix)
+            Picker("API format", selection: Binding(
+                get: { binding.wrappedValue.api_format ?? "" },
+                set: { binding.wrappedValue.api_format = $0.isEmpty ? nil : $0 }
+            )) {
+                Text("Any").tag("")
+                Text("openai").tag("openai")
+                Text("anthropic").tag("anthropic")
+            }
+            Picker("Strategy", selection: Binding(
+                get: { binding.wrappedValue.strategy ?? "" },
+                set: { binding.wrappedValue.strategy = $0.isEmpty ? nil : $0 }
+            )) {
+                Text("Default").tag("")
+                ForEach(SettingsViewModel.strategies, id: \.self) { Text($0).tag($0) }
+            }
+            TextField("Prefer provider", text: Binding(
+                get: { binding.wrappedValue.prefer_provider ?? "" },
+                set: { binding.wrappedValue.prefer_provider = $0.isEmpty ? nil : $0 }
+            ))
+            Toggle("Allow cloud", isOn: binding.allow_cloud)
+            Toggle("Enabled", isOn: binding.enabled)
+            Button("Remove", role: .destructive) {
+                let idx = index
+                Task { @MainActor in
+                    model.removeRoutingPolicy(at: idx)
+                }
+            }
+        }
+        .padding(8)
+        .background(.quaternary.opacity(0.25))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     @ViewBuilder

@@ -349,6 +349,25 @@ final class SettingsViewModel {
         bumpUI()
     }
 
+    func addRoutingPolicy() {
+        document.routing.policies.append(
+            NetllmConfigDocument.RoutingPolicy(
+                name: "local-openai",
+                api_format: "openai",
+                strategy: "local_first",
+                allow_cloud: false,
+                enabled: true
+            )
+        )
+        bumpUI()
+    }
+
+    func removeRoutingPolicy(at index: Int) {
+        guard document.routing.policies.indices.contains(index) else { return }
+        document.routing.policies.remove(at: index)
+        bumpUI()
+    }
+
     func addPeerURL() {
         document.swarm.peers.append("http://127.0.0.1:11400")
         bumpUI()

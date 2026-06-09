@@ -18,14 +18,9 @@ struct SettingsSurfaceCard<Content: View>: View {
 
     var body: some View {
         content()
-            .padding(16)
+            .padding(DesignTokens.cardPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: DesignTokens.cornerRadius, style: .continuous)
-                    .strokeBorder(DesignTokens.cardStroke(), lineWidth: 1)
-            )
+            .netllmCardChrome()
     }
 }
 
@@ -67,12 +62,7 @@ struct StatMetricCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cornerRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: DesignTokens.cornerRadius, style: .continuous)
-                .strokeBorder(DesignTokens.cardStroke(), lineWidth: 1)
-        )
+        .netllmCardChrome()
     }
 }
 

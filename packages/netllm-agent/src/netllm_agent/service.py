@@ -22,6 +22,7 @@ from netllm_core.models import (
     NetllmConfig,
 )
 from netllm_core.pool import RouterPool
+from netllm_core.routing_policy import ResolvedRouting, resolve_routing
 from netllm_discovery.local import (
     find_omlx_admin_url,
     probe_omlx_admin_for_backends,
@@ -181,6 +182,20 @@ class AgentService:
         raw = hdrs.get(LOCAL_ONLY_HEADER, "")
         return raw.strip().lower() in ("1", "true", "yes")
 
+    def _resolved_routing(
+        self,
+        model: str,
+        *,
+        api_format: str,
+        headers: Mapping[str, str] | None,
+    ) -> ResolvedRouting:
+        return resolve_routing(
+            self.config.routing,
+            model=model,
+            api_format=api_format,  # type: ignore[arg-type]
+            header_local_only=self._wants_local_only(headers),
+        )
+
     def _select_backend_for_request(
         self,
         model: str,
@@ -189,6 +204,7 @@ class AgentService:
         shard: ShardContext | None,
         *,
         local_only: bool = False,
+        prefer_provider: str | None = None,
     ) -> Backend | None:
         if strategy == "batch_shard":
             if shard and shard.batch_id is not None and shard.index is not None:
@@ -222,6 +238,7 @@ class AgentService:
                     shard_key=shard_key,
                     attempt=attempt,
                     local_only=local_only,
+                    prefer_provider=prefer_provider,
                 )
 
             if attempt == 1:
@@ -229,10 +246,17 @@ class AgentService:
                     "batch_shard without shard context — falling back to round_robin"
                 )
                 return self.pool.select_backend(
-                    model, "round_robin", local_only=local_only
+                    model,
+                    "round_robin",
+                    local_only=local_only,
+                    prefer_provider=prefer_provider,
                 )
             return self.pool.select_backend(
-                model, "failover", attempt=attempt, local_only=local_only
+                model,
+                "failover",
+                attempt=attempt,
+                local_only=local_only,
+                prefer_provider=prefer_provider,
             )
 
         use_strategy = strategy if attempt == 1 else "failover"
@@ -243,6 +267,7 @@ class AgentService:
             shard_key=shard_key,
             attempt=attempt,
             local_only=local_only,
+            prefer_provider=prefer_provider,
         )
 
     def _mark_shard_success(self, shard: ShardContext | None) -> None:
@@ -257,12 +282,11 @@ class AgentService:
     ) -> dict[str, Any]:
         hdrs = self._normalize_headers(headers)
         model = payload.get("model", "")
-        strategy = self.config.routing.default_strategy
+        routing = self._resolved_routing(model, api_format="openai", headers=hdrs)
         shard = extract_shard_context(payload, hdrs)
-        local_only = self._wants_local_only(hdrs)
 
         await self.refresh_local_backends()
-        if not local_only:
+        if routing.allow_cloud_inject:
             self._inject_openai_cloud_backend(self._openai_api_key(hdrs))
         attempt = 0
         last_error: Exception | None = None
@@ -271,7 +295,12 @@ class AgentService:
         while attempt < max_attempts:
             attempt += 1
             backend = self._select_backend_for_request(
-                model, strategy, attempt, shard, local_only=local_only
+                model,
+                routing.strategy,
+                attempt,
+                shard,
+                local_only=routing.local_only,
+                prefer_provider=routing.prefer_provider,
             )
             if backend is None:
                 break
@@ -324,12 +353,11 @@ class AgentService:
     ) -> AsyncIterator[str]:
         hdrs = self._normalize_headers(headers)
         model = payload.get("model", "")
-        strategy = self.config.routing.default_strategy
+        routing = self._resolved_routing(model, api_format="openai", headers=hdrs)
         shard = extract_shard_context(payload, hdrs)
-        local_only = self._wants_local_only(hdrs)
 
         await self.refresh_local_backends()
-        if not local_only:
+        if routing.allow_cloud_inject:
             self._inject_openai_cloud_backend(self._openai_api_key(hdrs))
         attempt = 0
         last_error: Exception | None = None
@@ -338,7 +366,12 @@ class AgentService:
         while attempt < max_attempts:
             attempt += 1
             backend = self._select_backend_for_request(
-                model, strategy, attempt, shard, local_only=local_only
+                model,
+                routing.strategy,
+                attempt,
+                shard,
+                local_only=routing.local_only,
+                prefer_provider=routing.prefer_provider,
             )
             if backend is None:
                 break
@@ -441,6 +474,23 @@ class AgentService:
             ]
         )
 
+    @staticmethod
+    def _order_message_candidates(
+        candidates: list[Backend], routing: ResolvedRouting
+    ) -> list[Backend]:
+        ordered = candidates
+        if routing.prefer_provider:
+            preferred = [b for b in ordered if b.provider == routing.prefer_provider]
+            if preferred:
+                others = [b for b in ordered if b.provider != routing.prefer_provider]
+                ordered = preferred + others
+        if routing.strategy == "local_first":
+            local = [b for b in ordered if b.local]
+            remote = [b for b in ordered if not b.local]
+            if local:
+                ordered = local + remote
+        return ordered
+
     def _message_backend_candidates(
         self, model: str, *, local_only: bool = False
     ) -> list[Backend]:
@@ -489,13 +539,16 @@ class AgentService:
         hdrs = self._normalize_headers(headers)
         model = payload.get("model", "")
         api_key = self._anthropic_api_key(hdrs)
-        local_only = self._wants_local_only(hdrs)
+        routing = self._resolved_routing(model, api_format="anthropic", headers=hdrs)
 
         await self.refresh_local_backends()
-        if not local_only:
+        if routing.allow_cloud_inject:
             self._inject_anthropic_cloud_backend(api_key)
 
-        candidates = self._message_backend_candidates(model, local_only=local_only)
+        candidates = self._message_backend_candidates(
+            model, local_only=routing.local_only
+        )
+        candidates = self._order_message_candidates(candidates, routing)
         last_error: Exception | None = None
         max_attempts = max(len(candidates), 1)
 
@@ -555,13 +608,16 @@ class AgentService:
         hdrs = self._normalize_headers(headers)
         model = payload.get("model", "")
         api_key = self._anthropic_api_key(hdrs)
-        local_only = self._wants_local_only(hdrs)
+        routing = self._resolved_routing(model, api_format="anthropic", headers=hdrs)
 
         await self.refresh_local_backends()
-        if not local_only:
+        if routing.allow_cloud_inject:
             self._inject_anthropic_cloud_backend(api_key)
 
-        candidates = self._message_backend_candidates(model, local_only=local_only)
+        candidates = self._message_backend_candidates(
+            model, local_only=routing.local_only
+        )
+        candidates = self._order_message_candidates(candidates, routing)
         last_error: Exception | None = None
         max_attempts = max(len(candidates), 1)
 

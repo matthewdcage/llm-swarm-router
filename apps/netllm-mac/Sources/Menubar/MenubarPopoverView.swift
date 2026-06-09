@@ -19,6 +19,8 @@ struct MenubarPopoverView: View {
         }
         .padding(DesignTokens.cardPadding)
         .frame(width: DesignTokens.popoverWidth)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(AppBranding.displayName) menubar controls")
     }
 
     private var headerSection: some View {
@@ -93,7 +95,7 @@ struct MenubarPopoverView: View {
         }
         .padding(10)
         .background(DesignTokens.warn.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cornerRadius, style: .continuous))
+        .netllmCardChrome()
     }
 
     private var checkForUpdatesRow: some View {
@@ -115,11 +117,14 @@ struct MenubarPopoverView: View {
             if model.isRunning {
                 Button("Stop Agent") { model.stopAgent() }
                     .buttonStyle(.bordered)
+                    .accessibilityHint("Stops the netllm agent subprocess")
                 Button("Restart") { model.startAgent() }
                     .buttonStyle(.bordered)
+                    .accessibilityHint("Restarts the netllm agent")
             } else {
                 Button("Start Agent") { model.startAgent() }
                     .buttonStyle(.borderedProminent)
+                    .accessibilityHint("Starts the netllm agent on the configured port")
             }
         }
     }

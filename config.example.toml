@@ -29,6 +29,20 @@ default_strategy = "local_first"
 allow_remote = true
 require_same_model_for_shard = true
 
+# Optional routing policies (first match wins). Cloud paths require allow_cloud = true.
+# [[routing.policies]]
+# name = "local-openai"
+# api_format = "openai"
+# strategy = "local_first"
+# allow_cloud = false
+#
+# [[routing.policies]]
+# name = "cloud-openai-gpt"
+# model_prefix = "gpt-"
+# api_format = "openai"
+# allow_cloud = true
+# strategy = "failover"
+
 # Shared UI settings (macOS menubar + all platforms via /ui/ dashboard)
 [ui]
 auto_start_on_launch = true
