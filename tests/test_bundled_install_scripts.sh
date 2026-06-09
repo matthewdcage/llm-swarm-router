@@ -20,7 +20,15 @@ fi
   exit 1
 }
 
-# Simulate in-app resolution without running install.
+if grep -q 'Contents/packaging/scripts/mount-dmg.sh' "$SCRIPTS/macos-app-install.sh"; then
+  echo "FAIL: bundled macos-app-install.sh still uses broken Contents/packaging mount path" >&2
+  exit 1
+fi
+if ! grep -q 'MOUNT_DMG="$SCRIPT_DIR/mount-dmg.sh"' "$SCRIPTS/macos-app-install.sh"; then
+  echo "FAIL: bundled macos-app-install.sh must set MOUNT_DMG from SCRIPT_DIR" >&2
+  exit 1
+fi
+
 resolved="$(
   SCRIPT_DIR="$SCRIPTS" bash -c '
     if [[ -x "$SCRIPT_DIR/mount-dmg.sh" ]]; then

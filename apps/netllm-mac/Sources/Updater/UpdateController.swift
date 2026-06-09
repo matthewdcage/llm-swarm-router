@@ -67,34 +67,29 @@ final class UpdateController {
     func prepareCacheOnLaunch() async {
         UpdateLogger.log("prepareCacheOnLaunch (app v\(currentVersion))")
         prunePartialDownloadsOnly()
-        await restoreCachedDownloadOnLaunch()
         await reconcileDownloadWithDisk()
     }
 
-    /// If UI says "downloading" but the DMG is already on disk, promote to ready-to-install.
+    /// Promote a verified cached DMG to ready-to-install regardless of download UI state.
     func reconcileDownloadWithDisk() async {
-        guard case .downloading = state else { return }
+        if case .readyToInstall = state { return }
+        if case .installing = state { return }
+
         let release: GitHubRelease?
         if let activeDownloadRelease {
             release = activeDownloadRelease
+        } else if case .available(let available) = state {
+            release = available
         } else {
             release = await checker.latestRelease(userAgent: userAgent)
         }
-        guard let release else { return }
-        let destination = cachedDMGURL(for: release)
-        if await adoptCachedDMGIfValid(destination: destination, release: release, notify: false) {
-            UpdateLogger.log("reconciled stuck download → readyToInstall v\(release.version)")
-        }
-    }
-
-    private func restoreCachedDownloadOnLaunch() async {
-        guard let release = await checker.latestRelease(userAgent: userAgent),
+        guard let release,
               release.version.compare(currentVersion, options: .numeric) == .orderedDescending else {
             return
         }
         let destination = cachedDMGURL(for: release)
         if await adoptCachedDMGIfValid(destination: destination, release: release, notify: false) {
-            UpdateLogger.log("restored cached DMG for v\(release.version) at \(destination.path)")
+            UpdateLogger.log("reconciled cache → readyToInstall v\(release.version)")
         }
     }
 
@@ -204,13 +199,18 @@ final class UpdateController {
         if !force && !AppConfig.load().checkForUpdatesAutomatically {
             return
         }
-        if case .downloading = state {
-            await reconcileDownloadWithDisk()
-            return
-        }
         if case .installing = state {
             return
         }
+
+        await reconcileDownloadWithDisk()
+        if case .readyToInstall(_, let release) = state {
+            if force {
+                presentUpdateAlreadyCachedAlert(version: release.version)
+            }
+            return
+        }
+
         let preservedReady: (URL, GitHubRelease)? = {
             if case .readyToInstall(let dmg, let release) = state {
                 return (dmg, release)
@@ -221,6 +221,7 @@ final class UpdateController {
         guard let release = await checker.latestRelease(userAgent: userAgent) else {
             if force {
                 setState(.failed("Unable to check for updates"))
+                presentCheckFailedAlert("Could not reach GitHub to check for updates. Check your network and try again.")
             } else if let preservedReady {
                 setState(.readyToInstall(localDMG: preservedReady.0, release: preservedReady.1))
             } else {
@@ -233,6 +234,16 @@ final class UpdateController {
                 setState(.readyToInstall(localDMG: preservedReady.0, release: preservedReady.1))
             } else {
                 setState(.idle)
+                if force {
+                    presentUpToDateAlert()
+                }
+            }
+            return
+        }
+        await reconcileDownloadWithDisk()
+        if case .readyToInstall(_, let cached) = state {
+            if force {
+                presentUpdateAlreadyCachedAlert(version: cached.version)
             }
             return
         }
@@ -241,6 +252,9 @@ final class UpdateController {
             return
         }
         setState(.available(release))
+        if force {
+            presentUpdateAvailableAlert(release: release)
+        }
     }
 
     func downloadUpdate(release: GitHubRelease) {
@@ -345,9 +359,46 @@ final class UpdateController {
         NSApp.activate(ignoringOtherApps: true)
         let readyAlert = NSAlert()
         readyAlert.messageText = "Update v\(version) ready"
-        readyAlert.informativeText = "Choose Install Update from the menubar Updates menu, or open Settings → Install and Quit."
+        readyAlert.informativeText = "Open the menubar popover and choose Install, or use Settings → Install and Quit."
         readyAlert.addButton(withTitle: "OK")
         readyAlert.runModal()
+    }
+
+    private func presentUpToDateAlert() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "You're up to date"
+        alert.informativeText = "\(AppBranding.displayName) v\(currentVersion) is the latest release available from GitHub."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func presentCheckFailedAlert(_ message: String) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Update check failed"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func presentUpdateAvailableAlert(release: GitHubRelease) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Update available"
+        alert.informativeText = "Version \(release.version) is available. Use Download in the menubar popover or Settings → Updates."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func presentUpdateAlreadyCachedAlert(version: String) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Update v\(version) ready to install"
+        alert.informativeText = "The update is already downloaded. Choose Install in the menubar popover or Settings → Install and Quit."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     func installUpdate(release: GitHubRelease, localDMG: URL) async {
@@ -381,8 +432,18 @@ final class UpdateController {
             withExtension: "sh",
             subdirectory: "Scripts"
         ) else {
-            setState(.failed("Installer script missing from app bundle"))
+            let message = "Installer script missing from app bundle"
+            UpdateLogger.log("install failed: \(message)")
+            setState(.failed(message))
+            presentCheckFailedAlert(message)
             return
+        }
+
+        let logsDir = AppConfig.appSupportURL().appendingPathComponent("logs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
+        let installLogURL = logsDir.appendingPathComponent("install.log")
+        if !FileManager.default.fileExists(atPath: installLogURL.path) {
+            FileManager.default.createFile(atPath: installLogURL.path, contents: nil)
         }
 
         let process = Process()
@@ -394,13 +455,24 @@ final class UpdateController {
             "--dmg", localDMG.path,
             "--install-path", installPath.path,
             "--cache-cleanup", cacheDirectory.path,
+            "--log-file", installLogURL.path,
         ]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        if let logHandle = try? FileHandle(forWritingTo: installLogURL) {
+            try? logHandle.seekToEnd()
+            let header = "\n--- install v\(release.version) \(ISO8601DateFormatter().string(from: Date())) ---\n"
+            if let data = header.data(using: .utf8) {
+                try? logHandle.write(contentsOf: data)
+            }
+            process.standardOutput = logHandle
+            process.standardError = logHandle
+        }
         do {
             try process.run()
         } catch {
-            setState(.failed("Failed to start installer: \(error.localizedDescription)"))
+            let message = "Failed to start installer: \(error.localizedDescription)"
+            UpdateLogger.log("install failed: \(message)")
+            setState(.failed(message))
+            presentCheckFailedAlert(message)
             return
         }
         NSApp.terminate(nil)

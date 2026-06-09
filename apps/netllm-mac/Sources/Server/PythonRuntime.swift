@@ -9,9 +9,15 @@ struct PythonRuntime: Sendable {
     init() {
         if let env = ProcessInfo.processInfo.environment["NETLLM_BUNDLE_PATH"],
            !env.isEmpty {
-            bundleRoot = URL(fileURLWithPath: env)
+            let candidate = URL(fileURLWithPath: env)
+            let bundledCLI = candidate.appendingPathComponent("Contents/MacOS/netllm-cli")
+            if FileManager.default.isExecutableFile(atPath: bundledCLI.path) {
+                bundleRoot = candidate
+            } else {
+                bundleRoot = Bundle.main.bundleURL
+            }
         } else {
-            // bundleURL is the .app root (…/netllm-mac.app), not Contents/.
+            // bundleURL is the .app root (…/llm-swarm-router.app), not Contents/.
             bundleRoot = Bundle.main.bundleURL
         }
 
@@ -49,8 +55,14 @@ struct PythonRuntime: Sendable {
 
     func makeEnvironment() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
-        env["PYTHONHOME"] = pythonHome.path
-        env["PYTHONPATH"] = pythonPath
+        let bundledPython = pythonHome.appendingPathComponent("bin/python3")
+        if FileManager.default.isExecutableFile(atPath: bundledPython.path) {
+            env["PYTHONHOME"] = pythonHome.path
+            env["PYTHONPATH"] = pythonPath
+        } else {
+            env.removeValue(forKey: "PYTHONHOME")
+            env.removeValue(forKey: "PYTHONPATH")
+        }
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["NETLLM_SUPERVISED"] = "menubar"
         env["NETLLM_BUNDLE_PATH"] = bundleRoot.path
