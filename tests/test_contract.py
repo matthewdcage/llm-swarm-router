@@ -84,7 +84,7 @@ def test_darwin_swift_default_providers_match_python() -> None:
     """Lock Swift Settings defaults to Python discovery.providers on Darwin."""
     doc_path = REPO_ROOT / "apps/netllm-mac/Sources/Config/NetllmConfigDocument.swift"
     text = doc_path.read_text(encoding="utf-8")
-    marker = 'providers: [String] = ['
+    marker = "providers: [String] = ["
     swift_defaults: list[str] = []
     for line in text.splitlines():
         stripped = line.strip()

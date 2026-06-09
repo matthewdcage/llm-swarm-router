@@ -3,7 +3,6 @@ import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
-    private var menubar: MenubarController?
     private var server: ServerProcess?
     private var controlServer: AppControlServer?
     private var welcomeWindow: NSWindow?
@@ -47,22 +46,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
             }
         }
 
-        menubar = MenubarController(
+        MenubarAppModel.shared.configure(
             server: server!,
             config: config,
-            updateController: UpdateController.shared,
-            onOpenSettings: { [weak self] in
-                self?.showSettings()
-            },
-            onOpenAbout: { [weak self] in
-                self?.showAbout()
-            },
-            onOpenLogFile: { [weak self] in
-                self?.openLogFile()
-            },
-            onOpenLogFolder: { [weak self] in
-                self?.openLogFolder()
-            }
+            callbacks: MenubarCallbacks(
+                openSettings: { [weak self] in self?.showSettings() },
+                openAbout: { [weak self] in self?.showAbout() },
+                openLogFile: { [weak self] in self?.openLogFile() },
+                openLogFolder: { [weak self] in self?.openLogFolder() }
+            )
         )
         AppLogger.log("menubar created")
         ShellEnvWriter.ensureCLIShim(bundleCLI: runtime.bundleCLIPath)

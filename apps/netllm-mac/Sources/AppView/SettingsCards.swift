@@ -21,10 +21,10 @@ struct SettingsSurfaceCard<Content: View>: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(nsColor: .controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cornerRadius, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+                RoundedRectangle(cornerRadius: DesignTokens.cornerRadius, style: .continuous)
+                    .strokeBorder(DesignTokens.cardStroke(), lineWidth: 1)
             )
     }
 }
@@ -68,10 +68,10 @@ struct StatMetricCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.cornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+            RoundedRectangle(cornerRadius: DesignTokens.cornerRadius, style: .continuous)
+                .strokeBorder(DesignTokens.cardStroke(), lineWidth: 1)
         )
     }
 }

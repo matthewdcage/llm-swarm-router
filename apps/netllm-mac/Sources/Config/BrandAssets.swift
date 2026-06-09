@@ -8,19 +8,12 @@ enum BrandAssets {
     // MARK: - Menubar (macOS menu bar light/dark)
 
     static func menubarIcon(for appearance: NSAppearance) -> NSImage? {
-        // Template icons are tinted by AppKit (black → white on dark menu bar).
-        // NSStatusItem.button.effectiveAppearance is often .aqua even on a dark bar,
-        // so manual light/dark PNG swapping is unreliable.
-        if let template = templateMenubarIcon() {
-            return template
-        }
-        let darkMenuBar = isDarkMenuBar(appearance)
-        let base = darkMenuBar ? "MenubarIconDark" : "MenubarIconLight"
-        return loadMenubarImage(baseName: base, template: false)
+        _ = appearance
+        return templateMenubarIcon()
     }
 
     static func menubarIcon() -> NSImage? {
-        menubarIcon(for: NSApp.effectiveAppearance)
+        templateMenubarIcon()
     }
 
     // MARK: - In-app UI (settings, welcome — transparent assets, no solid backgrounds)
@@ -54,48 +47,25 @@ enum BrandAssets {
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
-    /// Menu bar appearance is not always reflected on NSStatusItem buttons; combine signals.
-    private static func isDarkMenuBar(_ appearance: NSAppearance) -> Bool {
-        if isDarkAqua(appearance) { return true }
-        if isDarkAqua(NSApp.effectiveAppearance) { return true }
-        if UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark" { return true }
-        return false
-    }
-
-    private static func loadMenubarImage(baseName: String, template: Bool) -> NSImage? {
-        let image = NSImage(size: NSSize(width: menubarPointSize, height: menubarPointSize))
-        var added = false
-        for suffix in ["", "@2x"] {
-            guard let url = brandURL(named: "\(baseName)\(suffix).png"),
-                  FileManager.default.fileExists(atPath: url.path),
-                  let source = NSImage(contentsOf: url) else { continue }
-            let scale: CGFloat = suffix.isEmpty ? 1 : 2
-            source.size = NSSize(width: menubarPointSize * scale, height: menubarPointSize * scale)
-            for rep in source.representations {
-                image.addRepresentation(rep)
-                added = true
-            }
-        }
-        guard added else { return nil }
-        image.isTemplate = template
-        return image
-    }
-
     private static func templateMenubarIcon() -> NSImage? {
-        if let image = loadMenubarImage(baseName: "MenubarIconLight", template: true) {
-            return image
-        }
         let image = NSImage(size: NSSize(width: menubarPointSize, height: menubarPointSize))
         var added = false
-        for name in ["MenubarIcon", "MenubarIcon@2x"] {
-            guard let url = brandURL(named: "\(name).png"),
-                  FileManager.default.fileExists(atPath: url.path),
-                  let source = NSImage(contentsOf: url) else { continue }
-            source.size = NSSize(width: menubarPointSize, height: menubarPointSize)
-            for rep in source.representations {
-                image.addRepresentation(rep)
-                added = true
+        for baseName in ["MenubarIconLight", "MenubarIcon"] {
+            for suffix in ["", "@2x"] {
+                guard let url = brandURL(named: "\(baseName)\(suffix).png"),
+                      FileManager.default.fileExists(atPath: url.path),
+                      let source = NSImage(contentsOf: url) else { continue }
+                let scale: CGFloat = suffix.isEmpty ? 1 : 2
+                source.size = NSSize(
+                    width: menubarPointSize * scale,
+                    height: menubarPointSize * scale
+                )
+                for rep in source.representations {
+                    image.addRepresentation(rep)
+                    added = true
+                }
             }
+            if added { break }
         }
         guard added else { return nil }
         image.isTemplate = true

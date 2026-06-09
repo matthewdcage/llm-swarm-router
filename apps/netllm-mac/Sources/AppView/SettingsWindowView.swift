@@ -458,6 +458,7 @@ struct SettingsWindowView: View {
     private var uiTab: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("\(AppBranding.displayName) app")
+            LoginItemSettings()
             Toggle("Auto-start agent on launch", isOn: $model.document.ui.auto_start_on_launch)
             Toggle("Check for updates automatically", isOn: $model.document.ui.check_for_updates_automatically)
                 .onChange(of: model.document.ui.check_for_updates_automatically) { _, enabled in

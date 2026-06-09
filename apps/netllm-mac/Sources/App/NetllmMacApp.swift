@@ -10,6 +10,19 @@ struct NetllmMacApp: App {
     }
 
     var body: some Scene {
+        MenuBarExtra {
+            if MenubarAppModel.shared.isConfigured {
+                MenubarPopoverView(model: MenubarAppModel.shared)
+            } else {
+                ProgressView("Starting…")
+                    .padding(DesignTokens.cardPadding)
+                    .frame(width: DesignTokens.popoverWidth)
+            }
+        } label: {
+            MenubarStatusLabel(model: MenubarAppModel.shared)
+        }
+        .menuBarExtraStyle(.window)
+
         Settings {
             EmptyView()
         }
