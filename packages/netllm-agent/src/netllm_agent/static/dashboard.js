@@ -80,9 +80,30 @@ async function loadHealth() {
   }
 }
 
+function omlxAdminURLFromStatus(status) {
+  if (status?.omlx_admin_url) return status.omlx_admin_url;
+  const omlx = (status?.backends || []).find(
+    (b) =>
+      b.provider === "omlx" &&
+      b.enabled !== false &&
+      b.health?.status !== "offline"
+  );
+  if (!omlx?.base_url) return "http://127.0.0.1:8080/admin";
+  let base = omlx.base_url.replace(/\/$/, "");
+  if (base.endsWith("/v1")) base = base.slice(0, -3);
+  return `${base}/admin`;
+}
+
+function updateOmlxAdminLink() {
+  const btn = document.getElementById("btn-omlx-admin");
+  if (!btn) return;
+  btn.href = omlxAdminURLFromStatus(state.status);
+}
+
 async function loadCore() {
   const status = await api("/netllm/v1/status");
   state.status = status;
+  updateOmlxAdminLink();
   const [models, doctor, env] = await Promise.all([
     api("/v1/models"),
     api("/netllm/v1/doctor"),

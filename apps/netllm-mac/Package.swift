@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "netllm-mac",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v15)],
     targets: [
         .executableTarget(
             name: "NetllmMac",

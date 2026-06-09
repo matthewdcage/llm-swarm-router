@@ -16,11 +16,17 @@ from netllm_core.anthropic_bridge import (
 )
 from netllm_core.models import (
     ANTHROPIC_CLOUD_BASE_URL,
+    LOCAL_ONLY_HEADER,
+    OPENAI_CLOUD_BASE_URL,
     Backend,
     NetllmConfig,
 )
 from netllm_core.pool import RouterPool
-from netllm_discovery.local import scan_local_providers, scan_results_to_backends
+from netllm_discovery.local import (
+    find_omlx_admin_url,
+    scan_local_providers,
+    scan_results_to_backends,
+)
 from netllm_discovery.swarm import PeerRecord, SwarmRegistry
 from netllm_sdk_anthropic.client import AnthropicUpstream, AnthropicUpstreamError
 from netllm_sdk_openai.client import OpenAIUpstream, OpenAIUpstreamError
@@ -110,7 +116,8 @@ class AgentService:
             BACKEND_IN_FLIGHT.labels(backend=b.base_url).set(b.in_flight)
 
     def status_payload(self) -> dict[str, Any]:
-        return {
+        omlx_admin = find_omlx_admin_url(self.pool.backends)
+        payload: dict[str, Any] = {
             "agent_id": self.config.agent.agent_id,
             "hostname": self.config.agent.hostname,
             "role": self.config.agent.role,
@@ -119,6 +126,9 @@ class AgentService:
             "peers": self.swarm.all_peer_urls(),
             "routing_strategy": self.config.routing.default_strategy,
         }
+        if omlx_admin:
+            payload["omlx_admin_url"] = omlx_admin
+        return payload
 
     async def handle_heartbeat(self, payload: dict[str, Any]) -> None:
         agent_id = payload.get("agent_id", "")
@@ -151,12 +161,26 @@ class AgentService:
                     }
         return {"object": "list", "data": list(seen.values())}
 
+    @staticmethod
+    def _normalize_headers(headers: Mapping[str, str] | None) -> dict[str, str]:
+        if not headers:
+            return {}
+        return {str(k).lower(): str(v) for k, v in headers.items()}
+
+    @staticmethod
+    def _wants_local_only(headers: Mapping[str, str] | None) -> bool:
+        hdrs = AgentService._normalize_headers(headers)
+        raw = hdrs.get(LOCAL_ONLY_HEADER, "")
+        return raw.strip().lower() in ("1", "true", "yes")
+
     def _select_backend_for_request(
         self,
         model: str,
         strategy: str,
         attempt: int,
         shard: ShardContext | None,
+        *,
+        local_only: bool = False,
     ) -> Backend | None:
         if strategy == "batch_shard":
             if shard and shard.batch_id is not None and shard.index is not None:
@@ -189,14 +213,19 @@ class AgentService:
                     use_strategy,  # type: ignore[arg-type]
                     shard_key=shard_key,
                     attempt=attempt,
+                    local_only=local_only,
                 )
 
             if attempt == 1:
                 logger.warning(
                     "batch_shard without shard context — falling back to round_robin"
                 )
-                return self.pool.select_backend(model, "round_robin")
-            return self.pool.select_backend(model, "failover", attempt=attempt)
+                return self.pool.select_backend(
+                    model, "round_robin", local_only=local_only
+                )
+            return self.pool.select_backend(
+                model, "failover", attempt=attempt, local_only=local_only
+            )
 
         use_strategy = strategy if attempt == 1 else "failover"
         shard_key = shard.shard_key if shard else None
@@ -205,6 +234,7 @@ class AgentService:
             use_strategy,  # type: ignore[arg-type]
             shard_key=shard_key,
             attempt=attempt,
+            local_only=local_only,
         )
 
     def _mark_shard_success(self, shard: ShardContext | None) -> None:
@@ -217,18 +247,24 @@ class AgentService:
         *,
         headers: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
+        hdrs = self._normalize_headers(headers)
         model = payload.get("model", "")
         strategy = self.config.routing.default_strategy
-        shard = extract_shard_context(payload, headers or {})
+        shard = extract_shard_context(payload, hdrs)
+        local_only = self._wants_local_only(hdrs)
 
         await self.refresh_local_backends()
+        if not local_only:
+            self._inject_openai_cloud_backend(self._openai_api_key(hdrs))
         attempt = 0
         last_error: Exception | None = None
         max_attempts = max(len(self.pool.backends), 1)
 
         while attempt < max_attempts:
             attempt += 1
-            backend = self._select_backend_for_request(model, strategy, attempt, shard)
+            backend = self._select_backend_for_request(
+                model, strategy, attempt, shard, local_only=local_only
+            )
             if backend is None:
                 break
             backend.in_flight += 1
@@ -278,18 +314,24 @@ class AgentService:
         *,
         headers: Mapping[str, str] | None = None,
     ) -> AsyncIterator[str]:
+        hdrs = self._normalize_headers(headers)
         model = payload.get("model", "")
         strategy = self.config.routing.default_strategy
-        shard = extract_shard_context(payload, headers or {})
+        shard = extract_shard_context(payload, hdrs)
+        local_only = self._wants_local_only(hdrs)
 
         await self.refresh_local_backends()
+        if not local_only:
+            self._inject_openai_cloud_backend(self._openai_api_key(hdrs))
         attempt = 0
         last_error: Exception | None = None
         max_attempts = max(len(self.pool.backends), 1)
 
         while attempt < max_attempts:
             attempt += 1
-            backend = self._select_backend_for_request(model, strategy, attempt, shard)
+            backend = self._select_backend_for_request(
+                model, strategy, attempt, shard, local_only=local_only
+            )
             if backend is None:
                 break
             backend.in_flight += 1
@@ -328,6 +370,18 @@ class AgentService:
         return headers.get("x-api-key") or os.environ.get("ANTHROPIC_API_KEY", "")
 
     @staticmethod
+    def _openai_api_key(headers: Mapping[str, str]) -> str:
+        auth = headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            token = auth[7:].strip()
+            if token and token != "netllm-local":
+                return token
+        env_key = os.environ.get("OPENAI_API_KEY", "")
+        if env_key and env_key != "netllm-local":
+            return env_key
+        return ""
+
+    @staticmethod
     def _anthropic_default_headers(headers: Mapping[str, str]) -> dict[str, str]:
         out: dict[str, str] = {}
         for key in ("anthropic-version", "anthropic-beta"):
@@ -336,7 +390,7 @@ class AgentService:
         return out
 
     def _inject_anthropic_cloud_backend(self, api_key: str) -> None:
-        if not api_key:
+        if not api_key or api_key == "netllm-local":
             return
         if any(b.api_format == "anthropic" for b in self.pool.backends):
             return
@@ -355,13 +409,41 @@ class AgentService:
             ]
         )
 
-    def _message_backend_candidates(self, model: str) -> list[Backend]:
+    def _inject_openai_cloud_backend(self, api_key: str) -> None:
+        if not api_key:
+            return
+        cloud_url = OPENAI_CLOUD_BASE_URL.rstrip("/")
+        if any(
+            b.api_format == "openai" and b.base_url.rstrip("/") == cloud_url
+            for b in self.pool.backends
+        ):
+            return
+        self.pool.merge_backends(
+            [
+                Backend(
+                    id="openai-cloud",
+                    base_url=cloud_url,
+                    provider="openai",
+                    api_format="openai",
+                    api_key=api_key,
+                    enabled=True,
+                    local=False,
+                    agent_id=self.config.agent.agent_id,
+                )
+            ]
+        )
+
+    def _message_backend_candidates(
+        self, model: str, *, local_only: bool = False
+    ) -> list[Backend]:
         openai_backends: list[Backend] = []
         anthropic_backends: list[Backend] = []
         for b in self.pool.backends:
             if not b.enabled:
                 continue
             if not b.local and not self.pool.allow_remote:
+                continue
+            if local_only and not b.local:
                 continue
             if b.api_format == "anthropic":
                 anthropic_backends.append(b)
@@ -384,6 +466,7 @@ class AgentService:
                 for b in self.pool.backends
                 if b.enabled
                 and b.api_format == "openai"
+                and (not local_only or b.local)
                 and (b.local or self.pool.allow_remote)
             ]
         healthy = [b for b in ordered if self.pool.is_healthy(b)]
@@ -395,14 +478,16 @@ class AgentService:
         *,
         headers: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
-        hdrs = headers or {}
+        hdrs = self._normalize_headers(headers)
         model = payload.get("model", "")
         api_key = self._anthropic_api_key(hdrs)
+        local_only = self._wants_local_only(hdrs)
 
         await self.refresh_local_backends()
-        self._inject_anthropic_cloud_backend(api_key)
+        if not local_only:
+            self._inject_anthropic_cloud_backend(api_key)
 
-        candidates = self._message_backend_candidates(model)
+        candidates = self._message_backend_candidates(model, local_only=local_only)
         last_error: Exception | None = None
         max_attempts = max(len(candidates), 1)
 
@@ -459,14 +544,16 @@ class AgentService:
         *,
         headers: Mapping[str, str] | None = None,
     ) -> AsyncIterator[str]:
-        hdrs = headers or {}
+        hdrs = self._normalize_headers(headers)
         model = payload.get("model", "")
         api_key = self._anthropic_api_key(hdrs)
+        local_only = self._wants_local_only(hdrs)
 
         await self.refresh_local_backends()
-        self._inject_anthropic_cloud_backend(api_key)
+        if not local_only:
+            self._inject_anthropic_cloud_backend(api_key)
 
-        candidates = self._message_backend_candidates(model)
+        candidates = self._message_backend_candidates(model, local_only=local_only)
         last_error: Exception | None = None
         max_attempts = max(len(candidates), 1)
 

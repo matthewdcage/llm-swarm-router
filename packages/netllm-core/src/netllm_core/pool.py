@@ -176,14 +176,18 @@ class RouterPool:
         *,
         shard_key: str | None = None,
         attempt: int = 1,
+        local_only: bool = False,
     ) -> Backend | None:
-        local = self.backends_for_model(model, local_only=True)
-        remote = [b for b in self.backends_for_model(model) if not b.local]
-        all_candidates = (
-            local + remote
-            if strategy != "local_first"
-            else (local if local else remote)
-        )
+        if local_only:
+            all_candidates = self.backends_for_model(model, local_only=True)
+        else:
+            local = self.backends_for_model(model, local_only=True)
+            remote = [b for b in self.backends_for_model(model) if not b.local]
+            all_candidates = (
+                local + remote
+                if strategy != "local_first"
+                else (local if local else remote)
+            )
         if not all_candidates:
             return None
 
@@ -205,7 +209,10 @@ class RouterPool:
             return min(pool, key=lambda x: x.latency_ema_ms)
 
         if strategy == "local_first":
-            pool = local if local else remote
+            if local_only:
+                pool = all_candidates
+            else:
+                pool = local if local else remote
             if not pool:
                 return None
             if shard_key and len(pool) > 1:

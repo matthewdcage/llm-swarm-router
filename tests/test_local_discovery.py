@@ -5,11 +5,13 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from netllm_core.models import NetllmConfig
+from netllm_core.models import Backend, BackendHealth, NetllmConfig
 from netllm_discovery.local import (
     candidate_urls_for_provider,
+    find_omlx_admin_url,
     merge_discovered_provider_urls,
     normalize_openai_base_url,
+    omlx_admin_url,
     scan_local_providers,
 )
 
@@ -151,3 +153,26 @@ async def test_scan_uses_config_provider_url_before_scan() -> None:
     omlx = next(r for r in results if r["id"] == "omlx")
     assert omlx["base_url"] == "http://127.0.0.1:9999/v1"
     assert seen[0] == "http://127.0.0.1:9999/v1"
+
+
+def test_omlx_admin_url_from_base() -> None:
+    assert omlx_admin_url("http://127.0.0.1:8088/v1") == "http://127.0.0.1:8088/admin"
+    assert omlx_admin_url("http://127.0.0.1:8080/v1/") == "http://127.0.0.1:8080/admin"
+
+
+def test_find_omlx_admin_url_from_backends() -> None:
+    backends = [
+        Backend(
+            id="1",
+            base_url="http://127.0.0.1:8088/v1",
+            provider="omlx",
+            health=BackendHealth(status="online"),
+        ),
+        Backend(
+            id="2",
+            base_url="http://127.0.0.1:11434/v1",
+            provider="ollama",
+            health=BackendHealth(status="online"),
+        ),
+    ]
+    assert find_omlx_admin_url(backends) == "http://127.0.0.1:8088/admin"

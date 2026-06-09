@@ -37,6 +37,8 @@ ProviderId = Literal[
 ApiFormat = Literal["openai", "anthropic"]
 
 ANTHROPIC_CLOUD_BASE_URL = "https://api.anthropic.com"
+OPENAI_CLOUD_BASE_URL = "https://api.openai.com/v1"
+LOCAL_ONLY_HEADER = "x-netllm-local-only"
 
 
 def infer_api_format(provider: ProviderId) -> ApiFormat:

@@ -328,7 +328,12 @@ final class MenubarController {
         NSWorkspace.shared.open(URL(string: "http://\(host):\(config.port)/")!)
     }
     @objc private func openOmlx() {
-        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8080/admin")!)
+        let fallback = "http://127.0.0.1:8080/admin"
+        let urlString = statsPoller.snapshot.omlxAdminURL
+            ?? OmlxURLs.adminURL(from: statsPoller.snapshot.backends)
+            ?? fallback
+        guard let url = URL(string: urlString) else { return }
+        NSWorkspace.shared.open(url)
     }
     @objc private func copyEnv() {
         let host = AppConfig.connectableHost(for: config.bindHost)

@@ -299,3 +299,55 @@ def scan_results_to_backends(
             )
         )
     return backends
+
+
+def omlx_admin_url(base_url: str) -> str:
+    """Derive oMLX admin UI URL from a discovered OpenAI-compatible base URL."""
+    raw = base_url.strip().rstrip("/")
+    if raw.endswith("/v1"):
+        raw = raw[:-3]
+    return f"{raw}/admin"
+
+
+def find_omlx_admin_url(backends: list[Any]) -> str | None:
+    """Return admin URL for the best enabled oMLX backend (online, most models)."""
+    best: tuple[int, str] | None = None
+    for backend in backends:
+        provider = getattr(backend, "provider", None) or (
+            backend.get("provider") if isinstance(backend, dict) else None
+        )
+        if provider != "omlx":
+            continue
+        enabled = getattr(backend, "enabled", True)
+        if isinstance(backend, dict):
+            enabled = backend.get("enabled", True)
+        if not enabled:
+            continue
+        base_url = getattr(backend, "base_url", None) or (
+            backend.get("base_url") if isinstance(backend, dict) else None
+        )
+        if not base_url:
+            continue
+        health = getattr(backend, "health", None)
+        status = "unknown"
+        model_count = 0
+        if health is not None:
+            status = getattr(health, "status", None) or (
+                health.get("status") if isinstance(health, dict) else "unknown"
+            )
+            model_count = int(
+                getattr(health, "model_count", 0)
+                or (health.get("model_count", 0) if isinstance(health, dict) else 0)
+            )
+        elif isinstance(backend, dict):
+            health_dict = backend.get("health") or {}
+            status = health_dict.get("status", "unknown")
+            model_count = int(health_dict.get("model_count", 0) or 0)
+        if status == "offline":
+            continue
+        score = model_count + (1000 if status == "online" else 0)
+        if best is None or score > best[0]:
+            best = (score, str(base_url))
+    if best is None:
+        return None
+    return omlx_admin_url(best[1])

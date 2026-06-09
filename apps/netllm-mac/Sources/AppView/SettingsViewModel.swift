@@ -29,7 +29,7 @@ final class SettingsViewModel {
     static let strategies = [
         "local_first", "failover", "round_robin", "least_load", "latency_weighted", "batch_shard",
     ]
-    static let providers = ["omlx", "ollama", "lmstudio"]
+    static let providers = ["omlx", "ollama", "lmstudio", "vllm"]
     static let roles = ["peer", "gateway"]
 
     /// Peers the running agent is routing through (`/netllm/v1/status`).

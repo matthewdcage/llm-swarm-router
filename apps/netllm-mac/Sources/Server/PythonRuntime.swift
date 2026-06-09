@@ -69,6 +69,20 @@ struct PythonRuntime: Sendable {
         let shimBin = ShellEnvWriter.shimPath().deletingLastPathComponent().path
         env["NETLLM_CLI_SHIM"] = ShellEnvWriter.shimPath().path
         env["PATH"] = "\(shimBin):/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "")
+        injectCloudAPIKeys(into: &env)
         return env
+    }
+
+    private func injectCloudAPIKeys(into env: inout [String: String]) {
+        if env["ANTHROPIC_API_KEY"]?.isEmpty != false,
+           let key = KeychainStore.load(account: KeychainStore.Account.anthropicAPIKey),
+           !key.isEmpty {
+            env["ANTHROPIC_API_KEY"] = key
+        }
+        if env["OPENAI_API_KEY"]?.isEmpty != false,
+           let key = KeychainStore.load(account: KeychainStore.Account.openaiAPIKey),
+           !key.isEmpty {
+            env["OPENAI_API_KEY"] = key
+        }
     }
 }
