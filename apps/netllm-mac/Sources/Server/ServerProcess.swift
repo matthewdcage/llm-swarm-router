@@ -62,11 +62,40 @@ final class ServerProcess: @unchecked Sendable {
         switch state {
         case .running, .starting, .unresponsive:
             return .alreadyRunning
+        case .failed, .stopped:
+            autoRestartCount = 0
+            consecutiveFailures = 0
         default:
             break
         }
+        if portHealthySync() {
+            Task { @MainActor in
+                self.adoptHealthyListener()
+            }
+            return .alreadyRunning
+        }
+        // Clear stale listeners left when a supervised child exited 0 but the port stayed bound.
+        releaseListenPort()
         try doStart()
         return .started
+    }
+
+    /// Keep polling /health so orphan agents and failed supervisor states can self-heal.
+    func beginPortMonitoring() {
+        startHealthCheckLoop()
+    }
+
+    /// On launch (or after a failed supervisor state), adopt a healthy agent already on our port.
+    @MainActor
+    func reconcileListeningPort() async {
+        switch state {
+        case .stopped, .failed:
+            break
+        default:
+            return
+        }
+        guard await isPortHealthy() else { return }
+        adoptHealthyListener()
     }
 
     func stop() async {
@@ -112,6 +141,9 @@ final class ServerProcess: @unchecked Sendable {
     }
 
     private func doStart() throws {
+        if let proc = process, proc.isRunning {
+            return
+        }
         try FileManager.default.createDirectory(
             at: logURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -158,15 +190,16 @@ final class ServerProcess: @unchecked Sendable {
         if code == 0 {
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if await self.isPortHealthy() {
-                    let pid = self.portOwnerPid() ?? 0
-                    self.autoRestartCount = 0
-                    self.consecutiveFailures = 0
-                    self.lastHealthyAt = Date()
-                    self.update(.running(pid: pid > 0 ? pid : 0))
-                    self.startHealthCheckLoop()
-                    return
+                for attempt in 0..<4 {
+                    if await self.isPortHealthy() {
+                        self.adoptHealthyListener()
+                        return
+                    }
+                    if attempt < 3 {
+                        try? await Task.sleep(for: .milliseconds(250))
+                    }
                 }
+                self.releaseListenPort()
                 self.tryAutoRestart(reason: "Agent exited with code \(code)")
             }
             return
@@ -180,14 +213,17 @@ final class ServerProcess: @unchecked Sendable {
         }
         if autoRestartCount >= maxAutoRestarts {
             update(.failed(message: "\(reason). Auto-restart failed."))
+            beginPortMonitoring()
             return
         }
         autoRestartCount += 1
+        releaseListenPort()
         let backoff = TimeInterval(5 * (1 << (autoRestartCount - 1)))
         update(.starting)
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(backoff))
             guard let self, case .starting = self.state else { return }
+            self.releaseListenPort()
             try? self.doStart()
         }
     }
@@ -223,13 +259,19 @@ final class ServerProcess: @unchecked Sendable {
 
         switch state {
         case .starting:
-            // Only mark running when our child process is alive. Another netllm
-            // instance on the same port would also pass /health and cause a
-            // false "running" state (e.g. stale ./netllm serve in a terminal).
-            if healthy, let proc = process, proc.isRunning {
-                consecutiveFailures = 0
-                lastHealthyAt = Date()
-                update(.running(pid: proc.processIdentifier))
+            if healthy {
+                if let proc = process, proc.isRunning {
+                    consecutiveFailures = 0
+                    lastHealthyAt = Date()
+                    update(.running(pid: proc.processIdentifier))
+                } else {
+                    // Child exited quickly but an agent is still listening (orphan).
+                    adoptHealthyListener()
+                }
+            }
+        case .stopped, .failed:
+            if healthy {
+                adoptHealthyListener()
             }
         case .running(let pid), .unresponsive(let pid):
             if healthy {
@@ -262,6 +304,16 @@ final class ServerProcess: @unchecked Sendable {
         logHandle = nil
     }
 
+    @MainActor
+    private func adoptHealthyListener() {
+        let pid = portOwnerPid() ?? 0
+        autoRestartCount = 0
+        consecutiveFailures = 0
+        lastHealthyAt = Date()
+        update(.running(pid: pid > 0 ? pid : 0))
+        startHealthCheckLoop()
+    }
+
     /// Stop any netllm agent still bound to our listen port (orphan after app quit).
     private func releaseListenPort() {
         let script = """
@@ -276,6 +328,26 @@ final class ServerProcess: @unchecked Sendable {
         proc.standardError = FileHandle.nullDevice
         try? proc.run()
         proc.waitUntilExit()
+    }
+
+    private func portHealthySync() -> Bool {
+        let script = """
+        import urllib.request
+        try:
+            with urllib.request.urlopen('http://\(host):\(port)/health', timeout=2) as r:
+                raise SystemExit(0 if r.status == 200 else 1)
+        except Exception:
+            raise SystemExit(1)
+        """
+        let proc = Process()
+        proc.executableURL = runtime.executable
+        proc.arguments = ["-c", script]
+        proc.environment = runtime.makeEnvironment()
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        try? proc.run()
+        proc.waitUntilExit()
+        return proc.terminationStatus == 0
     }
 
     @MainActor

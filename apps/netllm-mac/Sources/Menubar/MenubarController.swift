@@ -66,6 +66,9 @@ final class MenubarController {
     }
 
     private func rebuildMenu() {
+        if case .downloading = updateController.state {
+            Task { await updateController.reconcileDownloadWithDisk() }
+        }
         let menu = NSMenu()
         let statusLine = statusTitle()
         let header = NSMenuItem(title: statusLine, action: nil, keyEquivalent: "")
@@ -142,7 +145,17 @@ final class MenubarController {
             } else {
                 submenu.addItem(actionItem("Open Download v\(release.version)", #selector(openUpdateInBrowser)))
             }
-        case .downloading, .installing, .checking:
+        case .downloading(let progress):
+            let label: String
+            if let progress {
+                label = String(format: "Downloading… %.0f%%", progress * 100)
+            } else {
+                label = updateController.statusLabel ?? "Downloading update…"
+            }
+            let item = NSMenuItem(title: label, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            submenu.addItem(item)
+        case .installing, .checking:
             let item = NSMenuItem(title: updateController.statusLabel ?? "Working…", action: nil, keyEquivalent: "")
             item.isEnabled = false
             submenu.addItem(item)
@@ -294,7 +307,17 @@ final class MenubarController {
         return item
     }
 
-    @objc private func startAgent() { Task { try? server.start() } }
+    @objc private func startAgent() {
+        Task {
+            if case .failed = server.state {
+                await server.reconcileListeningPort()
+                if server.isRunning { return }
+                try? await server.forceRestart()
+            } else {
+                try? server.start()
+            }
+        }
+    }
     @objc private func stopAgent() { Task { await server.stop() } }
     @objc private func openDashboard() {
         let host = AppConfig.connectableHost(for: config.bindHost)
@@ -324,7 +347,7 @@ final class MenubarController {
 
     @objc private func downloadUpdate() {
         guard case .available(let release) = updateController.state else { return }
-        Task { await updateController.downloadUpdate(release: release) }
+        updateController.downloadUpdate(release: release)
     }
 
     @objc private func installUpdate() {

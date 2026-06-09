@@ -56,7 +56,7 @@ Agent lifespan runs provider discovery on start and persists URLs to config (all
 
 ## Release assets (one GitHub Release page)
 
-Latest: [v0.2.3.4](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.4) (macOS quit/orphan fixes + CI lifecycle gates) · [v0.2.3.3](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.3) (About + Logs) · [All releases](https://github.com/matthewdcage/llm-swarm-router/releases)
+Latest: [v0.2.3.5](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.5) (macOS update UX + agent port recovery) · [v0.2.3.4](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.4) (lifecycle gates) · [All releases](https://github.com/matthewdcage/llm-swarm-router/releases)
 
 | Asset | Platform |
 |-------|----------|

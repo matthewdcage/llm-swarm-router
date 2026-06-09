@@ -306,7 +306,7 @@ def test_netllm_version(client: TestClient) -> None:
 @patch("netllm_agent.app.build_update_check_payload", new_callable=AsyncMock)
 def test_netllm_update_check(mock_build: AsyncMock, client: TestClient) -> None:
     mock_build.return_value = {
-        "current": "0.2.3.4",
+        "current": "0.2.3.5",
         "latest": "0.2.4.0",
         "update_available": True,
         "prerelease": False,
@@ -330,8 +330,8 @@ def test_netllm_update_check(mock_build: AsyncMock, client: TestClient) -> None:
 @patch("netllm_agent.app.build_update_check_payload", new_callable=AsyncMock)
 def test_netllm_update_check_force(mock_build: AsyncMock, client: TestClient) -> None:
     mock_build.return_value = {
-        "current": "0.2.3.4",
-        "latest": "0.2.3.4",
+        "current": "0.2.3.5",
+        "latest": "0.2.3.5",
         "update_available": False,
         "prerelease": False,
         "release_notes_url": "https://github.com/matthewdcage/llm-swarm-router/releases/latest",

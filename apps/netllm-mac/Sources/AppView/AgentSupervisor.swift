@@ -42,7 +42,15 @@ final class AgentSupervisor {
     }
 
     func start() {
-        Task { try? server.start() }
+        Task {
+            if case .failed = server.state {
+                await server.reconcileListeningPort()
+                if server.isRunning { return }
+                try? await server.forceRestart()
+            } else {
+                try? server.start()
+            }
+        }
     }
 
     func stop() {

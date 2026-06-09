@@ -6,7 +6,7 @@ Run the mesh router as a **Windows service** or in a foreground terminal.
 
 ## Portable zip (recommended)
 
-Download `netllm-<version>-windows-x64.zip` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases/latest) (e.g. `netllm-0.2.3.4-windows-x64.zip` from [v0.2.3.4](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.4), **alpha** package for Windows).
+Download `netllm-<version>-windows-x64.zip` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases/latest) (e.g. `netllm-0.2.3.5-windows-x64.zip` from [v0.2.3.5](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.5), **alpha** package for Windows).
 
 1. Extract to a folder (e.g. `%LOCALAPPDATA%\netllm`).
 2. Open PowerShell **as Administrator** in that folder.

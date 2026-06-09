@@ -1,6 +1,6 @@
 [project]
 name = "netllm-discovery"
-version = "0.2.3.4"
+version = "0.2.3.5"
 description = "Local and swarm discovery for netllm agents"
 requires-python = ">=3.11"
 dependencies = [

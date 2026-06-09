@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 @MainActor
+@main
 final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
     private var menubar: MenubarController?
     private var server: ServerProcess?
@@ -50,13 +51,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
         ShellEnvWriter.ensureCLIShim(bundleCLI: runtime.bundleCLIPath)
 
         UpdateController.shared.configure(server: server!)
-        UpdateController.shared.pruneCacheOnLaunch()
-        UpdateController.shared.restartPollingIfNeeded()
+        UpdateNotifier.requestAuthorizationIfNeeded()
+        Task {
+            await UpdateController.shared.prepareCacheOnLaunch()
+            UpdateController.shared.restartPollingIfNeeded()
+        }
 
-        if config.needsWelcome || !config.autoStartOnLaunch {
-            showWelcome()
-        } else if config.autoStartOnLaunch {
-            Task { try? server?.start() }
+        closeStraySwiftUISettingsWindows()
+
+        Task { @MainActor in
+            guard let server else { return }
+            await server.reconcileListeningPort()
+            server.beginPortMonitoring()
+            if config.needsWelcome || !config.autoStartOnLaunch {
+                showWelcome()
+            } else if config.autoStartOnLaunch, !server.isRunning {
+                try? server.start()
+            }
         }
     }
 
@@ -191,6 +202,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
             guard let self else { return }
             Task { @MainActor in
                 self.updateApplicationIcon()
+            }
+        }
+    }
+
+    /// SwiftUI `Settings { EmptyView() }` (removed) opened a blank titled window on launch for DMG installs.
+    private func closeStraySwiftUISettingsWindows() {
+        for window in NSApp.windows where window.title == AppBranding.settingsTitle {
+            guard window !== settingsWindow else { continue }
+            let isEmpty = window.contentView?.subviews.isEmpty ?? true
+            if isEmpty {
+                window.close()
             }
         }
     }

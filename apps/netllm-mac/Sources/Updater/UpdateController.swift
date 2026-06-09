@@ -40,6 +40,11 @@ final class UpdateController {
     private var pollTask: Task<Void, Never>?
     private var server: ServerProcess?
     private let checker = ReleasesChecker()
+    private var activeDownloader: UpdateDownloader?
+    private var activeDownloadRelease: GitHubRelease?
+    private var downloadTask: Task<Void, Never>?
+
+    private static let downloadTimeoutSeconds: UInt64 = 900 // 15 minutes
 
     private var cacheDirectory: URL {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
@@ -58,17 +63,118 @@ final class UpdateController {
         self.server = server
     }
 
-    func pruneCacheOnLaunch() {
-        pruneUpdateCache(keepVersion: nil)
+    /// On launch: drop partial downloads, then attach ready-to-install if a complete DMG is cached.
+    func prepareCacheOnLaunch() async {
+        UpdateLogger.log("prepareCacheOnLaunch (app v\(currentVersion))")
+        prunePartialDownloadsOnly()
+        await restoreCachedDownloadOnLaunch()
+        await reconcileDownloadWithDisk()
+    }
+
+    /// If UI says "downloading" but the DMG is already on disk, promote to ready-to-install.
+    func reconcileDownloadWithDisk() async {
+        guard case .downloading = state else { return }
+        let release: GitHubRelease?
+        if let activeDownloadRelease {
+            release = activeDownloadRelease
+        } else {
+            release = await checker.latestRelease(userAgent: userAgent)
+        }
+        guard let release else { return }
+        let destination = cachedDMGURL(for: release)
+        if await adoptCachedDMGIfValid(destination: destination, release: release, notify: false) {
+            UpdateLogger.log("reconciled stuck download → readyToInstall v\(release.version)")
+        }
+    }
+
+    private func restoreCachedDownloadOnLaunch() async {
+        guard let release = await checker.latestRelease(userAgent: userAgent),
+              release.version.compare(currentVersion, options: .numeric) == .orderedDescending else {
+            return
+        }
+        let destination = cachedDMGURL(for: release)
+        if await adoptCachedDMGIfValid(destination: destination, release: release, notify: false) {
+            UpdateLogger.log("restored cached DMG for v\(release.version) at \(destination.path)")
+        }
+    }
+
+    private func prunePartialDownloadsOnly() {
         let items = (try? FileManager.default.contentsOfDirectory(
             at: cacheDirectory,
             includingPropertiesForKeys: nil
         )) ?? []
-        for item in items {
-            if item.pathExtension == "download" {
-                try? FileManager.default.removeItem(at: item)
+        for item in items where item.pathExtension == "download" {
+            try? FileManager.default.removeItem(at: item)
+        }
+    }
+
+    private func cachedDMGURL(for release: GitHubRelease) -> URL {
+        cacheDirectory.appendingPathComponent(
+            "\(preferredAssetName.replacingOccurrences(of: ".dmg", with: ""))-\(release.version).dmg"
+        )
+    }
+
+    private func fileSize(at url: URL) -> Int? {
+        guard FileManager.default.fileExists(atPath: url.path),
+              let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attrs[.size] as? Int else {
+            return nil
+        }
+        return size
+    }
+
+    private func adoptCachedDMGIfValid(
+        destination: URL,
+        release: GitHubRelease,
+        notify: Bool
+    ) async -> Bool {
+        guard let size = fileSize(at: destination),
+              release.assetSize <= 0 || size == release.assetSize else {
+            return false
+        }
+        if let shaURL = release.sha256URL {
+            do {
+                let expected = try await fetchExpectedSHA256(from: shaURL)
+                let verified = await Task.detached(priority: .utility) {
+                    Self.verifySHA256(file: destination, expectedHex: expected)
+                }.value
+                if !verified {
+                    UpdateLogger.log("cached DMG failed SHA256 check for v\(release.version)")
+                    try? FileManager.default.removeItem(at: destination)
+                    return false
+                }
+            } catch {
+                UpdateLogger.log("cached DMG SHA256 fetch failed: \(error.localizedDescription)")
+                return false
             }
         }
+        cancelActiveDownload()
+        setState(.readyToInstall(localDMG: destination, release: release))
+        if notify {
+            UpdateNotifier.notifyDownloadReady(version: release.version)
+        }
+        return true
+    }
+
+    private func cancelActiveDownload() {
+        downloadTask?.cancel()
+        downloadTask = nil
+        activeDownloader?.cancel()
+        activeDownloader = nil
+        activeDownloadRelease = nil
+    }
+
+    nonisolated private static func verifySHA256(file: URL, expectedHex: String) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return false }
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while true {
+            let chunk = handle.readData(ofLength: 1_048_576)
+            if chunk.isEmpty { break }
+            hasher.update(data: chunk)
+        }
+        let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        return digest == expectedHex.lowercased()
     }
 
     func startPolling(interval: TimeInterval = 3600) {
@@ -96,6 +202,13 @@ final class UpdateController {
 
     func checkOnce(force: Bool = true) async {
         if !force && !AppConfig.load().checkForUpdatesAutomatically {
+            return
+        }
+        if case .downloading = state {
+            await reconcileDownloadWithDisk()
+            return
+        }
+        if case .installing = state {
             return
         }
         let preservedReady: (URL, GitHubRelease)? = {
@@ -130,24 +243,59 @@ final class UpdateController {
         setState(.available(release))
     }
 
-    func downloadUpdate(release: GitHubRelease) async {
+    func downloadUpdate(release: GitHubRelease) {
+        cancelActiveDownload()
+        downloadTask = Task { await performDownload(release: release) }
+    }
+
+    private func performDownload(release: GitHubRelease) async {
+        guard !Task.isCancelled else { return }
         guard release.hasDMGAsset else {
             openDownloadInBrowser(for: release)
             return
         }
-        setState(.downloading(progress: nil))
-        let destination = cacheDirectory.appendingPathComponent("\(preferredAssetName.replacingOccurrences(of: ".dmg", with: ""))-\(release.version).dmg")
+        let destination = cachedDMGURL(for: release)
+        if await adoptCachedDMGIfValid(destination: destination, release: release, notify: true) {
+            UpdateLogger.log("download skipped — valid cache for v\(release.version)")
+            presentDownloadReadyAlert(version: release.version)
+            return
+        }
+
+        UpdateLogger.log("download started v\(release.version) from \(release.downloadURL.absoluteString)")
+        activeDownloadRelease = release
+        setState(.downloading(progress: 0))
         do {
             try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
             try? FileManager.default.removeItem(at: destination)
-            let (tmp, response) = try await URLSession.shared.download(from: release.downloadURL)
+            let downloader = UpdateDownloader { [weak self] fraction in
+                Task { @MainActor in
+                    self?.setState(.downloading(progress: fraction))
+                }
+            }
+            activeDownloader = downloader
+            let timeoutSeconds = Self.downloadTimeoutSeconds
+            let (tmp, response) = try await withThrowingTaskGroup(of: (URL, URLResponse).self) { group in
+                group.addTask {
+                    try await downloader.download(from: release.downloadURL)
+                }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: timeoutSeconds * 1_000_000_000)
+                    throw UpdateError.downloadFailed("Download timed out after \(timeoutSeconds / 60) minutes")
+                }
+                guard let result = try await group.next() else {
+                    throw UpdateError.downloadFailed("Download ended without a result")
+                }
+                group.cancelAll()
+                return result
+            }
+            guard !Task.isCancelled else { return }
+            activeDownloader = nil
             defer { try? FileManager.default.removeItem(at: tmp) }
             if let http = response as? HTTPURLResponse, http.statusCode != 200 {
                 throw UpdateError.downloadFailed("HTTP \(http.statusCode)")
             }
             if release.assetSize > 0 {
-                let attrs = try FileManager.default.attributesOfItem(atPath: tmp.path)
-                let size = attrs[.size] as? Int ?? 0
+                let size = fileSize(at: tmp) ?? 0
                 if size != release.assetSize {
                     throw UpdateError.downloadFailed("Size mismatch (expected \(release.assetSize), got \(size))")
                 }
@@ -155,17 +303,51 @@ final class UpdateController {
             try FileManager.default.moveItem(at: tmp, to: destination)
             if let shaURL = release.sha256URL {
                 let expected = try await fetchExpectedSHA256(from: shaURL)
-                if !verifySHA256(file: destination, expectedHex: expected) {
+                let verified = await Task.detached(priority: .utility) {
+                    Self.verifySHA256(file: destination, expectedHex: expected)
+                }.value
+                if !verified {
                     try? FileManager.default.removeItem(at: destination)
                     throw UpdateError.verificationFailed("SHA256 mismatch")
                 }
             }
+            activeDownloadRelease = nil
+            UpdateLogger.log("download complete v\(release.version) at \(destination.path)")
             setState(.readyToInstall(localDMG: destination, release: release))
+            UpdateNotifier.notifyDownloadReady(version: release.version)
+            presentDownloadReadyAlert(version: release.version)
+        } catch is CancellationError {
+            UpdateLogger.log("download cancelled v\(release.version)")
         } catch let error as UpdateError {
-            setState(.failed(error.localizedDescription))
+            activeDownloadRelease = nil
+            activeDownloader = nil
+            UpdateLogger.log("download failed: \(error.localizedDescription)")
+            if await adoptCachedDMGIfValid(destination: destination, release: release, notify: false) {
+                UpdateLogger.log("recovered to readyToInstall after download error")
+                presentDownloadReadyAlert(version: release.version)
+            } else {
+                setState(.failed(error.localizedDescription))
+            }
         } catch {
-            setState(.failed(error.localizedDescription))
+            activeDownloadRelease = nil
+            activeDownloader = nil
+            UpdateLogger.log("download failed: \(error.localizedDescription)")
+            if await adoptCachedDMGIfValid(destination: destination, release: release, notify: false) {
+                UpdateLogger.log("recovered to readyToInstall after download error")
+                presentDownloadReadyAlert(version: release.version)
+            } else {
+                setState(.failed(error.localizedDescription))
+            }
         }
+    }
+
+    private func presentDownloadReadyAlert(version: String) {
+        NSApp.activate(ignoringOtherApps: true)
+        let readyAlert = NSAlert()
+        readyAlert.messageText = "Update v\(version) ready"
+        readyAlert.informativeText = "Choose Install Update from the menubar Updates menu, or open Settings → Install and Quit."
+        readyAlert.addButton(withTitle: "OK")
+        readyAlert.runModal()
     }
 
     func installUpdate(release: GitHubRelease, localDMG: URL) async {
@@ -177,13 +359,18 @@ final class UpdateController {
         }
         guard let installPath = InstallLocation.applicationsInstallPath() else { return }
 
+        NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Install update v\(release.version)?"
         alert.informativeText = "The agent will stop and \(AppBranding.displayName) will quit while the app in Applications is replaced."
         alert.addButton(withTitle: "Install and Quit")
-        alert.addButton(withTitle: "Cancel")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        alert.addButton(withTitle: "Install Later")
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            UpdateLogger.log("install deferred v\(release.version) by user")
+            return
+        }
 
+        UpdateLogger.log("install started v\(release.version) dmg=\(localDMG.path)")
         setState(.installing)
         if let server {
             await server.stop()
@@ -252,7 +439,10 @@ final class UpdateController {
                 return "Update available (v\(release.version))"
             }
             return "Update available (v\(release.version)) — download manually"
-        case .downloading:
+        case .downloading(let progress):
+            if let progress {
+                return String(format: "Downloading update… %.0f%%", progress * 100)
+            }
             return "Downloading update…"
         case .readyToInstall(_, let release):
             return "Ready to install v\(release.version)"
@@ -264,19 +454,37 @@ final class UpdateController {
     }
 
     private func setState(_ newState: UpdateState) {
+        let skipLog: Bool = {
+            if case .downloading = state, case .downloading = newState { return true }
+            return false
+        }()
         state = newState
+        if !skipLog {
+            logStateTransition(newState)
+        }
         NotificationCenter.default.post(name: .netllmUpdateStateDidChange, object: self)
     }
 
-    private func pruneUpdateCache(keepVersion: String?) {
-        guard FileManager.default.fileExists(atPath: cacheDirectory.path) else { return }
-        for item in (try? FileManager.default.contentsOfDirectory(
-            at: cacheDirectory,
-            includingPropertiesForKeys: nil
-        )) ?? [] {
-            if item.pathExtension != "dmg" { continue }
-            if let keepVersion, item.lastPathComponent.contains(keepVersion) { continue }
-            try? FileManager.default.removeItem(at: item)
+    private func logStateTransition(_ newState: UpdateState) {
+        switch newState {
+        case .idle:
+            UpdateLogger.log("state idle")
+        case .checking:
+            UpdateLogger.log("state checking")
+        case .available(let release):
+            UpdateLogger.log("state available v\(release.version)")
+        case .downloading(let progress):
+            if let progress {
+                UpdateLogger.log(String(format: "state downloading %.0f%%", progress * 100))
+            } else {
+                UpdateLogger.log("state downloading")
+            }
+        case .readyToInstall(_, let release):
+            UpdateLogger.log("state readyToInstall v\(release.version)")
+        case .installing:
+            UpdateLogger.log("state installing")
+        case .failed(let message):
+            UpdateLogger.log("state failed: \(message)")
         }
     }
 
@@ -291,18 +499,6 @@ final class UpdateController {
         return text.split(separator: " ").first.map(String.init)?.lowercased() ?? text.lowercased()
     }
 
-    private func verifySHA256(file: URL, expectedHex: String) -> Bool {
-        guard let handle = try? FileHandle(forReadingFrom: file) else { return false }
-        defer { try? handle.close() }
-        var hasher = SHA256()
-        while true {
-            let chunk = handle.readData(ofLength: 1_048_576)
-            if chunk.isEmpty { break }
-            hasher.update(data: chunk)
-        }
-        let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
-        return digest == expectedHex.lowercased()
-    }
 }
 
 enum UpdateError: LocalizedError {

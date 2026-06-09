@@ -218,12 +218,21 @@ struct UpdateBannerCard: View {
                             .font(.subheadline)
                     }
                     updateActions(release: release, readyDMG: nil)
-                case .downloading:
+                case .downloading(let progress):
                     HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("Downloading update…")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                        if let progress {
+                            ProgressView(value: progress)
+                                .controlSize(.small)
+                                .frame(maxWidth: 120)
+                            Text(String(format: "Downloading update… %.0f%%", progress * 100))
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ProgressView().controlSize(.small)
+                            Text("Downloading update…")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 case .readyToInstall(_, let release):
                     Text("Download complete — ready to install v\(release.version).")
@@ -256,7 +265,7 @@ struct UpdateBannerCard: View {
             } else if readyDMG == nil {
                 if release.hasDMGAsset, InstallLocation.canAutoInstall() {
                     Button("Download Update") {
-                        Task { await controller.downloadUpdate(release: release) }
+                        controller.downloadUpdate(release: release)
                     }
                     .buttonStyle(.borderedProminent)
                 } else {
