@@ -29,6 +29,8 @@ apps/netllm-mac/build/
 # Cursor — local/personal (shared copies: .cursor/skills/, .cursor/rules/netllm.mdc, mcp.json.example)
 .cursor/plans/
 .cursor/outreach/
+.cursor/coordinator/
+.cursor/rules/pr-coordinator.mdc
 .cursor/hooks/
 .cursor/hooks.json
 .cursor/mcp.json
