@@ -8,6 +8,7 @@ Install guide: [macos-install.md](macos-install.md) · Overview: [platform-matri
 netllm doctor
 curl -sf http://127.0.0.1:11400/health
 netllm status
+tail -20 ~/Library/Application\ Support/netllm/logs/app.log   # menubar native launch (v0.2.3.6+)
 ```
 
 Dashboard: http://127.0.0.1:11400/ui/ · menubar **Open Dashboard** or **Copy Client Env**.
