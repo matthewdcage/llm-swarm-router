@@ -13,12 +13,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
     private var runtime: PythonRuntime?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        AppLogger.log("applicationDidFinishLaunching started (v\(version))")
         NSApp.setActivationPolicy(.accessory)
         updateApplicationIcon()
         observeInterfaceTheme()
 
         let runtime = PythonRuntime()
         self.runtime = runtime
+        AppLogger.log("PythonRuntime ready")
         let config = AppConfig.load()
         server = ServerProcess(
             runtime: runtime,
@@ -26,15 +29,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
             port: config.port,
             configPath: config.configPath
         )
+        AppLogger.log("ServerProcess configured host=\(config.bindHost) port=\(config.port)")
         controlServer = AppControlServer()
         controlServer?.handler = self
+        let controlSock = AppConfig.appSupportURL().appendingPathComponent("control.sock")
         do {
             try controlServer?.start()
+            AppLogger.log("control.sock listening at \(controlSock.path)")
         } catch {
-            try? FileManager.default.removeItem(
-                at: AppConfig.appSupportURL().appendingPathComponent("control.sock")
-            )
-            try? controlServer?.start()
+            AppLogger.log("control.sock start failed: \(error.localizedDescription); retrying after unlink")
+            try? FileManager.default.removeItem(at: controlSock)
+            do {
+                try controlServer?.start()
+                AppLogger.log("control.sock listening at \(controlSock.path) (after retry)")
+            } catch {
+                AppLogger.log("control.sock retry failed: \(error.localizedDescription)")
+            }
         }
 
         menubar = MenubarController(
@@ -54,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
                 self?.openLogFolder()
             }
         )
+        AppLogger.log("menubar created")
         ShellEnvWriter.ensureCLIShim(bundleCLI: runtime.bundleCLIPath)
 
         UpdateController.shared.configure(server: server!)
@@ -64,25 +75,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
         }
 
         closeStraySwiftUISettingsWindows()
+        AppLogger.log("applicationDidFinishLaunching finished")
 
         Task { @MainActor in
             guard let server else { return }
+            AppLogger.log("launch task: reconcileListeningPort adoptOrphan=\(config.autoStartOnLaunch)")
             await server.reconcileListeningPort(adoptOrphan: config.autoStartOnLaunch)
+            AppLogger.log("launch task: after reconcile state=\(Self.describe(server.state))")
             if config.needsWelcome || !config.autoStartOnLaunch {
+                AppLogger.log("launch task: showing welcome (needsWelcome=\(config.needsWelcome) autoStart=\(config.autoStartOnLaunch))")
                 showWelcome()
             } else if config.autoStartOnLaunch {
                 switch server.state {
                 case .stopped, .failed:
-                    try? server.start()
+                    do {
+                        let result = try server.start()
+                        AppLogger.log("launch task: auto_start result=\(result) state=\(Self.describe(server.state))")
+                    } catch {
+                        AppLogger.log("launch task: auto_start failed: \(error.localizedDescription)")
+                    }
                 default:
-                    break
+                    AppLogger.log("launch task: auto_start skipped state=\(Self.describe(server.state))")
                 }
             }
         }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        AppLogger.log("applicationWillTerminate started")
         controlServer?.stop()
+        AppLogger.log("control.sock stopped")
         guard let server else { return }
         // Do not block the main thread on DispatchGroup.wait while a MainActor Task
         // runs stop() — that deadlocks and leaves the agent orphaned on :11400.
@@ -94,6 +116,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
         let deadline = Date().addingTimeInterval(15)
         while done.wait(timeout: .now() + 0.05) == .timedOut, Date() < deadline {
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        AppLogger.log("applicationWillTerminate finished state=\(Self.describe(server.state))")
+    }
+
+    private static func describe(_ state: ServerProcess.State) -> String {
+        switch state {
+        case .stopped: "stopped"
+        case .starting: "starting"
+        case .running(let pid): "running(pid=\(pid))"
+        case .stopping: "stopping"
+        case .failed(let message): "failed(\(message))"
+        case .unresponsive(let pid): "unresponsive(pid=\(pid))"
         }
     }
 

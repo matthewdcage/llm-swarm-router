@@ -1,6 +1,6 @@
 [project]
 name = "netllm-core"
-version = "0.2.3.5"
+version = "0.2.3.6"
 description = "Core routing, health, and config for netllm"
 requires-python = ">=3.11"
 dependencies = [
