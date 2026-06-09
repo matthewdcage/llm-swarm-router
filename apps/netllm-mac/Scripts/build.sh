@@ -65,8 +65,13 @@ if awk -v v="$SDK_VER" 'BEGIN { split(v, parts, "."); exit !(parts[1] + 0 >= 26)
   SWIFT_FLAGS+=(-Xswiftc -DLIQUID_GLASS_SDK)
   echo "    Liquid Glass SDK enabled (macOS SDK $SDK_VER)"
 fi
-swift build -c release "${SWIFT_FLAGS[@]}" 2>/dev/null || swift build -c release "${SWIFT_FLAGS[@]}"
-BIN="$(swift build -c release "${SWIFT_FLAGS[@]}" --show-bin-path)/NetllmMac"
+if ((${#SWIFT_FLAGS[@]} > 0)); then
+  swift build -c release "${SWIFT_FLAGS[@]}" 2>/dev/null || swift build -c release "${SWIFT_FLAGS[@]}"
+  BIN="$(swift build -c release "${SWIFT_FLAGS[@]}" --show-bin-path)/NetllmMac"
+else
+  swift build -c release 2>/dev/null || swift build -c release
+  BIN="$(swift build -c release --show-bin-path)/NetllmMac"
+fi
 
 # --- Stage .app bundle ---
 rm -rf "$STAGE"
