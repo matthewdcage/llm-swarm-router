@@ -16,7 +16,8 @@
 # llm-swarm-router
 
 <p align="center">
-  <a href="AGENTS.md"><img src="https://img.shields.io/badge/version-0.2.3.5-orange?style=for-the-badge" alt="Version 0.2.3.5"></a>
+  <a href="https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.3.0.1"><img src="https://img.shields.io/badge/version-0.3.0.1-orange?style=for-the-badge" alt="Version 0.3.0.1"></a>
+  <a href="https://github.com/matthewdcage/llm-swarm-router/stargazers"><img src="https://img.shields.io/github/stars/matthewdcage/llm-swarm-router?style=for-the-badge&logo=github&logoColor=white" alt="GitHub stars"></a>
   <a href="docs/macos-install.md"><img src="https://img.shields.io/badge/macOS-Menubar%20app-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS app"></a>
   <a href="docs/linux-install.md"><img src="https://img.shields.io/badge/Linux-deb%2Frpm%20alpha-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux alpha"></a>
   <a href="docs/windows-install.md"><img src="https://img.shields.io/badge/Windows-zip%20alpha-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows alpha"></a>
@@ -85,7 +86,7 @@ Point **Cursor**, **Claude Code**, **Codex**, **Honcho**, or any compatible clie
 
 Overview: [docs/platform-matrix.md](docs/platform-matrix.md) · Full doc index: [docs/README.md](docs/README.md)
 
-**Latest release:** [v0.2.3.5](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.5): macOS update UX + agent port recovery; [v0.2.3.4](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.4) lifecycle gates; [v0.2.3.2](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.2) auto-update.
+**Latest release:** [v0.3.0.1](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.3.0.1): macOS in-app update download fix; [v0.3.0.0](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.3.0.0): App Intents & Shortcuts, SwiftUI MenuBarExtra, `[[routing.policies]]`, launch at login. [All releases](https://github.com/matthewdcage/llm-swarm-router/releases).
 
 ---
 
@@ -351,6 +352,12 @@ uv run pre-commit run --all-files   # optional; CI uses ./scripts/ci.sh
 After editing agent skills: `scripts/sync-agent-skills.sh`
 
 Human contributor guide: [CONTRIBUTING.md](CONTRIBUTING.md) · Agent context: [AGENTS.md](AGENTS.md)
+
+---
+
+## If this helps you
+
+If **llm-swarm-router** saves you time in your home lab, consider [**starring**](https://github.com/matthewdcage/llm-swarm-router/stargazers) the repo, **sharing** it with others who run local LLMs, and **opening issues or PRs** when you hit gaps. Every star and share helps more people find a path off single-machine `base_url` juggling.
 
 ---
 
