@@ -17,7 +17,6 @@
 
 <p align="center">
   <a href="https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.3.0.1"><img src="https://img.shields.io/badge/version-0.3.0.1-orange?style=for-the-badge" alt="Version 0.3.0.1"></a>
-  <a href="https://github.com/matthewdcage/llm-swarm-router/stargazers"><img src="https://img.shields.io/badge/Star%20on-GitHub-%E2%AD%90-181717?style=for-the-badge&logo=github&logoColor=white" alt="Star on GitHub"></a>
   <a href="docs/macos-install.md"><img src="https://img.shields.io/badge/macOS-Menubar%20app-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS app"></a>
   <a href="docs/linux-install.md"><img src="https://img.shields.io/badge/Linux-deb%2Frpm%20alpha-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux alpha"></a>
   <a href="docs/windows-install.md"><img src="https://img.shields.io/badge/Windows-zip%20alpha-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows alpha"></a>
