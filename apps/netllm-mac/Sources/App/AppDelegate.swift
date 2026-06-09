@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 
 @MainActor
-@main
 final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
     private var menubar: MenubarController?
     private var server: ServerProcess?
@@ -29,7 +28,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
         )
         controlServer = AppControlServer()
         controlServer?.handler = self
-        try? controlServer?.start()
+        do {
+            try controlServer?.start()
+        } catch {
+            try? FileManager.default.removeItem(
+                at: AppConfig.appSupportURL().appendingPathComponent("control.sock")
+            )
+            try? controlServer?.start()
+        }
 
         menubar = MenubarController(
             server: server!,
@@ -61,12 +67,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
 
         Task { @MainActor in
             guard let server else { return }
-            await server.reconcileListeningPort()
-            server.beginPortMonitoring()
+            await server.reconcileListeningPort(adoptOrphan: config.autoStartOnLaunch)
             if config.needsWelcome || !config.autoStartOnLaunch {
                 showWelcome()
-            } else if config.autoStartOnLaunch, !server.isRunning {
-                try? server.start()
+            } else if config.autoStartOnLaunch {
+                switch server.state {
+                case .stopped, .failed:
+                    try? server.start()
+                default:
+                    break
+                }
             }
         }
     }
@@ -208,10 +218,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
 
     /// SwiftUI `Settings { EmptyView() }` (removed) opened a blank titled window on launch for DMG installs.
     private func closeStraySwiftUISettingsWindows() {
-        for window in NSApp.windows where window.title == AppBranding.settingsTitle {
-            guard window !== settingsWindow else { continue }
-            let isEmpty = window.contentView?.subviews.isEmpty ?? true
-            if isEmpty {
+        for window in NSApp.windows {
+            if window === settingsWindow || window === welcomeWindow || window === aboutWindow {
+                continue
+            }
+            if window.title == AppBranding.settingsTitle {
+                let isEmpty = window.contentView?.subviews.isEmpty ?? true
+                if isEmpty {
+                    window.close()
+                }
+                continue
+            }
+            let frame = window.frame
+            if frame.width < 4 && frame.height < 4 {
                 window.close()
             }
         }

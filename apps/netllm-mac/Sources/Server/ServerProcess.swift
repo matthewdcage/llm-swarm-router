@@ -40,6 +40,7 @@ final class ServerProcess: @unchecked Sendable {
     private let maxAutoRestarts = 3
     private let stableThreshold: TimeInterval = 60
     private let stopGraceSeconds: TimeInterval = 10
+    private static let portQueue = DispatchQueue(label: "com.netllm.port", qos: .utility)
 
     init(runtime: PythonRuntime, bindAddress: String, port: Int, configPath: URL) {
         self.runtime = runtime
@@ -74,8 +75,11 @@ final class ServerProcess: @unchecked Sendable {
             }
             return .alreadyRunning
         }
-        // Clear stale listeners left when a supervised child exited 0 but the port stayed bound.
-        releaseListenPort()
+        // Claim .starting before slow port work so concurrent start() calls cannot spawn twins.
+        update(.starting)
+        if portHealthySync() {
+            releaseListenPort()
+        }
         try doStart()
         return .started
     }
@@ -87,7 +91,8 @@ final class ServerProcess: @unchecked Sendable {
 
     /// On launch (or after a failed supervisor state), adopt a healthy agent already on our port.
     @MainActor
-    func reconcileListeningPort() async {
+    func reconcileListeningPort(adoptOrphan: Bool) async {
+        guard adoptOrphan else { return }
         switch state {
         case .stopped, .failed:
             break
@@ -172,7 +177,11 @@ final class ServerProcess: @unchecked Sendable {
             }
         }
 
-        update(.starting)
+        if case .starting = state {
+            // start() / tryAutoRestart already claimed this state.
+        } else {
+            update(.starting)
+        }
         try proc.run()
         process = proc
         startHealthCheckLoop()
@@ -199,7 +208,9 @@ final class ServerProcess: @unchecked Sendable {
                         try? await Task.sleep(for: .milliseconds(250))
                     }
                 }
-                self.releaseListenPort()
+                if await self.isPortHealthy() {
+                    self.releaseListenPort()
+                }
                 self.tryAutoRestart(reason: "Agent exited with code \(code)")
             }
             return
@@ -217,13 +228,17 @@ final class ServerProcess: @unchecked Sendable {
             return
         }
         autoRestartCount += 1
-        releaseListenPort()
+        if portHealthySync() {
+            releaseListenPort()
+        }
         let backoff = TimeInterval(5 * (1 << (autoRestartCount - 1)))
         update(.starting)
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(backoff))
             guard let self, case .starting = self.state else { return }
-            self.releaseListenPort()
+            if self.portHealthySync() {
+                self.releaseListenPort()
+            }
             try? self.doStart()
         }
     }
@@ -234,7 +249,14 @@ final class ServerProcess: @unchecked Sendable {
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.tickHealth()
-                try? await Task.sleep(for: .seconds(self.healthCheckInterval))
+                let interval: TimeInterval
+                switch self.state {
+                case .starting:
+                    interval = 1
+                default:
+                    interval = self.healthCheckInterval
+                }
+                try? await Task.sleep(for: .seconds(interval))
             }
         }
     }
@@ -260,16 +282,17 @@ final class ServerProcess: @unchecked Sendable {
         switch state {
         case .starting:
             if healthy {
+                consecutiveFailures = 0
+                lastHealthyAt = Date()
+                let pid: Int32
                 if let proc = process, proc.isRunning {
-                    consecutiveFailures = 0
-                    lastHealthyAt = Date()
-                    update(.running(pid: proc.processIdentifier))
+                    pid = proc.processIdentifier
                 } else {
-                    // Child exited quickly but an agent is still listening (orphan).
-                    adoptHealthyListener()
+                    pid = portOwnerPid() ?? 0
                 }
+                update(.running(pid: pid > 0 ? pid : 0))
             }
-        case .stopped, .failed:
+        case .failed:
             if healthy {
                 adoptHealthyListener()
             }
@@ -315,39 +338,85 @@ final class ServerProcess: @unchecked Sendable {
     }
 
     /// Stop any netllm agent still bound to our listen port (orphan after app quit).
+    /// Runs off the main thread so AppControlServer handlers do not deadlock.
     private func releaseListenPort() {
         let script = """
         from netllm_discovery.runtime import stop_netllm_on_port
         stop_netllm_on_port(\(port))
         """
-        let proc = Process()
-        proc.executableURL = runtime.executable
-        proc.arguments = ["-c", script]
-        proc.environment = runtime.makeEnvironment()
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
-        try? proc.run()
-        proc.waitUntilExit()
+        _ = runPythonScript(script, captureStdout: false)
     }
 
     private func portHealthySync() -> Bool {
-        let script = """
-        import urllib.request
-        try:
-            with urllib.request.urlopen('http://\(host):\(port)/health', timeout=2) as r:
-                raise SystemExit(0 if r.status == 200 else 1)
-        except Exception:
-            raise SystemExit(1)
-        """
+        let url = URL(string: "http://\(host):\(port)/health")!
+        var request = URLRequest(url: url, timeoutInterval: 2)
+        request.httpMethod = "GET"
+        let sem = DispatchSemaphore(value: 0)
+        var ok = false
+        let task = URLSession.shared.dataTask(with: request) { _, response, _ in
+            ok = (response as? HTTPURLResponse)?.statusCode == 200
+            sem.signal()
+        }
+        task.resume()
+        if Thread.isMainThread {
+            while sem.wait(timeout: .now()) != .success {
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            }
+        } else {
+            sem.wait()
+        }
+        return ok
+    }
+
+    private func runPythonScript(
+        _ script: String,
+        captureStdout: Bool
+    ) -> (exitCode: Int32, stdout: String?) {
+        if Thread.isMainThread {
+            var result: (exitCode: Int32, stdout: String?) = (1, nil)
+            let group = DispatchGroup()
+            group.enter()
+            Self.portQueue.async { [runtime] in
+                result = Self.executePythonScript(
+                    script,
+                    captureStdout: captureStdout,
+                    runtime: runtime
+                )
+                group.leave()
+            }
+            while group.wait(timeout: .now()) != .success {
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            }
+            return result
+        }
+        return Self.executePythonScript(script, captureStdout: captureStdout, runtime: runtime)
+    }
+
+    private static func executePythonScript(
+        _ script: String,
+        captureStdout: Bool,
+        runtime: PythonRuntime
+    ) -> (exitCode: Int32, stdout: String?) {
         let proc = Process()
         proc.executableURL = runtime.executable
         proc.arguments = ["-c", script]
         proc.environment = runtime.makeEnvironment()
+        if captureStdout {
+            let pipe = Pipe()
+            proc.standardOutput = pipe
+            proc.standardError = FileHandle.nullDevice
+            guard (try? proc.run()) != nil else { return (1, nil) }
+            proc.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let stdout = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return (proc.terminationStatus, stdout)
+        }
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
         try? proc.run()
         proc.waitUntilExit()
-        return proc.terminationStatus == 0
+        return (proc.terminationStatus, nil)
     }
 
     @MainActor
@@ -369,17 +438,8 @@ final class ServerProcess: @unchecked Sendable {
         pid = port_owner_pid(\(port))
         print(pid if pid is not None else 0)
         """
-        let proc = Process()
-        let pipe = Pipe()
-        proc.executableURL = runtime.executable
-        proc.arguments = ["-c", script]
-        proc.environment = runtime.makeEnvironment()
-        proc.standardOutput = pipe
-        proc.standardError = FileHandle.nullDevice
-        guard (try? proc.run()) != nil else { return nil }
-        proc.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let result = runPythonScript(script, captureStdout: true)
+        guard let text = result.stdout,
               let pid = Int32(text), pid > 0
         else { return nil }
         return pid

@@ -140,7 +140,8 @@ final class AppControlServer: @unchecked Sendable {
                 }
                 sem.signal()
             }
-            _ = sem.wait(timeout: .now() + 30)
+            let waitSeconds: TimeInterval = (command == .start || command == .restart) ? 90 : 30
+            _ = sem.wait(timeout: .now() + waitSeconds)
             response = box.value ?? .failure(status: "timeout", state: .stopped, server: nil, message: "Timed out")
         } catch {
             response = .failure(status: "error", state: .stopped, server: nil, message: "\(error)")

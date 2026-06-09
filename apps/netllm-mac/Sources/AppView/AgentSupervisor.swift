@@ -44,7 +44,7 @@ final class AgentSupervisor {
     func start() {
         Task {
             if case .failed = server.state {
-                await server.reconcileListeningPort()
+                await server.reconcileListeningPort(adoptOrphan: true)
                 if server.isRunning { return }
                 try? await server.forceRestart()
             } else {

@@ -310,7 +310,7 @@ final class MenubarController {
     @objc private func startAgent() {
         Task {
             if case .failed = server.state {
-                await server.reconcileListeningPort()
+                await server.reconcileListeningPort(adoptOrphan: true)
                 if server.isRunning { return }
                 try? await server.forceRestart()
             } else {
@@ -368,5 +368,10 @@ final class MenubarController {
     @objc private func openLogFile() { onOpenLogFile() }
     @objc private func openLogFolder() { onOpenLogFolder() }
     @objc private func showAbout() { onOpenAbout() }
-    @objc private func quitApp() { NSApp.terminate(nil) }
+    @objc private func quitApp() {
+        Task { @MainActor in
+            await server.stop()
+            NSApp.terminate(nil)
+        }
+    }
 }

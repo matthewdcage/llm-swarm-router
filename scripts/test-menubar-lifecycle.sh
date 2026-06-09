@@ -216,9 +216,8 @@ trap cleanup EXIT
 echo "==> L1 clean quit after running"
 stop_orphan_agent
 ensure_config_listen
-sed -i '' 's/^[[:space:]]*auto_start_on_launch.*/auto_start_on_launch = true/' "$CFG" || true
 launch_menubar_app
-resp="$(app_control start)"
+resp="$(app_control start 0)"
 echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('ok'), d" || fail "start: $resp"
 wait_control_state running >/dev/null
 health_ok || fail "health not OK after start"
@@ -245,7 +244,7 @@ ok "L2 quit releases orphan on port"
 echo "==> L3 stop via control socket"
 stop_orphan_agent
 launch_menubar_app
-resp="$(app_control start)"
+resp="$(app_control start 0)"
 echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('ok'), d" || fail "L3 start: $resp"
 wait_control_state running >/dev/null
 resp="$(app_control stop 0)"
@@ -266,7 +265,7 @@ app_control stop 0 >/dev/null || true
 wait_port_empty || true
 start_orphan_agent
 launch_menubar_app
-resp="$(app_control start)"
+resp="$(app_control start 0)"
 echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('ok'), d" || fail "L5 start: $resp"
 wait_control_state running >/dev/null
 health_ok || fail "L5: health after replace start"
