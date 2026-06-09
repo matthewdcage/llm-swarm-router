@@ -171,23 +171,27 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - Auto-edit user editor `settings.json` without explicit consent
 - macOS menubar in-app install only works from `/Applications/llm-swarm-router.app` or `netllm-mac.app`; web dashboard proxies update checks via `GET /netllm/v1/update/check`
 
+## Learned User Preferences
+
+- Validate macOS updater/install fixes locally (`tests/test_bundled_install_scripts.sh`, `scripts/test-menubar-e2e.sh`) before release commits or tags
+- Run `./scripts/verify-before-pr.sh` (or `--full` with menubar e2e) before pushing macOS menubar PRs
+- macOS in-app update must stop the agent and free `:11400` as part of install — not require manual **Stop** first
+- Commit macOS update/install fixes as focused slices separate from unrelated feature work when possible
+- Run local agent smoke (`./netllm test`, menubar e2e) before PR, merge, and release
+
 ## Learned Workspace Facts
 
 - Local web dashboard at http://127.0.0.1:11400/ui/ on all platforms; macOS menubar has **Open Dashboard**
 - Linux/Windows **alpha** use `/ui/` + CLI; macOS stable adds menubar app: same agent core
-- Published GitHub Releases attach DMG (macOS), `.deb`/`.rpm` (Linux), Windows zip, and `netllm.yaml` (winget snippet) via `.github/workflows/release.yml`: see [docs/platform-matrix.md](docs/platform-matrix.md)
-- `./netllm` wrapper runs `uv run --directory $ROOT netllm`: no global install needed
-- mDNS (swarm discovery) requires zeroconf from `uv sync`; reinstall if `netllm doctor` reports mDNS unavailable
-- `serve` on loopback (`127.0.0.1`) blocks LAN peers: use `--host 0.0.0.0` for swarm
-- Set `swarm.cluster_token` when listening on `0.0.0.0` on untrusted networks
-- Browsers hitting `http://127.0.0.1:11400/` redirect to `/ui/`; curl without `Accept: text/html` gets help JSON
-- Do not run the macOS menubar app and `./netllm serve` together; both bind `:11400`. Use the app day-to-day; use the CLI for `--host 0.0.0.0` swarm mode.
-- Before quitting the macOS app, use **Stop** so the agent subprocess exits; otherwise an orphan can hold `:11400` and block the next launch.
+- Published GitHub Releases attach DMG (macOS), `.deb`/`.rpm` (Linux), Windows zip, and `netllm.yaml` via `.github/workflows/release.yml`: see [docs/platform-matrix.md](docs/platform-matrix.md)
+- `./netllm` wrapper runs `uv run --directory $ROOT netllm`: no global install needed; `scripts/agent-verify-setup.sh` prefers global `netllm` when on PATH — use `./netllm` for repo-local smoke
+- mDNS (swarm discovery) requires zeroconf from `uv sync`; `serve` on loopback blocks LAN peers — use `--host 0.0.0.0` for swarm; set `swarm.cluster_token` on untrusted networks
+- Do not run the macOS menubar app and `./netllm serve` together; both bind `:11400`. Before quitting the app, use **Stop** so the agent subprocess exits; otherwise an orphan can hold `:11400` and block the next launch.
 - oMLX discovery probes `:8080` by default; backends on other ports need `[discovery].custom_endpoints` or `[[routing.backends]]` in `~/.config/netllm/config.toml`.
-- macOS in-app auto-update notifies only when the latest GitHub release includes a `llm-swarm-router.dmg` asset.
-- Release tag must match root `pyproject.toml` version; bump all workspace packages + `uv lock` before `gh release create`.
-- `scripts/agent-verify-setup.sh` uses global `netllm` when on PATH — prefer `./netllm` for repo-local smoke.
-- After editing `design-tokens.json`, run `scripts/generate-dashboard-tokens.py` (CI enforces via `--check`).
-- Phase 1–2 Apple AI platform work shipped in **v0.3.0.0** (App Intents, MenuBarExtra, routing policies).
+- macOS in-app auto-update notifies only when the latest GitHub release includes a `llm-swarm-router.dmg` asset; logs under `~/Library/Application Support/netllm/logs/` (`update.log`, `install.log`, `app.log`)
+- Release tag must match root `pyproject.toml` version; bump all workspace packages + `uv lock` before `gh release create`. **v0.3.0.1** patches URLSession download staging (`CFNetworkDownload_*.tmp`); **v0.3.0.0** shipped Phase 1–2 Apple AI work (App Intents, MenuBarExtra, routing policies)
+- Repo checkout changes do **not** update `/Applications/llm-swarm-router.app` — install from GitHub DMG or `scripts/upgrade-mac-app.sh`; verify with `defaults read …/Info CFBundleShortVersionString` (don't assume `~/Downloads/llm-swarm-router.dmg` is latest)
+- Bundled `macos-app-install.sh` resolves co-located `Contents/Resources/Scripts/mount-dmg.sh` (not `Contents/packaging/…`); in-app update uses `--in-app-update` to stop agent and replace the bundle
+- Gate macOS menubar changes with `scripts/verify-before-pr.sh` and bundled install tests in `test-menubar-e2e.sh`; after editing `design-tokens.json`, run `scripts/generate-dashboard-tokens.py` (CI enforces via `--check`)
 
 Updated: 2026-06-09
