@@ -267,9 +267,9 @@ final class UpdateController {
         do {
             try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
             try? FileManager.default.removeItem(at: destination)
-            let downloader = UpdateDownloader { [weak self] fraction in
+            let downloader = UpdateDownloader { fraction in
                 Task { @MainActor in
-                    self?.setState(.downloading(progress: fraction))
+                    UpdateController.shared.applyDownloadProgress(fraction)
                 }
             }
             activeDownloader = downloader
@@ -451,6 +451,11 @@ final class UpdateController {
         case .failed(let message):
             return "Update failed: \(message)"
         }
+    }
+
+    func applyDownloadProgress(_ fraction: Double) {
+        guard activeDownloadRelease != nil else { return }
+        setState(.downloading(progress: fraction))
     }
 
     private func setState(_ newState: UpdateState) {

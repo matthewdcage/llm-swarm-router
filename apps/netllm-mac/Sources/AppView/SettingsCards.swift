@@ -265,7 +265,9 @@ struct UpdateBannerCard: View {
             } else if readyDMG == nil {
                 if release.hasDMGAsset, InstallLocation.canAutoInstall() {
                     Button("Download Update") {
-                        controller.downloadUpdate(release: release)
+                        Task { @MainActor in
+                            controller.downloadUpdate(release: release)
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                 } else {
