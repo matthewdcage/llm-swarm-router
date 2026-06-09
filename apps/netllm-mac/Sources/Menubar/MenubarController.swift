@@ -239,6 +239,9 @@ final class MenubarController {
                 online: backend.health == "online"
             ))
         }
+        if let loaded = snap.omlxLoadedModel, !loaded.isEmpty {
+            submenu.addItem(disabledItem("oMLX loaded: \(loaded)"))
+        }
         if !snap.modelsPreview.isEmpty {
             submenu.addItem(disabledItem("Models: \(snap.modelsPreview)"))
         }
@@ -337,14 +340,7 @@ final class MenubarController {
     }
     @objc private func copyEnv() {
         let host = AppConfig.connectableHost(for: config.bindHost)
-        let text = """
-        export OPENAI_BASE_URL=http://\(host):\(config.port)/v1
-        export OPENAI_API_KEY=netllm-local
-        export ANTHROPIC_BASE_URL=http://\(host):\(config.port)
-        export ANTHROPIC_API_KEY=netllm-local
-        """
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        ClientEnvExporter.copyToPasteboard(host: host, port: config.port)
     }
     @objc private func checkForUpdates() {
         Task { await updateController.checkOnce(force: true) }

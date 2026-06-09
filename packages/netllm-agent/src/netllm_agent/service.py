@@ -24,6 +24,7 @@ from netllm_core.models import (
 from netllm_core.pool import RouterPool
 from netllm_discovery.local import (
     find_omlx_admin_url,
+    probe_omlx_admin_for_backends,
     scan_local_providers,
     scan_results_to_backends,
 )
@@ -128,6 +129,13 @@ class AgentService:
         }
         if omlx_admin:
             payload["omlx_admin_url"] = omlx_admin
+        return payload
+
+    async def status_payload_enriched(self) -> dict[str, Any]:
+        payload = self.status_payload()
+        omlx_stats = await probe_omlx_admin_for_backends(self.pool.backends)
+        if omlx_stats:
+            payload["omlx_stats"] = omlx_stats
         return payload
 
     async def handle_heartbeat(self, payload: dict[str, Any]) -> None:

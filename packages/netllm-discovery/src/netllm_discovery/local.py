@@ -351,3 +351,121 @@ def find_omlx_admin_url(backends: list[Any]) -> str | None:
     if best is None:
         return None
     return omlx_admin_url(best[1])
+
+
+def _omlx_service_base(base_url: str) -> str:
+    raw = base_url.strip().rstrip("/")
+    if raw.endswith("/v1"):
+        raw = raw[:-3]
+    return raw.rstrip("/")
+
+
+def _normalize_omlx_admin_payload(data: dict[str, Any]) -> dict[str, Any] | None:
+    loaded: list[str] = []
+    if isinstance(data.get("loaded_models"), list):
+        for item in data["loaded_models"]:
+            if isinstance(item, str):
+                loaded.append(item)
+            elif isinstance(item, dict):
+                name = item.get("id") or item.get("name")
+                if name:
+                    loaded.append(str(name))
+    elif isinstance(data.get("active_models"), list):
+        for item in data["active_models"]:
+            if isinstance(item, str):
+                loaded.append(item)
+            elif isinstance(item, dict):
+                name = item.get("id") or item.get("name")
+                if name:
+                    loaded.append(str(name))
+    primary = data.get("primary_model") or data.get("current_model")
+    if isinstance(primary, dict):
+        primary = primary.get("id") or primary.get("name")
+    if not primary and loaded:
+        primary = loaded[0]
+    if not primary and not loaded:
+        return None
+    return {
+        "loaded_models": loaded,
+        "primary_loaded_model": str(primary) if primary else None,
+    }
+
+
+async def probe_omlx_admin(
+    base_url: str,
+    client: Any,
+) -> dict[str, Any] | None:
+    """Probe oMLX admin HTTP API for loaded-model stats (best-effort)."""
+    service_base = _omlx_service_base(base_url)
+    admin_url = f"{service_base}/admin"
+    for path in ("/api/server-info", "/api/status", "/api/models"):
+        try:
+            response = await client.get(f"{service_base}{path}", timeout=2.0)
+            if response.status_code != 200:
+                continue
+            payload = response.json()
+            if not isinstance(payload, dict):
+                continue
+            stats = _normalize_omlx_admin_payload(payload)
+            if stats is None:
+                continue
+            stats["admin_url"] = admin_url
+            stats["probe_path"] = path
+            return stats
+        except Exception:
+            continue
+    return None
+
+
+async def probe_omlx_admin_for_backends(
+    backends: list[Any],
+    client: Any | None = None,
+) -> dict[str, Any] | None:
+    """Probe the best enabled oMLX backend for admin stats."""
+    best: tuple[int, str] | None = None
+    for backend in backends:
+        provider = getattr(backend, "provider", None) or (
+            backend.get("provider") if isinstance(backend, dict) else None
+        )
+        if provider != "omlx":
+            continue
+        enabled = getattr(backend, "enabled", True)
+        if isinstance(backend, dict):
+            enabled = backend.get("enabled", True)
+        if not enabled:
+            continue
+        base_url = getattr(backend, "base_url", None) or (
+            backend.get("base_url") if isinstance(backend, dict) else None
+        )
+        if not base_url:
+            continue
+        health = getattr(backend, "health", None)
+        status = "unknown"
+        model_count = 0
+        if health is not None:
+            status = getattr(health, "status", None) or (
+                health.get("status") if isinstance(health, dict) else "unknown"
+            )
+            model_count = int(
+                getattr(health, "model_count", 0)
+                or (health.get("model_count", 0) if isinstance(health, dict) else 0)
+            )
+        elif isinstance(backend, dict):
+            health_dict = backend.get("health") or {}
+            status = health_dict.get("status", "unknown")
+            model_count = int(health_dict.get("model_count", 0) or 0)
+        if status == "offline":
+            continue
+        score = model_count + (1000 if status == "online" else 0)
+        if best is None or score > best[0]:
+            best = (score, str(base_url))
+    if best is None:
+        return None
+
+    if client is not None:
+        return await probe_omlx_admin(best[1], client)
+
+    import httpx
+
+    async with httpx.AsyncClient() as probe_client:
+        return await probe_omlx_admin(best[1], probe_client)
