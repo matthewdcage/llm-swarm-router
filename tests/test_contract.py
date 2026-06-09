@@ -76,6 +76,30 @@ def test_darwin_default_providers_include_omlx_and_vllm(
     assert "vllm" in providers
 
 
+@pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="Swift config defaults are macOS-only",
+)
+def test_darwin_swift_default_providers_match_python() -> None:
+    """Lock Swift Settings defaults to Python discovery.providers on Darwin."""
+    doc_path = REPO_ROOT / "apps/netllm-mac/Sources/Config/NetllmConfigDocument.swift"
+    text = doc_path.read_text(encoding="utf-8")
+    marker = "providers: [String] = ["
+    swift_defaults: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if marker not in stripped:
+            continue
+        inner = stripped.split(marker, 1)[1].split("]", 1)[0]
+        swift_defaults = [
+            part.strip().strip('"').strip("'")
+            for part in inner.split(",")
+            if part.strip()
+        ]
+        break
+    assert swift_defaults == default_discovery_providers()
+
+
 def test_fastapi_routes_registered() -> None:
     from netllm_agent.app import create_app
 

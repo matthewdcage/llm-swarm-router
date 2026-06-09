@@ -1,39 +1,4 @@
-:root {
-  color-scheme: light dark;
-  --bg: #ececec;
-  --surface: #f5f5f7;
-  --card: #ffffff;
-  --border: rgba(0, 0, 0, 0.08);
-  --text: #1d1d1f;
-  --muted: #6e6e73;
-  --accent: #007aff;
-  --accent-hover: #0066d6;
-  --ok: #34c759;
-  --warn: #ff9500;
-  --danger: #ff3b30;
-  --code-bg: rgba(0, 0, 0, 0.06);
-  --input-bg: #ffffff;
-  --sidebar-w: 210px;
-  --mono: "SF Mono", "Cascadia Code", "Consolas", monospace;
-  --radius: 10px;
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1c1c1e;
-    --surface: #2c2c2e;
-    --card: #3a3a3c;
-    --border: rgba(255, 255, 255, 0.1);
-    --text: #f5f5f7;
-    --muted: #98989d;
-    --accent: #0a84ff;
-    --accent-hover: #409cff;
-    --code-bg: rgba(255, 255, 255, 0.1);
-    --input-bg: #2c2c2e;
-    --shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-  }
-}
+/* Color/spacing tokens: dashboard-tokens.css (from apps/netllm-mac/design-tokens.json) */
 
 * { box-sizing: border-box; }
 

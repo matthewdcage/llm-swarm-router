@@ -21,6 +21,7 @@ fi
 run_lint() {
   uv run ruff check packages/ tests/
   uv run ruff format --check packages/ tests/
+  python3 scripts/generate-dashboard-tokens.py --check
 }
 
 run_test() {

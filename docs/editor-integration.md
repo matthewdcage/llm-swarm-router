@@ -78,6 +78,28 @@ In Claude Code, run `/netllm-setup` then `/netllm-connect`. In Cursor or Codex, 
 
 Detailed reference: `.agents/skills/netllm-connect-editor/references/editor-settings.md`
 
+## Local-only routing
+
+Send `X-Netllm-Local-Only: 1` on OpenAI or Anthropic requests to restrict routing to local backends only (no LAN peers, no cloud inject). Useful for privacy-sensitive prompts when the mesh also has remote peers or optional cloud failover configured.
+
+```bash
+curl -s http://127.0.0.1:11400/v1/chat/completions \
+  -H "Authorization: Bearer netllm-local" \
+  -H "X-Netllm-Local-Only: 1" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"<local-model>","messages":[{"role":"user","content":"hi"}],"max_tokens":1}'
+```
+
+## Cloud failover (optional)
+
+When no local backend serves a model, netllm can inject OpenAI or Anthropic cloud backends if a **real** API key is available (environment variable or macOS Keychain via the menubar app). The placeholder `netllm-local` never enables cloud routing.
+
+- OpenAI: set `OPENAI_API_KEY` or save a key in **Settings → Routing → Cloud failover** (macOS app)
+- Anthropic: set `ANTHROPIC_API_KEY` or the Keychain field above
+- Explicit `[[routing.backends]]` rows in `~/.config/netllm/config.toml` still override discovery
+
+Cloud paths are opt-in; default mesh behavior remains local-first.
+
 ## Troubleshooting
 
 | Symptom | Fix |

@@ -16,7 +16,7 @@ struct NetllmConfigDocument: Codable, Sendable {
     }
 
     struct DiscoverySection: Codable, Sendable {
-        var providers: [String] = ["omlx", "ollama", "lmstudio"]
+        var providers: [String] = ["omlx", "ollama", "lmstudio", "vllm"]
         var custom_endpoints: [String] = []
         /// Per-machine base URLs (e.g. oMLX on :8088). Empty = auto-scan default ports.
         var provider_urls: [String: [String]] = [:]
@@ -31,11 +31,23 @@ struct NetllmConfigDocument: Codable, Sendable {
         var heartbeat_interval_s: Double = 10.0
     }
 
+    struct RoutingPolicy: Codable, Sendable, Identifiable {
+        var id: String { name.isEmpty ? "\(model_prefix)-\(api_format ?? "any")" : name }
+        var name: String = ""
+        var model_prefix: String = ""
+        var api_format: String?
+        var strategy: String?
+        var prefer_provider: String?
+        var allow_cloud: Bool = false
+        var enabled: Bool = true
+    }
+
     struct RoutingSection: Codable, Sendable {
         var default_strategy: String = "local_first"
         var allow_remote: Bool = true
         var require_same_model_for_shard: Bool = true
         var backends: [BackendOverride] = []
+        var policies: [RoutingPolicy] = []
     }
 
     struct BackendOverride: Codable, Sendable, Identifiable {

@@ -11,7 +11,7 @@ final class AppControlServer: @unchecked Sendable {
         case start, stop, restart, status
     }
 
-    struct Response: Encodable, Sendable {
+    struct Response: Codable, Sendable {
         let ok: Bool
         let status: String
         let state: String

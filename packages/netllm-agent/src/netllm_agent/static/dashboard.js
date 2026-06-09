@@ -80,9 +80,30 @@ async function loadHealth() {
   }
 }
 
+function omlxAdminURLFromStatus(status) {
+  if (status?.omlx_admin_url) return status.omlx_admin_url;
+  const omlx = (status?.backends || []).find(
+    (b) =>
+      b.provider === "omlx" &&
+      b.enabled !== false &&
+      b.health?.status !== "offline"
+  );
+  if (!omlx?.base_url) return "http://127.0.0.1:8080/admin";
+  let base = omlx.base_url.replace(/\/$/, "");
+  if (base.endsWith("/v1")) base = base.slice(0, -3);
+  return `${base}/admin`;
+}
+
+function updateOmlxAdminLink() {
+  const btn = document.getElementById("btn-omlx-admin");
+  if (!btn) return;
+  btn.href = omlxAdminURLFromStatus(state.status);
+}
+
 async function loadCore() {
   const status = await api("/netllm/v1/status");
   state.status = status;
+  updateOmlxAdminLink();
   const [models, doctor, env] = await Promise.all([
     api("/v1/models"),
     api("/netllm/v1/doctor"),
@@ -117,7 +138,7 @@ function emptyConfigDraft() {
     agent: { listen: "127.0.0.1:11400", role: "peer", advertise: true, agent_id: "", hostname: "" },
     discovery: { providers: [...PROVIDERS], provider_urls: {}, custom_endpoints: [] },
     swarm: { mdns: true, subnet_scan: false, subnet_cidrs: [], heartbeat_interval_s: 10, peers: [], cluster_token_set: false },
-    routing: { default_strategy: "local_first", allow_remote: true, require_same_model_for_shard: true, backends: [], backend_count: 0 },
+    routing: { default_strategy: "local_first", allow_remote: true, require_same_model_for_shard: true, backends: [], backend_count: 0, policies: [], policy_count: 0 },
     ui: { auto_start_on_launch: true, log_dir: "", check_for_updates_automatically: true },
   };
 }
@@ -756,11 +777,117 @@ function renderRoutingTab() {
   );
   root.appendChild(card);
 
+  root.appendChild(textEl("div", "section-label", "Routing policies"));
+  root.appendChild(
+    textEl(
+      "p",
+      "empty",
+      "First match wins. Cloud routing requires allow_cloud on an explicit policy row."
+    )
+  );
+  root.appendChild(renderRoutingPoliciesEditor());
+
   root.appendChild(textEl("div", "section-label", "Backend overrides"));
   root.appendChild(
     textEl("p", "empty", "Manual routing entries for specific upstream URLs (optional).")
   );
   root.appendChild(renderBackendOverridesEditor());
+}
+
+function renderRoutingPoliciesEditor() {
+  const wrap = el("div", "card");
+  if (!state.configDraft.routing.policies) state.configDraft.routing.policies = [];
+  const list = el("div", "string-list");
+
+  function sync() {
+    const rows = list.querySelectorAll(".routing-policy-row");
+    state.configDraft.routing.policies = [...rows].map((row) => {
+      const name = row.querySelector(".rp-name");
+      const prefix = row.querySelector(".rp-prefix");
+      const apiFormat = row.querySelector(".rp-api-format");
+      const strategy = row.querySelector(".rp-strategy");
+      const prefer = row.querySelector(".rp-prefer");
+      const allowCloud = row.querySelector(".rp-allow-cloud");
+      const enabled = row.querySelector(".rp-enabled");
+      return {
+        name: name.value.trim(),
+        model_prefix: prefix.value.trim(),
+        api_format: apiFormat.value || null,
+        strategy: strategy.value || null,
+        prefer_provider: prefer.value.trim() || null,
+        allow_cloud: allowCloud.checked,
+        enabled: enabled.checked,
+      };
+    }).filter((p) => p.name || p.model_prefix || p.api_format);
+    markDirty();
+  }
+
+  function addRow(entry = {}) {
+    const item = el("div", "routing-policy-row string-list-item");
+    const name = document.createElement("input");
+    name.type = "text";
+    name.className = "rp-name";
+    name.placeholder = "Policy name";
+    name.value = entry.name || "";
+    name.oninput = sync;
+    const prefix = document.createElement("input");
+    prefix.type = "text";
+    prefix.className = "rp-prefix";
+    prefix.placeholder = "Model prefix (optional)";
+    prefix.value = entry.model_prefix || "";
+    prefix.oninput = sync;
+    const apiFormat = document.createElement("select");
+    apiFormat.className = "rp-api-format";
+    ["", "openai", "anthropic"].forEach((v) => {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = v || "any api_format";
+      if ((entry.api_format || "") === v) opt.selected = true;
+      apiFormat.appendChild(opt);
+    });
+    apiFormat.onchange = sync;
+    const strategy = document.createElement("select");
+    strategy.className = "rp-strategy";
+    ["", ...STRATEGIES].forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = s || "default strategy";
+      if ((entry.strategy || "") === s) opt.selected = true;
+      strategy.appendChild(opt);
+    });
+    strategy.onchange = sync;
+    const prefer = document.createElement("input");
+    prefer.type = "text";
+    prefer.className = "rp-prefer";
+    prefer.placeholder = "Prefer provider";
+    prefer.value = entry.prefer_provider || "";
+    prefer.oninput = sync;
+    const allowCloud = document.createElement("input");
+    allowCloud.type = "checkbox";
+    allowCloud.className = "rp-allow-cloud";
+    allowCloud.checked = !!entry.allow_cloud;
+    allowCloud.onchange = sync;
+    const enabled = document.createElement("input");
+    enabled.type = "checkbox";
+    enabled.className = "rp-enabled";
+    enabled.checked = entry.enabled !== false;
+    enabled.onchange = sync;
+    item.append(name, prefix, apiFormat, strategy, prefer, allowCloud, enabled);
+    list.appendChild(item);
+  }
+
+  state.configDraft.routing.policies.forEach((p) => addRow(p));
+  wrap.appendChild(list);
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "btn secondary";
+  addBtn.textContent = "Add routing policy";
+  addBtn.onclick = () => {
+    addRow({ name: "local-openai", api_format: "openai", allow_cloud: false, enabled: true });
+    sync();
+  };
+  wrap.appendChild(addBtn);
+  return wrap;
 }
 
 function renderBackendOverridesEditor() {
@@ -1084,6 +1211,7 @@ function buildConfigPatch() {
       allow_remote: d.routing.allow_remote,
       require_same_model_for_shard: d.routing.require_same_model_for_shard,
       backends: d.routing.backends || [],
+      policies: d.routing.policies || [],
     },
     ui: {
       auto_start_on_launch: d.ui.auto_start_on_launch,

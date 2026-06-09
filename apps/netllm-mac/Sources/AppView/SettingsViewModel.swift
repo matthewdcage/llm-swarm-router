@@ -29,7 +29,7 @@ final class SettingsViewModel {
     static let strategies = [
         "local_first", "failover", "round_robin", "least_load", "latency_weighted", "batch_shard",
     ]
-    static let providers = ["omlx", "ollama", "lmstudio"]
+    static let providers = ["omlx", "ollama", "lmstudio", "vllm"]
     static let roles = ["peer", "gateway"]
 
     /// Peers the running agent is routing through (`/netllm/v1/status`).
@@ -346,6 +346,25 @@ final class SettingsViewModel {
                 local: true
             )
         )
+        bumpUI()
+    }
+
+    func addRoutingPolicy() {
+        document.routing.policies.append(
+            NetllmConfigDocument.RoutingPolicy(
+                name: "local-openai",
+                api_format: "openai",
+                strategy: "local_first",
+                allow_cloud: false,
+                enabled: true
+            )
+        )
+        bumpUI()
+    }
+
+    func removeRoutingPolicy(at index: Int) {
+        guard document.routing.policies.indices.contains(index) else { return }
+        document.routing.policies.remove(at: index)
         bumpUI()
     }
 

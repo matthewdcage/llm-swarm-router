@@ -37,6 +37,8 @@ ProviderId = Literal[
 ApiFormat = Literal["openai", "anthropic"]
 
 ANTHROPIC_CLOUD_BASE_URL = "https://api.anthropic.com"
+OPENAI_CLOUD_BASE_URL = "https://api.openai.com/v1"
+LOCAL_ONLY_HEADER = "x-netllm-local-only"
 
 
 def infer_api_format(provider: ProviderId) -> ApiFormat:
@@ -83,11 +85,24 @@ class DiscoverySwarmConfig(BaseModel):
     heartbeat_interval_s: float = 10.0
 
 
+class RoutingPolicy(BaseModel):
+    """Match rules for per-request routing. Cloud paths require allow_cloud = true."""
+
+    name: str = ""
+    model_prefix: str = ""
+    api_format: ApiFormat | None = None
+    strategy: RoutingStrategy | None = None
+    prefer_provider: ProviderId | None = None
+    allow_cloud: bool = False
+    enabled: bool = True
+
+
 class RoutingConfig(BaseModel):
     default_strategy: RoutingStrategy = "local_first"
     allow_remote: bool = True
     require_same_model_for_shard: bool = True
     backends: list[BackendOverride] = Field(default_factory=list)
+    policies: list[RoutingPolicy] = Field(default_factory=list)
 
 
 class AgentConfig(BaseModel):

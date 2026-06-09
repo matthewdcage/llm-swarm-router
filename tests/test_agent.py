@@ -346,3 +346,36 @@ def test_netllm_update_check_force(mock_build: AsyncMock, client: TestClient) ->
     resp = client.get("/netllm/v1/update/check?force=1")
     assert resp.status_code == 200
     mock_build.assert_awaited_once_with(force=True)
+
+
+def test_status_includes_omlx_admin_url(client: TestClient) -> None:
+    service = client.app.state.service
+    service.pool.set_backends(
+        [
+            Backend(
+                id="omlx-8080",
+                base_url="http://127.0.0.1:8080/v1",
+                provider="omlx",
+                health=BackendHealth(status="online", model_count=1, models=["m0"]),
+            ),
+            Backend(
+                id="omlx-8088",
+                base_url="http://127.0.0.1:8088/v1",
+                provider="omlx",
+                health=BackendHealth(
+                    status="online", model_count=2, models=["m1", "m2"]
+                ),
+            ),
+        ]
+    )
+    data = service.status_payload()
+    assert data.get("omlx_admin_url") == "http://127.0.0.1:8088/admin"
+
+
+def test_wants_local_only_header() -> None:
+    from netllm_agent.service import AgentService
+
+    assert AgentService._wants_local_only({"x-netllm-local-only": "1"})
+    assert AgentService._wants_local_only({"x-netllm-local-only": "true"})
+    assert not AgentService._wants_local_only({})
+    assert not AgentService._wants_local_only({"x-netllm-local-only": "0"})

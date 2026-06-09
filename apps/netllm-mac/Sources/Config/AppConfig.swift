@@ -92,7 +92,7 @@ struct AppConfig: Sendable {
                 "advertise = true",
                 "",
                 "[discovery]",
-                "providers = [\"omlx\", \"ollama\", \"lmstudio\"]",
+                "providers = [\"omlx\", \"ollama\", \"lmstudio\", \"vllm\"]",
                 "",
                 "[swarm]",
                 "mdns = true",

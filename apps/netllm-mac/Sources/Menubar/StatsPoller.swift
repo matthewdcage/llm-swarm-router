@@ -15,6 +15,8 @@ struct StatsSnapshot: Sendable {
     var modelsPreview: String = ""
     var backends: [BackendSnapshot] = []
     var onlineBackendCount: Int = 0
+    var omlxAdminURL: String?
+    var omlxLoadedModel: String?
 }
 
 @MainActor
@@ -47,6 +49,10 @@ final class StatsPoller {
         var snap = StatsSnapshot()
         if let status = await fetchJSON(path: "/netllm/v1/status") {
             snap.role = status["role"] as? String ?? "peer"
+            snap.omlxAdminURL = status["omlx_admin_url"] as? String
+            if let omlxStats = status["omlx_stats"] as? [String: Any] {
+                snap.omlxLoadedModel = omlxStats["primary_loaded_model"] as? String
+            }
             if let backends = status["backends"] as? [[String: Any]] {
                 snap.backends = backends.map { row in
                     let health = row["health"] as? [String: Any] ?? [:]
