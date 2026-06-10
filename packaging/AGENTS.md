@@ -44,6 +44,7 @@ Index: [README.md](README.md). macOS app bundle: [../apps/netllm-mac/Scripts/bui
 
 - Bump all workspace package versions + `uv lock` before `gh release create`
 - macOS notarized release: configure GitHub secrets per [macos-code-signing.md](../docs/macos-code-signing.md) before tagging; verify with `local-notarized-dmg.sh` locally when cert is in Keychain
+- Maintainer local Apple credentials: gitignored repo-root `.env` (`set -a && source .env && set +a` before `local-notarized-dmg.sh`); never commit — `.env` is in `.gitignore`
 - Packaging smoke: `./scripts/ci.sh packaging`
 - macOS packaging PRs may touch both `packaging/` and `apps/netllm-mac/`
 

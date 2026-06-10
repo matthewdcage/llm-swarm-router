@@ -1,6 +1,6 @@
 # macOS code signing and notarization
 
-Release DMGs are **Developer ID signed and notarized** when GitHub Actions secrets are configured. Without secrets, builds fall back to ad-hoc signing and users may see Gatekeeper prompts ([macos-troubleshooting.md#gatekeeper-blocks-install-or-launch](macos-troubleshooting.md#gatekeeper-blocks-install-or-launch)).
+Release DMGs are **Developer ID signed and notarized** when GitHub Actions secrets are configured. **Until notarization ships**, CI attaches ad-hoc DMGs and user docs recommend **build from source + `macos-app-install.sh --source`** on macOS 26+ ([macos-install.md](macos-install.md), [macos-troubleshooting.md#gatekeeper-blocks-install-or-launch](macos-troubleshooting.md#gatekeeper-blocks-install-or-launch)).
 
 ## One-time setup
 

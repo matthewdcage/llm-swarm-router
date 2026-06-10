@@ -5,49 +5,61 @@ existing Python agent on port **11400**, it does not replace oMLX inference on p
 
 **Troubleshooting:** [macos-troubleshooting.md](macos-troubleshooting.md) · **All platforms:** [platform-matrix.md](platform-matrix.md)
 
+> **GitHub DMG status (2026-06):** Release DMGs are **ad-hoc signed** until Apple Developer notarization is enabled. On **macOS 26 (Tahoe)+**, Gatekeeper blocks ad-hoc menubar apps (`no usable signature`). Until notarized DMGs ship, use **build from source + install script** below (recommended) or **CLI-only** `./netllm serve`.
+
 ## Install channels
 
-### DMG (recommended for desktop users)
+### Build from source + install script (recommended on macOS 26+)
 
-1. Download `llm-swarm-router.dmg` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases/latest).
-2. Open the DMG and drag **llm-swarm-router** to **Applications** (click **Replace** when upgrading).
-3. **Quit** any running menubar instance before replacing (About → Quit), or use the clean upgrade script below.
-4. Launch from Applications, the llm-swarm-router bee logo appears in the menu bar (switches for light/dark menu bar).
-5. Complete the welcome wizard (config path, LAN mode, auto-start).
+Works on Tahoe without Gatekeeper blocks. Uses the same installer CI validates before release.
 
-If macOS blocks drag-to-Applications (*cannot verify free from malware*), use the **terminal installer** below or see [Gatekeeper troubleshooting](macos-troubleshooting.md#gatekeeper-blocks-install-or-launch).
-
-### Upgrade from a release DMG (clean, recommended)
-
-Avoid `/ui/` 404 and port conflicts after upgrade: stop stale agents, replace the bundle, verify the dashboard.
-
-From a repo checkout (after `git clone`):
+**Requirements:** macOS 15+, Apple Silicon, [uv](https://docs.astral.sh/uv/), git, Xcode command-line tools (`xcode-select --install`).
 
 ```bash
-cd /path/to/llm-swarm-router
-./scripts/upgrade-mac-app.sh ~/Downloads/llm-swarm-router.dmg
+git clone https://github.com/matthewdcage/llm-swarm-router.git
+cd llm-swarm-router
+git checkout v0.3.0.2   # or latest tag from GitHub Releases
+
+uv sync
+uv pip install venvstacks
+apps/netllm-mac/Scripts/build.sh release
+
+packaging/scripts/macos-app-install.sh \
+  --source apps/netllm-mac/build/Stage/llm-swarm-router.app
 ```
 
-Without a clone, use the installer bundled inside the app (v0.2.3.1+ DMG) or on the mounted DMG volume:
+The installer quits any running menubar app, stops orphaned agents on `:11400`, copies to `/Applications/llm-swarm-router.app`, relaunches, and verifies `GET /ui/` returns HTTP 200.
+
+**Upgrade:** pull/checkout the new tag, rebuild, run the same `macos-app-install.sh --source …` command.
+
+**Verify:**
 
 ```bash
-# Upgrade (app already in /Applications)
-INSTALLER="/Applications/llm-swarm-router.app/Contents/Resources/Scripts/macos-app-install.sh"
-chmod +x "$INSTALLER"
-"$INSTALLER" --dmg ~/Downloads/llm-swarm-router.dmg
-
-# First install (open DMG first, then run from the volume)
-open ~/Downloads/llm-swarm-router.dmg
-INSTALLER="/Volumes/llm-swarm-router/llm-swarm-router.app/Contents/Resources/Scripts/macos-app-install.sh"
-chmod +x "$INSTALLER" "/Volumes/llm-swarm-router/llm-swarm-router.app/Contents/Resources/Scripts/mount-dmg.sh"
-"$INSTALLER" --dmg ~/Downloads/llm-swarm-router.dmg
+defaults read /Applications/llm-swarm-router.app/Contents/Info CFBundleShortVersionString
+curl -sf http://127.0.0.1:11400/health
 ```
-
-The installer quits the menubar app, stops Homebrew `netllm` if it was running, frees the agent port, replaces `/Applications/llm-swarm-router.app`, launches the new app, and checks `GET /ui/` returns HTTP 200.
 
 The app installs a CLI shim at `~/.config/netllm/bin/netllm` for terminal control.
 
+### CLI only (no menubar, no Gatekeeper)
+
+Agent + web dashboard without the Swift menubar app:
+
+```bash
+git clone https://github.com/matthewdcage/llm-swarm-router.git
+cd llm-swarm-router
+git checkout v0.3.0.2   # or latest tag
+
+uv sync
+./netllm init
+./netllm serve
+```
+
+Dashboard: http://127.0.0.1:11400/ui/
+
 ### Homebrew
+
+CLI agent background service (not the menubar app):
 
 ```bash
 brew tap matthewdcage/netllm https://github.com/matthewdcage/llm-swarm-router
@@ -57,12 +69,30 @@ brew services start netllm   # background agent
 
 Logs: `$(brew --prefix)/var/log/netllm.log`
 
-### Developer / source (unchanged)
+### GitHub DMG (when notarized)
+
+Once [Developer ID notarization](macos-code-signing.md) is enabled in CI, the release DMG will return as the drag-to-Applications path:
+
+1. Download `llm-swarm-router.dmg` from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases/latest).
+2. Install with the bundled terminal installer (not drag-only on macOS 26):
 
 ```bash
-uv sync
-./netllm init
-./netllm serve
+INSTALLER="/Applications/llm-swarm-router.app/Contents/Resources/Scripts/macos-app-install.sh"
+chmod +x "$INSTALLER"
+"$INSTALLER" --dmg ~/Downloads/llm-swarm-router.dmg
+```
+
+**Today:** ad-hoc DMGs may fail Gatekeeper on macOS 26 — prefer **build from source** above. See [Gatekeeper troubleshooting](macos-troubleshooting.md#gatekeeper-blocks-install-or-launch).
+
+### Repo maintainer upgrade helper
+
+From a git checkout only:
+
+```bash
+cd /path/to/llm-swarm-router
+./scripts/upgrade-mac-app.sh ~/Downloads/llm-swarm-router.dmg
+# or after local build:
+packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app
 ```
 
 ## Menubar actions
@@ -76,16 +106,18 @@ uv sync
 | Open oMLX Admin | `http://127.0.0.1:8080/admin` when oMLX is installed |
 | Open Dashboard | Local web UI at `/ui/` (same on Linux/Windows) |
 | Copy Client Env | OpenAI + Anthropic env vars for editors |
-| Check for Updates… | Poll GitHub for stable releases; download/install when app is in `/Applications/` |
+| Check for Updates… | Poll GitHub for stable releases (downloads ad-hoc DMG until notarized — may not install on macOS 26+) |
 | Settings… (⌘,) | Full `config.toml` editor + live status, backends, models, peers, doctor/test/gateway |
 
 ## In-app updates (Applications install)
 
-When **llm-swarm-router** is installed under `/Applications/` (not a Stage/dev build), the menubar app can check, download, and install updates automatically:
+When **llm-swarm-router** is under `/Applications/` (not a Stage/dev build):
 
 1. **Menubar → Updates → Check for Updates…** or wait for the hourly background check.
 2. When an update is available, choose **Download Update** (verifies size + SHA256 sidecar when published).
 3. Choose **Install Update…** — the agent stops, the app quits, and the bundled `macos-app-install.sh` replaces the app and relaunches it.
+
+**macOS 26+ note:** in-app update installs the GitHub release DMG. Until that DMG is notarized, prefer **build from source + install script** for upgrades.
 
 Disable automatic checks in **Settings → UI → Check for updates automatically** or in `config.toml`:
 
@@ -95,7 +127,6 @@ check_for_updates_automatically = false
 ```
 
 The web dashboard at `/ui/` also shows version info and download links (via agent proxy to GitHub — no browser CORS). Homebrew installs should use `brew upgrade netllm` instead of in-app DMG install.
-
 
 Settings tabs mirror CLI scope: **Overview**, **Backends** (`discover`), **Models**, **Peers** (`peers`), **Agent/Discovery/Swarm/Routing/UI** config sections, **Doctor & Test** tools. Saves via `netllm config import`; reads via `netllm config export`.
 
@@ -123,24 +154,25 @@ Source files live in `assets/` (see `assets/README.md`):
 `build.sh` runs `Scripts/build-icons.sh` to produce `AppIcon.icns` and scaled menubar PNGs.
 Verify with `scripts/test-brand-icons.sh` (also run as part of `test-menubar-e2e.sh`).
 
-## Test install like an end user (recommended for maintainers)
+## Test install like an end user (maintainers)
 
 ```bash
 ./scripts/emulate-user-install-mac.sh
 ```
 
-That builds a release DMG, runs the same clean install path as `upgrade-mac-app.sh` (stop stale processes → replace bundle → verify `/ui/`), and launches from Applications.
+That builds a release Stage app, runs `macos-app-install.sh --source`, and launches from Applications.
 
-Manual equivalent: quit menubar app → open `dist/llm-swarm-router.dmg` → drag to Applications (**Replace**) → launch (right-click **Open** once if Gatekeeper prompts).
-
-## Build from source (developers only)
+## Build from source (developers)
 
 ```bash
 uv sync
+uv pip install venvstacks
 apps/netllm-mac/Scripts/build.sh release
-packaging/scripts/create-dmg.sh
+packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app
 scripts/test-menubar-e2e.sh
 ```
+
+Optional DMG for maintainers (ad-hoc until notarized): `packaging/scripts/create-dmg.sh`
 
 See [packaging/README.md](../packaging/README.md) for venvstacks export details.
 
@@ -157,6 +189,6 @@ Wire editors to netllm, see [editor-integration.md](editor-integration.md). Issu
 | Component | Path |
 |-----------|------|
 | Menubar app (Swift) | [`apps/netllm-mac/`](../apps/netllm-mac/) |
-| Python bundling + DMG | [`packaging/`](../packaging/): see [packaging/README.md](../packaging/README.md) |
+| Python bundling + release scripts | [`packaging/`](../packaging/): see [packaging/README.md](../packaging/README.md) |
 | CLI lifecycle (app socket, Homebrew) | [`packages/netllm-cli/src/netllm_cli/lifecycle/darwin.py`](../packages/netllm-cli/src/netllm_cli/lifecycle/darwin.py) |
 | Shared agent core | [`packages/netllm-agent/`](../packages/netllm-agent/) |

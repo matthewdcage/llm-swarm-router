@@ -18,14 +18,14 @@ Dashboard: http://127.0.0.1:11400/ui/ · menubar **Open Dashboard** or **Copy Cl
 Usually an **old agent still owns the port** after a drag-to-Applications upgrade (the running process was not quit before replace).
 
 ```bash
-# DMG-only install (no git clone): bundled installer in the app
-INSTALLER="/Applications/llm-swarm-router.app/Contents/Resources/Scripts/macos-app-install.sh"
-chmod +x "$INSTALLER"
-"$INSTALLER" --dmg ~/Downloads/llm-swarm-router.dmg
+# Recommended upgrade (macOS 26+): rebuild and install from source
+cd /path/to/llm-swarm-router && git checkout v0.3.0.2
+uv sync && uv pip install venvstacks
+apps/netllm-mac/Scripts/build.sh release
+packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app
 
-# Or from a repo checkout:
-cd /path/to/llm-swarm-router
-./scripts/upgrade-mac-app.sh ~/Downloads/llm-swarm-router.dmg
+# Or from a repo checkout with a downloaded DMG (after notarization):
+# ./scripts/upgrade-mac-app.sh ~/Downloads/llm-swarm-router.dmg
 ```
 
 Or manually: menubar **Quit** → `brew services stop netllm` (if used) → confirm `lsof -i :11400` is empty → relaunch from Applications.
@@ -46,23 +46,37 @@ From a repo checkout, prefer `./netllm` if PATH is uncertain.
 
 Release DMGs are **ad-hoc signed** until [Developer ID notarization](macos-code-signing.md) is enabled in CI. macOS may show *cannot verify free from malware* when you drag to **Applications**, or on first launch.
 
-**macOS 26 (Tahoe) and later:** clearing quarantine or using the terminal installer is **not enough** for ad-hoc builds. Gatekeeper reports `no usable signature` and blocks launch (dialog with only **Done**). You need a **notarized Developer ID** DMG, or use the source CLI path below.
+**macOS 26 (Tahoe) and later:** ad-hoc menubar apps are blocked (`no usable signature`). Clearing quarantine or mounting the DMG does **not** fix this. Use **build from source + install script** (recommended):
 
-**Recommended:** use the bundled terminal installer (fixes copy + port cleanup; does not bypass Gatekeeper on Tahoe for ad-hoc builds):
+```bash
+git clone https://github.com/matthewdcage/llm-swarm-router.git
+cd llm-swarm-router && git checkout v0.3.0.2   # or latest tag
+uv sync && uv pip install venvstacks
+apps/netllm-mac/Scripts/build.sh release
+packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app
+```
+
+**CLI only (no Gatekeeper issue with menubar):**
+
+```bash
+cd /path/to/llm-swarm-router
+uv sync && ./netllm init && ./netllm serve
+# Dashboard: http://127.0.0.1:11400/ui/
+```
+
+### After notarized DMGs ship
+
+Use the bundled terminal installer (not drag-only):
 
 **Upgrade** (app already installed):
 
 ```bash
-# Eject stale DMG mounts first if install says mount failed
-hdiutil detach "/Volumes/llm-swarm-router" -quiet 2>/dev/null || true
-hdiutil detach "/Volumes/llm-swarm-router 1" -quiet 2>/dev/null || true
-
 INSTALLER="/Applications/llm-swarm-router.app/Contents/Resources/Scripts/macos-app-install.sh"
 chmod +x "$INSTALLER"
 "$INSTALLER" --dmg ~/Downloads/llm-swarm-router.dmg
 ```
 
-**First install** (no app in Applications yet):
+**First install** from mounted DMG:
 
 ```bash
 open ~/Downloads/llm-swarm-router.dmg
@@ -71,19 +85,11 @@ chmod +x "$INSTALLER" "/Volumes/llm-swarm-router/llm-swarm-router.app/Contents/R
 "$INSTALLER" --dmg ~/Downloads/llm-swarm-router.dmg
 ```
 
-If mount fails, install from the mounted volume without re-mounting:
+From a repo checkout:
 
 ```bash
-open ~/Downloads/llm-swarm-router.dmg
-"$INSTALLER" --source "/Volumes/llm-swarm-router/llm-swarm-router.app"
-```
-
-**Run without the menubar app (works today on ad-hoc / Gatekeeper-blocked Macs):**
-
-```bash
-cd /path/to/llm-swarm-router   # git clone
-uv sync && ./netllm init && ./netllm serve
-# Dashboard: http://127.0.0.1:11400/ui/
+cd /path/to/llm-swarm-router
+./scripts/upgrade-mac-app.sh ~/Downloads/llm-swarm-router.dmg
 ```
 
 **Maintainer: build a notarized DMG locally** (after Developer ID cert is in Keychain):
@@ -115,7 +121,7 @@ Maintainers: enable notarized releases per [macos-code-signing.md](macos-code-si
 | Symptom | Fix |
 |---------|-----|
 | `curl` to `/health` fails | Menubar → **Start Agent**, or `netllm start` |
-| Port 11400 in use | Expected while the menubar app runs the agent. Settings → **Restart Agent** or `netllm restart`: not a second `netllm serve`. After upgrade, run the bundled `macos-app-install.sh` or [repo upgrade script](macos-install.md#upgrade-from-a-release-dmg-clean-recommended) if an old process still holds the port |
+| Port 11400 in use | Expected while the menubar app runs the agent. Settings → **Restart Agent** or `netllm restart`: not a second `netllm serve`. After upgrade, run [build + install script](macos-install.md#build-from-source--install-script-recommended-on-macos-26) or bundled `macos-app-install.sh` if an old process still holds the port |
 | DMG app won’t launch | Right-click **llm-swarm-router** in Applications → **Open** once (Gatekeeper) |
 | Homebrew agent down | `brew services restart netllm` · logs: `$(brew --prefix)/var/log/netllm.log` |
 
