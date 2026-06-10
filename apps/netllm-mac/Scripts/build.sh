@@ -159,11 +159,15 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Ad-hoc sign embedded Mach-O + bundle
+# Sign embedded Mach-O + bundle (Developer ID when CODESIGN_IDENTITY is set, else ad-hoc)
 echo "==> Codesigning"
-find "$APP" -type f \( -name '*.dylib' -o -name '*.so' -o -perm -111 \) -print0 2>/dev/null | \
-  while IFS= read -r -d '' f; do codesign -f -s - "$f" 2>/dev/null || true; done
-codesign -f -s - "$APP" 2>/dev/null || true
+if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
+  bash "$ROOT/packaging/scripts/codesign-mac-app.sh" "$APP"
+else
+  find "$APP" -type f \( -name '*.dylib' -o -name '*.so' -o -perm -111 \) -print0 2>/dev/null | \
+    while IFS= read -r -d '' f; do codesign -f -s - "$f" 2>/dev/null || true; done
+  codesign -f -s - "$APP" 2>/dev/null || true
+fi
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 
 echo "==> Staged: $APP"

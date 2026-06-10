@@ -70,7 +70,11 @@ Triggered by publishing a GitHub Release whose tag matches `pyproject.toml` (e.g
 5. `git push origin main`
 6. `gh release create vX.Y.Z --title "..." --notes-file docs/release-notes/vX.Y.Z.md`
 
+**macOS upgrade text in release notes:** prefer menubar **Updates**, then the bundled `macos-app-install.sh` path (no git clone), then optional `cd /path/to/llm-swarm-router && ./scripts/upgrade-mac-app.sh ~/Downloads/llm-swarm-router.dmg` for contributors. Do not assume readers have a repo checkout. See [v0.3.0.1 notes](release-notes/v0.3.0.1.md) for the pattern.
+
 Release job builds and attaches: `llm-swarm-router.dmg`, `.deb`, `.rpm`, Windows zip, `netllm.yaml`, SHA256 sidecars.
+
+**macOS Gatekeeper:** configure Developer ID + notarization secrets per [macos-code-signing.md](macos-code-signing.md). Release workflow signs after menubar tests, notarizes the DMG, then writes SHA256 sidecars. Without secrets, DMGs remain ad-hoc signed — point users at [macos-troubleshooting.md](macos-troubleshooting.md#gatekeeper-blocks-install-or-launch).
 
 Watch: `gh run list --workflow=release.yml --limit 1` then `gh run view <id>`.
 

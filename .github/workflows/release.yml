@@ -66,7 +66,22 @@ jobs:
         run: brew install ripgrep
       - run: bash scripts/test-menubar-e2e.sh
       - run: bash scripts/test-menubar-lifecycle.sh
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: bash packaging/scripts/import-codesign-cert.sh
+      - name: Sign app bundle (Developer ID)
+        if: env.CODESIGN_IDENTITY != ''
+        run: bash packaging/scripts/codesign-mac-app.sh apps/netllm-mac/build/Stage/llm-swarm-router.app
       - run: bash packaging/scripts/create-dmg.sh
+      - name: Notarize and staple DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: bash packaging/scripts/maybe-notarize-dmg.sh dist/llm-swarm-router.dmg
       - run: chmod +x packaging/scripts/write-sha256-sidecar.sh
       - run: |
           packaging/scripts/write-sha256-sidecar.sh dist/llm-swarm-router.dmg | tee dist/SHA256SUMS

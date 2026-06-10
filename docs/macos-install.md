@@ -15,21 +15,31 @@ existing Python agent on port **11400**, it does not replace oMLX inference on p
 4. Launch from Applications, the llm-swarm-router bee logo appears in the menu bar (switches for light/dark menu bar).
 5. Complete the welcome wizard (config path, LAN mode, auto-start).
 
+If macOS blocks drag-to-Applications (*cannot verify free from malware*), use the **terminal installer** below or see [Gatekeeper troubleshooting](macos-troubleshooting.md#gatekeeper-blocks-install-or-launch).
+
 ### Upgrade from a release DMG (clean, recommended)
 
 Avoid `/ui/` 404 and port conflicts after upgrade: stop stale agents, replace the bundle, verify the dashboard.
 
-From a repo checkout (Mac mini with git clone):
+From a repo checkout (after `git clone`):
 
 ```bash
+cd /path/to/llm-swarm-router
 ./scripts/upgrade-mac-app.sh ~/Downloads/llm-swarm-router.dmg
 ```
 
-Without a clone, use the installer bundled inside the app (v0.2.3.1+ DMG):
+Without a clone, use the installer bundled inside the app (v0.2.3.1+ DMG) or on the mounted DMG volume:
 
 ```bash
+# Upgrade (app already in /Applications)
 INSTALLER="/Applications/llm-swarm-router.app/Contents/Resources/Scripts/macos-app-install.sh"
 chmod +x "$INSTALLER"
+"$INSTALLER" --dmg ~/Downloads/llm-swarm-router.dmg
+
+# First install (open DMG first, then run from the volume)
+open ~/Downloads/llm-swarm-router.dmg
+INSTALLER="/Volumes/llm-swarm-router/llm-swarm-router.app/Contents/Resources/Scripts/macos-app-install.sh"
+chmod +x "$INSTALLER" "/Volumes/llm-swarm-router/llm-swarm-router.app/Contents/Resources/Scripts/mount-dmg.sh"
 "$INSTALLER" --dmg ~/Downloads/llm-swarm-router.dmg
 ```
 
