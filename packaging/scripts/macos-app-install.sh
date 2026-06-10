@@ -280,17 +280,28 @@ verify_agent_endpoints() {
   log_line "Verified ${base}/ui/ (HTTP 200)"
 }
 
+strip_download_quarantine() {
+  local path="$1"
+  [[ -e "$path" ]] || return 0
+  if xattr -p com.apple.quarantine "$path" >/dev/null 2>&1; then
+    log_line "Clearing Gatekeeper quarantine on $path"
+    xattr -dr com.apple.quarantine "$path" 2>/dev/null || true
+  fi
+}
+
 DMG_MOUNT=""
 SOURCE_APP=""
 
 resolve_source_app() {
   if [[ -n "$SOURCE" ]]; then
     [[ -d "$SOURCE" ]] || install_fail "Source app not found: $SOURCE"
+    strip_download_quarantine "$SOURCE"
     SOURCE_APP="$SOURCE"
     return 0
   fi
 
   [[ -f "$DMG" ]] || install_fail "DMG not found: $DMG"
+  strip_download_quarantine "$DMG"
   if [[ ! -x "$MOUNT_DMG" ]]; then
     install_fail "mount-dmg.sh not found next to this script ($SCRIPT_DIR). Mount the DMG manually and pass --source /Volumes/.../llm-swarm-router.app"
   fi

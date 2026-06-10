@@ -12,10 +12,24 @@ DMG="$1"
 [[ -f "$DMG" ]] || { echo "DMG not found: $DMG" >&2; exit 1; }
 
 VOL_BASENAME="$(basename "$DMG" .dmg)"
-LIKELY_MOUNT="/Volumes/$VOL_BASENAME"
+APP_NAME="llm-swarm-router.app"
+LEGACY_APP_NAME="netllm-mac.app"
 
-if [[ -d "$LIKELY_MOUNT" ]]; then
-  echo "$LIKELY_MOUNT"
+find_mounted_app() {
+  local vol
+  for vol in "/Volumes/$VOL_BASENAME" "/Volumes/$VOL_BASENAME "[0-9]*; do
+    [[ -d "$vol" ]] || continue
+    if [[ -d "$vol/$APP_NAME" || -d "$vol/$LEGACY_APP_NAME" ]]; then
+      echo "$vol"
+      return 0
+    fi
+  done
+  return 1
+}
+
+existing="$(find_mounted_app || true)"
+if [[ -n "$existing" ]]; then
+  echo "$existing"
   exit 0
 fi
 

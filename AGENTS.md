@@ -1,5 +1,13 @@
 # Agent & developer guide
 
+## DOX rail
+
+Full protocol: [`.cursor/agents/AGENTS.md`](.cursor/agents/AGENTS.md).
+
+- Before editing: walk root → target path; read every `AGENTS.md` on the route (nearest doc controls local detail)
+- After meaningful edits: update the closest owning `AGENTS.md`; refresh Child DOX Index when boundaries change
+- Child docs must not weaken parent DOX
+
 ## Project overview
 
 **swarm-llm (netllm)** is a mesh router for local LLM backends. Each host runs a lightweight agent that discovers oMLX (macOS), Ollama, LM Studio, and vLLM on localhost, finds sibling agents on the LAN via mDNS, and exposes dual API surfaces: OpenAI-compatible `http://<host>:11400/v1` and Anthropic Messages API `http://<host>:11400/v1/messages` (with translation to local backends).
@@ -21,16 +29,18 @@ Honcho integration: [docs/honcho-integration.md](docs/honcho-integration.md).
 
 ## Repository layout
 
-| Path | Purpose |
-|------|---------|
-| `packages/` | Python source of truth (uv workspace) |
-| `apps/` | Native apps: macOS menubar today (`apps/netllm-mac/`) |
-| `packaging/` | Release builds per OS: [packaging/README.md](packaging/README.md) |
-| `docs/` | User install/troubleshoot/editor guides: [docs/README.md](docs/README.md) |
-| `tests/` | Cross-package integration tests |
-| `scripts/` | CI, skill sync, install emulation |
-| `Formula/` | Homebrew formula |
-| `.agents/skills/` | Canonical agent skills → sync via `scripts/sync-agent-skills.sh` to `.claude/`, `.cursor/`, `.github/` |
+| Path | Purpose | DOX |
+|------|---------|-----|
+| `packages/` | Python source of truth (uv workspace) | [packages/AGENTS.md](packages/AGENTS.md) |
+| `apps/` | Native apps: macOS menubar today (`apps/netllm-mac/`) | [apps/AGENTS.md](apps/AGENTS.md) |
+| `packaging/` | Release builds per OS: [packaging/README.md](packaging/README.md) | [packaging/AGENTS.md](packaging/AGENTS.md) |
+| `docs/` | User install/troubleshoot/editor guides: [docs/README.md](docs/README.md) | [docs/AGENTS.md](docs/AGENTS.md) |
+| `tests/` | Cross-package integration tests | [tests/AGENTS.md](tests/AGENTS.md) |
+| `scripts/` | CI, skill sync, install emulation | (root rail) |
+| `Formula/` | Homebrew formula | (root rail) |
+| `archived/` | Local deprecated/moved files (gitignored; not on remote) | (root rail) |
+| `.agents/skills/` | Canonical agent skills → sync via `scripts/sync-agent-skills.sh` | [.agents/AGENTS.md](.agents/AGENTS.md) |
+| `.cursor/agents/` | DOX protocol + tracked Cursor coordinator subagents | [.cursor/agents/AGENTS.md](.cursor/agents/AGENTS.md) |
 
 Edit skills only under `.agents/`; run `scripts/sync-agent-skills.sh` after changes.
 
@@ -158,13 +168,13 @@ Editor wiring reference: [docs/editor-integration.md](docs/editor-integration.md
 Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow, issue templates, and review expectations.
 
 - Conventional commit messages; focus on why
-- Do not commit `.cursor/plans/`, `.cursor/outreach/`, `.cursor/hooks/`, `.cursor/mcp.json`, `.cursor/rules/graphify.mdc`, or secrets
+- Do not commit `.cursor/plans/`, `.cursor/outreach/`, `.cursor/hooks/`, `.cursor/mcp.json`, `.cursor/rules/graphify.mdc`, `archived/`, or secrets
 - Do not commit unless the user explicitly asks (agents); human contributors open PRs per CONTRIBUTING.md
 
 ## Do not
 
 - Edit user `.env` files or replace keys/values unless explicitly directed
-- Delete files: move to `archived/` and log the action (project convention)
+- Delete files: move to local `archived/` and log in `archived/ARCHIVE_LOG.txt` (gitignored; never commit)
 - Commit secrets, API keys, or real credentials
 - Assume `netllm` is on PATH: prefer `./netllm` from repo root in instructions
 - Skip `./netllm doctor` before declaring setup complete
@@ -174,10 +184,17 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 ## Learned User Preferences
 
 - Validate macOS updater/install fixes locally (`tests/test_bundled_install_scripts.sh`, `scripts/test-menubar-e2e.sh`) before release commits or tags
-- Run `./scripts/verify-before-pr.sh` (or `--full` with menubar e2e) before pushing macOS menubar PRs
+- Run `./scripts/verify-before-pr.sh` (or `--full` with menubar e2e) before pushing macOS menubar PRs; after editing `design-tokens.json`, run `scripts/generate-dashboard-tokens.py` (CI enforces via `--check`)
 - macOS in-app update must stop the agent and free `:11400` as part of install — not require manual **Stop** first
 - Commit macOS update/install fixes as focused slices separate from unrelated feature work when possible
 - Run local agent smoke (`./netllm test`, menubar e2e) before PR, merge, and release
+- Never auto-post GitHub comments, discussion replies, or community posts — draft only unless the user explicitly says post/ship/submit
+- User submits outreach manually (headed browser with logged-in profile; Reddit as u/dreamsofsoaring via `reddit` CDP `:9224`; GitHub/forums as matthew@hydradigital.com.au / @matthewdcage via `work` CDP `:9223`; awesome-list PRs via `gh pr create` with OAuth, not `GITHUB_TOKEN` PAT)
+- Reply-first on live community threads before new posts; defer Show HN until reply traction (not same week as DevHunt)
+- Coordinator agents monitor Reddit and GitHub inbound and draft follow-ups (harvest → monitor → draft); user posts manually — not one-off "watch manually" reminders
+- No em dashes in coordinator drafts, briefs, and community replies (`.cursor/coordinator/voice.md`)
+- Qualify ~7× throughput as aggregate parallel load across machines, not single-chat speed (same framing as oMLX #1762)
+- No star asks or star emoji in community posts after reply-first credibility is earned
 
 ## Learned Workspace Facts
 
@@ -188,10 +205,30 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - mDNS (swarm discovery) requires zeroconf from `uv sync`; `serve` on loopback blocks LAN peers — use `--host 0.0.0.0` for swarm; set `swarm.cluster_token` on untrusted networks
 - Do not run the macOS menubar app and `./netllm serve` together; both bind `:11400`. Before quitting the app, use **Stop** so the agent subprocess exits; otherwise an orphan can hold `:11400` and block the next launch.
 - oMLX discovery probes `:8080` by default; backends on other ports need `[discovery].custom_endpoints` or `[[routing.backends]]` in `~/.config/netllm/config.toml`.
-- macOS in-app auto-update notifies only when the latest GitHub release includes a `llm-swarm-router.dmg` asset; logs under `~/Library/Application Support/netllm/logs/` (`update.log`, `install.log`, `app.log`)
-- Release tag must match root `pyproject.toml` version; bump all workspace packages + `uv lock` before `gh release create`. **v0.3.0.1** patches URLSession download staging (`CFNetworkDownload_*.tmp`); **v0.3.0.0** shipped Phase 1–2 Apple AI work (App Intents, MenuBarExtra, routing policies)
-- Repo checkout changes do **not** update `/Applications/llm-swarm-router.app` — install from GitHub DMG or `scripts/upgrade-mac-app.sh`; verify with `defaults read …/Info CFBundleShortVersionString` (don't assume `~/Downloads/llm-swarm-router.dmg` is latest)
-- Bundled `macos-app-install.sh` resolves co-located `Contents/Resources/Scripts/mount-dmg.sh` (not `Contents/packaging/…`); in-app update uses `--in-app-update` to stop agent and replace the bundle
-- Gate macOS menubar changes with `scripts/verify-before-pr.sh` and bundled install tests in `test-menubar-e2e.sh`; after editing `design-tokens.json`, run `scripts/generate-dashboard-tokens.py` (CI enforces via `--check`)
+- macOS menubar install/update: repo checkout does not update `/Applications/llm-swarm-router.app` — use GitHub DMG, menubar **Updates**, or bundled `macos-app-install.sh` (`/Applications/llm-swarm-router.app/Contents/Resources/Scripts/` or mounted DMG); `scripts/upgrade-mac-app.sh` is repo-only; in-app update stops agent via `--in-app-update`, logs under `~/Library/Application Support/netllm/logs/`; release notes must not lead with `./scripts/` alone ([docs/release-notes/v0.3.0.1.md](docs/release-notes/v0.3.0.1.md))
+- **macOS Gatekeeper (26+):** GitHub ad-hoc DMGs fail launch (`no usable signature`); notarized Developer ID releases required — [docs/macos-code-signing.md](docs/macos-code-signing.md). CI secrets: `MACOS_CERTIFICATE_P12`, `MACOS_CERTIFICATE_PASSWORD`, `KEYCHAIN_PASSWORD`, `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_SPECIFIC_PASSWORD`. Local maintainer path: `packaging/scripts/local-notarized-dmg.sh`
+- Release tag must match root `pyproject.toml` version; bump all workspace packages + `uv lock` before `gh release create`
+- `.cursor/coordinator/` is gitignored local PR overseer (state, drafts, scripts); orchestration via six tracked **Cursor subagents** in `.cursor/agents/coordinator-*.md` (incl. **prospector**) — [`.cursor/coordinator/AGENTS.md`](.cursor/coordinator/AGENTS.md); run `run-coordinator-pass.sh` + `test-coordinator-loop.sh` before paste work; `test-discovery.sh` for offline discover-all smoke
+- `.cursor/outreach/` is gitignored local outreach research/drafts; paste-ready convention: **Target:** / **Title:** / body after `---` (plain markdown, no YAML); neither tree belongs in the remote repo
+- Prefer posted voice examples in `.cursor/coordinator/examples/` (`examples/index.json`) over generic `voice.md` when drafting community replies
+- Stagehand fork for browser automation lives outside this repo (maintainer-local path in `.cursor/coordinator/state/browser-profiles.json`; example checkout: `/path/to/agent-stagehand-browser-agent`); coordinator resolves it via `browse-env.sh`; `browse` CLI via `npm link` in that repo's `packages/cli`
+- Reddit automation login persists under `~/.cursor/chrome-automation/reddit/Default/` (Chrome user-data-dir layout); seed with `browser-seed-profile.sh reddit --force`, verify with `verify-reddit-session.sh --apply` — daily Profile 5 login alone does not wire through unless seeded
+- Work automation login (matthew@hydradigital.com.au / GitHub @matthewdcage) persists under `~/.cursor/chrome-automation/work/Default/`; seed with `browser-seed-profile.sh work --force`, login with `browser-login-work.sh`, verify with `verify-work-session.sh --apply` — daily Default profile login alone does not wire through unless seeded
+- Headed outreach: **browse CLI** primary; `browser-ensure-up.sh` → `browse-session-lifecycle.sh ensure` (Chrome preserved, `state/browse-session-registry.json`); after manual Post run `clear-pending`; `test-coordinator-loop.sh` **config-only by default** (`BROWSE_E2E_LIVE=1` for live paste prep; `BROWSE_E2E_SMOKE=1` optional example.com); coordinator subagents can run **in parallel** when profiles differ (reddit `:9224` vs work `:9223`); **`stagehand-local` MCP fallback only** when browse refs fail
+- Outreach prospector: weekly Monday pass via `coordinator-prospector` + `discover-all.sh` + `qualify-prospector-candidates.sh` (live HTTP before approval); **Recommend approve** only when `state/prospector-qualification.json` shows `ok` + `live_checked` for reddit/HN; promote with `promote-candidates.sh --apply-approved` only after Matthew approves summary rows; then draft replies from `examples/index.json` before browser paste prep
+- HN reply-first: `HN_MAX_AGE_DAYS` default **14** (Algolia discovery window matches); bare **Sorry.** on item page = comment closed; dead ids in `.cursor/coordinator/state/hn-dead-threads.json`. Reddit: `REDDIT_MAX_AGE_DAYS` default 365 for new discovery; deleted threads in `reddit-dead-threads.json`
 
-Updated: 2026-06-09
+## Child DOX Index
+
+| Path | Contract |
+|------|----------|
+| [`packages/AGENTS.md`](packages/AGENTS.md) | Python uv workspace (6 packages) |
+| [`apps/AGENTS.md`](apps/AGENTS.md) | Native platform apps |
+| [`docs/AGENTS.md`](docs/AGENTS.md) | User-facing guides and release notes |
+| [`packaging/AGENTS.md`](packaging/AGENTS.md) | Cross-platform release builds |
+| [`tests/AGENTS.md`](tests/AGENTS.md) | Cross-package integration tests |
+| [`.agents/AGENTS.md`](.agents/AGENTS.md) | Canonical agent skills (sync to tool paths) |
+| [`.cursor/agents/AGENTS.md`](.cursor/agents/AGENTS.md) | DOX protocol + coordinator subagent index |
+| [`.cursor/coordinator/AGENTS.md`](.cursor/coordinator/AGENTS.md) | Local PR coordinator (gitignored): scripts, state, browse-first stack |
+
+Updated: 2026-06-10 (macOS Developer ID signing/notarization; Gatekeeper on macOS 26+)

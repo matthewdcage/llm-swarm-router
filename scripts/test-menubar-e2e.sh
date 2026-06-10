@@ -68,6 +68,47 @@ done
 curl -sf "${BASE}/health" >/dev/null || fail "agent not healthy — see $LOG"
 ok "health ${BASE}/health"
 
+echo "==> bundled agent quiet + LAN listen (menubar path regression)"
+LAN_CFG="${NETLLM_TEST_LAN_CONFIG:-/tmp/netllm-e2e-lan-config.toml}"
+LAN_PORT="${NETLLM_TEST_LAN_PORT:-11402}"
+LAN_BASE="http://127.0.0.1:${LAN_PORT}"
+LAN_PIDFILE="/tmp/netllm-e2e-lan-agent.pid"
+LAN_LOG="/tmp/netllm-e2e-lan-agent.log"
+cat > "$LAN_CFG" <<EOF
+[agent]
+listen = "0.0.0.0:${LAN_PORT}"
+role = "peer"
+advertise = true
+
+[discovery]
+providers = ["omlx", "ollama", "lmstudio"]
+
+[swarm]
+mdns = true
+
+[routing]
+default_strategy = "local_first"
+EOF
+"$CLI" serve -q --config "$LAN_CFG" >"$LAN_LOG" 2>&1 &
+echo $! >"$LAN_PIDFILE"
+for i in $(seq 1 30); do
+  if curl -sf "${LAN_BASE}/health" >/dev/null 2>&1; then
+    break
+  fi
+  if rg -q "unexpected keyword argument 'file'" "$LAN_LOG" 2>/dev/null; then
+    fail "bundled serve -q crashed on Rich file= kwarg — see $LAN_LOG"
+  fi
+  sleep 0.5
+done
+curl -sf "${LAN_BASE}/health" >/dev/null || {
+  echo "--- $LAN_LOG ---" >&2
+  tail -40 "$LAN_LOG" >&2 || true
+  fail "LAN quiet agent not healthy on ${LAN_BASE}/health"
+}
+kill "$(cat "$LAN_PIDFILE")" 2>/dev/null || true
+rm -f "$LAN_PIDFILE"
+ok "quiet serve -q with 0.0.0.0 listen (${LAN_BASE}/health)"
+
 echo "==> logs API"
 curl -sf "${BASE}/netllm/v1/logs?tail=10" | rg -q '"log_file"' || fail "logs API"
 ok "GET /netllm/v1/logs"

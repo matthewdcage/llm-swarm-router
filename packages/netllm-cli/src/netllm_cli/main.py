@@ -6,7 +6,6 @@ import asyncio
 import json
 import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -704,8 +703,7 @@ def serve(
             "Dashboard: [cyan]" + base + "/ui/[/] · API help JSON at [cyan]/[/][/]\n"
         )
     elif warnings:
-        for w in warnings:
-            console.print(f"[yellow]note:[/] {w}", file=sys.stderr)
+        print_warnings(warnings)
 
     import logging
 
