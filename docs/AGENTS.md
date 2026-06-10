@@ -21,6 +21,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 ## Local Contracts
 
 - User docs stay plain and actionable; agent commands use `./netllm` from repo root
+- **Honcho:** [honcho-integration.md](honcho-integration.md) opens with a **Bottom line** (one netllm URL in Honcho, model names unchanged, backends in netllm config, swarm auto-distributes); README and [editor-integration.md](editor-integration.md) link or summarize the same contract
 - Release tag must match root `pyproject.toml` version
 - Do not commit `.cursor/plans/`, `.cursor/outreach/`, or coordinator drafts here
 - User-facing command examples use placeholders (`/path/to/llm-swarm-router`, `~/Downloads/…`); never maintainer machine paths (`/Volumes/…`, named dev hardware)

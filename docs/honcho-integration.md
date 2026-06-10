@@ -2,6 +2,13 @@
 
 Use **netllm** as a drop-in OpenAI-compatible router for Honcho instead of embedding multi-endpoint URLs in `config.toml` or connector env vars.
 
+## Bottom line
+
+1. Point Honcho at netllm **once**: set `base_url` (deriver/dialectic) and `LLM_OPENAI_COMPATIBLE_BASE_URL` (connectors) to `http://127.0.0.1:11400/v1`, or `http://host.docker.internal:11400/v1` when Honcho runs in Docker and netllm on the host.
+2. **Keep your existing model names** in Honcho config; netllm routes by model ID against its backend catalog (`./netllm models`).
+3. Put all oMLX, Ollama, LM Studio, vLLM, and custom OpenAI-compatible URLs in **`~/.config/netllm/config.toml`** (discovery or `[[routing.backends]]`), not in Honcho. Do not dual-configure Honcho's embedded endpoint pool and netllm at the same time.
+4. With swarm peers visible (`./netllm peers`), distribution across machines is automatic; Honcho never needs per-machine backend URLs. Optionally point Honcho at one **gateway** agent only (`./netllm gateway` on one host).
+
 ## Prerequisites
 
 - netllm agent running on the host: `netllm serve` (default `http://127.0.0.1:11400/v1`)

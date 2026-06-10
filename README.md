@@ -213,6 +213,8 @@ export ANTHROPIC_API_KEY=netllm-local
 
 Pick a model ID from `./netllm models` (or the app **Settings → Models** tab). Full per-editor steps: [docs/editor-integration.md](docs/editor-integration.md).
 
+**Honcho:** Point deriver/dialectic `base_url` and connector `LLM_OPENAI_COMPATIBLE_BASE_URL` at netllm once; keep your model names; put oMLX/Ollama/LM Studio URLs in `~/.config/netllm/config.toml`. Swarm peers distribute automatically. Details: [docs/honcho-integration.md](docs/honcho-integration.md).
+
 ---
 
 ## What you get

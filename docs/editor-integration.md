@@ -62,7 +62,15 @@ When your setup supports a custom OpenAI-compatible endpoint, use the same base 
 
 ## Honcho
 
-See [honcho-integration.md](honcho-integration.md). Use `http://host.docker.internal:11400/v1` when Honcho runs in Docker and netllm on the host.
+Full guide: [honcho-integration.md](honcho-integration.md).
+
+**Bottom line:** Change Honcho's `base_url` and connector env to netllm once (`http://127.0.0.1:11400/v1`, or `http://host.docker.internal:11400/v1` from Docker). Keep model names as-is. Configure oMLX, Ollama, LM Studio, and swarm peers in `~/.config/netllm/config.toml` only, not in Honcho. Once LAN peers are up, routing is automatic; Honcho does not need per-machine URLs.
+
+```toml
+# Honcho deriver / dialectic overrides (example)
+base_url = "http://host.docker.internal:11400/v1"
+api_key = "netllm-local"
+```
 
 ## LAN / swarm gateway
 
