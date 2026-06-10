@@ -24,8 +24,8 @@ Overview: [platform-matrix.md](platform-matrix.md)
 
 | Topic | Doc |
 |-------|-----|
-| Wire Cursor, Claude Code, Codex, Honcho | [editor-integration.md](editor-integration.md) |
-| Honcho (Docker / deriver) | [honcho-integration.md](honcho-integration.md) |
+| Wire Cursor, Claude Code, Codex, Honcho | [editor-integration.md](editor-integration.md) (start at **Client configuration**) |
+| Honcho (Docker / deriver / connectors) | [honcho-integration.md](honcho-integration.md) |
 | Quick diagnostic | `./netllm doctor` from repo root or global install |
 
 ## Developers & agents

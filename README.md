@@ -199,6 +199,8 @@ export OPENAI_API_KEY=netllm-local
 
 ## Wire your editor
 
+Point any compatible client at netllm **once**. Keep your model IDs; configure oMLX, Ollama, LM Studio, and swarm peers in `~/.config/netllm/config.toml` only (not per-client URL lists). LAN peers distribute automatically after `./netllm peers`.
+
 ```bash
 export OPENAI_BASE_URL=http://127.0.0.1:11400/v1
 export OPENAI_API_KEY=netllm-local
@@ -211,9 +213,7 @@ export ANTHROPIC_BASE_URL=http://127.0.0.1:11400
 export ANTHROPIC_API_KEY=netllm-local
 ```
 
-Pick a model ID from `./netllm models` (or the app **Settings → Models** tab). Full per-editor steps: [docs/editor-integration.md](docs/editor-integration.md).
-
-**Honcho:** Point deriver/dialectic `base_url` and connector `LLM_OPENAI_COMPATIBLE_BASE_URL` at netllm once; keep your model names; put oMLX/Ollama/LM Studio URLs in `~/.config/netllm/config.toml`. Swarm peers distribute automatically. Details: [docs/honcho-integration.md](docs/honcho-integration.md).
+Pick a model ID from `./netllm models` (or the app **Settings → Models** tab). Full client table and per-editor steps: [docs/editor-integration.md](docs/editor-integration.md). Honcho connectors: [docs/honcho-integration.md](docs/honcho-integration.md).
 
 ---
 
