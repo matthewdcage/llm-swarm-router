@@ -3,8 +3,8 @@ class Netllm < Formula
 
   desc "Mesh router for local LLM backends — swarm agents with OpenAI/Anthropic gateway"
   homepage "https://github.com/matthewdcage/llm-swarm-router"
-  url "https://github.com/matthewdcage/llm-swarm-router/archive/refs/tags/v0.3.0.1.tar.gz"
-  sha256 "a1c3a86db7da3f77aad5aaa488d9e2be5fea0c6fc08a319a11db6f9b2dce8462"
+  url "https://github.com/matthewdcage/llm-swarm-router/archive/refs/tags/v0.3.0.2.tar.gz"
+  sha256 "d07fb9f84ab76b3ec9f1bb9075677ae65ac69d58305bdb1cd23e8e8c75dac301"
   license "MIT"
   head "https://github.com/matthewdcage/llm-swarm-router.git", branch: "main"
 
