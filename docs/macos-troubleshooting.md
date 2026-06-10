@@ -160,8 +160,10 @@ DMG/menubar installs: `netllm doctor` does not require a global CLI on PATH.
 | Symptom | Fix |
 |---------|-----|
 | `netllm peers` empty | Use `netllm serve --host 0.0.0.0` (or enable LAN in welcome wizard). Set `swarm.cluster_token` on untrusted networks |
-| mDNS browse fails | Source installs: `uv sync` (zeroconf). Fallback: `netllm peers --subnet-scan --save` or static `swarm.peers` |
+| mDNS browse fails | Enable **Subnet scan at startup** in menubar Settings → Swarm (or `subnet_scan = true` in config). Fallback: `netllm peers --subnet-scan --save` or static `swarm.peers` |
 | Guest Wi‑Fi | mDNS often blocked: use static peers |
+
+**Web dashboard:** Prefer **Open Dashboard** from the menubar (`http://127.0.0.1:11400/ui/`). If you open `http://<LAN-IP>:11400/ui/` on the same Mac, admin tabs should work; from another machine on the LAN, status/models are read-only unless you set `swarm.cluster_token` and pass `Authorization: Bearer <token>`.
 
 **Verify:** `netllm peers` and `netllm models --lan`.
 

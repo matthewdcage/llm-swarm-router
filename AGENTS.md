@@ -199,11 +199,11 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 
 ## Learned Workspace Facts
 
-- Local web dashboard at http://127.0.0.1:11400/ui/ on all platforms; macOS menubar has **Open Dashboard**
+- Local web dashboard at http://127.0.0.1:11400/ui/ on all platforms; macOS menubar has **Open Dashboard**; same-host `http://<LAN-IP>:11400/ui/` has full admin; remote LAN browsers are read-only unless `swarm.cluster_token` is set
 - Linux/Windows **alpha** use `/ui/` + CLI; macOS stable adds menubar app: same agent core
 - Published GitHub Releases attach DMG (macOS), `.deb`/`.rpm` (Linux), Windows zip, and `netllm.yaml` via `.github/workflows/release.yml`: see [docs/platform-matrix.md](docs/platform-matrix.md)
 - `./netllm` wrapper runs `uv run --directory $ROOT netllm`: no global install needed; `scripts/agent-verify-setup.sh` prefers global `netllm` when on PATH — use `./netllm` for repo-local smoke
-- mDNS (swarm discovery) requires zeroconf from `uv sync`; `serve` on loopback blocks LAN peers — use `--host 0.0.0.0` for swarm; set `swarm.cluster_token` on untrusted networks
+- mDNS (swarm discovery) requires zeroconf from `uv sync`; `serve` on loopback blocks LAN peers — use `--host 0.0.0.0` for swarm; set `swarm.cluster_token` on untrusted networks; macOS menubar **LAN welcome** enables `swarm.subnet_scan`; Settings polls live agent status while open (see [apps/netllm-mac/AGENTS.md](apps/netllm-mac/AGENTS.md))
 - Do not run the macOS menubar app and `./netllm serve` together; both bind `:11400`. Before quitting the app, use **Stop** so the agent subprocess exits; otherwise an orphan can hold `:11400` and block the next launch.
 - oMLX discovery probes `:8080` by default; backends on other ports need `[discovery].custom_endpoints` or `[[routing.backends]]` in `~/.config/netllm/config.toml`.
 - macOS menubar install/update: **recommended on macOS 26+:** clone release tag → `apps/netllm-mac/Scripts/build.sh release` → `packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app` ([docs/macos-install.md](docs/macos-install.md)); GitHub DMG + menubar **Updates** when notarized; bundled `macos-app-install.sh` under `Contents/Resources/Scripts/`; `scripts/upgrade-mac-app.sh` is repo-only; in-app update stops agent via `--in-app-update`, logs under `~/Library/Application Support/netllm/logs/`; **v0.3.0.2** fixes menubar **Agent: starting…** when `listen = "0.0.0.0:11400"` — [docs/release-notes/v0.3.0.2.md](docs/release-notes/v0.3.0.2.md)
@@ -232,4 +232,4 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 | [`.cursor/agents/AGENTS.md`](.cursor/agents/AGENTS.md) | DOX protocol + coordinator subagent index |
 | [`.cursor/coordinator/AGENTS.md`](.cursor/coordinator/AGENTS.md) | Local PR coordinator (gitignored): scripts, state, browse-first stack |
 
-Updated: 2026-06-11 (macOS install: source build + install script primary until notarized DMG)
+Updated: 2026-06-11 (dashboard admin on same-host LAN IP; Settings live poll)

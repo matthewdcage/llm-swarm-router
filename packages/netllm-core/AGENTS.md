@@ -8,7 +8,7 @@ Shared routing, backend health cache, configuration I/O, model catalog types, an
 
 ## Ownership
 
-Key modules: `config.py`, `routing_policy.py`, `pool.py`, `health.py`, `models.py`, `anthropic_bridge.py`, `batch.py`, `update.py`.
+Key modules: `config.py`, `routing_policy.py`, `pool.py`, `health.py`, `models.py`, `anthropic_bridge.py`, `batch.py`, `update.py`, `platform.py`.
 
 ## Local Contracts
 
@@ -19,7 +19,8 @@ Key modules: `config.py`, `routing_policy.py`, `pool.py`, `health.py`, `models.p
 ## Work Guidance
 
 - Keep pydantic models in `models.py`; avoid circular imports with agent/discovery
-- Platform helpers in `platform.py` and `install_detect.py` are shared with CLI
+- Platform helpers in `platform.py` and `install_detect.py` are shared with CLI and agent
+- `platform.local_admin_client_hosts()` — loopback plus this machine's interface IPs; used by agent admin gate so `http://<LAN-IP>:11400/ui/` on the same host works like `127.0.0.1`
 
 ## Verification
 

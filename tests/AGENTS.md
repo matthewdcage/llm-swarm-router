@@ -18,6 +18,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 - Add tests for real behavior; avoid trivial assertions
 - macOS install scripts: `tests/test_bundled_install_scripts.sh`
 - Menubar agent start (quiet + LAN listen): `tests/test_serve_quiet_lan.py` — regression for bundled `serve -q` with `0.0.0.0` listen reaching uvicorn
+- Admin access: `tests/test_agent.py` — remote client 403; same-host LAN IP allowed via `local_admin_client_hosts`
 
 ## Work Guidance
 

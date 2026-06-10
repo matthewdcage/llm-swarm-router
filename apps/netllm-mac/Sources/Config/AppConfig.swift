@@ -96,6 +96,7 @@ struct AppConfig: Sendable {
                 "",
                 "[swarm]",
                 "mdns = true",
+                "subnet_scan = false",
                 "",
                 "[routing]",
                 "default_strategy = \"local_first\"",
@@ -108,6 +109,12 @@ struct AppConfig: Sendable {
 
         let listen = lanMode ? "0.0.0.0:\(port)" : "\(bindHost):\(port)"
         lines = mergeTomlValue(lines, key: "listen", value: "\"\(listen)\"", section: "[agent]")
+        lines = mergeTomlValue(
+            lines,
+            key: "subnet_scan",
+            value: lanMode ? "true" : "false",
+            section: "[swarm]"
+        )
         lines = mergeTomlValue(lines, key: "auto_start_on_launch", value: autoStart ? "true" : "false", section: "[ui]")
         try lines.joined(separator: "\n").write(to: path, atomically: true, encoding: .utf8)
     }

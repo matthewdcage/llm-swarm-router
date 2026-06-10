@@ -20,6 +20,30 @@ def default_hostname() -> str:
     return socket.gethostname()
 
 
+_local_admin_hosts: frozenset[str] | None = None
+
+
+def local_admin_client_hosts() -> frozenset[str]:
+    """Hosts that may call loopback-gated admin routes from this machine."""
+    global _local_admin_hosts
+    if _local_admin_hosts is not None:
+        return _local_admin_hosts
+    hosts: set[str] = {"127.0.0.1", "::1", "localhost", "testclient"}
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None):
+            hosts.add(info[4][0].lower())
+    except OSError:
+        pass
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            hosts.add(sock.getsockname()[0].lower())
+    except OSError:
+        pass
+    _local_admin_hosts = frozenset(hosts)
+    return _local_admin_hosts
+
+
 def default_log_dir() -> Path:
     if is_darwin():
         return Path.home() / "Library" / "Application Support" / "netllm" / "logs"

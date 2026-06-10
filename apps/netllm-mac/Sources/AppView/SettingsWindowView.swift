@@ -57,14 +57,22 @@ struct SettingsWindowView: View {
                 }
             }
         }
-        .task { await model.reloadAll() }
+        .task {
+            await model.reloadAll()
+            model.startLivePolling()
+        }
+        .onDisappear { model.stopLivePolling() }
         .onAppear { portText = String(model.document.port) }
     }
 
     private func restartAgent() {
         supervisor.restart()
         onRestartAgent?()
-        Task { await model.refreshLiveData() }
+        Task {
+            await model.waitForAgentHealth()
+            await model.refreshLiveData()
+            model.needsRestart = false
+        }
     }
 
     @ViewBuilder
@@ -320,14 +328,14 @@ struct SettingsWindowView: View {
                 Text("No peers connected to running agent.").foregroundStyle(.secondary)
             }
             sectionHeader("LAN discovery")
-            Text("Scans your subnet (10.0.0.0/24) for agents on :11400. Wi‑Fi often blocks mDNS, so subnet scan is used automatically.")
+            Text("Subnet scan runs automatically when the agent is healthy (enable Subnet scan in Swarm). Wi‑Fi often blocks mDNS; static peers in config still work.")
                 .font(.caption).foregroundStyle(.secondary)
             actionButtons {
                 Button("Scan network") { model.runPeersScan() }
                 Button("Scan & save to config") { model.runPeersScan(save: true) }
             }
             if model.lanPeers.isEmpty && !model.isLoading && model.message == nil && model.errorMessage == nil {
-                Text("No scan yet — click Scan network (takes ~10s on a /24).")
+                Text("Scanning automatically when agent is ready (~10s on a /24).")
                     .font(.caption).foregroundStyle(.secondary)
             } else if model.lanPeers.isEmpty && model.message != nil {
                 Text("Last scan returned no LAN agents.")
@@ -419,7 +427,9 @@ struct SettingsWindowView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("Swarm")
             Toggle("mDNS discovery", isOn: $model.document.swarm.mdns)
-            Toggle("Subnet scan", isOn: $model.document.swarm.subnet_scan)
+            Toggle("Subnet scan at startup", isOn: $model.document.swarm.subnet_scan)
+            Text("Probes the LAN for agents on :11400 when the agent starts. Recommended when listening on 0.0.0.0.")
+                .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Text("Heartbeat (s)")
                 TextField("10", value: $model.document.swarm.heartbeat_interval_s, format: .number)

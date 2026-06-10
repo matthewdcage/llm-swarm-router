@@ -15,6 +15,8 @@ Key modules: `app.py`, `service.py`, `admin.py`, `metrics.py`, `shard.py`. Stati
 - Default bind: `127.0.0.1:11400`; do not run menubar app and `./netllm serve` together (same port)
 - Dashboard tokens: edit `apps/netllm-mac/design-tokens.json`, run `scripts/generate-dashboard-tokens.py` (CI `--check`)
 - In-app update API: `GET /netllm/v1/update/check` (macOS menubar proxies this)
+- **Admin routes** (`admin.py`): config save, doctor, version, logs, discover, peers-scan — allowed from **this host** (`local_admin_client_hosts()` in `netllm-core`) or `Authorization: Bearer <cluster_token>`; remote LAN clients get read-only status/models unless token is set
+- **Web dashboard** (`static/dashboard.js`): status/models load without admin; doctor/config failures degrade gracefully (warn banner, not fatal)
 - Depends on all other workspace packages except `netllm-cli`
 
 ## Work Guidance

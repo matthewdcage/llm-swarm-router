@@ -34,6 +34,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 - SDK bumps: update `sdk-versions.md` in same PR as package dep change
 - Release notes go under `release-notes/` with version in filename; macOS blocks follow v0.3.0.1 pattern (in-app → bundled installer → optional repo script); menubar agent-start fixes: [release-notes/v0.3.0.2.md](release-notes/v0.3.0.2.md)
 - macOS signing/notarization changes: update `macos-code-signing.md`, `ci-and-release.md`, and install/troubleshooting Gatekeeper sections together
+- Web dashboard / admin-access behavior: document in `macos-troubleshooting.md` (Swarm or dashboard section) when agent `admin.py` or `static/dashboard.js` contracts change
 
 ## Verification
 
