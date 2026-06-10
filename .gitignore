@@ -26,6 +26,9 @@ packaging/requirements-netllm.txt
 apps/netllm-mac/build/
 .DS_Store
 
+# Local archive for moved/deprecated files (project convention; not shipped)
+archived/
+
 # Cursor — local/personal (shared copies: .cursor/skills/, .cursor/rules/netllm.mdc, mcp.json.example)
 .cursor/plans/
 .cursor/outreach/

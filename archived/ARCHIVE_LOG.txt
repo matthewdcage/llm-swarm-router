@@ -1,2 +1,0 @@
-2026-06-08T05:35:13Z Moved v0.2.2-beta.md and linux-windows-beta-qa.md to archived/ — relabeled first Linux/Windows release as alpha per user request
-2026-06-08T05:59:17Z moved packages/netllm-agent/static/logo.png -> archived/.../logo-black-bg.png (replaced by logo-light.png + logo-dark.png)
