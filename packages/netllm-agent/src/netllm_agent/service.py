@@ -67,6 +67,8 @@ class AgentService:
         self._request_count = 0
         self._batch_ledger = BatchRequestLedger()
         self.startup_warnings: list[str] = []
+        # Hold references so background tasks are not garbage collected.
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
     async def refresh_local_backends(
         self,
@@ -857,11 +859,16 @@ class AgentService:
 
         self.swarm.start_gossip(lambda: self.status_payload())
         if self.config.swarm.subnet_scan:
-            asyncio.create_task(self._discover_subnet_peers())
+            self._spawn_background(self._discover_subnet_peers())
         elif self._should_auto_subnet_fallback():
-            asyncio.create_task(self._mdns_fallback_subnet_scan())
+            self._spawn_background(self._mdns_fallback_subnet_scan())
         self.startup_warnings = warnings
         return warnings
+
+    def _spawn_background(self, coro: Any) -> None:
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     def _should_auto_subnet_fallback(self) -> bool:
         """One-shot subnet scan when mDNS is on but may be blocked.

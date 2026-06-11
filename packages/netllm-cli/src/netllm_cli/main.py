@@ -742,6 +742,18 @@ def peers(
     if warnings:
         print_warnings(warnings)
 
+    if not peers_found and unreachable:
+        print_error(
+            "Agents found, none reachable",
+            f"{len(unreachable)} agent(s) are loopback-bound and cannot "
+            "accept LAN traffic (see notes above).",
+            hints=[
+                "On each unreachable machine: "
+                "[cyan]netllm init --force --swarm[/] or "
+                "[cyan]netllm serve --host 0.0.0.0[/]",
+            ],
+        )
+        raise typer.Exit(1)
     if not peers_found:
         print_error(
             "No peers found",
