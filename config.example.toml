@@ -33,6 +33,11 @@ require_same_model_for_shard = true
 # local_spillover only: stay local below this many concurrent requests.
 spillover_max_local_in_flight = 2
 
+# Mixed-provider fleets: map one canonical name to per-provider model IDs
+# so the same weights spread across oMLX / Ollama / LM Studio / vLLM.
+# [routing.model_aliases]
+# "llama3" = ["llama3:8b-instruct-q4_K_M", "Meta-Llama-3-8B-Instruct-GGUF"]
+
 # Optional routing policies (first match wins). Cloud paths require allow_cloud = true.
 # [[routing.policies]]
 # name = "local-openai"

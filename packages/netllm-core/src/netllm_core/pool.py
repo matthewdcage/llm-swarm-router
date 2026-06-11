@@ -73,12 +73,14 @@ class RouterPool:
         *,
         allow_remote: bool = True,
         spillover_max_local_in_flight: int = 2,
+        model_aliases: dict[str, list[str]] | None = None,
     ) -> None:
         self._backends: list[Backend] = []
         self._health_cache: dict[str, _HealthEntry] = {}
         self._round_robin_idx = 0
         self.allow_remote = allow_remote
         self.spillover_max_local_in_flight = max(1, spillover_max_local_in_flight)
+        self.model_aliases = model_aliases or {}
         # Our own active forwards per peer agent URL. Peer rows are
         # rebuilt from heartbeats on every refresh, so this ledger keeps
         # in-flight hop counts from being wiped between heartbeats.
@@ -168,33 +170,60 @@ class RouterPool:
         backend.health.last_check = now
         return online
 
-    def backends_for_model(
-        self, model: str, *, local_only: bool = False
-    ) -> list[Backend]:
-        candidates: list[Backend] = []
+    def model_names_for(self, model: str) -> list[str]:
+        """Requested name plus configured aliases, request name first."""
+        return [model, *self.model_aliases.get(model, [])]
+
+    @staticmethod
+    def _serves_model(served: list[str], names: list[str]) -> bool:
+        return any(m == n or m.startswith(n + ":") for n in names for m in served)
+
+    def known_models(self, *, limit: int = 25) -> list[str]:
+        """Distinct model IDs across enabled backends (for 404 messages)."""
+        seen: dict[str, None] = {}
         for b in self._backends:
             if not b.enabled:
                 continue
-            if not b.local and not self.allow_remote:
-                continue
-            if local_only and not b.local:
-                continue
-            models = b.health.models
-            if not models and self.is_healthy(b):
+            for m in b.health.models:
+                seen.setdefault(m)
+        return list(seen)[:limit]
+
+    def backends_for_model(
+        self, model: str, *, local_only: bool = False
+    ) -> list[Backend]:
+        names = self.model_names_for(model)
+
+        def collect() -> list[Backend]:
+            out: list[Backend] = []
+            for b in self._backends:
+                if not b.enabled:
+                    continue
+                if not b.local and not self.allow_remote:
+                    continue
+                if local_only and not b.local:
+                    continue
                 models = b.health.models
-            if not models:
-                candidates.append(b)
-                continue
-            if any(m == model or m.startswith(model + ":") for m in models):
-                candidates.append(b)
+                if not models and self.is_healthy(b):
+                    models = b.health.models
+                if not models:
+                    # Unknown catalog (unprobed, auth-gated, cloud inject):
+                    # keep as a candidate rather than guessing wrong.
+                    out.append(b)
+                    continue
+                if self._serves_model(models, names):
+                    out.append(b)
+            return out
+
+        candidates = collect()
         if not candidates:
-            candidates = [
-                b
-                for b in self._backends
-                if b.enabled
-                and (not local_only or b.local)
-                and (b.local or self.allow_remote)
-            ]
+            # Catalogs may be stale (model pulled moments ago) — refresh
+            # once and rematch instead of spraying every backend.
+            for b in self._backends:
+                if b.enabled and b.local:
+                    self.is_healthy(b, force_refresh=True)
+            candidates = collect()
+        if not candidates:
+            return []
         healthy = [b for b in candidates if self.is_healthy(b)]
         return healthy or candidates
 

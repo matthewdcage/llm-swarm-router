@@ -105,6 +105,11 @@ class RoutingConfig(BaseModel):
     # local_spillover: serve locally below this many concurrent requests,
     # spill to the least-loaded LAN peer at or above it.
     spillover_max_local_in_flight: int = 2
+    # Canonical model name -> provider-specific IDs. Lets mixed fleets
+    # (oMLX vs Ollama vs LM Studio naming) serve one model name:
+    #   [routing.model_aliases]
+    #   "llama3" = ["llama3:8b-instruct-q4_K_M", "Meta-Llama-3-8B-Instruct"]
+    model_aliases: dict[str, list[str]] = Field(default_factory=dict)
     backends: list[BackendOverride] = Field(default_factory=list)
     policies: list[RoutingPolicy] = Field(default_factory=list)
 

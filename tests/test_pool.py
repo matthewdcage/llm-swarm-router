@@ -72,8 +72,8 @@ def test_failover_select_advances(_mock: object) -> None:
             ),
         ]
     )
-    first = pool.select_backend("any", "failover", attempt=1)
-    second = pool.select_backend("any", "failover", attempt=2)
+    first = pool.select_backend("m", "failover", attempt=1)
+    second = pool.select_backend("m", "failover", attempt=2)
     assert first is not None and second is not None
     assert first.base_url == "http://a/v1"
     assert second.base_url == "http://b/v1"
@@ -133,7 +133,10 @@ def test_local_first_prefers_local_backend(_mock: object) -> None:
     assert selected.local is True
 
 
-@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+@patch(
+    "netllm_core.pool.probe_openai_compat_sync",
+    return_value={"status": "online", "models": ["shared-model"], "model_count": 1},
+)
 def test_round_robin_alternates_local_and_peer_agent(_mock: object) -> None:
     pool = RouterPool()
     local = Backend(
