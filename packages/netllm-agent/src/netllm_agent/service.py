@@ -54,7 +54,12 @@ class AgentService:
 
     def __init__(self, config: NetllmConfig) -> None:
         self.config = config
-        self.pool = RouterPool(allow_remote=config.routing.allow_remote)
+        self.pool = RouterPool(
+            allow_remote=config.routing.allow_remote,
+            spillover_max_local_in_flight=(
+                config.routing.spillover_max_local_in_flight
+            ),
+        )
         self.swarm = SwarmRegistry(config)
         self._mdns_advertiser = None
         self._mdns_browser = None
@@ -322,7 +327,7 @@ class AgentService:
             )
             if backend is None:
                 break
-            backend.in_flight += 1
+            self.pool.acquire(backend)
             BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
             t0 = time.monotonic()
             try:
@@ -354,7 +359,7 @@ class AgentService:
                     exc,
                 )
             finally:
-                backend.in_flight = max(0, backend.in_flight - 1)
+                self.pool.release(backend)
                 BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(
                     backend.in_flight
                 )
@@ -394,7 +399,7 @@ class AgentService:
             )
             if backend is None:
                 break
-            backend.in_flight += 1
+            self.pool.acquire(backend)
             BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
             try:
                 client = OpenAIUpstream(
@@ -416,7 +421,7 @@ class AgentService:
                     exc,
                 )
             finally:
-                backend.in_flight = max(0, backend.in_flight - 1)
+                self.pool.release(backend)
                 BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(
                     backend.in_flight
                 )
@@ -494,9 +499,8 @@ class AgentService:
             ]
         )
 
-    @staticmethod
     def _order_message_candidates(
-        candidates: list[Backend], routing: ResolvedRouting
+        self, candidates: list[Backend], routing: ResolvedRouting
     ) -> list[Backend]:
         ordered = candidates
         if routing.prefer_provider:
@@ -504,11 +508,20 @@ class AgentService:
             if preferred:
                 others = [b for b in ordered if b.provider != routing.prefer_provider]
                 ordered = preferred + others
-        if routing.strategy == "local_first":
+        if routing.strategy in ("local_first", "local_spillover"):
             local = [b for b in ordered if b.local]
             remote = [b for b in ordered if not b.local]
             if local:
                 ordered = local + remote
+            if routing.strategy == "local_spillover" and local and remote:
+                best_local = min(local, key=lambda b: b.in_flight)
+                best_remote = min(remote, key=lambda b: b.in_flight)
+                threshold = self.pool.spillover_max_local_in_flight
+                if (
+                    best_local.in_flight >= threshold
+                    and best_remote.in_flight < best_local.in_flight
+                ):
+                    ordered = remote + local
         return ordered
 
     def _message_backend_candidates(
@@ -576,7 +589,7 @@ class AgentService:
             backend = candidates[attempt - 1] if attempt <= len(candidates) else None
             if backend is None:
                 break
-            backend.in_flight += 1
+            self.pool.acquire(backend)
             BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
             t0 = time.monotonic()
             try:
@@ -604,7 +617,7 @@ class AgentService:
                     exc,
                 )
             finally:
-                backend.in_flight = max(0, backend.in_flight - 1)
+                self.pool.release(backend)
                 BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(
                     backend.in_flight
                 )
@@ -645,7 +658,7 @@ class AgentService:
             backend = candidates[attempt - 1] if attempt <= len(candidates) else None
             if backend is None:
                 break
-            backend.in_flight += 1
+            self.pool.acquire(backend)
             BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
             try:
                 async for chunk in self._messages_stream_on_backend(
@@ -663,7 +676,7 @@ class AgentService:
                     exc,
                 )
             finally:
-                backend.in_flight = max(0, backend.in_flight - 1)
+                self.pool.release(backend)
                 BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(
                     backend.in_flight
                 )

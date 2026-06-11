@@ -51,23 +51,34 @@ class SwarmRegistry:
         for pid in self.stale_peers(max_age_s):
             del self.peers[pid]
 
-    def _peer_backend_models(self, peer: PeerRecord) -> list[str]:
-        """Union model IDs the peer serves directly (local rows only).
+    def _peer_local_rows(self, peer: PeerRecord) -> list[Backend]:
+        """Validated `local=true` rows from a peer's heartbeat payload.
 
         Remote rows in a peer's status are its own view of *other*
-        agents; advertising those here would echo backends transitively
+        agents; using those here would echo backends transitively
         around the mesh, inflate catalogs, and invite multi-hop chains.
         """
-        models: set[str] = set()
+        rows: list[Backend] = []
         for raw in peer.backends:
             try:
                 b = Backend.model_validate(raw)
-                if not b.local:
-                    continue
-                models.update(b.health.models)
             except Exception:
                 logger.debug("skip invalid peer backend: %s", raw)
+                continue
+            if b.local:
+                rows.append(b)
+        return rows
+
+    def _peer_backend_models(self, peer: PeerRecord) -> list[str]:
+        """Union model IDs the peer serves directly (local rows only)."""
+        models: set[str] = set()
+        for b in self._peer_local_rows(peer):
+            models.update(b.health.models)
         return sorted(models)
+
+    def _peer_in_flight(self, peer: PeerRecord) -> int:
+        """Heartbeat-reported concurrent load on the peer's own providers."""
+        return sum(max(0, b.in_flight) for b in self._peer_local_rows(peer))
 
     def peer_agent_backends(self) -> list[Backend]:
         """One routable backend per peer: the peer's agent OpenAI surface (/v1)."""
@@ -89,6 +100,7 @@ class SwarmRegistry:
                     local=False,
                     agent_id=peer.agent_id,
                     health=BackendHealth(models=models),
+                    in_flight=self._peer_in_flight(peer),
                 )
             )
         return out

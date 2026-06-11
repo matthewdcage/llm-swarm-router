@@ -107,13 +107,19 @@ def make_mock_provider(name: str, record: dict[str, Any]) -> FastAPI:
     return app
 
 
-def make_agent(provider_port: int, agent_port: int, record: dict[str, Any]) -> FastAPI:
+def make_agent(
+    provider_port: int,
+    agent_port: int,
+    record: dict[str, Any],
+    *,
+    strategy: str = "round_robin",
+) -> FastAPI:
     cfg = NetllmConfig()
     cfg.agent.listen = f"127.0.0.1:{agent_port}"
     cfg.agent.advertise = False
     cfg.swarm.mdns = False
     cfg.discovery.providers = []
-    cfg.routing.default_strategy = "round_robin"
+    cfg.routing.default_strategy = strategy  # type: ignore[assignment]
     cfg.routing.allow_remote = True
     cfg.routing.backends = [
         BackendOverride(
@@ -241,3 +247,59 @@ def test_round_robin_spreads_load_without_ping_pong(
     hop_headers = [h for h in agent_b["local_only_headers"] if h is not None]
     assert hop_headers, "agent B never saw a forwarded hop"
     assert all(h == "1" for h in hop_headers)
+
+
+def test_local_spillover_idle_agent_serves_locally() -> None:
+    """With local_spillover and a serial (idle) workload, requests never
+    leave the machine even though a peer is registered."""
+    from unittest.mock import patch
+
+    provider_a: dict[str, Any] = {"hits": 0, "probe_hits": 0}
+    provider_b: dict[str, Any] = {"hits": 0, "probe_hits": 0}
+    agent_a: dict[str, Any] = {"chat_inbound": 0, "local_only_headers": []}
+    agent_b: dict[str, Any] = {"chat_inbound": 0, "local_only_headers": []}
+
+    pa_port, pb_port = _free_port(), _free_port()
+    aa_port, ab_port = _free_port(), _free_port()
+    servers = [
+        ServerThread(make_mock_provider("A", provider_a), pa_port),
+        ServerThread(make_mock_provider("B", provider_b), pb_port),
+        ServerThread(
+            make_agent(pa_port, aa_port, agent_a, strategy="local_spillover"), aa_port
+        ),
+        ServerThread(
+            make_agent(pb_port, ab_port, agent_b, strategy="local_spillover"), ab_port
+        ),
+    ]
+    with patch(
+        "netllm_discovery.swarm.is_lan_reachable_agent_url",
+        lambda url: bool(url),
+    ):
+        for server in servers:
+            server.start()
+        try:
+            base_a = f"http://127.0.0.1:{aa_port}"
+            base_b = f"http://127.0.0.1:{ab_port}"
+            with httpx.Client(timeout=30.0) as client:
+                status_a = client.get(f"{base_a}/netllm/v1/status").json()
+                status_b = client.get(f"{base_b}/netllm/v1/status").json()
+                client.post(f"{base_a}/netllm/v1/heartbeat", json=status_b)
+                client.post(f"{base_b}/netllm/v1/heartbeat", json=status_a)
+
+                start_b = provider_b["hits"]
+                for _ in range(3):
+                    resp = client.post(
+                        f"{base_a}/v1/chat/completions",
+                        json={
+                            "model": MODEL,
+                            "messages": [{"role": "user", "content": "hi"}],
+                        },
+                    )
+                    assert resp.status_code == 200
+                    body = resp.json()
+                    assert body["choices"][0]["message"]["content"] == "served-by:A"
+            assert provider_b["hits"] == start_b
+            assert agent_b["chat_inbound"] == 0
+        finally:
+            for server in servers:
+                server.stop()

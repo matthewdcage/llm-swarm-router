@@ -68,11 +68,21 @@ class BatchDedupLedger:
 class RouterPool:
     """Manages backends with health cache and routing selection."""
 
-    def __init__(self, *, allow_remote: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        allow_remote: bool = True,
+        spillover_max_local_in_flight: int = 2,
+    ) -> None:
         self._backends: list[Backend] = []
         self._health_cache: dict[str, _HealthEntry] = {}
         self._round_robin_idx = 0
         self.allow_remote = allow_remote
+        self.spillover_max_local_in_flight = max(1, spillover_max_local_in_flight)
+        # Our own active forwards per peer agent URL. Peer rows are
+        # rebuilt from heartbeats on every refresh, so this ledger keeps
+        # in-flight hop counts from being wiped between heartbeats.
+        self._own_peer_hops: dict[str, int] = {}
 
     @property
     def backends(self) -> list[Backend]:
@@ -84,12 +94,31 @@ class RouterPool:
     def merge_backends(self, new_backends: list[Backend]) -> None:
         by_url = {b.base_url: b for b in self._backends}
         for b in new_backends:
-            if b.base_url in by_url:
-                existing = by_url[b.base_url]
+            existing = by_url.get(b.base_url)
+            if b.id.startswith("peer:"):
+                # Peer rows arrive with heartbeat-reported load; add our
+                # own in-flight hops so load is visible between heartbeats.
+                b.in_flight += self._own_peer_hops.get(b.base_url, 0)
+            elif existing is not None:
                 b.in_flight = existing.in_flight
+            if existing is not None:
                 b.latency_ema_ms = existing.latency_ema_ms
             by_url[b.base_url] = b
         self._backends = list(by_url.values())
+
+    def acquire(self, backend: Backend) -> None:
+        """Count a request as in flight on this backend."""
+        backend.in_flight += 1
+        if backend.id.startswith("peer:"):
+            hops = self._own_peer_hops
+            hops[backend.base_url] = hops.get(backend.base_url, 0) + 1
+
+    def release(self, backend: Backend) -> None:
+        """Mark a request complete on this backend."""
+        backend.in_flight = max(0, backend.in_flight - 1)
+        if backend.id.startswith("peer:"):
+            hops = self._own_peer_hops
+            hops[backend.base_url] = max(0, hops.get(backend.base_url, 0) - 1)
 
     def mark_failure(self, backend: Backend) -> None:
         key = backend.cache_key()
@@ -222,11 +251,33 @@ class RouterPool:
                 return pool[idx]
             return pool[0]
 
+        if strategy == "local_spillover":
+            return self._select_local_spillover(all_candidates)
+
         if strategy == "batch_shard" and shard_key:
             idx = shard_index(shard_key, len(all_candidates))
             return all_candidates[idx]
 
         return all_candidates[0]
+
+    def _select_local_spillover(self, candidates: list[Backend]) -> Backend | None:
+        """Serve locally while under the in-flight threshold; above it,
+        spill to a LAN peer only when the peer is genuinely less loaded."""
+        local_pool = [b for b in candidates if b.local]
+        remote_pool = [b for b in candidates if not b.local]
+        if not local_pool:
+            if not remote_pool:
+                return None
+            return min(remote_pool, key=lambda b: b.in_flight)
+        best_local = min(local_pool, key=lambda b: b.in_flight)
+        if best_local.in_flight < self.spillover_max_local_in_flight:
+            return best_local
+        if not remote_pool:
+            return best_local
+        best_remote = min(remote_pool, key=lambda b: b.in_flight)
+        if best_remote.in_flight < best_local.in_flight:
+            return best_remote
+        return best_local
 
     def plan_batch_shard(
         self,
