@@ -134,6 +134,7 @@ class AgentService:
             "backends": [b.model_dump(mode="json") for b in self.pool.backends],
             "peers": self.swarm.all_peer_urls(),
             "routing_strategy": self.config.routing.default_strategy,
+            "cluster_token_set": bool(self.config.swarm.cluster_token),
         }
         if omlx_admin:
             payload["omlx_admin_url"] = omlx_admin
