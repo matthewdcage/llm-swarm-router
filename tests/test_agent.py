@@ -597,16 +597,12 @@ def test_order_message_candidates_spillover_sorts_by_load() -> None:
         local=False,
         in_flight=0,
     )
-    ordered = service._order_message_candidates(
-        [busy_peer, local, idle_peer], routing
-    )
+    ordered = service._order_message_candidates([busy_peer, local, idle_peer], routing)
     # Saturated local with a less-loaded peer: least-loaded remote first.
     assert [b.id for b in ordered] == ["peer:idle", "peer:busy", "local"]
 
     local.in_flight = 0
-    ordered = service._order_message_candidates(
-        [busy_peer, local, idle_peer], routing
-    )
+    ordered = service._order_message_candidates([busy_peer, local, idle_peer], routing)
     assert ordered[0].id == "local"
 
 
