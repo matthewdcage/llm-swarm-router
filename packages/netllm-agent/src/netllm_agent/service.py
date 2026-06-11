@@ -514,14 +514,17 @@ class AgentService:
             if local:
                 ordered = local + remote
             if routing.strategy == "local_spillover" and local and remote:
-                best_local = min(local, key=lambda b: b.in_flight)
-                best_remote = min(remote, key=lambda b: b.in_flight)
+                # Stable load sort keeps prefer_provider order on ties.
+                local_sorted = sorted(local, key=lambda b: b.in_flight)
+                remote_sorted = sorted(remote, key=lambda b: b.in_flight)
                 threshold = self.pool.spillover_max_local_in_flight
                 if (
-                    best_local.in_flight >= threshold
-                    and best_remote.in_flight < best_local.in_flight
+                    local_sorted[0].in_flight >= threshold
+                    and remote_sorted[0].in_flight < local_sorted[0].in_flight
                 ):
-                    ordered = remote + local
+                    ordered = remote_sorted + local_sorted
+                else:
+                    ordered = local_sorted + remote_sorted
         return ordered
 
     def _message_backend_candidates(
