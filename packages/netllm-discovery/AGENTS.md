@@ -16,6 +16,8 @@ Key modules: `local.py`, `swarm.py`, `mdns.py`, `lan.py`, `runtime.py`, `process
 - Custom ports via `[discovery].custom_endpoints` or `[[routing.backends]]` in config
 - mDNS requires `zeroconf` from `uv sync`; LAN swarm needs agent `serve --host 0.0.0.0`
 - Set `swarm.cluster_token` on untrusted networks
+- **Agent-hop routing:** `SwarmRegistry.peer_agent_backends()` emits one `Backend` per peer at `{listen_url}/v1`; never merge peer loopback oMLX URLs into a gateway pool
+- `lan.filter_own_peer_urls()` strips this host's agent URL from `swarm.peers` on save/scan
 
 ## Work Guidance
 

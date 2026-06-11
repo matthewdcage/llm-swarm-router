@@ -25,6 +25,7 @@ cluster_token = ""
 heartbeat_interval_s = 10.0
 
 [routing]
+# local_first: single machine. round_robin: spread same model across LAN peer agents.
 default_strategy = "local_first"
 allow_remote = true
 require_same_model_for_shard = true

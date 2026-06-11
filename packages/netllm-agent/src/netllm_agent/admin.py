@@ -225,7 +225,17 @@ def apply_config_patch(cfg: NetllmConfig, patch: dict[str, Any]) -> NetllmConfig
                 )
             current["routing"]["policies"] = merged_policies
 
-    return NetllmConfig.model_validate(current)
+    updated = NetllmConfig.model_validate(current)
+    kept, rejected = _filter_own_swarm_peers(updated)
+    if rejected:
+        updated.swarm.peers = kept
+    return updated
+
+
+def _filter_own_swarm_peers(cfg: NetllmConfig) -> tuple[list[str], list[str]]:
+    from netllm_discovery.lan import filter_own_peer_urls
+
+    return filter_own_peer_urls(list(cfg.swarm.peers), cfg.agent.listen)
 
 
 def save_config_patch(
@@ -243,13 +253,32 @@ def save_config_patch(
         )
     before = listen_before or cfg.agent.listen
     updated = apply_config_patch(cfg, patch)
+    warnings: list[str] = []
+    swarm_patch = patch.get("swarm") if isinstance(patch.get("swarm"), dict) else None
+    if swarm_patch is not None and "peers" in swarm_patch:
+        from netllm_discovery.lan import own_agent_urls
+
+        own = own_agent_urls(updated.agent.listen)
+        rejected = [
+            str(p).rstrip("/")
+            for p in swarm_patch.get("peers") or []
+            if str(p).rstrip("/") in own
+        ]
+        if rejected:
+            warnings.append(
+                f"Removed {len(rejected)} self peer URL(s) from swarm.peers: "
+                + ", ".join(rejected)
+            )
     saved = save_config(updated, config_path)
     needs_restart = updated.agent.listen != before
-    return {
+    result: dict[str, Any] = {
         "ok": True,
         "needs_restart": needs_restart,
         "path": str(saved),
     }
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 async def peers_scan_payload(
@@ -283,14 +312,24 @@ async def peers_scan_payload(
     )
     warnings: list[str] = []
     if save and found and config_path is not None:
+        from netllm_discovery.lan import own_agent_urls
+
+        own = own_agent_urls(cfg.agent.listen)
         existing = {p.rstrip("/") for p in cfg.swarm.peers}
         added = 0
+        skipped_self = 0
         for peer in found:
             url = str(peer.get("listen_url", "")).rstrip("/")
-            if url and url not in existing:
-                cfg.swarm.peers.append(url)
-                existing.add(url)
-                added += 1
+            if not url or url in existing:
+                continue
+            if url in own:
+                skipped_self += 1
+                continue
+            cfg.swarm.peers.append(url)
+            existing.add(url)
+            added += 1
+        if skipped_self:
+            warnings.append(f"Skipped {skipped_self} peer URL(s) matching this agent")
         if added:
             save_config(cfg, config_path)
             warnings.append(f"Added {added} peer URL(s) to config")

@@ -16,6 +16,58 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_AGENT_PORT = 11400
 
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def is_loopback_url(url: str) -> bool:
+    """True when the URL host is loopback (unreachable from other LAN hosts)."""
+    from urllib.parse import urlparse
+
+    if "://" not in url:
+        url = "http://" + url
+    host = (urlparse(url).hostname or "").lower()
+    if host in _LOOPBACK_HOSTS:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def is_lan_reachable_agent_url(url: str) -> bool:
+    """True when peer listen_url is usable from another host on the LAN."""
+    return bool(url) and not is_loopback_url(url)
+
+
+def own_agent_urls(listen: str) -> set[str]:
+    """Normalized agent URLs that refer to this host (for self-peer filtering)."""
+    urls: set[str] = set()
+    primary = agent_url_from_listen(listen).rstrip("/")
+    urls.add(primary)
+    if listen.startswith("http"):
+        return urls
+    port = listen.rpartition(":")[2] if ":" in listen else str(DEFAULT_AGENT_PORT)
+    port = port or str(DEFAULT_AGENT_PORT)
+    urls.add(f"http://127.0.0.1:{port}")
+    lan = local_lan_ip()
+    if lan:
+        urls.add(f"http://{lan}:{port}")
+    return urls
+
+
+def filter_own_peer_urls(peers: list[str], listen: str) -> tuple[list[str], list[str]]:
+    """Drop swarm.peers entries that point at this agent. Returns kept, rejected."""
+    own = own_agent_urls(listen)
+    kept: list[str] = []
+    rejected: list[str] = []
+    for peer in peers:
+        norm = peer.rstrip("/")
+        if norm in own:
+            rejected.append(norm)
+            continue
+        kept.append(peer)
+    return kept, rejected
+
 
 def local_lan_ip() -> str | None:
     """Best-effort primary IPv4 address for this host on the LAN."""

@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from netllm_core.models import NetllmConfig
+from netllm_core.models import Backend, BackendHealth, NetllmConfig
 from netllm_discovery.swarm import PeerRecord, SwarmRegistry
 
 
@@ -62,3 +62,68 @@ async def test_fetch_peer_from_status() -> None:
     assert record is not None
     assert record.agent_id == "peer-b"
     assert record.role == "gateway"
+
+
+def test_peer_agent_backends_uses_agent_url_not_loopback() -> None:
+    registry = SwarmRegistry(NetllmConfig())
+    registry.register_peer(
+        PeerRecord(
+            agent_id="peer-remote",
+            listen_url="http://192.168.1.11:11400",
+            backends=[
+                Backend(
+                    id="b1",
+                    base_url="http://127.0.0.1:8080/v1",
+                    provider="omlx",
+                    local=True,
+                    health=BackendHealth(models=["shared-model"]),
+                ).model_dump(mode="json")
+            ],
+        )
+    )
+    backends = registry.peer_agent_backends()
+    assert len(backends) == 1
+    assert backends[0].base_url == "http://192.168.1.11:11400/v1"
+    assert backends[0].local is False
+    assert backends[0].agent_id == "peer-remote"
+    assert "shared-model" in backends[0].health.models
+    assert all("127.0.0.1" not in b.base_url for b in backends)
+
+
+def test_peer_agent_backends_skips_loopback_listen_url() -> None:
+    registry = SwarmRegistry(NetllmConfig())
+    registry.register_peer(
+        PeerRecord(
+            agent_id="peer-loopback",
+            listen_url="http://127.0.0.1:11400",
+            backends=[],
+        )
+    )
+    assert registry.peer_agent_backends() == []
+
+
+def test_peer_agent_backends_unions_models_from_peer_backends() -> None:
+    registry = SwarmRegistry(NetllmConfig())
+    registry.register_peer(
+        PeerRecord(
+            agent_id="peer-multi",
+            listen_url="http://10.0.0.32:11400",
+            backends=[
+                Backend(
+                    id="a",
+                    base_url="http://127.0.0.1:8080/v1",
+                    provider="omlx",
+                    health=BackendHealth(models=["model-a"]),
+                ).model_dump(mode="json"),
+                Backend(
+                    id="b",
+                    base_url="http://127.0.0.1:11434/v1",
+                    provider="ollama",
+                    health=BackendHealth(models=["model-b"]),
+                ).model_dump(mode="json"),
+            ],
+        )
+    )
+    backends = registry.peer_agent_backends()
+    assert len(backends) == 1
+    assert set(backends[0].health.models) == {"model-a", "model-b"}

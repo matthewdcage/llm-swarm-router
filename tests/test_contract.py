@@ -136,6 +136,50 @@ def test_install_method_windows_service() -> None:
                     assert get_install_method() == "windows-service"
 
 
+def test_status_payload_contract_keys() -> None:
+    from fastapi.testclient import TestClient
+    from netllm_agent.app import create_app
+    from netllm_core.models import NetllmConfig
+
+    cfg = NetllmConfig()
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    with TestClient(create_app(cfg)) as client:
+        data = client.get("/netllm/v1/status").json()
+    for key in (
+        "agent_id",
+        "hostname",
+        "role",
+        "listen_url",
+        "backends",
+        "peers",
+        "routing_strategy",
+    ):
+        assert key in data
+
+
+def test_heartbeat_payload_contract() -> None:
+    from fastapi.testclient import TestClient
+    from netllm_agent.app import create_app
+    from netllm_core.models import NetllmConfig
+
+    cfg = NetllmConfig()
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    with TestClient(create_app(cfg)) as client:
+        resp = client.post(
+            "/netllm/v1/heartbeat",
+            json={
+                "agent_id": "remote-peer",
+                "listen_url": "http://192.168.1.50:11400",
+                "role": "peer",
+                "hostname": "worker",
+                "backends": [],
+            },
+        )
+    assert resp.status_code == 204
+
+
 def test_ui_route_serves_dashboard() -> None:
     from fastapi.testclient import TestClient
     from netllm_agent.app import create_app

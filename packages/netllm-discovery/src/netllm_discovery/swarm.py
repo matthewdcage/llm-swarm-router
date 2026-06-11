@@ -9,7 +9,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
-from netllm_core.models import Backend, NetllmConfig
+from netllm_core.models import Backend, BackendHealth, NetllmConfig
+
+from netllm_discovery.lan import is_lan_reachable_agent_url
 
 logger = logging.getLogger(__name__)
 
@@ -49,20 +51,44 @@ class SwarmRegistry:
         for pid in self.stale_peers(max_age_s):
             del self.peers[pid]
 
-    def peer_backends(self) -> list[Backend]:
+    def _peer_backend_models(self, peer: PeerRecord) -> list[str]:
+        """Union model IDs from peer backends (incl. local loopback rows)."""
+        models: set[str] = set()
+        for raw in peer.backends:
+            try:
+                b = Backend.model_validate(raw)
+                models.update(b.health.models)
+            except Exception:
+                logger.debug("skip invalid peer backend: %s", raw)
+        return sorted(models)
+
+    def peer_agent_backends(self) -> list[Backend]:
+        """One routable backend per peer: the peer's agent OpenAI surface (/v1)."""
         out: list[Backend] = []
         for peer in self.peers.values():
             if peer.agent_id == self.config.agent.agent_id:
                 continue
-            for raw in peer.backends:
-                try:
-                    b = Backend.model_validate(raw)
-                    b.local = False
-                    b.agent_id = peer.agent_id
-                    out.append(b)
-                except Exception:
-                    logger.debug("skip invalid peer backend: %s", raw)
+            listen = peer.listen_url.rstrip("/")
+            if not is_lan_reachable_agent_url(listen):
+                logger.debug("skip peer with loopback listen_url: %s", listen)
+                continue
+            agent_base = f"{listen}/v1"
+            models = self._peer_backend_models(peer)
+            out.append(
+                Backend(
+                    id=f"peer:{peer.agent_id}",
+                    base_url=agent_base,
+                    provider="custom",
+                    local=False,
+                    agent_id=peer.agent_id,
+                    health=BackendHealth(models=models),
+                )
+            )
         return out
+
+    def peer_backends(self) -> list[Backend]:
+        """Deprecated: use peer_agent_backends() for gateway routing."""
+        return self.peer_agent_backends()
 
     async def fetch_peer(self, base_url: str) -> PeerRecord | None:
         url = base_url.rstrip("/") + "/netllm/v1/status"
