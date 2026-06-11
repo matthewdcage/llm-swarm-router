@@ -104,7 +104,9 @@ def create_app(
     async def netllm_status() -> dict[str, Any]:
         await service.refresh_local_backends()
         for backend in service.pool.backends:
-            if backend.enabled:
+            # Local rows only — probing peer agents from a status handler
+            # recurses when the peer's status handler probes us back.
+            if backend.enabled and backend.local:
                 service.pool.is_healthy(backend, force_refresh=True)
         return await service.status_payload_enriched()
 

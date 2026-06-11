@@ -127,3 +127,33 @@ def test_peer_agent_backends_unions_models_from_peer_backends() -> None:
     backends = registry.peer_agent_backends()
     assert len(backends) == 1
     assert set(backends[0].health.models) == {"model-a", "model-b"}
+
+
+def test_peer_agent_backends_ignore_peer_remote_rows() -> None:
+    """A peer's own remote (peer:) rows must not echo transitively."""
+    registry = SwarmRegistry(NetllmConfig())
+    registry.register_peer(
+        PeerRecord(
+            agent_id="peer-gateway",
+            listen_url="http://10.0.0.32:11400",
+            backends=[
+                Backend(
+                    id="local-omlx",
+                    base_url="http://127.0.0.1:8080/v1",
+                    provider="omlx",
+                    local=True,
+                    health=BackendHealth(models=["served-here"]),
+                ).model_dump(mode="json"),
+                Backend(
+                    id="peer:other-agent",
+                    base_url="http://10.0.0.99:11400/v1",
+                    provider="custom",
+                    local=False,
+                    health=BackendHealth(models=["served-elsewhere"]),
+                ).model_dump(mode="json"),
+            ],
+        )
+    )
+    backends = registry.peer_agent_backends()
+    assert len(backends) == 1
+    assert backends[0].health.models == ["served-here"]

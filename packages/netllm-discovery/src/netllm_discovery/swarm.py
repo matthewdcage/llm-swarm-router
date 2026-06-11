@@ -52,11 +52,18 @@ class SwarmRegistry:
             del self.peers[pid]
 
     def _peer_backend_models(self, peer: PeerRecord) -> list[str]:
-        """Union model IDs from peer backends (incl. local loopback rows)."""
+        """Union model IDs the peer serves directly (local rows only).
+
+        Remote rows in a peer's status are its own view of *other*
+        agents; advertising those here would echo backends transitively
+        around the mesh, inflate catalogs, and invite multi-hop chains.
+        """
         models: set[str] = set()
         for raw in peer.backends:
             try:
                 b = Backend.model_validate(raw)
+                if not b.local:
+                    continue
                 models.update(b.health.models)
             except Exception:
                 logger.debug("skip invalid peer backend: %s", raw)
