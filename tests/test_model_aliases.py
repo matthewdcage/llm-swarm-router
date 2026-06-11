@@ -73,6 +73,25 @@ def test_model_for_backend_resolves_alias() -> None:
     assert service._model_for_backend("llama3", unknown) == "llama3"
 
 
+def test_model_for_backend_exact_alias_beats_prefix_match() -> None:
+    """A backend serving several tags of one base must resolve to the
+    exact alias from config, not whichever tag prefix-matches first."""
+    from netllm_agent.service import AgentService
+
+    cfg = NetllmConfig()
+    cfg.routing.model_aliases = ALIASES
+    service = AgentService(cfg)
+    multi_tag = _backend(
+        "ollama",
+        "http://a/v1",
+        ["llama3:70b", "llama3:8b-instruct-q4_K_M"],
+    )
+    assert (
+        service._model_for_backend("llama3", multi_tag)
+        == "llama3:8b-instruct-q4_K_M"
+    )
+
+
 @patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_core.pool.probe_openai_compat_sync")
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
@@ -239,5 +258,29 @@ def test_restore_stream_model_rewrites_chunks() -> None:
         return out
 
     out = asyncio.run(run())
-    assert json.loads(out[0][len("data: ") :])["model"] == "llama3"
+    assert json.loads(out[0].split("\n")[0][len("data: ") :])["model"] == "llama3"
     assert out[1] == "data: [DONE]\n\n"
+
+
+def test_restore_stream_model_handles_multi_line_chunks() -> None:
+    import asyncio
+    import json
+
+    from netllm_agent.service import AgentService
+
+    multi = (
+        'data: {"id":"c1","model":"llama3:8b-instruct-q4_K_M","choices":[]}\n\n'
+        'data: {"id":"c2","model":"llama3:8b-instruct-q4_K_M","choices":[]}\n\n'
+    )
+
+    async def run() -> list[str]:
+        out = []
+        async for c in AgentService._restore_stream_model(_gen([multi]), "llama3"):
+            out.append(c)
+        return out
+
+    out = asyncio.run(run())
+    data_lines = [ln for ln in out[0].split("\n") if ln.startswith("data: ")]
+    assert len(data_lines) == 2
+    for ln in data_lines:
+        assert json.loads(ln[len("data: ") :])["model"] == "llama3"

@@ -220,9 +220,13 @@ class AgentService:
         served = backend.health.models
         if not served:
             return model
-        for name in self.pool.model_names_for(model):
+        names = self.pool.model_names_for(model)
+        # Exact matches across the whole alias list win before any
+        # prefix match — a backend may serve several tags of one base.
+        for name in names:
             if name in served:
                 return name
+        for name in names:
             for served_id in served:
                 if served_id.startswith(name + ":"):
                     return served_id
@@ -241,20 +245,33 @@ class AgentService:
         )
 
     @staticmethod
+    def _restore_sse_line_model(line: str, model: str) -> str:
+        if line.startswith("data: ") and '"model"' in line:
+            try:
+                body = json.loads(line[len("data: ") :])
+                body["model"] = model
+                return f"data: {json.dumps(body)}"
+            except (ValueError, TypeError):
+                return line
+        return line
+
+    @staticmethod
     async def _restore_stream_model(
         chunks: AsyncIterator[str], model: str
     ) -> AsyncIterator[str]:
-        """Rewrite the model field in SSE chunks back to the canonical name."""
+        """Rewrite the model field in SSE chunks back to the canonical name.
+
+        Handles chunks carrying multiple SSE lines; unparseable lines
+        pass through untouched.
+        """
         async for chunk in chunks:
-            if chunk.startswith("data: ") and '"model"' in chunk:
-                try:
-                    body = json.loads(chunk[len("data: ") :])
-                    body["model"] = model
-                    yield f"data: {json.dumps(body)}\n\n"
-                    continue
-                except (ValueError, TypeError):
-                    pass
-            yield chunk
+            if '"model"' not in chunk:
+                yield chunk
+                continue
+            yield "\n".join(
+                AgentService._restore_sse_line_model(line, model)
+                for line in chunk.split("\n")
+            )
 
     @staticmethod
     def _peer_forward_headers(backend: Backend) -> dict[str, str] | None:
