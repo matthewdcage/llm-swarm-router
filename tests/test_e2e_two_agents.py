@@ -286,7 +286,10 @@ def test_provider_scan_is_ttl_cached_across_requests(
         for _ in range(3):
             resp = _post_chat_with_retry(client, base_a)
             assert resp.status_code == 200, resp.text
-    assert provider_a["probe_hits"] == start_probes
+    # Slow CI runners can legitimately cross the 10s TTL once mid-test;
+    # the per-request guarantee is pinned deterministically in
+    # tests/test_agent.py::test_refresh_local_backends_caches_provider_scan.
+    assert provider_a["probe_hits"] - start_probes <= 1
 
 
 def test_local_spillover_idle_agent_serves_locally() -> None:

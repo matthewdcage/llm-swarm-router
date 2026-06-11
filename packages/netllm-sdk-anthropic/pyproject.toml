@@ -1,6 +1,6 @@
 [project]
 name = "netllm-sdk-anthropic"
-version = "0.3.0.4"
+version = "0.4.0"
 description = "Anthropic SDK adapter for netllm upstream calls"
 requires-python = ">=3.11"
 dependencies = [

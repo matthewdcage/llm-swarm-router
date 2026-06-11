@@ -203,13 +203,24 @@ def load_config(path: Path | None = None) -> NetllmConfig:
     return NetllmConfig.model_validate(raw)
 
 
+def _drop_none_values(obj: object) -> object:
+    """TOML has no null — strip None leaves (optional fields load back
+    as None via pydantic defaults, so this is lossless)."""
+    if isinstance(obj, dict):
+        return {k: _drop_none_values(v) for k, v in obj.items() if v is not None}
+    if isinstance(obj, list):
+        return [_drop_none_values(v) for v in obj]
+    return obj
+
+
 def save_config(config: NetllmConfig, path: Path | None = None) -> Path:
     import tomli_w
 
     cfg_path = path or default_config_path()
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = _drop_none_values(config.model_dump(mode="json"))
     cfg_path.write_text(
-        tomli_w.dumps(config.model_dump(mode="json")),
+        tomli_w.dumps(payload),  # type: ignore[arg-type]
         encoding="utf-8",
     )
     return cfg_path
