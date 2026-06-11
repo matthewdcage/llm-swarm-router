@@ -1,6 +1,6 @@
 [project]
 name = "netllm"
-version = "0.3.0.4"
+version = "0.4.0"
 description = "Network LLM router — swarm agents with OpenAI-compatible gateway"
 readme = "README.md"
 requires-python = ">=3.11"
