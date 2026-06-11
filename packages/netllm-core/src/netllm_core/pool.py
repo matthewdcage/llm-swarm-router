@@ -143,6 +143,22 @@ class RouterPool:
             else:
                 backend.latency_ema_ms = 0.8 * backend.latency_ema_ms + 0.2 * latency_ms
 
+    def any_health_stale(self) -> bool:
+        """True when selecting a backend could trigger a sync HTTP probe.
+
+        Callers use this to decide whether selection needs a worker
+        thread (probe possible) or can stay on the event loop (all
+        health entries fresh — pure in-memory work).
+        """
+        now = time.monotonic()
+        for b in self._backends:
+            if not b.enabled:
+                continue
+            cached = self._health_cache.get(b.cache_key())
+            if cached is None or now - cached.last_check >= HEALTH_TTL_S:
+                return True
+        return False
+
     def is_healthy(self, backend: Backend, *, force_refresh: bool = False) -> bool:
         if not backend.enabled:
             return False
