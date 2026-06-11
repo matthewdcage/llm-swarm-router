@@ -4,9 +4,10 @@ description: |
   First-time install and bootstrap of swarm-llm (netllm) from a repo checkout.
   Use when the user asks to install swarm-llm, set up netllm, get the router
   running, clone and configure llm-swarm-router, or invokes /netllm-setup.
-  Runs uv sync, netllm init, discover, serve verification, and prints OpenAI
-  client env vars. Requires Python 3.11+, uv, and git (macOS, Linux, or Windows).
-version: 1.0.0
+  Runs uv sync, netllm init (--single or --swarm), discover, serve
+  verification, and prints OpenAI client env vars. Requires Python 3.11+,
+  uv, and git (macOS, Linux, or Windows).
+version: 1.1.0
 license: MIT
 compatibility:
   - cursor
@@ -66,8 +67,14 @@ After the agent is running, open **http://127.0.0.1:11400/ui/** (all platforms) 
 
 4. **Initialize config**, run from repo root:
    ```bash
-   ./netllm init
+   ./netllm init            # asks: single machine or LAN swarm? (TTY only)
+   ./netllm init --single   # explicit single-machine (no prompt)
+   ./netllm init --swarm    # LAN swarm: 0.0.0.0 bind + cluster token + load spreading
    ```
+   Ask the user whether this machine should join other machines in a swarm;
+   pass the matching flag. Swarm mode prints the `netllm join` command to run
+   on every other machine. Joining an *existing* swarm instead:
+   `./netllm join http://<host>:11400 --token <token>`.
    If config already exists and user did not ask to overwrite, skip to step 5.
    Ask before `./netllm init --no-global-cli` if user wants repo-only CLI (no `~/.local/bin` install).
 

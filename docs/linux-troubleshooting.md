@@ -67,9 +67,11 @@ Logs: `journalctl --user -u netllm -f` and `~/.local/state/netllm/logs/agent.log
 
 | Symptom | Fix |
 |---------|-----|
-| `netllm peers` empty | `netllm serve --host 0.0.0.0` and set `swarm.cluster_token` if needed |
-| mDNS browse fails | Install **Avahi** (`avahi-daemon`). Packaged netllm includes zeroconf; source: `uv sync` |
-| Still no peers | `netllm peers --subnet-scan --save` or add URLs to `swarm.peers` in config |
+| `netllm peers` empty | Guided: `netllm init --swarm` / `netllm join URL --token T`. Manual: `netllm serve --host 0.0.0.0` |
+| Peer "found but unreachable" | That machine is loopback-bound — guided swarm init or `serve --host 0.0.0.0` there |
+| mDNS browse fails | Install **Avahi** (`avahi-daemon`). Firewall: `sudo firewall-cmd --permanent --add-service=mdns --add-port=11400/tcp && sudo firewall-cmd --reload` (or `sudo ufw allow 5353/udp && sudo ufw allow 11400/tcp`). `netllm doctor` prints these |
+| Still no peers | LAN-bound agents auto-run one subnet scan after 10s; else `netllm peers --subnet-scan --save` or add URLs to `swarm.peers` in config |
+| Join rejected (401) | Cluster token mismatch — `netllm swarm-token` on a joined machine, re-run `join` |
 
 **Verify:** `netllm peers` and `netllm models --lan`.
 

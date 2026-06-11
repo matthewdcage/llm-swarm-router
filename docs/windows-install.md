@@ -50,11 +50,25 @@ Default discovery probes **Ollama** (`:11434`), **LM Studio** (`:1234`), and **v
 
 ## LAN swarm
 
+**Guided:** start a swarm or join one — both write LAN bind, cluster token, and load-spreading config for you:
+
 ```powershell
-netllm serve --host 0.0.0.0
+netllm init --swarm                          # first machine; prints the join command
+netllm join http://<host>:11400 --token <t>  # every other machine
+netllm start
+netllm peers
 ```
 
-Windows firewalls often block mDNS. Prefer `swarm.peers` in `config.toml` or `netllm peers --subnet-scan` when browse returns no peers.
+**Manual** (existing config): `netllm serve --host 0.0.0.0`.
+
+Windows firewalls often block mDNS. Allow it once (Admin PowerShell):
+
+```powershell
+netsh advfirewall firewall add rule name="netllm mDNS" dir=in protocol=UDP localport=5353 action=allow
+netsh advfirewall firewall add rule name="netllm agent" dir=in protocol=TCP localport=11400 action=allow
+```
+
+`netllm doctor` prints these when discovery looks blocked. LAN-bound agents auto-run one subnet scan when mDNS finds no peers within 10s; `swarm.peers` in `config.toml` and `netllm peers --subnet-scan` still work.
 
 ## Wire editors
 

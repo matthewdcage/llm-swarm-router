@@ -48,12 +48,18 @@ Default discovery on Linux probes **Ollama** (`:11434`), **LM Studio** (`:1234`)
 
 ## LAN swarm
 
+**Guided:** start a swarm or join one — both write LAN bind, cluster token, and load-spreading config for you:
+
 ```bash
-./netllm serve --host 0.0.0.0
+./netllm init --swarm                      # first machine; prints the join command
+./netllm join http://<host>:11400 --token <t>   # every other machine
+./netllm serve
 ./netllm peers
 ```
 
-mDNS uses Avahi via `python-zeroconf`. If browse is empty, set static peers in `config.toml` or run `netllm peers --subnet-scan`.
+**Manual** (existing config): `./netllm serve --host 0.0.0.0` then `./netllm peers`.
+
+mDNS uses Avahi via `python-zeroconf`. If browse is empty, `./netllm doctor` prints firewall fixes (`firewalld`: `sudo firewall-cmd --permanent --add-service=mdns --add-port=11400/tcp && sudo firewall-cmd --reload`; `ufw`: `sudo ufw allow 5353/udp && sudo ufw allow 11400/tcp`). LAN-bound agents also auto-run one subnet scan when mDNS finds no peers within 10s; static peers in `config.toml` and `netllm peers --subnet-scan` still work.
 
 ## Wire editors
 

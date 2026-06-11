@@ -159,9 +159,13 @@ DMG/menubar installs: `netllm doctor` does not require a global CLI on PATH.
 
 | Symptom | Fix |
 |---------|-----|
-| `netllm peers` empty | Use `netllm serve --host 0.0.0.0` (or enable LAN in welcome wizard). Set `swarm.cluster_token` on untrusted networks |
-| mDNS browse fails | Enable **Subnet scan at startup** in menubar Settings → Swarm (or `subnet_scan = true` in config). Fallback: `netllm peers --subnet-scan --save` or static `swarm.peers` |
+| `netllm peers` empty | Guided: `netllm init --force --swarm` (first machine) + `netllm join URL --token T` (others). Manual: `netllm serve --host 0.0.0.0` (or enable LAN in welcome wizard) |
+| Peer "found but unreachable" | That machine is loopback-bound — run the guided swarm init or `serve --host 0.0.0.0` there |
+| Join rejected (401) | Cluster token mismatch — `netllm swarm-token` on a joined machine, re-run `join` |
+| mDNS browse fails | LAN-bound agents auto-run one subnet scan after 10s. Also: **Subnet scan at startup** in menubar Settings → Swarm (or `subnet_scan = true`), `netllm peers --subnet-scan --save`, or static `swarm.peers` |
+| Firewall suspicion | `netllm doctor` prints macOS firewall guidance (allow incoming for python/netllm) |
 | Guest Wi‑Fi | mDNS often blocked: use static peers |
+| Same model, different names per machine | Map once with `[routing.model_aliases]` in config |
 
 **Web dashboard:** Prefer **Open Dashboard** from the menubar (`http://127.0.0.1:11400/ui/`). If you open `http://<LAN-IP>:11400/ui/` on the same Mac, admin tabs should work; from another machine on the LAN, status/models are read-only unless you set `swarm.cluster_token` and pass `Authorization: Bearer <token>`.
 

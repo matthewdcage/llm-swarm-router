@@ -70,6 +70,14 @@ On failure, the agent reassigns that index to the next healthy backend (Honcho-s
 
 ## Swarm (multi-Mac)
 
+**Guided (recommended):** `netllm init --swarm` on the first Mac, then run the
+printed `netllm join … --token …` on each other Mac, then `netllm serve`
+everywhere. This binds the LAN, shares a cluster token, and selects
+`local_spillover` (serve locally while idle, spill to the least-loaded peer
+when busy).
+
+**Manual** (existing configs):
+
 1. Run `netllm serve --host 0.0.0.0` on each Mac with local oMLX/Ollama
 2. Enable mDNS in config (`swarm.mdns = true`) or add static peers:
 
@@ -79,12 +87,18 @@ peers = ["http://192.168.1.50:11400", "http://192.168.1.51:11400"]
 mdns = true
 
 [routing]
-default_strategy = "round_robin"
+default_strategy = "local_spillover"   # or round_robin for strict alternation
 allow_remote = true
+spillover_max_local_in_flight = 2
 ```
 
 3. Optionally set one machine as gateway: `netllm gateway`
 4. Point Honcho at the **gateway agent URL only** (`http://<gateway>:11400/v1`)
+
+For Honcho's highly parallel deriver workloads, `local_spillover` keeps
+single requests local (no LAN hop latency) and recruits peers as concurrency
+climbs; `round_robin` maximizes alternation regardless of load. Agent hops
+carry a loop-guard header, so any strategy is safe on every node.
 
 ### Agent-hop routing
 
@@ -102,7 +116,7 @@ curl -s http://127.0.0.1:11400/metrics | rg netllm_requests_total
 curl -s http://<peer-LAN-IP>:11400/metrics | rg netllm_requests_total
 ```
 
-Both counters should increase when `round_robin` alternates across machines with the same model.
+Both counters should increase when `round_robin` alternates across machines with the same model, or when `local_spillover` spills under parallel load. If machines name the same weights differently (oMLX vs Ollama vs LM Studio), map them once with `[routing.model_aliases]` in config so the catalog merges.
 
 ## Parity checklist
 

@@ -66,6 +66,9 @@ allowed-tools:
    - `swarm.cluster_token`: should be set when on `0.0.0.0`
 
 6. **Platform-specific swarm checks** (when `./netllm peers` is empty but LAN routing is expected):
+   - **All platforms:** `./netllm doctor` now prints per-platform firewall commands (UDP 5353 mDNS in/out + TCP 11400 in) when mDNS looks blocked. LAN-bound agents auto-run a one-shot subnet scan 10s after start when mDNS finds nothing.
+   - **Loopback peers:** `./netllm peers` lists loopback-bound agents as *found but unreachable* — fix is `netllm init --force --swarm` or `serve --host 0.0.0.0` on that machine
+   - **Token mismatches:** heartbeats return 401; align tokens with `netllm swarm-token` + `netllm join URL --token T`
    - **Linux:** mDNS uses Avahi via `python-zeroconf`; install Avahi if browse fails. Fallback: `swarm.peers` or `./netllm peers --subnet-scan --save`
    - **Windows:** mDNS is often blocked by firewall or missing Bonjour: prefer static `swarm.peers` or `--subnet-scan`. Allow inbound TCP on agent port (default `11400`) when `serve --host 0.0.0.0`
    - **All platforms:** Guest Wi‑Fi often blocks mDNS; loopback bind (`127.0.0.1`) hides the agent from LAN peers
@@ -121,6 +124,7 @@ Verify: ./netllm peers
 | Situation | Action |
 |-----------|--------|
 | Doctor passes but editor fails | Run `netllm-connect-editor` skill: likely model name mismatch |
+| Model 404 with catalog list | Request used a name no backend serves — pick one from the 404 message or map it via `[routing.model_aliases]` |
 | Wrong netllm on PATH | `./netllm install` from repo or use `./netllm` only |
 | `agent-verify-setup.sh` fails but `./netllm models` works | Script prefers global `netllm`; use `./netllm models` or unset global from PATH |
 | Doctor "port in use" while testing | Expected if `serve` or menubar app is running |

@@ -63,6 +63,19 @@ A **simple-to-install, simple-to-use LLM mesh coordinator** for macOS, Linux, an
 
 Point **Cursor**, **Claude Code**, **Codex**, **Honcho**, or any compatible client at that URL. No cloud hop, no per-repo failover URLs, no lock-in to a single backend.
 
+### Two machines, three commands
+
+```bash
+# Machine A — answer "yes" to the swarm question (or pass --swarm)
+./netllm init --swarm && ./netllm serve
+# prints: netllm join http://<machine-A-ip>:11400 --token <generated>
+
+# Machine B — paste the join command from machine A
+./netllm join http://<machine-A-ip>:11400 --token <generated> && ./netllm serve
+```
+
+Both machines now share one model catalog, authenticate with the generated cluster token, and **spread same-model load automatically** (`local_spillover`: serve locally while idle, spill to the least-loaded peer when busy). Verify with `./netllm peers` and `./netllm models`.
+
 ### Who reads what
 
 | Audience | Start here |
@@ -225,7 +238,8 @@ Pick a model ID from `./netllm models` (or the app **Settings → Models** tab).
 <tr><td><b>Web dashboard (all platforms)</b></td><td><a href="http://127.0.0.1:11400/ui/">http://127.0.0.1:11400/ui/</a>, status, models, peers, discover, copy client env. macOS menubar adds <b>Open Dashboard</b>; Linux/Windows use browser + <code>netllm env</code>.</td></tr>
 <tr><td><b>Zero-touch local discovery</b></td><td>Agent scans on every start, oMLX (<code>:8080</code>+, macOS), Ollama (<code>:11434</code>), LM Studio (<code>:1234</code>), vLLM (<code>:8000</code>). Per-machine overrides in Settings or <code>discovery.provider_urls</code>. Found URLs persist automatically.</td></tr>
 <tr><td><b>Network-wide model catalog</b></td><td>See local and LAN models in one place (<code>netllm models --lan</code> or Settings → Models). Peers advertise what they can run; routing follows your strategy.</td></tr>
-<tr><td><b>Throughput that grows with the mesh</b></td><td>Each node is an independent peer. More machines with the same models installed → more capacity for <code>round_robin</code>, <code>least_load</code>, <code>latency_weighted</code>, and <code>batch_shard</code> workloads.</td></tr>
+<tr><td><b>Throughput that grows with the mesh</b></td><td>Each node is an independent peer. <code>local_spillover</code> (swarm default) serves locally while idle and spills to the least-loaded peer when busy; <code>round_robin</code>, <code>least_load</code>, <code>latency_weighted</code>, and <code>batch_shard</code> cover other workloads. Agent-hops are loop-guarded.</td></tr>
+<tr><td><b>Mixed-fleet model aliases</b></td><td><code>[routing.model_aliases]</code> maps one canonical name to per-provider IDs (oMLX vs Ollama vs LM Studio naming) so the same weights spread across providers; unknown models return a clear 404 with the live catalog.</td></tr>
 <tr><td><b>Dual API surface</b></td><td>OpenAI chat/models/streaming plus Anthropic Messages API with translation to local backends, one URL for every editor.</td></tr>
 <tr><td><b>LAN swarm</b></td><td>mDNS (<code>_netllm._tcp</code>), subnet scan, and static <code>swarm.peers</code> for home labs, guest Wi‑Fi, and fixed IPs.</td></tr>
 <tr><td><b>Set-and-forget operation</b></td><td>Auto-start on launch, health cache, circuit breaker, <code>netllm doctor</code>, Prometheus <code>/metrics</code>, built to run 24/7 without hand-holding.</td></tr>
@@ -256,9 +270,12 @@ Each node runs the same agent (macOS menubar app, Linux systemd package, Windows
 | Discovery | When |
 |-----------|------|
 | **Automatic** | Agent scans on every start (app or `netllm serve`) |
-| **mDNS** | Default on home/office LAN (`serve --host 0.0.0.0`) |
-| **Subnet scan** | `netllm peers --subnet-scan` when multicast is blocked |
+| **mDNS** | Default on home/office LAN (`init --swarm`, `join`, or `serve --host 0.0.0.0`) |
+| **Subnet scan fallback** | LAN-bound agents auto-probe the /24 once when mDNS finds no peers in 10s |
+| **Subnet scan (manual)** | `netllm peers --subnet-scan` when multicast is blocked |
 | **Manual** | `swarm.peers` in config, Settings, or `peers --save` |
+
+Loopback-bound agents (single-machine default) show up in `netllm peers` as **found but unreachable** with the exact rebind fix — no more silent non-meshing. Firewall blocking discovery? `netllm doctor` prints per-platform UDP 5353 / TCP 11400 commands.
 
 Config: `~/.config/netllm/config.toml`, see [config.example.toml](config.example.toml).
 
@@ -267,18 +284,22 @@ Config: `~/.config/netllm/config.toml`, see [config.example.toml](config.example
 ## CLI quick reference
 
 ```bash
+./netllm init              # guided setup (asks: single machine or LAN swarm?)
+./netllm init --swarm      # LAN bind + cluster token + load spreading, prints join cmd
+./netllm join URL --token T     # join this machine to an existing swarm
+./netllm swarm-token       # show (or --rotate) the pairing token
 ./netllm serve             # foreground agent (dev/CI/Linux)
-./netllm serve --host 0.0.0.0   # LAN + swarm
+./netllm serve --host 0.0.0.0   # LAN bind without re-init
 ./netllm start|stop|restart     # background (app / Homebrew / systemd / Windows service)
 ./netllm status            # backends, health, peers
 ./netllm models            # routed catalog
 ./netllm models --lan      # include remote LAN agents
-./netllm peers             # mDNS browse
+./netllm peers             # mDNS browse (flags unreachable loopback-bound agents)
 ./netllm discover          # manual rescan (optional; agent auto-discovers)
 ./netllm test              # 1-token latency probe
 ./netllm test --api anthropic
 ./netllm gateway           # promote to LAN entrypoint
-./netllm doctor            # PATH, mDNS, port, backend checks
+./netllm doctor            # PATH, mDNS, firewall, port, backend checks
 ```
 
 ---

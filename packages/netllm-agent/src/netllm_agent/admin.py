@@ -120,6 +120,10 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
             "default_strategy": cfg.routing.default_strategy,
             "allow_remote": cfg.routing.allow_remote,
             "require_same_model_for_shard": cfg.routing.require_same_model_for_shard,
+            "spillover_max_local_in_flight": (
+                cfg.routing.spillover_max_local_in_flight
+            ),
+            "model_aliases": dict(cfg.routing.model_aliases),
             "backends": _backend_override_export(cfg),
             "backend_count": len(cfg.routing.backends),
             "policies": [p.model_dump(mode="json") for p in cfg.routing.policies],

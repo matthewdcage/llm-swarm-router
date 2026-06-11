@@ -51,7 +51,10 @@ Prefer `./netllm` from the repo root, works without global PATH (`uv run` wrappe
 | Command | Purpose |
 |---------|---------|
 | `uv sync` | Install workspace dependencies |
-| `./netllm init` | Write config, scan local providers, optional global CLI |
+| `./netllm init` | Write config, scan local providers, optional global CLI (TTY asks single vs swarm) |
+| `./netllm init --swarm` | LAN swarm: bind 0.0.0.0, auto cluster token, `local_spillover`, prints join command |
+| `./netllm join URL --token T` | Join an existing swarm (validates token, writes LAN bind + peer) |
+| `./netllm swarm-token` | Show (or `--rotate`) the cluster pairing token |
 | `./netllm install` | Global `netllm` via `uv tool install` + shell PATH |
 | `./netllm serve` | Start agent (foreground, default `127.0.0.1:11400`) |
 | `./netllm start` / `stop` / `restart` | Background agent (macOS app, Homebrew, Linux systemd, Windows service) |
@@ -189,10 +192,10 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - macOS in-app update must stop the agent and free `:11400` as part of install — not require manual **Stop** first
 - Commit macOS update/install fixes as focused slices separate from unrelated feature work when possible
 - Run local agent smoke (`./netllm test`, menubar e2e) before PR, merge, and release
-- Never auto-post GitHub comments, discussion replies, or community posts — draft only unless the user explicitly says post/ship/submit
+- Never auto-post GitHub comments, discussion replies, or community posts — draft only unless the user explicitly says post/ship/submit; coordinator agents (harvest → monitor → draft) run as **Cursor-native subagents**, no external LLM APIs
 - User submits outreach manually (headed browser with logged-in profile; Reddit as u/dreamsofsoaring via `reddit` CDP `:9224`; GitHub/forums as matthew@hydradigital.com.au / @matthewdcage via `work` CDP `:9223`; awesome-list PRs via `gh pr create` with OAuth, not `GITHUB_TOKEN` PAT)
 - Reply-first on live community threads before new posts; defer Show HN until reply traction (not same week as DevHunt)
-- Coordinator agents monitor Reddit and GitHub inbound and draft follow-ups (harvest → monitor → draft); user posts manually — not one-off "watch manually" reminders
+- Never publish personal machine paths in public docs, release notes, or release assets — use placeholders (e.g. `/path/to/llm-swarm-router`)
 - No em dashes in coordinator drafts, briefs, and community replies (`.cursor/coordinator/voice.md`)
 - Qualify ~7× throughput as aggregate parallel load across machines, not single-chat speed (same framing as oMLX #1762)
 - No star asks or star emoji in community posts after reply-first credibility is earned
@@ -203,12 +206,12 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - Linux/Windows **alpha** use `/ui/` + CLI; macOS stable adds menubar app: same agent core
 - Published GitHub Releases attach DMG (macOS), `.deb`/`.rpm` (Linux), Windows zip, and `netllm.yaml` via `.github/workflows/release.yml`: see [docs/platform-matrix.md](docs/platform-matrix.md)
 - `./netllm` wrapper runs `uv run --directory $ROOT netllm`: no global install needed; `scripts/agent-verify-setup.sh` prefers global `netllm` when on PATH — use `./netllm` for repo-local smoke
-- mDNS (swarm discovery) requires zeroconf from `uv sync`; `serve` on loopback blocks LAN peers — use `--host 0.0.0.0` for swarm; set `swarm.cluster_token` on untrusted networks; macOS menubar **LAN welcome** enables `swarm.subnet_scan`; Settings polls live agent status while open (see [apps/netllm-mac/AGENTS.md](apps/netllm-mac/AGENTS.md))
-- **Agent-hop swarm routing:** gateways merge peer **agent** backends (`http://<peer-LAN>:11400/v1`) via `peer_agent_backends()`, not peer loopback oMLX URLs; multi-machine same-model load spread uses `round_robin` or `batch_shard` ([docs/honcho-integration.md](docs/honcho-integration.md)); `swarm.peers` save/scan rejects this host's own listen URL
+- mDNS (swarm discovery) requires zeroconf from `uv sync`; `serve` on loopback blocks LAN peers — guided path is `init --swarm` / `join` (auto token + LAN bind); loopback agents advertise `reachable=false` and `netllm peers` explains the rebind; LAN-bound agents auto-run one subnet scan when mDNS finds no peers in 10s; `doctor` prints per-platform firewall fixes (UDP 5353 / TCP 11400); macOS menubar **LAN welcome** enables `swarm.subnet_scan`; Settings polls live agent status while open (see [apps/netllm-mac/AGENTS.md](apps/netllm-mac/AGENTS.md))
+- **Agent-hop swarm routing:** gateways merge peer **agent** backends (`http://<peer-LAN>:11400/v1`) via `peer_agent_backends()`, not peer loopback oMLX URLs; hops carry `x-netllm-local-only` (loop guard) and peers advertise only `local=true` rows; multi-machine same-model load spread uses `local_spillover` (swarm default; heartbeat-fed load + own-hops ledger), `round_robin`, or `batch_shard` ([docs/honcho-integration.md](docs/honcho-integration.md)); mixed-provider naming merges via `[routing.model_aliases]`; unknown models 404 with the live catalog; `swarm.peers` save/scan rejects this host's own listen URL
 - Do not run the macOS menubar app and `./netllm serve` together; both bind `:11400`. Before quitting the app, use **Stop** so the agent subprocess exits; otherwise an orphan can hold `:11400` and block the next launch.
 - oMLX discovery probes `:8080` by default; backends on other ports need `[discovery].custom_endpoints` or `[[routing.backends]]` in `~/.config/netllm/config.toml`.
 - macOS menubar install/update: **recommended on macOS 26+:** clone release tag → `apps/netllm-mac/Scripts/build.sh release` → `packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app` ([docs/macos-install.md](docs/macos-install.md)); GitHub DMG + menubar **Updates** when notarized; bundled `macos-app-install.sh` under `Contents/Resources/Scripts/`; `scripts/upgrade-mac-app.sh` is repo-only; in-app update stops agent via `--in-app-update`, logs under `~/Library/Application Support/netllm/logs/`; **v0.3.0.2** fixes menubar **Agent: starting…** when `listen = "0.0.0.0:11400"` — [docs/release-notes/v0.3.0.2.md](docs/release-notes/v0.3.0.2.md)
-- **macOS Gatekeeper (26+):** ad-hoc GitHub DMGs fail launch (`no usable signature`); user docs point to **source build + install script** until notarized Developer ID releases ship — [docs/macos-code-signing.md](docs/macos-code-signing.md), [docs/macos-install.md](docs/macos-install.md)
+- **macOS Gatekeeper (26+):** ad-hoc GitHub DMGs fail launch (`no usable signature`); user docs point to **source build + install script** until notarized Developer ID releases ship — [docs/macos-code-signing.md](docs/macos-code-signing.md), [docs/macos-install.md](docs/macos-install.md). Personal Apple Developer account (matthewdcage@gmail.com) is active as of Jun 2026: Developer ID signing needs the `MACOS_CERTIFICATE_P12` GitHub secret + notarization app-specific password; cert exports and that password stay in 1Password / local gitignored `.env`, never in the repo
 - Release tag must match root `pyproject.toml` version; bump all workspace packages + `uv lock` before `gh release create`
 - `.cursor/coordinator/` is gitignored local PR overseer (state, drafts, scripts); orchestration via six tracked **Cursor subagents** in `.cursor/agents/coordinator-*.md` (incl. **prospector**) — [`.cursor/coordinator/AGENTS.md`](.cursor/coordinator/AGENTS.md); run `run-coordinator-pass.sh` + `test-coordinator-loop.sh` before paste work; `test-discovery.sh` for offline discover-all smoke
 - `.cursor/outreach/` is gitignored local outreach research/drafts; paste-ready convention: **Target:** / **Title:** / body after `---` (plain markdown, no YAML); neither tree belongs in the remote repo
@@ -219,6 +222,8 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - Headed outreach: **browse CLI** primary; `browser-ensure-up.sh` → `browse-session-lifecycle.sh ensure` (Chrome preserved, `state/browse-session-registry.json`); after manual Post run `clear-pending`; `test-coordinator-loop.sh` **config-only by default** (`BROWSE_E2E_LIVE=1` for live paste prep; `BROWSE_E2E_SMOKE=1` optional example.com); coordinator subagents can run **in parallel** when profiles differ (reddit `:9224` vs work `:9223`); **`stagehand-local` MCP fallback only** when browse refs fail
 - Outreach prospector: weekly Monday pass via `coordinator-prospector` + `discover-all.sh` + `qualify-prospector-candidates.sh` (live HTTP before approval); **Recommend approve** only when `state/prospector-qualification.json` shows `ok` + `live_checked` for reddit/HN; promote with `promote-candidates.sh --apply-approved` only after Matthew approves summary rows; then draft replies from `examples/index.json` before browser paste prep
 - HN reply-first: `HN_MAX_AGE_DAYS` default **14** (Algolia discovery window matches); bare **Sorry.** on item page = comment closed; dead ids in `.cursor/coordinator/state/hn-dead-threads.json`. Reddit: `REDDIT_MAX_AGE_DAYS` default 365 for new discovery; deleted threads in `reddit-dead-threads.json`
+- YouTube creator outreach: registry `.cursor/coordinator/index/youtube-creators.json` (700+ channels from Matthew's paid account matt@activ8.com.au) built by `build-youtube-creators.sh` from sources CSV + curated overlay; engagement ladder (comment → heads_up → collab_demo → interview) in coordinator `voice.md`; per-creator `engagement_ceiling` is binding; video discovery needs `yt-dlp` (Homebrew)
+- Coordinator Telegram notifications: `notify-telegram.sh` → DreamsofsoaringAiBot DM (token stays in hermes `.env` outside repo); hooked into coordinator/prospector passes and `check-outreach-ready.sh --notify`; MTProto MCP `telegram-local` in `.cursor/mcp.json` for interactive Telegram (one-time login); notify/approve only, never auto-post
 
 ## Child DOX Index
 
@@ -233,4 +238,4 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 | [`.cursor/agents/AGENTS.md`](.cursor/agents/AGENTS.md) | DOX protocol + coordinator subagent index |
 | [`.cursor/coordinator/AGENTS.md`](.cursor/coordinator/AGENTS.md) | Local PR coordinator (gitignored): scripts, state, browse-first stack |
 
-Updated: 2026-06-11 (dashboard admin on same-host LAN IP; Settings live poll)
+Updated: 2026-06-11 (v0.4.0 swarm promise: guided init/join, local_spillover, loop-guarded hops, model aliases, discovery resilience, scan TTL cache)
