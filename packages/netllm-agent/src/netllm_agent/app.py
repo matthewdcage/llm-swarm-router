@@ -238,7 +238,10 @@ def create_app(
                 )
             return await service.proxy_chat_completion(payload, headers=request.headers)
         except OpenAIUpstreamError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=exc.status_code if exc.status_code == 404 else 502,
+                detail=str(exc),
+            ) from exc
 
     # --- Anthropic Messages API proxy ---
     @app.post("/v1/messages")

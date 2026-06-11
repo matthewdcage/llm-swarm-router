@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -60,6 +61,7 @@ class AgentService:
             spillover_max_local_in_flight=(
                 config.routing.spillover_max_local_in_flight
             ),
+            model_aliases=config.routing.model_aliases,
         )
         self.swarm = SwarmRegistry(config)
         self._mdns_advertiser = None
@@ -183,6 +185,16 @@ class AgentService:
                         "object": "model",
                         "owned_by": b.provider,
                     }
+        # Surface canonical alias names whose provider-specific IDs exist.
+        for canonical, alias_ids in self.config.routing.model_aliases.items():
+            if canonical in seen:
+                continue
+            if any(m == a or m.startswith(a + ":") for a in alias_ids for m in seen):
+                seen[canonical] = {
+                    "id": canonical,
+                    "object": "model",
+                    "owned_by": "netllm-alias",
+                }
         return {"object": "list", "data": list(seen.values())}
 
     @staticmethod
@@ -196,6 +208,70 @@ class AgentService:
         hdrs = AgentService._normalize_headers(headers)
         raw = hdrs.get(LOCAL_ONLY_HEADER, "")
         return raw.strip().lower() in ("1", "true", "yes")
+
+    def _model_for_backend(self, model: str, backend: Backend) -> str:
+        """Resolve the requested (canonical) model name to the ID this
+        backend actually serves, via routing.model_aliases.
+
+        Exact matches win; for tag-prefix matches (Ollama-style
+        ``name:tag``) the full served ID is returned, since bare names
+        only resolve to the ``latest`` tag upstream.
+        """
+        served = backend.health.models
+        if not served:
+            return model
+        names = self.pool.model_names_for(model)
+        # Exact matches across the whole alias list win before any
+        # prefix match — a backend may serve several tags of one base.
+        for name in names:
+            if name in served:
+                return name
+        for name in names:
+            for served_id in served:
+                if served_id.startswith(name + ":"):
+                    return served_id
+        return model
+
+    def _model_not_found_error(self, model: str) -> OpenAIUpstreamError:
+        if not self.pool.backends:
+            return OpenAIUpstreamError("No healthy backends available for model")
+        known = self.pool.known_models()
+        listing = ", ".join(known) if known else "none discovered yet"
+        return OpenAIUpstreamError(
+            f"Model '{model}' not found on any backend. "
+            f"Known models: {listing}. "
+            "Map provider-specific names with [routing.model_aliases].",
+            status_code=404,
+        )
+
+    @staticmethod
+    def _restore_sse_line_model(line: str, model: str) -> str:
+        if line.startswith("data: ") and '"model"' in line:
+            try:
+                body = json.loads(line[len("data: ") :])
+                body["model"] = model
+                return f"data: {json.dumps(body)}"
+            except (ValueError, TypeError):
+                return line
+        return line
+
+    @staticmethod
+    async def _restore_stream_model(
+        chunks: AsyncIterator[str], model: str
+    ) -> AsyncIterator[str]:
+        """Rewrite the model field in SSE chunks back to the canonical name.
+
+        Handles chunks carrying multiple SSE lines; unparseable lines
+        pass through untouched.
+        """
+        async for chunk in chunks:
+            if '"model"' not in chunk:
+                yield chunk
+                continue
+            yield "\n".join(
+                AgentService._restore_sse_line_model(line, model)
+                for line in chunk.split("\n")
+            )
 
     @staticmethod
     def _peer_forward_headers(backend: Backend) -> dict[str, str] | None:
@@ -340,7 +416,15 @@ class AgentService:
                     api_key=backend.api_key or "netllm-local",
                     default_headers=self._peer_forward_headers(backend),
                 )
-                result = await client.chat_completion(payload)
+                upstream_model = self._model_for_backend(model, backend)
+                upstream_payload = (
+                    {**payload, "model": upstream_model}
+                    if upstream_model != model
+                    else payload
+                )
+                result = await client.chat_completion(upstream_payload)
+                if upstream_model != model and isinstance(result, dict):
+                    result["model"] = model
                 latency = time.monotonic() - t0
                 self.pool.mark_success(backend, latency * 1000)
                 REQUESTS_TOTAL.labels(
@@ -371,7 +455,7 @@ class AgentService:
 
         if last_error:
             raise last_error
-        raise OpenAIUpstreamError("No healthy backends available for model")
+        raise self._model_not_found_error(model)
 
     async def proxy_chat_completion_stream(
         self,
@@ -411,9 +495,18 @@ class AgentService:
                     api_key=backend.api_key or "netllm-local",
                     default_headers=self._peer_forward_headers(backend),
                 )
-                async for chunk in self._stream_with_metrics(
-                    client, payload, backend, model, shard
-                ):
+                upstream_model = self._model_for_backend(model, backend)
+                upstream_payload = (
+                    {**payload, "model": upstream_model}
+                    if upstream_model != model
+                    else payload
+                )
+                stream = self._stream_with_metrics(
+                    client, upstream_payload, backend, model, shard
+                )
+                if upstream_model != model:
+                    stream = self._restore_stream_model(stream, model)
+                async for chunk in stream:
                     yield chunk
                 return
             except OpenAIUpstreamError as exc:
@@ -433,7 +526,7 @@ class AgentService:
 
         if last_error:
             raise last_error
-        raise OpenAIUpstreamError("No healthy backends available for model")
+        raise self._model_not_found_error(model)
 
     @staticmethod
     def _anthropic_api_key(headers: Mapping[str, str]) -> str:
@@ -719,6 +812,7 @@ class AgentService:
             )
             return await client.messages_create(payload)
         oai_payload = anthropic_to_openai_request(payload)
+        oai_payload["model"] = self._model_for_backend(model, backend)
         client = OpenAIUpstream(
             backend.base_url,
             api_key=backend.api_key or "netllm-local",
@@ -750,6 +844,7 @@ class AgentService:
                 yield chunk
             return
         oai_payload = anthropic_to_openai_request(payload)
+        oai_payload["model"] = self._model_for_backend(model, backend)
         client = OpenAIUpstream(
             backend.base_url,
             api_key=backend.api_key or "netllm-local",
