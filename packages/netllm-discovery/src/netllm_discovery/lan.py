@@ -23,6 +23,8 @@ def is_loopback_url(url: str) -> bool:
     """True when the URL host is loopback (unreachable from other LAN hosts)."""
     from urllib.parse import urlparse
 
+    if "://" not in url:
+        url = "http://" + url
     host = (urlparse(url).hostname or "").lower()
     if host in _LOOPBACK_HOSTS:
         return True
@@ -44,7 +46,7 @@ def own_agent_urls(listen: str) -> set[str]:
     urls.add(primary)
     if listen.startswith("http"):
         return urls
-    _, _, port = listen.partition(":")
+    port = listen.rpartition(":")[2] if ":" in listen else str(DEFAULT_AGENT_PORT)
     port = port or str(DEFAULT_AGENT_PORT)
     urls.add(f"http://127.0.0.1:{port}")
     lan = local_lan_ip()

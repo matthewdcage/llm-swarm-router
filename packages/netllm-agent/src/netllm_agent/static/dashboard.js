@@ -1254,10 +1254,15 @@ async function saveConfig() {
     });
     state.config = cloneConfig(state.configDraft);
     markDirty(false);
+    const saveNotes = [];
+    if (result.needs_restart) {
+      saveNotes.push("Saved — restart agent to apply listen/port changes.");
+    }
     if (result.warnings && result.warnings.length) {
-      setBanner(result.warnings.join(" "), "warn");
-    } else if (result.needs_restart) {
-      setBanner("Saved — restart agent to apply listen/port changes.", "warn");
+      saveNotes.push(result.warnings.join(" "));
+    }
+    if (saveNotes.length) {
+      setBanner(saveNotes.join(" "), "warn");
     } else {
       setBanner("Configuration saved.", "ok");
     }
