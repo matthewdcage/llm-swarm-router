@@ -74,9 +74,8 @@ def test_init_non_tty_writes_single_machine_defaults(
 ) -> None:
     """`netllm init` without a TTY must never prompt and must keep the
     current single-machine defaults (loopback listen, local_first)."""
-    from typer.testing import CliRunner
-
     import netllm_cli.main as cli_main
+    from typer.testing import CliRunner
 
     async def _no_providers(cfg: NetllmConfig) -> list[dict[str, str]]:
         return []
