@@ -27,12 +27,72 @@ EXPECTED_HTTP_ROUTES = {
     "/netllm/v1/config",
     "/netllm/v1/client-env",
     "/netllm/v1/admin/discover",
+    "/netllm/v1/heartbeat",
+    "/netllm/v1/peers",
+    "/netllm/v1/backends",
 }
+
+# Strategies that existing user configs may reference; removing any is breaking.
+LEGACY_ROUTING_STRATEGIES = (
+    "failover",
+    "round_robin",
+    "local_first",
+    "least_load",
+    "latency_weighted",
+    "batch_shard",
+)
 
 
 def test_default_listen_address() -> None:
     cfg = NetllmConfig()
     assert cfg.agent.listen == "127.0.0.1:11400"
+
+
+def test_default_config_behavior_unchanged() -> None:
+    """Existing installs keep single-machine semantics: loopback bind,
+    local_first routing, no cluster token, peer role, mDNS on."""
+    cfg = NetllmConfig()
+    assert cfg.routing.default_strategy == "local_first"
+    assert cfg.routing.allow_remote is True
+    assert cfg.swarm.cluster_token == ""
+    assert cfg.agent.role == "peer"
+    assert cfg.agent.advertise is True
+    assert cfg.swarm.mdns is True
+    assert cfg.swarm.subnet_scan is False
+
+
+def test_legacy_routing_strategies_still_accepted() -> None:
+    from netllm_core.models import RoutingConfig
+
+    for strategy in LEGACY_ROUTING_STRATEGIES:
+        cfg = RoutingConfig(default_strategy=strategy)
+        assert cfg.default_strategy == strategy
+
+
+def test_init_non_tty_writes_single_machine_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`netllm init` without a TTY must never prompt and must keep the
+    current single-machine defaults (loopback listen, local_first)."""
+    from typer.testing import CliRunner
+
+    import netllm_cli.main as cli_main
+
+    async def _no_providers(cfg: NetllmConfig) -> list[dict[str, str]]:
+        return []
+
+    monkeypatch.setattr(cli_main, "scan_local_providers", _no_providers)
+    cfg_path = tmp_path / "config.toml"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_main.app,
+        ["init", "--config", str(cfg_path), "--no-global-cli"],
+    )
+    assert result.exit_code == 0, result.output
+    cfg = load_config(cfg_path)
+    assert cfg.agent.listen == "127.0.0.1:11400"
+    assert cfg.routing.default_strategy == "local_first"
+    assert cfg.swarm.cluster_token == ""
 
 
 def test_config_example_roundtrip(tmp_path: Path) -> None:
@@ -178,6 +238,39 @@ def test_heartbeat_payload_contract() -> None:
             },
         )
     assert resp.status_code == 204
+
+
+def test_heartbeat_accepts_legacy_v03_backend_rows() -> None:
+    """Old peers (v0.3.x) send backend rows without any newer optional
+    fields — mixed-version swarms must keep working."""
+    from fastapi.testclient import TestClient
+    from netllm_agent.app import create_app
+    from netllm_core.models import NetllmConfig
+
+    legacy_backend = {
+        "id": "omlx:http://127.0.0.1:8080/v1",
+        "base_url": "http://127.0.0.1:8080/v1",
+        "provider": "omlx",
+        "local": True,
+        "health": {"status": "online", "models": ["mlx-model"]},
+    }
+    cfg = NetllmConfig()
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    with TestClient(create_app(cfg)) as client:
+        resp = client.post(
+            "/netllm/v1/heartbeat",
+            json={
+                "agent_id": "old-peer",
+                "listen_url": "http://192.168.1.51:11400",
+                "role": "peer",
+                "hostname": "legacy",
+                "backends": [legacy_backend],
+            },
+        )
+        assert resp.status_code == 204
+        peers = client.get("/netllm/v1/peers").json()["peers"]
+    assert any(p["agent_id"] == "old-peer" for p in peers)
 
 
 def test_ui_route_serves_dashboard() -> None:
