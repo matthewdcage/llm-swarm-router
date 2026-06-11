@@ -51,7 +51,10 @@ Prefer `./netllm` from the repo root, works without global PATH (`uv run` wrappe
 | Command | Purpose |
 |---------|---------|
 | `uv sync` | Install workspace dependencies |
-| `./netllm init` | Write config, scan local providers, optional global CLI |
+| `./netllm init` | Write config, scan local providers, optional global CLI (TTY asks single vs swarm) |
+| `./netllm init --swarm` | LAN swarm: bind 0.0.0.0, auto cluster token, `local_spillover`, prints join command |
+| `./netllm join URL --token T` | Join an existing swarm (validates token, writes LAN bind + peer) |
+| `./netllm swarm-token` | Show (or `--rotate`) the cluster pairing token |
 | `./netllm install` | Global `netllm` via `uv tool install` + shell PATH |
 | `./netllm serve` | Start agent (foreground, default `127.0.0.1:11400`) |
 | `./netllm start` / `stop` / `restart` | Background agent (macOS app, Homebrew, Linux systemd, Windows service) |
@@ -203,8 +206,8 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - Linux/Windows **alpha** use `/ui/` + CLI; macOS stable adds menubar app: same agent core
 - Published GitHub Releases attach DMG (macOS), `.deb`/`.rpm` (Linux), Windows zip, and `netllm.yaml` via `.github/workflows/release.yml`: see [docs/platform-matrix.md](docs/platform-matrix.md)
 - `./netllm` wrapper runs `uv run --directory $ROOT netllm`: no global install needed; `scripts/agent-verify-setup.sh` prefers global `netllm` when on PATH — use `./netllm` for repo-local smoke
-- mDNS (swarm discovery) requires zeroconf from `uv sync`; `serve` on loopback blocks LAN peers — use `--host 0.0.0.0` for swarm; set `swarm.cluster_token` on untrusted networks; macOS menubar **LAN welcome** enables `swarm.subnet_scan`; Settings polls live agent status while open (see [apps/netllm-mac/AGENTS.md](apps/netllm-mac/AGENTS.md))
-- **Agent-hop swarm routing:** gateways merge peer **agent** backends (`http://<peer-LAN>:11400/v1`) via `peer_agent_backends()`, not peer loopback oMLX URLs; multi-machine same-model load spread uses `round_robin` or `batch_shard` ([docs/honcho-integration.md](docs/honcho-integration.md)); `swarm.peers` save/scan rejects this host's own listen URL
+- mDNS (swarm discovery) requires zeroconf from `uv sync`; `serve` on loopback blocks LAN peers — guided path is `init --swarm` / `join` (auto token + LAN bind); loopback agents advertise `reachable=false` and `netllm peers` explains the rebind; LAN-bound agents auto-run one subnet scan when mDNS finds no peers in 10s; `doctor` prints per-platform firewall fixes (UDP 5353 / TCP 11400); macOS menubar **LAN welcome** enables `swarm.subnet_scan`; Settings polls live agent status while open (see [apps/netllm-mac/AGENTS.md](apps/netllm-mac/AGENTS.md))
+- **Agent-hop swarm routing:** gateways merge peer **agent** backends (`http://<peer-LAN>:11400/v1`) via `peer_agent_backends()`, not peer loopback oMLX URLs; hops carry `x-netllm-local-only` (loop guard) and peers advertise only `local=true` rows; multi-machine same-model load spread uses `local_spillover` (swarm default; heartbeat-fed load + own-hops ledger), `round_robin`, or `batch_shard` ([docs/honcho-integration.md](docs/honcho-integration.md)); mixed-provider naming merges via `[routing.model_aliases]`; unknown models 404 with the live catalog; `swarm.peers` save/scan rejects this host's own listen URL
 - Do not run the macOS menubar app and `./netllm serve` together; both bind `:11400`. Before quitting the app, use **Stop** so the agent subprocess exits; otherwise an orphan can hold `:11400` and block the next launch.
 - oMLX discovery probes `:8080` by default; backends on other ports need `[discovery].custom_endpoints` or `[[routing.backends]]` in `~/.config/netllm/config.toml`.
 - macOS menubar install/update: **recommended on macOS 26+:** clone release tag → `apps/netllm-mac/Scripts/build.sh release` → `packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app` ([docs/macos-install.md](docs/macos-install.md)); GitHub DMG + menubar **Updates** when notarized; bundled `macos-app-install.sh` under `Contents/Resources/Scripts/`; `scripts/upgrade-mac-app.sh` is repo-only; in-app update stops agent via `--in-app-update`, logs under `~/Library/Application Support/netllm/logs/`; **v0.3.0.2** fixes menubar **Agent: starting…** when `listen = "0.0.0.0:11400"` — [docs/release-notes/v0.3.0.2.md](docs/release-notes/v0.3.0.2.md)
@@ -233,4 +236,4 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 | [`.cursor/agents/AGENTS.md`](.cursor/agents/AGENTS.md) | DOX protocol + coordinator subagent index |
 | [`.cursor/coordinator/AGENTS.md`](.cursor/coordinator/AGENTS.md) | Local PR coordinator (gitignored): scripts, state, browse-first stack |
 
-Updated: 2026-06-11 (dashboard admin on same-host LAN IP; Settings live poll)
+Updated: 2026-06-11 (v0.4.0 swarm promise: guided init/join, local_spillover, loop-guarded hops, model aliases, discovery resilience, scan TTL cache)

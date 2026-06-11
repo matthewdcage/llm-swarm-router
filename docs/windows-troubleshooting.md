@@ -68,9 +68,11 @@ Default probes: Ollama `:11434`, LM Studio `:1234`, vLLM `:8000`. oMLX is not av
 
 | Symptom | Fix |
 |---------|-----|
-| `netllm peers` empty | Windows firewalls often block mDNS: use static `swarm.peers` or `netllm peers --subnet-scan --save` |
-| LAN routing | `netllm serve --host 0.0.0.0` and allow **inbound TCP on port 11400** in Windows Firewall |
-| Cluster security | Set `swarm.cluster_token` when listening on `0.0.0.0` |
+| `netllm peers` empty | Windows firewalls often block mDNS — allow UDP 5353 + TCP 11400 (`netllm doctor` prints the `netsh` rules), or use static `swarm.peers` / `netllm peers --subnet-scan --save`. LAN-bound agents auto-run one subnet scan after 10s |
+| LAN routing | Guided: `netllm init --swarm` / `netllm join URL --token T`. Manual: `netllm serve --host 0.0.0.0` plus the firewall rules above |
+| Peer "found but unreachable" | That machine is loopback-bound — guided swarm init or `serve --host 0.0.0.0` there |
+| Cluster security | `init --swarm` and `join` set `swarm.cluster_token` automatically; set it manually when binding `0.0.0.0` yourself |
+| Join rejected (401) | Cluster token mismatch — `netllm swarm-token` on a joined machine, re-run `join` |
 
 **Verify:** `netllm peers` and `netllm models --lan`.
 

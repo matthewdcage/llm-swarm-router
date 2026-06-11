@@ -16,6 +16,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 - Runner: pytest with asyncio mode auto (root config)
 - Fixtures: `tests/fixtures/` (e.g. Anthropic message payloads)
 - Add tests for real behavior; avoid trivial assertions
+- **Swarm acceptance harness:** `tests/test_e2e_two_agents.py` runs two real agents + mock providers over HTTP (combined catalog, load spreading, loop-guarded hops, scan TTL). Extend it for any mesh behavior change; contract invariants live in `tests/test_contract.py`
 - macOS install scripts: `tests/test_bundled_install_scripts.sh`
 - Menubar agent start (quiet + LAN listen): `tests/test_serve_quiet_lan.py` — regression for bundled `serve -q` with `0.0.0.0` listen reaching uvicorn
 - Admin access: `tests/test_agent.py` — remote client 403; same-host LAN IP allowed via `local_admin_client_hosts`

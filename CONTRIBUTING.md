@@ -88,7 +88,8 @@ On macOS, that runs lint + test + `swift build -c release` for the menubar app. 
 Full CI (lint → test + packaging-smoke + menubar-lifecycle on macOS): see [docs/ci-and-release.md](docs/ci-and-release.md).
 
 5. **Add or update tests** when you change behavior, avoid trivial assertions; cover real paths.
-6. **Update docs** when user-facing behavior, CLI flags, or install steps change.
+   - Routing, swarm, or discovery changes should keep the **two-agent acceptance harness** green: `uv run pytest tests/test_e2e_two_agents.py -q` spins up two real agents + mock providers over HTTP and asserts combined catalogs, load spreading, and loop-guarded agent hops. Extend it when you add mesh behavior.
+6. **Update docs** when user-facing behavior, CLI flags, or install steps change. Skills live under `.agents/skills/` — run `scripts/sync-agent-skills.sh` after editing.
 
 ### Optional: pre-commit hooks
 
