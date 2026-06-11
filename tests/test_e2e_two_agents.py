@@ -249,6 +249,32 @@ def test_round_robin_spreads_load_without_ping_pong(
     assert all(h == "1" for h in hop_headers)
 
 
+def test_provider_scan_is_ttl_cached_across_requests(
+    two_agent_mesh: dict[str, Any],
+) -> None:
+    """Routed requests must not trigger a fresh provider scan (with its
+    1-token diagnose probe) every time — the scan is TTL-cached."""
+    provider_a = two_agent_mesh["provider_a"]
+    base_a = two_agent_mesh["base_a"]
+
+    with httpx.Client(timeout=60.0) as client:
+        client.post(
+            f"{base_a}/v1/chat/completions",
+            json={"model": MODEL, "messages": [{"role": "user", "content": "hi"}]},
+        )
+        start_probes = provider_a["probe_hits"]
+        for _ in range(3):
+            resp = client.post(
+                f"{base_a}/v1/chat/completions",
+                json={
+                    "model": MODEL,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
+            )
+            assert resp.status_code == 200
+    assert provider_a["probe_hits"] == start_probes
+
+
 def test_local_spillover_idle_agent_serves_locally() -> None:
     """With local_spillover and a serial (idle) workload, requests never
     leave the machine even though a peer is registered."""

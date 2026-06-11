@@ -606,6 +606,62 @@ def test_order_message_candidates_spillover_sorts_by_load() -> None:
     assert ordered[0].id == "local"
 
 
+@pytest.mark.asyncio
+async def test_refresh_local_backends_caches_provider_scan() -> None:
+    from netllm_agent.service import AgentService
+
+    cfg = NetllmConfig()
+    service = AgentService(cfg)
+    with patch(
+        "netllm_agent.service.scan_local_providers", new_callable=AsyncMock
+    ) as mock_scan:
+        mock_scan.return_value = []
+        await service.refresh_local_backends()
+        await service.refresh_local_backends()
+        await service.refresh_local_backends()
+        assert mock_scan.await_count == 1
+
+        await service.refresh_local_backends(force_scan=True)
+        assert mock_scan.await_count == 2
+
+        service._local_scan_ttl_s = 0.0
+        await service.refresh_local_backends()
+        assert mock_scan.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_refresh_merges_new_peers_despite_scan_cache() -> None:
+    from netllm_agent.service import AgentService
+    from netllm_discovery.swarm import PeerRecord
+
+    cfg = NetllmConfig()
+    service = AgentService(cfg)
+    with patch(
+        "netllm_agent.service.scan_local_providers", new_callable=AsyncMock
+    ) as mock_scan:
+        mock_scan.return_value = []
+        await service.refresh_local_backends()
+        service.swarm.register_peer(
+            PeerRecord(
+                agent_id="late-peer",
+                listen_url="http://192.168.1.77:11400",
+                backends=[
+                    Backend(
+                        id="b",
+                        base_url="http://127.0.0.1:8080/v1",
+                        local=True,
+                        health=BackendHealth(models=["m"]),
+                    ).model_dump(mode="json")
+                ],
+            )
+        )
+        await service.refresh_local_backends()  # cached scan, fresh peers
+        assert mock_scan.await_count == 1
+    peer_rows = [b for b in service.pool.backends if b.id.startswith("peer:")]
+    assert len(peer_rows) == 1
+    assert peer_rows[0].base_url == "http://192.168.1.77:11400/v1"
+
+
 def test_auto_subnet_fallback_only_for_lan_binds() -> None:
     from netllm_agent.service import AgentService
 

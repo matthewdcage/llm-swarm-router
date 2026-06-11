@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -102,12 +103,16 @@ def create_app(
     # --- Swarm API ---
     @app.get("/netllm/v1/status")
     async def netllm_status() -> dict[str, Any]:
-        await service.refresh_local_backends()
-        for backend in service.pool.backends:
-            # Local rows only — probing peer agents from a status handler
-            # recurses when the peer's status handler probes us back.
-            if backend.enabled and backend.local:
-                service.pool.is_healthy(backend, force_refresh=True)
+        await service.refresh_local_backends(force_scan=True)
+
+        def _probe_local() -> None:
+            for backend in service.pool.backends:
+                # Local rows only — probing peer agents from a status
+                # handler recurses when the peer probes us back.
+                if backend.enabled and backend.local:
+                    service.pool.is_healthy(backend, force_refresh=True)
+
+        await asyncio.to_thread(_probe_local)
         return await service.status_payload_enriched()
 
     @app.get("/netllm/v1/peers")
