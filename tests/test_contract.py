@@ -19,6 +19,7 @@ EXPECTED_HTTP_ROUTES = {
     "/metrics",
     "/v1/models",
     "/v1/chat/completions",
+    "/v1/embeddings",
     "/v1/messages",
     "/netllm/v1/status",
     "/netllm/v1/version",

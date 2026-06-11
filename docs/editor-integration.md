@@ -105,6 +105,21 @@ In Claude Code, run `/netllm-setup` then `/netllm-connect`. In Cursor or Codex, 
 
 Detailed reference: `.agents/skills/netllm-connect-editor/references/editor-settings.md`
 
+## Embeddings
+
+`POST /v1/embeddings` is part of the OpenAI-compatible surface — point any embeddings client (RAG pipelines, Honcho deriver, LlamaIndex, LangChain) at the same base URL. Requests route to whichever backend serves the embedding model (Ollama, oMLX, LM Studio, vLLM, or a LAN peer agent) with the same failover and spillover as chat.
+
+```bash
+curl -s http://127.0.0.1:11400/v1/embeddings \
+  -H "Authorization: Bearer netllm-local" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"nomic-embed-text:latest","input":"hello swarm"}'
+```
+
+Pick an embedding model from `GET /v1/models` — each entry carries a `capability` field (`chat`, `embedding`, `audio`, `rerank`, `other`). Chat requests against embedding/audio models are rejected with a clear `400` instead of failing upstream.
+
+The Anthropic Messages API has no embeddings standard (Anthropic recommends third-party embedding providers), so Anthropic-wired clients use the OpenAI surface above for embeddings.
+
 ## Local-only routing
 
 Send `X-Netllm-Local-Only: 1` on OpenAI or Anthropic requests to restrict routing to local backends only (no LAN peers, no cloud inject). Useful for privacy-sensitive prompts when the mesh also has remote peers or optional cloud failover configured.

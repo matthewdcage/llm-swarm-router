@@ -175,6 +175,7 @@ class Backend(BaseModel):
         env_map = {
             "omlx": "OMLX_API_KEY",
             "ollama": "OLLAMA_API_KEY",
+            "lmstudio": "LMSTUDIO_API_KEY",
             "vllm": "VLLM_API_KEY",
         }
         env_name = env_map.get(self.provider, "")

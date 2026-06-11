@@ -841,3 +841,36 @@ def test_peer_hop_sets_local_only_default_header(
 
     peer_headers = headers_by_base.get("http://192.168.1.11:11400/v1")
     assert peer_headers == {"x-netllm-local-only": "1"}
+
+
+@patch("netllm_discovery.lan.subnet_scan_agents", new_callable=AsyncMock)
+def test_admin_peers_scan_marks_self(mock_scan: AsyncMock) -> None:
+    """Scan rows for this agent are flagged so the dashboard can label
+    them instead of looking like a duplicate peer."""
+    mock_scan.return_value = [
+        {
+            "agent_id": "self-agent",
+            "listen_url": "http://10.0.0.32:11400",
+            "role": "gateway",
+        },
+        {
+            "agent_id": "peer-b",
+            "listen_url": "http://10.0.0.5:11400",
+            "role": "peer",
+        },
+    ]
+    cfg = NetllmConfig()
+    cfg.agent.agent_id = "self-agent"
+    cfg.agent.listen = "0.0.0.0:11400"
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    app = create_app(cfg)
+    with (
+        patch("netllm_discovery.lan.local_lan_ip", return_value="10.0.0.32"),
+        TestClient(app) as client,
+    ):
+        resp = client.post("/netllm/v1/admin/peers-scan")
+    assert resp.status_code == 200
+    rows = {p["agent_id"]: p for p in resp.json()["peers"]}
+    assert rows["self-agent"]["self"] is True
+    assert rows["peer-b"]["self"] is False

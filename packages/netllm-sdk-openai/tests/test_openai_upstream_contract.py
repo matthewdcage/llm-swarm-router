@@ -82,3 +82,37 @@ async def test_chat_completion_stream_sse_format(mock_cls: MagicMock) -> None:
         "chat.completion.chunk"
     )
     assert lines[1] == "data: [DONE]\n\n"
+
+
+@pytest.mark.asyncio
+@patch("netllm_sdk_openai.client.AsyncOpenAI")
+async def test_embeddings_passes_payload(mock_cls: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_cls.return_value = mock_client
+    mock_resp = MagicMock()
+    mock_resp.model_dump.return_value = {
+        "object": "list",
+        "data": [{"object": "embedding", "index": 0, "embedding": [0.1]}],
+    }
+    mock_client.embeddings.create = AsyncMock(return_value=mock_resp)
+
+    upstream = OpenAIUpstream("http://127.0.0.1:11434/v1")
+    payload = {"model": "nomic-embed-text", "input": "hello"}
+    result = await upstream.embeddings(payload)
+    assert result["object"] == "list"
+    mock_client.embeddings.create.assert_awaited_once_with(**payload)
+
+
+@pytest.mark.asyncio
+@patch("netllm_sdk_openai.client.AsyncOpenAI")
+async def test_embeddings_wraps_errors(mock_cls: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_cls.return_value = mock_client
+    err = Exception("no such model")
+    err.status_code = 404  # type: ignore[attr-defined]
+    mock_client.embeddings.create = AsyncMock(side_effect=err)
+
+    upstream = OpenAIUpstream("http://127.0.0.1:11434/v1")
+    with pytest.raises(OpenAIUpstreamError) as exc_info:
+        await upstream.embeddings({"model": "x", "input": "y"})
+    assert exc_info.value.status_code == 404

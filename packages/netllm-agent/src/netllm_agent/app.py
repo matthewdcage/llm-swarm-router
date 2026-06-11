@@ -74,6 +74,7 @@ def create_app(
                 "health": f"{base}/health",
                 "models": f"{base}/v1/models",
                 "chat": f"{base}/v1/chat/completions",
+                "embeddings": f"{base}/v1/embeddings",
                 "messages": f"{base}/v1/messages",
                 "status": f"{base}/netllm/v1/status",
                 "version": f"{base}/netllm/v1/version",
@@ -244,7 +245,18 @@ def create_app(
             return await service.proxy_chat_completion(payload, headers=request.headers)
         except OpenAIUpstreamError as exc:
             raise HTTPException(
-                status_code=exc.status_code if exc.status_code == 404 else 502,
+                status_code=exc.status_code if exc.status_code in (400, 404) else 502,
+                detail=str(exc),
+            ) from exc
+
+    @app.post("/v1/embeddings")
+    async def openai_embeddings(request: Request) -> Any:
+        payload = await request.json()
+        try:
+            return await service.proxy_embeddings(payload, headers=request.headers)
+        except OpenAIUpstreamError as exc:
+            raise HTTPException(
+                status_code=exc.status_code if exc.status_code in (400, 404) else 502,
                 detail=str(exc),
             ) from exc
 

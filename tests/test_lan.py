@@ -188,3 +188,60 @@ async def test_fetch_agent_status_uses_probe_url_as_listen_url() -> None:
     status = await fetch_agent_status("http://10.0.0.32:11400", client)
     assert status is not None
     assert status["listen_url"] == "http://10.0.0.32:11400"
+
+
+def test_dedupe_agents_by_id_collapses_multi_homed_host() -> None:
+    """A dual-interface host answers on several IPs with one agent_id —
+    the scan must show one row, preferring its reported listen URL."""
+    from netllm_discovery.lan import dedupe_agents_by_id
+
+    rows = [
+        {
+            "agent_id": "mini",
+            "hostname": "mini.local",
+            "listen_url": "http://10.0.0.10:11400",
+            "reported_listen_url": "http://10.0.0.32:11400",
+        },
+        {
+            "agent_id": "mini",
+            "hostname": "mini.local",
+            "listen_url": "http://10.0.0.32:11400",
+            "reported_listen_url": "http://10.0.0.32:11400",
+        },
+        {
+            "agent_id": "laptop",
+            "hostname": "laptop.local",
+            "listen_url": "http://10.0.0.9:11400",
+            "reported_listen_url": "http://10.0.0.9:11400",
+        },
+    ]
+    deduped = dedupe_agents_by_id(rows)
+    assert len(deduped) == 2
+    by_id = {r["agent_id"]: r for r in deduped}
+    assert by_id["mini"]["listen_url"] == "http://10.0.0.32:11400"
+    assert by_id["mini"]["also_reachable_at"] == ["http://10.0.0.10:11400"]
+    assert "also_reachable_at" not in by_id["laptop"]
+
+
+def test_fetch_agent_status_keeps_reported_listen_url() -> None:
+    import asyncio
+
+    from netllm_discovery.lan import fetch_agent_status
+
+    class FakeResp:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict:
+            return {
+                "agent_id": "remote",
+                "listen_url": "http://10.0.0.32:11400",
+                "backends": [],
+            }
+
+    client = AsyncMock()
+    client.get = AsyncMock(return_value=FakeResp())
+    status = asyncio.run(fetch_agent_status("http://10.0.0.10:11400", client))
+    assert status is not None
+    assert status["listen_url"] == "http://10.0.0.10:11400"
+    assert status["reported_listen_url"] == "http://10.0.0.32:11400"

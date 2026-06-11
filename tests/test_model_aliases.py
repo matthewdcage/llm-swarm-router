@@ -283,3 +283,25 @@ def test_restore_stream_model_handles_multi_line_chunks() -> None:
     assert len(data_lines) == 2
     for ln in data_lines:
         assert json.loads(ln[len("data: ") :])["model"] == "llama3"
+
+
+def test_model_for_backend_case_insensitive_fallback() -> None:
+    """Clients sending lowercase names get the served ID's exact casing —
+    providers like oMLX reject differently-cased model names."""
+    from netllm_agent.service import AgentService
+
+    service = AgentService(NetllmConfig())
+    backend = _backend("omlx", "http://a/v1", ["gemma-4-26B-A4B-it-assistant-4bit"])
+    assert (
+        service._model_for_backend("gemma-4-26b-a4b-it-assistant-4bit", backend)
+        == "gemma-4-26B-A4B-it-assistant-4bit"
+    )
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_alias_keys_match_case_insensitively(_mock: object) -> None:
+    pool = RouterPool(model_aliases=ALIASES)
+    lmstudio = _backend("lmstudio", "http://b/v1", ["Meta-Llama-3-8B-Instruct-GGUF"])
+    pool.set_backends([lmstudio])
+    matched = pool.backends_for_model("LLaMA3")
+    assert [b.id for b in matched] == ["lmstudio"]

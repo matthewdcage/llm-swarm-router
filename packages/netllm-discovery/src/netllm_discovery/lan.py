@@ -121,6 +121,9 @@ async def fetch_agent_status(
             return None
         data = resp.json()
         # Probe URL is what LAN clients must use (status may report loopback).
+        reported = str(data.get("listen_url", "")).rstrip("/")
+        if reported:
+            data["reported_listen_url"] = reported
         data["listen_url"] = base_url.rstrip("/")
         return data
     except Exception as exc:
@@ -145,6 +148,50 @@ async def probe_agent_port(
     return await fetch_agent_status(base, client, cluster_token=cluster_token)
 
 
+def dedupe_agents_by_id(found: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse scan rows that belong to the same agent.
+
+    A multi-homed host (Wi-Fi + Ethernet, DHCP drift) answers on several
+    LAN IPs with the same agent_id; showing one row per probed IP looks
+    like duplicate agents. Keep the row matching the agent's own reported
+    listen_url and record the other URLs in ``also_reachable_at``.
+    """
+    by_id: dict[str, list[dict[str, Any]]] = {}
+    passthrough: list[dict[str, Any]] = []
+    for row in found:
+        agent_id = str(row.get("agent_id", ""))
+        if agent_id:
+            by_id.setdefault(agent_id, []).append(row)
+        else:
+            passthrough.append(row)
+
+    deduped: list[dict[str, Any]] = []
+    for rows in by_id.values():
+        primary = next(
+            (
+                r
+                for r in rows
+                if r.get("listen_url")
+                and r.get("listen_url") == r.get("reported_listen_url")
+            ),
+            rows[0],
+        )
+        extras = sorted(
+            {
+                str(r.get("listen_url", ""))
+                for r in rows
+                if r is not primary and r.get("listen_url")
+            }
+            - {str(primary.get("listen_url", ""))}
+        )
+        if extras:
+            primary["also_reachable_at"] = extras
+        deduped.append(primary)
+    deduped.extend(passthrough)
+    deduped.sort(key=lambda p: (p.get("hostname", ""), p.get("agent_id", "")))
+    return deduped
+
+
 async def subnet_scan_agents(
     cidrs: list[str],
     *,
@@ -152,7 +199,7 @@ async def subnet_scan_agents(
     cluster_token: str = "",
     concurrency: int = 64,
 ) -> list[dict[str, Any]]:
-    """Probe netllm agent port across CIDR ranges."""
+    """Probe netllm agent port across CIDR ranges (one row per agent_id)."""
     hosts: set[str] = set()
     for cidr in cidrs:
         try:
@@ -178,7 +225,7 @@ async def subnet_scan_agents(
 
         await asyncio.gather(*(check(h) for h in hosts))
 
-    return found
+    return dedupe_agents_by_id(found)
 
 
 def browse_mdns_peers(timeout_s: float = 3.0) -> list[dict[str, str]]:

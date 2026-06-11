@@ -67,6 +67,15 @@ check_for_updates_automatically = true
 # enabled = true
 # local = true
 
+# LM Studio with API authentication enabled (Settings -> Developer):
+# set LMSTUDIO_API_KEY in the agent's environment, or pin the token here.
+# [[routing.backends]]
+# base_url = "http://127.0.0.1:1234/v1"
+# provider = "lmstudio"
+# api_key_env = "LMSTUDIO_API_KEY"
+# enabled = true
+# local = true
+
 # Anthropic cloud failover for native Messages API clients (Claude Code, etc.)
 # [[routing.backends]]
 # base_url = "https://api.anthropic.com"

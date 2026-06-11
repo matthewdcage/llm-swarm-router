@@ -4,7 +4,7 @@ Parent: [../AGENTS.md](../AGENTS.md).
 
 ## Purpose
 
-FastAPI agent daemon: OpenAI-compatible `/v1/*`, Anthropic `/v1/messages`, admin `/netllm/v1/*`, Prometheus `/metrics`, web dashboard `/ui/`.
+FastAPI agent daemon: OpenAI-compatible `/v1/*` (chat, models, embeddings), Anthropic `/v1/messages`, admin `/netllm/v1/*`, Prometheus `/metrics`, web dashboard `/ui/`.
 
 ## Ownership
 
@@ -19,6 +19,10 @@ Key modules: `app.py`, `service.py`, `admin.py`, `metrics.py`, `shard.py`. Stati
 - **Doctor** (`doctor_payload`): open LAN without `cluster_token` is informational (`notes`), not an `issues` failure; secured pairing is optional via Settings / CLI
 - **Web dashboard** (`static/dashboard.js`): status/models load without admin; doctor/config failures degrade gracefully (warn banner, not fatal); cluster token label shows **open (trusted LAN)** when unset
 - **Loop guard:** every forward to a `peer:` backend sets `x-netllm-local-only: 1` (`AgentService._peer_forward_headers`) so peers serve locally and never re-forward; status/catalog handlers force-probe **local** backends only (peer rows stay fresh via heartbeats — probing them recurses)
+- **`POST /v1/embeddings`** (`proxy_embeddings`): same selection/failover loop as chat incl. agent-hop to peers; Anthropic-format backends are excluded (no Anthropic embeddings standard); unknown model 404 lists embedding-capable models first
+- **Capability gate:** chat/Messages requests against non-chat models (`netllm_core.capabilities`) return 400 with a `/v1/embeddings` hint — never burn the retry budget on encoders; `/v1/models` entries carry a `capability` field
+- **Retry exclusion:** chat/stream/embeddings loops track per-request failed backend ids and pass `exclude_ids` so retries reach untried peers; upstream API keys resolve via `backend.resolve_api_key()` (env fallbacks incl. `LMSTUDIO_API_KEY`)
+- **Peers-scan rows** are deduped by `agent_id` in discovery and flagged `self` in `peers_scan_payload` (dashboard labels "this machine", shows `also_reachable_at` for multi-homed hosts)
 - Depends on all other workspace packages except `netllm-cli`
 
 ## Work Guidance

@@ -504,9 +504,14 @@ function renderPeerRow(p) {
   const row = el("div", "peer-row");
   row.appendChild(el("span", "status-dot online"));
   const body = el("div");
-  body.appendChild(textEl("strong", "", p.hostname || p.agent_id || "peer"));
+  const name = p.hostname || p.agent_id || "peer";
+  body.appendChild(textEl("strong", "", p.self ? `${name} (this machine)` : name));
   body.appendChild(textEl("div", "muted-sm", p.listen_url || ""));
-  body.appendChild(textEl("div", "muted-sm", `role: ${p.role || "peer"}`));
+  const meta = p.agent_id ? `role: ${p.role || "peer"} — ${p.agent_id}` : `role: ${p.role || "peer"}`;
+  body.appendChild(textEl("div", "muted-sm", meta));
+  if (Array.isArray(p.also_reachable_at) && p.also_reachable_at.length) {
+    body.appendChild(textEl("div", "muted-sm", `also reachable at: ${p.also_reachable_at.join(", ")}`));
+  }
   row.appendChild(body);
   return row;
 }

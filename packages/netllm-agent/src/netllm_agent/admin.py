@@ -59,6 +59,28 @@ def doctor_payload(cfg: NetllmConfig, service: AgentService) -> dict[str, Any]:
             }
         )
 
+    for b in enabled:
+        if b.health.http_status in (401, 403) and not b.api_key:
+            env_hints = {
+                "lmstudio": "LMSTUDIO_API_KEY",
+                "omlx": "OMLX_API_KEY",
+                "ollama": "OLLAMA_API_KEY",
+                "vllm": "VLLM_API_KEY",
+            }
+            hint = env_hints.get(b.provider, "")
+            fix = (
+                f"Set {hint} or add api_key under [[routing.backends]] for {b.base_url}"
+                if hint
+                else f"Add api_key under [[routing.backends]] for {b.base_url}"
+            )
+            issues.append(
+                {
+                    "title": f"{b.provider} backend requires an API token "
+                    f"({b.base_url})",
+                    "fix": fix,
+                }
+            )
+
     if cfg.swarm.mdns and cfg.agent.advertise:
         try:
             import zeroconf  # noqa: F401
@@ -294,7 +316,11 @@ async def peers_scan_payload(
     config_path: Path | None = None,
 ) -> dict[str, Any]:
     """Subnet-scan for LAN agents (same logic as CLI peers --subnet-scan)."""
-    from netllm_discovery.lan import default_subnet_cidrs, subnet_scan_agents
+    from netllm_discovery.lan import (
+        default_subnet_cidrs,
+        own_agent_urls,
+        subnet_scan_agents,
+    )
 
     cidrs = list(cfg.swarm.subnet_cidrs) or default_subnet_cidrs()
     if not cidrs:
@@ -316,11 +342,12 @@ async def peers_scan_payload(
         port=port,
         cluster_token=token,
     )
+    own = own_agent_urls(cfg.agent.listen)
+    for peer in found:
+        url = str(peer.get("listen_url", "")).rstrip("/")
+        peer["self"] = peer.get("agent_id", "") == cfg.agent.agent_id or url in own
     warnings: list[str] = []
     if save and found and config_path is not None:
-        from netllm_discovery.lan import own_agent_urls
-
-        own = own_agent_urls(cfg.agent.listen)
         existing = {p.rstrip("/") for p in cfg.swarm.peers}
         added = 0
         skipped_self = 0
@@ -328,7 +355,7 @@ async def peers_scan_payload(
             url = str(peer.get("listen_url", "")).rstrip("/")
             if not url or url in existing:
                 continue
-            if url in own:
+            if peer.get("self") or url in own:
                 skipped_self += 1
                 continue
             cfg.swarm.peers.append(url)

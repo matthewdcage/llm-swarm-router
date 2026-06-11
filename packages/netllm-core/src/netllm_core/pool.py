@@ -7,6 +7,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 
+from netllm_core.capabilities import model_capability
 from netllm_core.health import (
     is_online,
     probe_anthropic_compat_sync,
@@ -101,10 +102,24 @@ class RouterPool:
                 # Peer rows arrive with heartbeat-reported load; add our
                 # own in-flight hops so load is visible between heartbeats.
                 b.in_flight += self._own_peer_hops.get(b.base_url, 0)
-            elif existing is not None:
-                b.in_flight = existing.in_flight
-            if existing is not None:
-                b.latency_ema_ms = existing.latency_ema_ms
+                if existing is not None:
+                    b.latency_ema_ms = existing.latency_ema_ms
+                by_url[b.base_url] = b
+                continue
+            if existing is not None and not existing.id.startswith("peer:"):
+                # Update in place to keep object identity: requests in
+                # flight hold a reference to the existing instance, and
+                # release() must decrement the same object that acquire()
+                # incremented — replacing the row would leak its count.
+                existing.id = b.id
+                existing.provider = b.provider
+                existing.api_format = b.api_format
+                existing.api_key = b.api_key
+                existing.enabled = b.enabled
+                existing.local = b.local
+                existing.agent_id = b.agent_id
+                existing.health = b.health
+                continue
             by_url[b.base_url] = b
         self._backends = list(by_url.values())
 
@@ -181,26 +196,48 @@ class RouterPool:
             last_check=now, online=online, failures=0
         )
         backend.health.status = status.get("status", "unknown")
+        backend.health.http_status = status.get("http_status")
+        backend.health.detail = status.get("detail")
         backend.health.models = status.get("models") or []
         backend.health.model_count = status.get("model_count", 0)
         backend.health.last_check = now
         return online
 
     def model_names_for(self, model: str) -> list[str]:
-        """Requested name plus configured aliases, request name first."""
-        return [model, *self.model_aliases.get(model, [])]
+        """Requested name plus configured aliases, request name first.
+
+        Alias keys match case-insensitively so clients sending a
+        differently-cased model name still resolve.
+        """
+        aliases = self.model_aliases.get(model)
+        if aliases is None:
+            folded = model.casefold()
+            for key, ids in self.model_aliases.items():
+                if key.casefold() == folded:
+                    aliases = ids
+                    break
+        return [model, *(aliases or [])]
 
     @staticmethod
     def _serves_model(served: list[str], names: list[str]) -> bool:
-        return any(m == n or m.startswith(n + ":") for n in names for m in served)
+        folded = [n.casefold() for n in names]
+        return any(
+            m == n or m.startswith(n + ":")
+            for n in folded
+            for m in (s.casefold() for s in served)
+        )
 
-    def known_models(self, *, limit: int = 25) -> list[str]:
+    def known_models(
+        self, *, limit: int = 25, capability: str | None = None
+    ) -> list[str]:
         """Distinct model IDs across enabled backends (for 404 messages)."""
         seen: dict[str, None] = {}
         for b in self._backends:
             if not b.enabled:
                 continue
             for m in b.health.models:
+                if capability is not None and model_capability(m) != capability:
+                    continue
                 seen.setdefault(m)
         return list(seen)[:limit]
 
@@ -252,6 +289,7 @@ class RouterPool:
         attempt: int = 1,
         local_only: bool = False,
         prefer_provider: str | None = None,
+        exclude_ids: set[str] | None = None,
     ) -> Backend | None:
         if local_only:
             all_candidates = self.backends_for_model(model, local_only=True)
@@ -259,6 +297,11 @@ class RouterPool:
             local = self.backends_for_model(model, local_only=True)
             remote = [b for b in self.backends_for_model(model) if not b.local]
             all_candidates = local + remote
+        if exclude_ids:
+            # Backends that already failed this request: never burn retry
+            # attempts re-hitting them — walk on to the next candidate
+            # (typically a healthy LAN peer) instead.
+            all_candidates = [b for b in all_candidates if b.id not in exclude_ids]
         if not all_candidates:
             return None
 
@@ -268,6 +311,11 @@ class RouterPool:
                 all_candidates = preferred
 
         if strategy == "failover":
+            if exclude_ids:
+                # Failed candidates are already filtered out, so the first
+                # remaining backend is the next untried one in preference
+                # order (local before remote).
+                return all_candidates[0]
             idx = min(max(attempt - 1, 0), len(all_candidates) - 1)
             return all_candidates[idx]
 

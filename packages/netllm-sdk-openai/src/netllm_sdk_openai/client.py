@@ -86,6 +86,20 @@ class OpenAIUpstream:
         except Exception as exc:
             raise _wrap(exc) from exc
 
+    async def embeddings(self, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            resp = await self._async.embeddings.create(**payload)
+            return resp.model_dump()
+        except Exception as exc:
+            raise _wrap(exc) from exc
+
+    def embeddings_sync(self, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            resp = self._sync.embeddings.create(**payload)
+            return resp.model_dump()
+        except Exception as exc:
+            raise _wrap(exc) from exc
+
 
 def httpx_timeout(connect: float, read: float) -> Any:
     import httpx

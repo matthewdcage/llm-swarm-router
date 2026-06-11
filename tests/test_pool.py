@@ -322,3 +322,105 @@ def test_merge_backends_preserves_local_in_flight() -> None:
         ]
     )
     assert pool.backends[0].in_flight == 2
+
+
+def test_merge_backends_keeps_local_object_identity() -> None:
+    """A request in flight holds a Backend reference across pool refreshes.
+
+    merge_backends must update the existing instance in place — replacing
+    it would orphan the acquire() count (release() decrements the old
+    object) and leak in_flight upward forever.
+    """
+    pool = RouterPool()
+    existing = Backend(id="omlx:x", base_url="http://127.0.0.1:8080/v1", local=True)
+    pool.set_backends([existing])
+    pool.acquire(existing)
+    assert existing.in_flight == 1
+
+    # Scan refresh arrives mid-request with a fresh row for the same URL.
+    pool.merge_backends(
+        [
+            Backend(
+                id="omlx:x",
+                base_url="http://127.0.0.1:8080/v1",
+                local=True,
+                health=BackendHealth(status="online", models=["m"]),
+            )
+        ]
+    )
+    assert pool.backends[0] is existing
+    assert pool.backends[0].health.models == ["m"]
+
+    pool.release(existing)
+    assert pool.backends[0].in_flight == 0
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_select_backend_excludes_failed_backends(_mock: object) -> None:
+    """Retries skip backends that already failed this request, so the
+    attempt budget reaches a healthy peer instead of re-hitting locals."""
+    pool = RouterPool()
+    local_a = Backend(
+        id="local-a",
+        base_url="http://127.0.0.1:8080/v1",
+        local=True,
+        health=BackendHealth(status="online", models=["m"]),
+    )
+    local_b = Backend(
+        id="local-b",
+        base_url="http://127.0.0.1:1234/v1",
+        local=True,
+        health=BackendHealth(status="online", models=["m"]),
+    )
+    peer = Backend(
+        id="peer:remote",
+        base_url="http://192.168.1.11:11400/v1",
+        local=False,
+        health=BackendHealth(status="online", models=["m"]),
+    )
+    pool.set_backends([local_a, local_b, peer])
+
+    first = pool.select_backend("m", "failover", attempt=1)
+    assert first is local_a
+    second = pool.select_backend("m", "failover", attempt=2, exclude_ids={"local-a"})
+    assert second is local_b
+    third = pool.select_backend(
+        "m", "failover", attempt=3, exclude_ids={"local-a", "local-b"}
+    )
+    assert third is peer
+    none_left = pool.select_backend(
+        "m",
+        "failover",
+        attempt=4,
+        exclude_ids={"local-a", "local-b", "peer:remote"},
+    )
+    assert none_left is None
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_backends_for_model_matches_case_insensitively(_mock: object) -> None:
+    pool = RouterPool()
+    backend = Backend(
+        id="omlx",
+        base_url="http://127.0.0.1:8080/v1",
+        local=True,
+        health=BackendHealth(
+            status="online", models=["gemma-4-26B-A4B-it-assistant-4bit"]
+        ),
+    )
+    pool.set_backends([backend])
+    matched = pool.backends_for_model("gemma-4-26b-a4b-it-assistant-4bit")
+    assert [b.id for b in matched] == ["omlx"]
+
+
+def test_known_models_capability_filter() -> None:
+    pool = RouterPool()
+    backend = Backend(
+        id="ollama",
+        base_url="http://127.0.0.1:11434/v1",
+        local=True,
+        health=BackendHealth(status="online", models=["qwen2", "nomic-embed-text"]),
+    )
+    pool.set_backends([backend])
+    assert pool.known_models(capability="embedding") == ["nomic-embed-text"]
+    assert pool.known_models(capability="chat") == ["qwen2"]

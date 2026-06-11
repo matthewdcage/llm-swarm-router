@@ -16,6 +16,7 @@ from netllm_core.anthropic_bridge import (
     openai_to_anthropic_response,
     translate_openai_stream_to_anthropic,
 )
+from netllm_core.capabilities import model_capability
 from netllm_core.models import (
     ANTHROPIC_CLOUD_BASE_URL,
     LOCAL_ONLY_HEADER,
@@ -231,6 +232,7 @@ class AgentService:
                         "id": mid,
                         "object": "model",
                         "owned_by": b.provider,
+                        "capability": model_capability(mid),
                     }
         # Surface canonical alias names whose provider-specific IDs exist.
         for canonical, alias_ids in self.config.routing.model_aliases.items():
@@ -241,6 +243,7 @@ class AgentService:
                     "id": canonical,
                     "object": "model",
                     "owned_by": "netllm-alias",
+                    "capability": model_capability(canonical),
                 }
         return {"object": "list", "data": list(seen.values())}
 
@@ -262,7 +265,9 @@ class AgentService:
 
         Exact matches win; for tag-prefix matches (Ollama-style
         ``name:tag``) the full served ID is returned, since bare names
-        only resolve to the ``latest`` tag upstream.
+        only resolve to the ``latest`` tag upstream. Case-insensitive
+        matches fall back to the served ID's exact casing — providers
+        like oMLX reject differently-cased names.
         """
         served = backend.health.models
         if not served:
@@ -277,18 +282,60 @@ class AgentService:
             for served_id in served:
                 if served_id.startswith(name + ":"):
                     return served_id
+        folded = [n.casefold() for n in names]
+        for name in folded:
+            for served_id in served:
+                sid = served_id.casefold()
+                if sid == name or sid.startswith(name + ":"):
+                    return served_id
         return model
 
-    def _model_not_found_error(self, model: str) -> OpenAIUpstreamError:
+    def _model_not_found_error(
+        self, model: str, *, capability: str | None = None
+    ) -> OpenAIUpstreamError:
         if not self.pool.backends:
             return OpenAIUpstreamError("No healthy backends available for model")
-        known = self.pool.known_models()
+        known = self.pool.known_models(capability=capability) if capability else []
+        if not known:
+            known = self.pool.known_models()
         listing = ", ".join(known) if known else "none discovered yet"
         return OpenAIUpstreamError(
             f"Model '{model}' not found on any backend. "
             f"Known models: {listing}. "
             "Map provider-specific names with [routing.model_aliases].",
             status_code=404,
+        )
+
+    @staticmethod
+    def _reject_non_chat_model(model: str) -> None:
+        """Refuse chat requests against models that cannot chat.
+
+        Encoders and audio models otherwise fail upstream with confusing
+        errors ("tokenizer.chat_template is not set") after burning the
+        whole retry budget. Unknown names pass through unchanged.
+        """
+        cap = model_capability(model)
+        if cap == "chat":
+            return
+        hint = (
+            " Use POST /v1/embeddings for embedding models."
+            if cap == "embedding"
+            else ""
+        )
+        raise OpenAIUpstreamError(
+            f"Model '{model}' (capability: {cap}) cannot serve chat completions.{hint}",
+            status_code=400,
+        )
+
+    @staticmethod
+    def _reject_non_chat_messages_model(model: str) -> None:
+        """Messages API variant of the non-chat model guard."""
+        cap = model_capability(model)
+        if cap == "chat":
+            return
+        raise AnthropicUpstreamError(
+            f"Model '{model}' (capability: {cap}) cannot serve the Messages API.",
+            status_code=400,
         )
 
     @staticmethod
@@ -355,6 +402,7 @@ class AgentService:
         *,
         local_only: bool = False,
         prefer_provider: str | None = None,
+        exclude_ids: set[str] | None = None,
     ) -> Backend | None:
         if strategy == "batch_shard":
             if shard and shard.batch_id is not None and shard.index is not None:
@@ -389,6 +437,7 @@ class AgentService:
                     attempt=attempt,
                     local_only=local_only,
                     prefer_provider=prefer_provider,
+                    exclude_ids=exclude_ids,
                 )
 
             if attempt == 1:
@@ -400,6 +449,7 @@ class AgentService:
                     "round_robin",
                     local_only=local_only,
                     prefer_provider=prefer_provider,
+                    exclude_ids=exclude_ids,
                 )
             return self.pool.select_backend(
                 model,
@@ -407,6 +457,7 @@ class AgentService:
                 attempt=attempt,
                 local_only=local_only,
                 prefer_provider=prefer_provider,
+                exclude_ids=exclude_ids,
             )
 
         use_strategy = strategy if attempt == 1 else "failover"
@@ -418,6 +469,7 @@ class AgentService:
             attempt=attempt,
             local_only=local_only,
             prefer_provider=prefer_provider,
+            exclude_ids=exclude_ids,
         )
 
     def _mark_shard_success(self, shard: ShardContext | None) -> None:
@@ -440,6 +492,7 @@ class AgentService:
     ) -> dict[str, Any]:
         hdrs = self._normalize_headers(headers)
         model = payload.get("model", "")
+        self._reject_non_chat_model(model)
         routing = self._resolved_routing(model, api_format="openai", headers=hdrs)
         shard = extract_shard_context(payload, hdrs)
 
@@ -449,6 +502,7 @@ class AgentService:
         attempt = 0
         last_error: Exception | None = None
         max_attempts = max(len(self.pool.backends), 1)
+        tried: set[str] = set()
 
         while attempt < max_attempts:
             attempt += 1
@@ -460,6 +514,7 @@ class AgentService:
                 shard,
                 local_only=routing.local_only,
                 prefer_provider=routing.prefer_provider,
+                exclude_ids=tried,
             )
             if backend is None:
                 break
@@ -469,7 +524,7 @@ class AgentService:
             try:
                 client = OpenAIUpstream(
                     backend.base_url,
-                    api_key=backend.api_key or "netllm-local",
+                    api_key=backend.resolve_api_key() or "netllm-local",
                     default_headers=self._peer_forward_headers(backend),
                 )
                 upstream_model = self._model_for_backend(model, backend)
@@ -492,6 +547,7 @@ class AgentService:
                 return result
             except OpenAIUpstreamError as exc:
                 last_error = exc
+                tried.add(backend.id)
                 self.pool.mark_failure(backend)
                 REQUESTS_TOTAL.labels(
                     backend=backend.base_url, model=model, status="error"
@@ -521,6 +577,7 @@ class AgentService:
     ) -> AsyncIterator[str]:
         hdrs = self._normalize_headers(headers)
         model = payload.get("model", "")
+        self._reject_non_chat_model(model)
         routing = self._resolved_routing(model, api_format="openai", headers=hdrs)
         shard = extract_shard_context(payload, hdrs)
 
@@ -530,6 +587,7 @@ class AgentService:
         attempt = 0
         last_error: Exception | None = None
         max_attempts = max(len(self.pool.backends), 1)
+        tried: set[str] = set()
 
         while attempt < max_attempts:
             attempt += 1
@@ -541,6 +599,7 @@ class AgentService:
                 shard,
                 local_only=routing.local_only,
                 prefer_provider=routing.prefer_provider,
+                exclude_ids=tried,
             )
             if backend is None:
                 break
@@ -549,7 +608,7 @@ class AgentService:
             try:
                 client = OpenAIUpstream(
                     backend.base_url,
-                    api_key=backend.api_key or "netllm-local",
+                    api_key=backend.resolve_api_key() or "netllm-local",
                     default_headers=self._peer_forward_headers(backend),
                 )
                 upstream_model = self._model_for_backend(model, backend)
@@ -568,6 +627,7 @@ class AgentService:
                 return
             except OpenAIUpstreamError as exc:
                 last_error = exc
+                tried.add(backend.id)
                 logger.warning(
                     "stream backend %s failed (attempt %s): %s",
                     backend.base_url,
@@ -584,6 +644,97 @@ class AgentService:
         if last_error:
             raise last_error
         raise self._model_not_found_error(model)
+
+    async def proxy_embeddings(
+        self,
+        payload: dict[str, Any],
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Route OpenAI-compatible POST /v1/embeddings.
+
+        Same selection and failover loop as chat completions — including
+        agent-hop spillover to LAN peers (peer agents expose the same
+        /v1/embeddings surface). Anthropic-format backends are excluded:
+        the Anthropic Messages API has no embeddings endpoint.
+        """
+        hdrs = self._normalize_headers(headers)
+        model = payload.get("model", "")
+        routing = self._resolved_routing(model, api_format="openai", headers=hdrs)
+
+        await self.refresh_local_backends()
+        if routing.allow_cloud_inject:
+            self._inject_openai_cloud_backend(self._openai_api_key(hdrs))
+        attempt = 0
+        last_error: Exception | None = None
+        max_attempts = max(len(self.pool.backends), 1)
+        tried: set[str] = {
+            b.id for b in self.pool.backends if b.api_format == "anthropic"
+        }
+
+        while attempt < max_attempts:
+            attempt += 1
+            backend = await self._offload_if_probing(
+                self._select_backend_for_request,
+                model,
+                routing.strategy,
+                attempt,
+                None,
+                local_only=routing.local_only,
+                prefer_provider=routing.prefer_provider,
+                exclude_ids=tried,
+            )
+            if backend is None:
+                break
+            self.pool.acquire(backend)
+            BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
+            t0 = time.monotonic()
+            try:
+                client = OpenAIUpstream(
+                    backend.base_url,
+                    api_key=backend.resolve_api_key() or "netllm-local",
+                    default_headers=self._peer_forward_headers(backend),
+                )
+                upstream_model = self._model_for_backend(model, backend)
+                upstream_payload = (
+                    {**payload, "model": upstream_model}
+                    if upstream_model != model
+                    else payload
+                )
+                result = await client.embeddings(upstream_payload)
+                if upstream_model != model and isinstance(result, dict):
+                    result["model"] = model
+                latency = time.monotonic() - t0
+                self.pool.mark_success(backend, latency * 1000)
+                REQUESTS_TOTAL.labels(
+                    backend=backend.base_url, model=model, status="ok"
+                ).inc()
+                REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency)
+                self._request_count += 1
+                return result
+            except OpenAIUpstreamError as exc:
+                last_error = exc
+                tried.add(backend.id)
+                self.pool.mark_failure(backend)
+                REQUESTS_TOTAL.labels(
+                    backend=backend.base_url, model=model, status="error"
+                ).inc()
+                logger.warning(
+                    "embeddings backend %s failed (attempt %s): %s",
+                    backend.base_url,
+                    attempt,
+                    exc,
+                )
+            finally:
+                self.pool.release(backend)
+                BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(
+                    backend.in_flight
+                )
+                self._update_health_metrics()
+
+        if last_error:
+            raise last_error
+        raise self._model_not_found_error(model, capability="embedding")
 
     @staticmethod
     def _anthropic_api_key(headers: Mapping[str, str]) -> str:
@@ -728,6 +879,7 @@ class AgentService:
     ) -> dict[str, Any]:
         hdrs = self._normalize_headers(headers)
         model = payload.get("model", "")
+        self._reject_non_chat_messages_model(model)
         api_key = self._anthropic_api_key(hdrs)
         routing = self._resolved_routing(model, api_format="anthropic", headers=hdrs)
 
@@ -797,6 +949,7 @@ class AgentService:
     ) -> AsyncIterator[str]:
         hdrs = self._normalize_headers(headers)
         model = payload.get("model", "")
+        self._reject_non_chat_messages_model(model)
         api_key = self._anthropic_api_key(hdrs)
         routing = self._resolved_routing(model, api_format="anthropic", headers=hdrs)
 
@@ -872,7 +1025,7 @@ class AgentService:
         oai_payload["model"] = self._model_for_backend(model, backend)
         client = OpenAIUpstream(
             backend.base_url,
-            api_key=backend.api_key or "netllm-local",
+            api_key=backend.resolve_api_key() or "netllm-local",
             default_headers=self._peer_forward_headers(backend),
         )
         result = await client.chat_completion(oai_payload)
@@ -904,7 +1057,7 @@ class AgentService:
         oai_payload["model"] = self._model_for_backend(model, backend)
         client = OpenAIUpstream(
             backend.base_url,
-            api_key=backend.api_key or "netllm-local",
+            api_key=backend.resolve_api_key() or "netllm-local",
             default_headers=self._peer_forward_headers(backend),
         )
         async for chunk in translate_openai_stream_to_anthropic(

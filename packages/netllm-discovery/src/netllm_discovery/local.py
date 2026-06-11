@@ -144,6 +144,7 @@ def _api_key_for_provider(provider_id: str, config: NetllmConfig) -> str:
     env_map = {
         "omlx": "OMLX_API_KEY",
         "ollama": "OLLAMA_API_KEY",
+        "lmstudio": "LMSTUDIO_API_KEY",
         "vllm": "VLLM_API_KEY",
     }
     env_name = env_map.get(provider_id, "")
@@ -290,8 +291,10 @@ def scan_results_to_backends(
                 agent_id=agent_id,
                 health=BackendHealth(
                     status=r.get("status", "online"),
+                    http_status=r.get("http_status"),
                     model_count=r.get("model_count", 0),
                     models=r.get("models") or [],
+                    detail=r.get("detail"),
                     latency_p50_ms=float(r["latency_ms"])
                     if r.get("latency_ms") is not None
                     else None,
