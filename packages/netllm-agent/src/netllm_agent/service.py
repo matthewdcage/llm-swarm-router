@@ -162,7 +162,11 @@ class AgentService:
         for b in self.pool.backends:
             if not b.enabled:
                 continue
-            self.pool.is_healthy(b, force_refresh=True)
+            # Force-probe local providers only. Peer-agent rows are kept
+            # fresh by heartbeats; probing them from a catalog handler
+            # recurses (the peer's handler would probe us back).
+            if b.local:
+                self.pool.is_healthy(b, force_refresh=True)
             for mid in b.health.models:
                 if mid not in seen:
                     seen[mid] = {
@@ -183,6 +187,18 @@ class AgentService:
         hdrs = AgentService._normalize_headers(headers)
         raw = hdrs.get(LOCAL_ONLY_HEADER, "")
         return raw.strip().lower() in ("1", "true", "yes")
+
+    @staticmethod
+    def _peer_forward_headers(backend: Backend) -> dict[str, str] | None:
+        """Loop guard: agent-hop forwards must terminate at the peer.
+
+        Without this header a peer running a distributing strategy
+        (round_robin, least_load, ...) could bounce the request back,
+        ping-ponging it across the mesh.
+        """
+        if backend.id.startswith("peer:"):
+            return {LOCAL_ONLY_HEADER: "1"}
+        return None
 
     def _resolved_routing(
         self,
@@ -313,6 +329,7 @@ class AgentService:
                 client = OpenAIUpstream(
                     backend.base_url,
                     api_key=backend.api_key or "netllm-local",
+                    default_headers=self._peer_forward_headers(backend),
                 )
                 result = await client.chat_completion(payload)
                 latency = time.monotonic() - t0
@@ -383,6 +400,7 @@ class AgentService:
                 client = OpenAIUpstream(
                     backend.base_url,
                     api_key=backend.api_key or "netllm-local",
+                    default_headers=self._peer_forward_headers(backend),
                 )
                 async for chunk in self._stream_with_metrics(
                     client, payload, backend, model, shard
@@ -684,6 +702,7 @@ class AgentService:
         client = OpenAIUpstream(
             backend.base_url,
             api_key=backend.api_key or "netllm-local",
+            default_headers=self._peer_forward_headers(backend),
         )
         result = await client.chat_completion(oai_payload)
         return openai_to_anthropic_response(result, model=model)
@@ -714,6 +733,7 @@ class AgentService:
         client = OpenAIUpstream(
             backend.base_url,
             api_key=backend.api_key or "netllm-local",
+            default_headers=self._peer_forward_headers(backend),
         )
         async for chunk in translate_openai_stream_to_anthropic(
             client.chat_completion_stream(oai_payload),

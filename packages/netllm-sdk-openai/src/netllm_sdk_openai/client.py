@@ -27,17 +27,23 @@ class OpenAIUpstream:
         *,
         connect_timeout: float = 5.0,
         read_timeout: float = 120.0,
+        default_headers: dict[str, str] | None = None,
     ) -> None:
         timeout = httpx_timeout(connect_timeout, read_timeout)
+        extra: dict[str, Any] = {}
+        if default_headers:
+            extra["default_headers"] = default_headers
         self._async = AsyncOpenAI(
             base_url=base_url.rstrip("/"),
             api_key=api_key or "netllm-local",
             timeout=timeout,
+            **extra,
         )
         self._sync = OpenAI(
             base_url=base_url.rstrip("/"),
             api_key=api_key or "netllm-local",
             timeout=timeout,
+            **extra,
         )
         self.base_url = base_url.rstrip("/")
 

@@ -565,3 +565,111 @@ def test_wants_local_only_header() -> None:
     assert AgentService._wants_local_only({"x-netllm-local-only": "true"})
     assert not AgentService._wants_local_only({})
     assert not AgentService._wants_local_only({"x-netllm-local-only": "0"})
+
+
+def test_peer_forward_headers_loop_guard() -> None:
+    from netllm_agent.service import AgentService
+    from netllm_core.models import LOCAL_ONLY_HEADER
+
+    peer = Backend(
+        id="peer:remote-agent",
+        base_url="http://192.168.1.11:11400/v1",
+        provider="custom",
+        local=False,
+    )
+    local = Backend(
+        id="omlx:http://127.0.0.1:8080/v1",
+        base_url="http://127.0.0.1:8080/v1",
+        provider="omlx",
+        local=True,
+    )
+    assert AgentService._peer_forward_headers(peer) == {LOCAL_ONLY_HEADER: "1"}
+    assert AgentService._peer_forward_headers(local) is None
+
+
+@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_core.pool.probe_openai_compat_sync")
+@patch("netllm_sdk_openai.client.AsyncOpenAI")
+def test_peer_hop_sets_local_only_default_header(
+    mock_openai_cls: object,
+    mock_probe: object,
+    mock_scan: AsyncMock,
+) -> None:
+    """Forwards to a peer agent must carry x-netllm-local-only so the peer
+    cannot bounce the request back into the mesh."""
+    from unittest.mock import MagicMock
+
+    cfg = NetllmConfig()
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    cfg.routing.default_strategy = "round_robin"
+    cfg.routing.allow_remote = True
+
+    mock_scan.return_value = []
+    mock_probe.return_value = {
+        "status": "online",
+        "models": ["shared-model"],
+        "model_count": 1,
+    }
+
+    headers_by_base: dict[str, object] = {}
+    mock_client = MagicMock()
+
+    def track_openai_client(*_args: object, **kwargs: object) -> MagicMock:
+        base = str(kwargs.get("base_url", "")).rstrip("/")
+        if base:
+            headers_by_base[base] = kwargs.get("default_headers")
+        return mock_client
+
+    mock_openai_cls.side_effect = track_openai_client
+
+    async def fake_create(**kwargs: object) -> MagicMock:
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = {
+            "id": "cmpl-test",
+            "object": "chat.completion",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "model": kwargs.get("model", "shared-model"),
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+        return mock_response
+
+    mock_client.chat.completions.create = fake_create
+
+    app = create_app(cfg)
+    with TestClient(app) as client:
+        client.post(
+            "/netllm/v1/heartbeat",
+            json={
+                "agent_id": "peer-remote",
+                "listen_url": "http://192.168.1.11:11400",
+                "role": "peer",
+                "hostname": "mac-mini",
+                "backends": [
+                    Backend(
+                        id="b1",
+                        base_url="http://127.0.0.1:8080/v1",
+                        provider="omlx",
+                        local=True,
+                        health=BackendHealth(status="online", models=["shared-model"]),
+                    ).model_dump(mode="json")
+                ],
+            },
+        )
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "shared-model",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+        assert resp.status_code == 200
+
+    peer_headers = headers_by_base.get("http://192.168.1.11:11400/v1")
+    assert peer_headers == {"x-netllm-local-only": "1"}
