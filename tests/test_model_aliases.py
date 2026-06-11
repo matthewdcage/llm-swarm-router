@@ -87,8 +87,7 @@ def test_model_for_backend_exact_alias_beats_prefix_match() -> None:
         ["llama3:70b", "llama3:8b-instruct-q4_K_M"],
     )
     assert (
-        service._model_for_backend("llama3", multi_tag)
-        == "llama3:8b-instruct-q4_K_M"
+        service._model_for_backend("llama3", multi_tag) == "llama3:8b-instruct-q4_K_M"
     )
 
 
