@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 from netllm_core.models import Backend, BackendHealth, NetllmConfig
+
 from netllm_discovery.lan import is_lan_reachable_agent_url
 
 logger = logging.getLogger(__name__)
