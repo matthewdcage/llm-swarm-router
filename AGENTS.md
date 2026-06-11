@@ -2,7 +2,7 @@
 
 ## DOX rail
 
-Full protocol: [`.cursor/agents/AGENTS.md`](.cursor/agents/AGENTS.md).
+Full protocol: Child DOX Index below and per-folder `AGENTS.md` on each route (dox-agent plugin).
 
 - Before editing: walk root → target path; read every `AGENTS.md` on the route (nearest doc controls local detail)
 - After meaningful edits: update the closest owning `AGENTS.md`; refresh Child DOX Index when boundaries change
@@ -40,7 +40,6 @@ Honcho integration: [docs/honcho-integration.md](docs/honcho-integration.md).
 | `Formula/` | Homebrew formula | (root rail) |
 | `archived/` | Local deprecated/moved files (gitignored; not on remote) | (root rail) |
 | `.agents/skills/` | Canonical agent skills → sync via `scripts/sync-agent-skills.sh` | [.agents/AGENTS.md](.agents/AGENTS.md) |
-| `.cursor/agents/` | DOX protocol + tracked Cursor coordinator subagents | [.cursor/agents/AGENTS.md](.cursor/agents/AGENTS.md) |
 
 Edit skills only under `.agents/`; run `scripts/sync-agent-skills.sh` after changes.
 
@@ -214,7 +213,7 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - macOS menubar install/update: **recommended on macOS 26+:** clone release tag → `apps/netllm-mac/Scripts/build.sh release` → `packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app` ([docs/macos-install.md](docs/macos-install.md)); GitHub DMG + menubar **Updates** when notarized; bundled `macos-app-install.sh` under `Contents/Resources/Scripts/`; `scripts/upgrade-mac-app.sh` is repo-only; in-app update stops agent via `--in-app-update`, logs under `~/Library/Application Support/netllm/logs/`; **v0.3.0.2** fixes menubar **Agent: starting…** when `listen = "0.0.0.0:11400"` — [docs/release-notes/v0.3.0.2.md](docs/release-notes/v0.3.0.2.md)
 - **macOS Gatekeeper (26+):** ad-hoc GitHub DMGs fail launch (`no usable signature`); user docs point to **source build + install script** until notarized Developer ID releases ship — [docs/macos-code-signing.md](docs/macos-code-signing.md), [docs/macos-install.md](docs/macos-install.md). Personal Apple Developer account (matthewdcage@gmail.com) is active as of Jun 2026: Developer ID signing needs the `MACOS_CERTIFICATE_P12` GitHub secret + notarization app-specific password; cert exports and that password stay in 1Password / local gitignored `.env`, never in the repo
 - Release tag must match root `pyproject.toml` version; bump all workspace packages + `uv lock` before `gh release create`
-- `.cursor/coordinator/` is gitignored local PR overseer (state, drafts, scripts); orchestration via seven tracked **Cursor subagents** in `.cursor/agents/coordinator-*.md` (incl. **prospector**, **telegram-runner**) — [`.cursor/coordinator/AGENTS.md`](.cursor/coordinator/AGENTS.md); run `run-coordinator-pass.sh` + `test-coordinator-loop.sh` before paste work; `test-discovery.sh` for offline discover-all smoke
+- `.cursor/coordinator/` is gitignored local PR overseer (state, drafts, scripts); orchestration via seven **Cursor subagents** in gitignored `.cursor/agents/coordinator-*.md` (incl. **prospector**, **telegram-runner**) — [`.cursor/coordinator/AGENTS.md`](.cursor/coordinator/AGENTS.md); run `run-coordinator-pass.sh` + `test-coordinator-loop.sh` before paste work; `test-discovery.sh` for offline discover-all smoke
 - `.cursor/outreach/` is gitignored local outreach research/drafts; paste-ready convention: **Target:** / **Title:** / body after `---` (plain markdown, no YAML); neither tree belongs in the remote repo
 - Prefer posted voice examples in `.cursor/coordinator/examples/` (`examples/index.json`) over generic `voice.md` when drafting community replies
 - Stagehand fork for browser automation lives outside this repo (maintainer-local path in `.cursor/coordinator/state/browser-profiles.json`; example checkout: `/path/to/agent-stagehand-browser-agent`); coordinator resolves it via `browse-env.sh`; `browse` CLI via `npm link` in that repo's `packages/cli`
@@ -236,7 +235,6 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 | [`packaging/AGENTS.md`](packaging/AGENTS.md) | Cross-platform release builds |
 | [`tests/AGENTS.md`](tests/AGENTS.md) | Cross-package integration tests |
 | [`.agents/AGENTS.md`](.agents/AGENTS.md) | Canonical agent skills (sync to tool paths) |
-| [`.cursor/agents/AGENTS.md`](.cursor/agents/AGENTS.md) | DOX protocol + coordinator subagent index |
 | [`.cursor/coordinator/AGENTS.md`](.cursor/coordinator/AGENTS.md) | Local PR coordinator (gitignored): scripts, state, browse-first stack |
 
-Updated: 2026-06-11 (v0.4.0.1 open trusted-LAN swarm default; optional secured token via menubar/CLI; Telegram bot DM bridge)
+Updated: 2026-06-11 (v0.4.0.1 open trusted-LAN swarm default; `.cursor/agents/` gitignored local)

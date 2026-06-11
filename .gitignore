@@ -34,9 +34,11 @@ archived/
 .env.local
 
 # Cursor — local/personal (shared copies: .cursor/skills/, .cursor/rules/netllm.mdc,
-# .cursor/rules/honcho_rules.mdc, mcp.json.example; Honcho hooks/state/mcp.json stay local)
+# .cursor/rules/honcho_rules.mdc, mcp.json.example; Honcho hooks/state/mcp.json stay local;
+# .cursor/agents/ = local DOX copy + coordinator subagent prompts, like .cursor/coordinator/)
 .cursor/plans/
 .cursor/outreach/
+.cursor/agents/
 .cursor/coordinator/
 .cursor/rules/pr-coordinator.mdc
 .cursor/hooks/

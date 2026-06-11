@@ -35,7 +35,7 @@ Overview: [platform-matrix.md](platform-matrix.md)
 | CI, macOS build, release | [ci-and-release.md](ci-and-release.md) |
 | macOS Developer ID + notarization | [macos-code-signing.md](macos-code-signing.md) |
 | Pre-push verification | `scripts/verify-before-pr.sh` from repo root |
-| DOX hierarchy (agents) | [AGENTS.md](../AGENTS.md) Child DOX Index; [`.cursor/agents/AGENTS.md`](../.cursor/agents/AGENTS.md) protocol |
+| DOX hierarchy (agents) | [AGENTS.md](../AGENTS.md) Child DOX Index |
 
 ## Repository map
 
