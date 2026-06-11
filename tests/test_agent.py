@@ -567,6 +567,45 @@ def test_wants_local_only_header() -> None:
     assert not AgentService._wants_local_only({"x-netllm-local-only": "0"})
 
 
+def test_order_message_candidates_spillover_sorts_by_load() -> None:
+    from netllm_agent.service import AgentService
+    from netllm_core.routing_policy import ResolvedRouting
+
+    cfg = NetllmConfig()
+    cfg.routing.spillover_max_local_in_flight = 2
+    service = AgentService(cfg)
+    routing = ResolvedRouting(
+        strategy="local_spillover",
+        local_only=False,
+        allow_cloud_inject=False,
+        prefer_provider=None,
+    )
+    local = Backend(
+        id="local", base_url="http://127.0.0.1:8080/v1", local=True, in_flight=3
+    )
+    busy_peer = Backend(
+        id="peer:busy",
+        base_url="http://192.168.1.11:11400/v1",
+        provider="custom",
+        local=False,
+        in_flight=9,
+    )
+    idle_peer = Backend(
+        id="peer:idle",
+        base_url="http://192.168.1.12:11400/v1",
+        provider="custom",
+        local=False,
+        in_flight=0,
+    )
+    ordered = service._order_message_candidates([busy_peer, local, idle_peer], routing)
+    # Saturated local with a less-loaded peer: least-loaded remote first.
+    assert [b.id for b in ordered] == ["peer:idle", "peer:busy", "local"]
+
+    local.in_flight = 0
+    ordered = service._order_message_candidates([busy_peer, local, idle_peer], routing)
+    assert ordered[0].id == "local"
+
+
 def test_peer_forward_headers_loop_guard() -> None:
     from netllm_agent.service import AgentService
     from netllm_core.models import LOCAL_ONLY_HEADER

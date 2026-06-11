@@ -169,3 +169,153 @@ def test_least_load_selects_lowest_in_flight(_mock: object) -> None:
     selected = pool.select_backend("m", "least_load")
     assert selected is not None
     assert selected.base_url == "http://b/v1"
+
+
+def _spillover_pool(local_in_flight: int, remote_in_flight: int) -> RouterPool:
+    pool = RouterPool(spillover_max_local_in_flight=2)
+    pool.set_backends(
+        [
+            Backend(
+                id="local",
+                base_url="http://127.0.0.1:8080/v1",
+                local=True,
+                in_flight=local_in_flight,
+                health=BackendHealth(models=["m"], status="online"),
+            ),
+            Backend(
+                id="peer:remote",
+                base_url="http://192.168.1.11:11400/v1",
+                provider="custom",
+                local=False,
+                in_flight=remote_in_flight,
+                health=BackendHealth(models=["m"], status="online"),
+            ),
+        ]
+    )
+    return pool
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_local_spillover_idle_local_never_hops(_mock: object) -> None:
+    pool = _spillover_pool(local_in_flight=0, remote_in_flight=0)
+    selected = pool.select_backend("m", "local_spillover")
+    assert selected is not None
+    assert selected.local is True
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_local_spillover_saturated_local_spills_to_idle_peer(_mock: object) -> None:
+    pool = _spillover_pool(local_in_flight=2, remote_in_flight=0)
+    selected = pool.select_backend("m", "local_spillover")
+    assert selected is not None
+    assert selected.local is False
+    assert selected.base_url == "http://192.168.1.11:11400/v1"
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_local_spillover_stays_local_when_peer_equally_busy(_mock: object) -> None:
+    pool = _spillover_pool(local_in_flight=3, remote_in_flight=3)
+    selected = pool.select_backend("m", "local_spillover")
+    assert selected is not None
+    assert selected.local is True
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_local_spillover_no_remote_stays_local_when_saturated(_mock: object) -> None:
+    pool = RouterPool(spillover_max_local_in_flight=2)
+    pool.set_backends(
+        [
+            Backend(
+                id="local",
+                base_url="http://127.0.0.1:8080/v1",
+                local=True,
+                in_flight=9,
+                health=BackendHealth(models=["m"], status="online"),
+            )
+        ]
+    )
+    selected = pool.select_backend("m", "local_spillover")
+    assert selected is not None
+    assert selected.local is True
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_local_spillover_remote_only_uses_least_loaded(_mock: object) -> None:
+    pool = RouterPool(spillover_max_local_in_flight=2)
+    pool.set_backends(
+        [
+            Backend(
+                id="peer:a",
+                base_url="http://192.168.1.11:11400/v1",
+                provider="custom",
+                local=False,
+                in_flight=4,
+                health=BackendHealth(models=["m"], status="online"),
+            ),
+            Backend(
+                id="peer:b",
+                base_url="http://192.168.1.12:11400/v1",
+                provider="custom",
+                local=False,
+                in_flight=1,
+                health=BackendHealth(models=["m"], status="online"),
+            ),
+        ]
+    )
+    selected = pool.select_backend("m", "local_spillover")
+    assert selected is not None
+    assert selected.base_url == "http://192.168.1.12:11400/v1"
+
+
+def test_merge_backends_adds_own_hops_to_peer_rows() -> None:
+    """Peer rows are rebuilt from heartbeats every refresh; our active
+    forwards must survive the rebuild and stale peer load must not stick."""
+    pool = RouterPool()
+    peer = Backend(
+        id="peer:remote",
+        base_url="http://192.168.1.11:11400/v1",
+        provider="custom",
+        local=False,
+        in_flight=0,
+    )
+    pool.set_backends([peer])
+    pool.acquire(peer)
+    pool.acquire(peer)
+    assert peer.in_flight == 2
+
+    def fresh_row(reported: int) -> Backend:
+        return Backend(
+            id="peer:remote",
+            base_url="http://192.168.1.11:11400/v1",
+            provider="custom",
+            local=False,
+            in_flight=reported,
+        )
+
+    # Heartbeat reports 1 busy slot; our 2 active hops are added on top.
+    pool.merge_backends([fresh_row(1)])
+    assert pool.backends[0].in_flight == 3
+    # Hops complete; the next heartbeat-reported value stands alone (no ratchet).
+    pool.release(pool.backends[0])
+    pool.release(pool.backends[0])
+    pool.merge_backends([fresh_row(0)])
+    assert pool.backends[0].in_flight == 0
+
+
+def test_merge_backends_preserves_local_in_flight() -> None:
+    pool = RouterPool()
+    existing = Backend(
+        id="omlx:x", base_url="http://127.0.0.1:8080/v1", local=True, in_flight=2
+    )
+    pool.set_backends([existing])
+    pool.merge_backends(
+        [
+            Backend(
+                id="omlx:x",
+                base_url="http://127.0.0.1:8080/v1",
+                local=True,
+                in_flight=0,
+            )
+        ]
+    )
+    assert pool.backends[0].in_flight == 2

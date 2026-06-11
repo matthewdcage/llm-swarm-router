@@ -28,6 +28,7 @@ RoutingStrategy = Literal[
     "least_load",
     "latency_weighted",
     "batch_shard",
+    "local_spillover",
 ]
 
 AgentRole = Literal["peer", "gateway"]
@@ -101,6 +102,9 @@ class RoutingConfig(BaseModel):
     default_strategy: RoutingStrategy = "local_first"
     allow_remote: bool = True
     require_same_model_for_shard: bool = True
+    # local_spillover: serve locally below this many concurrent requests,
+    # spill to the least-loaded LAN peer at or above it.
+    spillover_max_local_in_flight: int = 2
     backends: list[BackendOverride] = Field(default_factory=list)
     policies: list[RoutingPolicy] = Field(default_factory=list)
 

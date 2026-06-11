@@ -26,9 +26,12 @@ heartbeat_interval_s = 10.0
 
 [routing]
 # local_first: single machine. round_robin: spread same model across LAN peer agents.
+# local_spillover: serve locally while idle, spill to least-loaded peer when busy.
 default_strategy = "local_first"
 allow_remote = true
 require_same_model_for_shard = true
+# local_spillover only: stay local below this many concurrent requests.
+spillover_max_local_in_flight = 2
 
 # Optional routing policies (first match wins). Cloud paths require allow_cloud = true.
 # [[routing.policies]]
