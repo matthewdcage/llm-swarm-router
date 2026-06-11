@@ -1254,7 +1254,9 @@ async function saveConfig() {
     });
     state.config = cloneConfig(state.configDraft);
     markDirty(false);
-    if (result.needs_restart) {
+    if (result.warnings && result.warnings.length) {
+      setBanner(result.warnings.join(" "), "warn");
+    } else if (result.needs_restart) {
       setBanner("Saved — restart agent to apply listen/port changes.", "warn");
     } else {
       setBanner("Configuration saved.", "ok");

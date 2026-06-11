@@ -50,6 +50,14 @@ def test_mdns_advertiser_retries_on_non_unique_name() -> None:
     assert advertiser._error is None
 
 
+def test_mdns_advertise_address_uses_lan_for_wildcard_bind() -> None:
+    from netllm_discovery.mdns import _advertise_address
+
+    with patch("netllm_discovery.lan.local_lan_ip", return_value="10.0.0.32"):
+        host, _addr = _advertise_address("0.0.0.0:11400")
+    assert host == "10.0.0.32"
+
+
 def test_mdns_advertiser_sets_error_on_hard_failure() -> None:
     class FailingZeroconf:
         def register_service(self, info: object) -> None:

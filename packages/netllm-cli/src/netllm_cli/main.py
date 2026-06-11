@@ -478,15 +478,27 @@ def peers(
     peers_table(peers_found, title="LAN netllm agents")
 
     if save:
+        from netllm_discovery.lan import own_agent_urls
+
         cfg = load_config(cfg_path)
+        own = own_agent_urls(cfg.agent.listen)
         existing = {u.rstrip("/") for u in cfg.swarm.peers}
         added = 0
+        skipped_self = 0
         for p in peers_found:
             url = p.get("listen_url", "").rstrip("/")
-            if url and url not in existing:
-                cfg.swarm.peers.append(url)
-                existing.add(url)
-                added += 1
+            if not url or url in existing:
+                continue
+            if url in own:
+                skipped_self += 1
+                continue
+            cfg.swarm.peers.append(url)
+            existing.add(url)
+            added += 1
+        if skipped_self:
+            console.print(
+                f"[yellow]Skipped {skipped_self} URL(s) matching this agent[/]"
+            )
         if added:
             save_config(cfg, cfg_path)
             console.print(f"\n[green]Saved {added} peer(s)[/] → {cfg_path}")

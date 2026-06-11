@@ -70,17 +70,39 @@ On failure, the agent reassigns that index to the next healthy backend (Honcho-s
 
 ## Swarm (multi-Mac)
 
-1. Run `netllm serve` on each Mac with local oMLX/Ollama
+1. Run `netllm serve --host 0.0.0.0` on each Mac with local oMLX/Ollama
 2. Enable mDNS in config (`swarm.mdns = true`) or add static peers:
 
 ```toml
 [swarm]
 peers = ["http://192.168.1.50:11400", "http://192.168.1.51:11400"]
 mdns = true
+
+[routing]
+default_strategy = "round_robin"
+allow_remote = true
 ```
 
 3. Optionally set one machine as gateway: `netllm gateway`
-4. Point Honcho at the gateway URL only
+4. Point Honcho at the **gateway agent URL only** (`http://<gateway>:11400/v1`)
+
+### Agent-hop routing
+
+Honcho sends one request to the gateway. The gateway picks a backend:
+
+- **Local:** `http://127.0.0.1:8080/v1` (oMLX/Ollama on the gateway host)
+- **Peer:** `http://<peer-LAN-IP>:11400/v1` (the peer's netllm agent; that agent forwards to its own loopback oMLX)
+
+Do not point Honcho at peer loopback URLs (`127.0.0.1:8080` on another machine). The mesh uses **agent hops**, not exported loopback inference URLs.
+
+Verify distribution after traffic:
+
+```bash
+curl -s http://127.0.0.1:11400/metrics | rg netllm_requests_total
+curl -s http://<peer-LAN-IP>:11400/metrics | rg netllm_requests_total
+```
+
+Both counters should increase when `round_robin` alternates across machines with the same model.
 
 ## Parity checklist
 

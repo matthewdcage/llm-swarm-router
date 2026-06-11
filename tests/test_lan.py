@@ -10,8 +10,44 @@ from netllm_discovery.lan import (
     agent_url_from_listen,
     default_subnet_cidrs,
     discover_lan_agents,
+    filter_own_peer_urls,
+    is_lan_reachable_agent_url,
+    is_loopback_url,
     models_from_status,
+    own_agent_urls,
 )
+
+
+def test_is_loopback_url_detects_local_hosts() -> None:
+    assert is_loopback_url("http://127.0.0.1:8080/v1") is True
+    assert is_loopback_url("http://localhost:11400") is True
+    assert is_loopback_url("http://192.168.1.11:11400") is False
+
+
+def test_own_agent_urls_includes_lan_and_loopback() -> None:
+    with patch("netllm_discovery.lan.local_lan_ip", return_value="10.0.0.32"):
+        urls = own_agent_urls("0.0.0.0:11400")
+    assert "http://10.0.0.32:11400" in urls
+    assert "http://127.0.0.1:11400" in urls
+
+
+def test_filter_own_peer_urls() -> None:
+    with patch("netllm_discovery.lan.local_lan_ip", return_value="10.0.0.32"):
+        kept, rejected = filter_own_peer_urls(
+            [
+                "http://10.0.0.32:11400",
+                "http://10.0.0.5:11400",
+            ],
+            "0.0.0.0:11400",
+        )
+    assert kept == ["http://10.0.0.5:11400"]
+    assert rejected == ["http://10.0.0.32:11400"]
+
+
+def test_is_lan_reachable_agent_url() -> None:
+    assert is_lan_reachable_agent_url("http://10.0.0.32:11400") is True
+    assert is_lan_reachable_agent_url("http://127.0.0.1:11400") is False
+    assert is_lan_reachable_agent_url("") is False
 
 
 def test_agent_url_from_listen_uses_lan_for_wildcard() -> None:

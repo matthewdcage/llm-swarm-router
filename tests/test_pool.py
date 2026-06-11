@@ -134,6 +134,33 @@ def test_local_first_prefers_local_backend(_mock: object) -> None:
 
 
 @patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_round_robin_alternates_local_and_peer_agent(_mock: object) -> None:
+    pool = RouterPool()
+    local = Backend(
+        id="local",
+        base_url="http://127.0.0.1:8080/v1",
+        local=True,
+        health=BackendHealth(models=["shared-model"], status="online"),
+    )
+    peer = Backend(
+        id="peer:remote",
+        base_url="http://192.168.1.11:11400/v1",
+        local=False,
+        provider="custom",
+        health=BackendHealth(models=["shared-model"], status="online"),
+    )
+    pool.set_backends([local, peer])
+    first = pool.select_backend("shared-model", "round_robin")
+    second = pool.select_backend("shared-model", "round_robin")
+    assert first is not None and second is not None
+    urls = {first.base_url, second.base_url}
+    assert urls == {
+        "http://127.0.0.1:8080/v1",
+        "http://192.168.1.11:11400/v1",
+    }
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
 def test_least_load_selects_lowest_in_flight(_mock: object) -> None:
     pool = RouterPool()
     a = Backend(id="a", base_url="http://a/v1", in_flight=5)

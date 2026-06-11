@@ -97,6 +97,29 @@ allowed-tools:
 ./netllm serve   # restart to load new peers
 ```
 
+## Agent-hop routing (gateway + mesh)
+
+When Honcho or another client points at **one gateway** (`http://<gateway>:11400/v1`), netllm routes to:
+
+- Local inference on the gateway (`127.0.0.1:8080/v1`, etc.)
+- **Peer agents** at `http://<peer-LAN-IP>:11400/v1` (not the peer's loopback oMLX URL)
+
+For same model on multiple machines, set:
+
+```toml
+[routing]
+default_strategy = "round_robin"
+allow_remote = true
+```
+
+Confirm traffic reaches peers:
+
+```bash
+./netllm status   # remote backend rows show http://<peer>:11400/v1
+curl -s http://127.0.0.1:11400/metrics | rg netllm_requests_total
+curl -s http://<peer-LAN-IP>:11400/metrics | rg netllm_requests_total
+```
+
 ## Edge cases
 
 | Situation | Action |
@@ -107,6 +130,7 @@ allowed-tools:
 | Windows browse empty | Prefer `swarm.peers` or `--subnet-scan`; see [docs/windows-install.md](../../docs/windows-install.md) |
 | Loopback only | `127.0.0.1` bind hides agent from LAN: must use `0.0.0.0` |
 | Models missing remotely | Remote host needs online backends; check `./netllm status --url <peer>` |
+| Gateway hits wrong host:8080 | Peer must be routable as `http://<LAN-IP>:11400/v1`; do not add own agent URL to `swarm.peers` |
 
 ## Do not
 

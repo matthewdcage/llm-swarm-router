@@ -121,9 +121,9 @@ def test_heartbeat_registers_peer(client: TestClient) -> None:
         "backends": [
             Backend(
                 id="b1",
-                base_url="http://192.168.1.99:8080/v1",
+                base_url="http://127.0.0.1:8080/v1",
                 provider="omlx",
-                local=False,
+                local=True,
                 health=BackendHealth(status="online", models=["m1"]),
             ).model_dump(mode="json")
         ],
@@ -133,6 +133,13 @@ def test_heartbeat_registers_peer(client: TestClient) -> None:
     status = client.get("/netllm/v1/status").json()
     peer_ids = [p["agent_id"] for p in status.get("peers", [])]
     assert "remote-1" in peer_ids
+    remote_urls = [
+        b["base_url"]
+        for b in status.get("backends", [])
+        if not b.get("local")
+    ]
+    assert "http://192.168.1.99:11400/v1" in remote_urls
+    assert not any("127.0.0.1:8080" in u for u in remote_urls)
 
 
 def test_root_lists_messages_endpoint(client: TestClient) -> None:
@@ -191,6 +198,40 @@ def test_messages_stream_proxy(_mock_stream, client: TestClient) -> None:
     assert "message_stop" in resp.text
 
 
+def test_admin_config_save_strips_self_peer_url() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg_path = Path(tmp) / "config.toml"
+        cfg = NetllmConfig()
+        cfg.agent.listen = "0.0.0.0:11400"
+        cfg.swarm.mdns = False
+        cfg.agent.advertise = False
+        from netllm_core.models import save_config
+
+        save_config(cfg, cfg_path)
+        app = create_app(cfg, config_path=cfg_path)
+        with (
+            patch("netllm_discovery.lan.local_lan_ip", return_value="10.0.0.32"),
+            TestClient(app) as client,
+        ):
+            resp = client.post(
+                "/netllm/v1/admin/config",
+                json={
+                    "swarm": {
+                        "peers": [
+                            "http://10.0.0.32:11400",
+                            "http://10.0.0.5:11400",
+                        ]
+                    }
+                },
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["ok"] is True
+            assert "warnings" in data
+            reloaded = load_config(cfg_path)
+            assert reloaded.swarm.peers == ["http://10.0.0.5:11400"]
+
+
 def test_admin_config_save_round_trip() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         cfg_path = Path(tmp) / "config.toml"
@@ -245,6 +286,41 @@ def test_admin_allows_same_host_lan_ip(_mock_hosts: object) -> None:
     request.client.host = "10.0.0.9"
     request.headers.get.return_value = ""
     require_admin_access(request, cfg)
+
+
+@patch("netllm_discovery.lan.subnet_scan_agents", new_callable=AsyncMock)
+def test_admin_peers_scan_skips_self_on_save(mock_scan: AsyncMock) -> None:
+    mock_scan.return_value = [
+        {
+            "agent_id": "self-agent",
+            "listen_url": "http://10.0.0.32:11400",
+            "role": "peer",
+        },
+        {
+            "agent_id": "peer-b",
+            "listen_url": "http://10.0.0.5:11400",
+            "role": "peer",
+        },
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg_path = Path(tmp) / "config.toml"
+        cfg = NetllmConfig()
+        cfg.agent.listen = "0.0.0.0:11400"
+        cfg.swarm.mdns = False
+        from netllm_core.models import save_config
+
+        save_config(cfg, cfg_path)
+        app = create_app(cfg, config_path=cfg_path)
+        with (
+            patch("netllm_discovery.lan.local_lan_ip", return_value="10.0.0.32"),
+            TestClient(app) as client,
+        ):
+            resp = client.post("/netllm/v1/admin/peers-scan?save=true")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert any("Skipped" in w for w in data.get("warnings", []))
+            reloaded = load_config(cfg_path)
+            assert reloaded.swarm.peers == ["http://10.0.0.5:11400"]
 
 
 @patch("netllm_discovery.lan.subnet_scan_agents", new_callable=AsyncMock)
@@ -386,6 +462,104 @@ def test_status_includes_omlx_admin_url(client: TestClient) -> None:
     )
     data = service.status_payload()
     assert data.get("omlx_admin_url") == "http://127.0.0.1:8088/admin"
+
+
+@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_core.pool.probe_openai_compat_sync")
+@patch("netllm_sdk_openai.client.AsyncOpenAI")
+def test_round_robin_routes_to_peer_agent_url(
+    mock_openai_cls: object,
+    mock_probe: object,
+    mock_scan: AsyncMock,
+) -> None:
+    from unittest.mock import MagicMock
+
+    cfg = NetllmConfig()
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    cfg.routing.default_strategy = "round_robin"
+    cfg.routing.allow_remote = True
+
+    mock_scan.return_value = [
+        {
+            "id": "omlx",
+            "status": "online",
+            "base_url": "http://127.0.0.1:8080/v1",
+            "model_count": 1,
+            "models": ["shared-model"],
+        }
+    ]
+    mock_probe.return_value = {
+        "status": "online",
+        "models": ["shared-model"],
+        "model_count": 1,
+    }
+
+    called_base_urls: list[str] = []
+
+    mock_client = MagicMock()
+
+    def track_openai_client(*_args: object, **kwargs: object) -> MagicMock:
+        base = str(kwargs.get("base_url", "")).rstrip("/")
+        if base:
+            called_base_urls.append(base)
+        return mock_client
+
+    mock_openai_cls.side_effect = track_openai_client
+
+    async def record_create(**kwargs: object) -> MagicMock:
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = {
+            "id": "cmpl-test",
+            "object": "chat.completion",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "model": kwargs.get("model", "shared-model"),
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+        return mock_response
+
+    mock_client.chat.completions.create = record_create
+
+    app = create_app(cfg)
+    with TestClient(app) as client:
+        client.post(
+            "/netllm/v1/heartbeat",
+            json={
+                "agent_id": "peer-remote",
+                "listen_url": "http://192.168.1.11:11400",
+                "role": "peer",
+                "hostname": "mac-mini",
+                "backends": [
+                    Backend(
+                        id="b1",
+                        base_url="http://127.0.0.1:8080/v1",
+                        provider="omlx",
+                        local=True,
+                        health=BackendHealth(
+                            status="online", models=["shared-model"]
+                        ),
+                    ).model_dump(mode="json")
+                ],
+            },
+        )
+        for _ in range(2):
+            resp = client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "shared-model",
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
+            )
+            assert resp.status_code == 200
+
+    assert "http://127.0.0.1:8080/v1" in called_base_urls
+    assert "http://192.168.1.11:11400/v1" in called_base_urls
 
 
 def test_wants_local_only_header() -> None:
