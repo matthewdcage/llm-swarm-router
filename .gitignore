@@ -33,7 +33,8 @@ archived/
 .env
 .env.local
 
-# Cursor — local/personal (shared copies: .cursor/skills/, .cursor/rules/netllm.mdc, mcp.json.example)
+# Cursor — local/personal (shared copies: .cursor/skills/, .cursor/rules/netllm.mdc,
+# .cursor/rules/honcho_rules.mdc, mcp.json.example; Honcho hooks/state/mcp.json stay local)
 .cursor/plans/
 .cursor/outreach/
 .cursor/coordinator/

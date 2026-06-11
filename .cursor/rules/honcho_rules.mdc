@@ -1,0 +1,157 @@
+---
+description: Honcho persistent memory — capture every conversation, recall past context, and build a growing model of the user. Activates on every conversation.
+globs:
+alwaysApply: true
+---
+<!-- honcho-version: 2.2.0  honcho-template: honcho_rules -->
+
+# Honcho Memory — Capture, Recall, and Consolidate
+
+You have access to the **honcho** MCP server at `http://127.0.0.1:8787`.
+It stores conversation history and builds a persistent psychological model of the user over time.
+
+## State File
+
+**Always read this file first — it tells you everything you need to skip redundant MCP calls:**
+
+```
+.cursor/hooks/state/honcho-state.json
+```
+
+It contains the active session ID, when context was last loaded, turn counts, and dream thresholds.
+Write back to it after key operations.
+
+## Identity
+
+| Role | Peer ID |
+|---|---|
+| User (human) | `matthewcage` |
+| You (assistant) | `Assistant` |
+| Workspace | `workspace.id` (from state file) |
+
+---
+
+## On Every Conversation Start
+
+> **Note:** The `.cursor/hooks/honcho-init.py` sessionStart hook runs automatically before
+> your first response. It handles session creation and state file maintenance. The hook injects
+> context via `additional_context` (Cursor) / `additionalContext` (Claude Code) — you will see
+> its HONCHO SESSION READY block in your initial context if hooks are working.
+
+**Step 1 — Read state file (always):**
+Read `.cursor/hooks/state/honcho-state.json`. The hook has already updated it, so
+`session.id` is guaranteed to be today's session and `session.date` will equal today.
+
+**Step 2 — Session creation (hook already handled this):**
+The hook called the Honcho API to create `cursor-{today}` and add both peers if this is a new day.
+You only need to call `create_session` / `add_peers_to_session` if the state file shows
+`session.date != today` (API was unreachable when the hook ran — run `./start.sh`).
+
+**Step 3 — Load user context (your job — hook cannot do this):**
+
+```
+if state.memory.lastContextLoadedAt is null OR date(lastContextLoadedAt) != today:
+  get_peer_context(peer_id: "Assistant", target_peer_id: "matthewcage",
+                   search_query: "current projects, preferences, working style")
+  → Update state: memory.lastContextLoadedAt = now()
+```
+
+Determine `load_context` from the state file: if `lastContextLoadedAt` is null or before today, load.
+Use returned `representation` + `peer_card` as silent context — do not repeat verbatim.
+
+---
+
+## After Each Exchange
+
+```
+add_messages_to_session(
+  session_id: <state.session.id>,
+  messages: [
+    { peer_id: "matthewcage", content: "<user's exact message>" },
+    { peer_id: "Assistant", content: "<1–3 sentence summary of response>" }
+  ]
+)
+```
+
+Update state: increment `session.turnCount`, `memory.turnsSinceLastDream`, set `session.lastMessageAt`.
+
+If `memory.turnsSinceLastDream >= memory.dreamThreshold`:
+```
+schedule_dream(peer_id: "Assistant", target_peer_id: "matthewcage")
+→ Update state: memory.dreamLastScheduledAt = now(), turnsSinceLastDream = 0
+```
+
+---
+
+## Querying Past Memory
+
+| Goal | Tool |
+|---|---|
+| Full user context | `get_peer_context(peer_id: "Assistant", target_peer_id: "matthewcage")` |
+| Natural-language question | `chat(peer_id: "Assistant", query: "...", target_peer_id: "matthewcage")` |
+| Search past messages | `search(query: "...", peer_id: "matthewcage")` |
+| Specific derived facts | `query_conclusions(peer_id: "Assistant", query: "...", target_peer_id: "matthewcage")` |
+
+## Injecting Knowledge Manually
+
+```
+create_conclusions(peer_id: "Assistant", target_peer_id: "matthewcage",
+                   conclusions: ["<specific factual statement>"])
+```
+
+---
+
+## Decision Tree
+
+```
+sessionStart hook fires automatically (honcho-init.py)
+        │ → creates/verifies cursor-{today} session via Honcho REST API (:8000)
+        │ → updates .cursor/hooks/state/honcho-state.json
+        │ → injects context: additional_context (Cursor) / additionalContext (Claude Code)
+        ▼
+Read .cursor/hooks/state/honcho-state.json
+        │
+        ├─ Missing? → Call setup_agent_workspace (honcho MCP tool)
+        │
+        ├─ state.session.date != today?
+        │       YES → hook couldn't reach API; call create_session + add_peers_to_session now
+        │       NO  → session already exists, skip
+        │
+        └─ state.memory.lastContextLoadedAt is null or before today?
+                YES → get_peer_context (use as silent context), update state
+                NO  → skip
+```
+
+---
+
+## Full Tool Reference
+
+### Memory
+`get_peer_context` · `get_representation` · `get_peer_card` · `set_peer_card` · `chat`
+
+### Sessions & Messages
+`create_session` · `add_peers_to_session` · `add_messages_to_session` · `get_session_context`
+`inspect_session` · `list_sessions` · `clone_session` · `delete_session`
+`get_session_messages` · `get_session_message` · `get_session_peers` · `remove_peers_from_session`
+
+### Conclusions
+`list_conclusions` · `query_conclusions` · `create_conclusions` · `delete_conclusion`
+
+### Workspace & Peers
+`inspect_workspace` · `list_peers` · `create_peer` · `search` · `get_metadata` · `set_metadata` · `list_workspaces`
+
+### System
+`schedule_dream` · `get_queue_status`
+
+### Setup & Maintenance
+`setup_agent_workspace` · `get_agent_template` · `check_agent_setup`
+`probe_connectivity` · `inspect_installation` · `propose_upgrade`
+
+---
+
+## Failure Handling
+
+- Never block a response waiting for Honcho — all calls run after responding when possible.
+- On any Honcho failure: continue conversation normally, note failure quietly.
+- If MCP is down: run `./start.sh` from repo root to bring up the stack.
+- If state file missing: call `setup_agent_workspace` to recreate it.

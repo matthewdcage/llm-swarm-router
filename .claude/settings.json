@@ -1,0 +1,19 @@
+{
+  "_honcho": {
+    "version": "2.2.0",
+    "template": "claude_settings_hooks"
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && python3 .cursor/hooks/honcho-init.py"
+          }
+        ]
+      }
+    ]
+  }
+}
