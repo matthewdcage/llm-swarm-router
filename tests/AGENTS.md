@@ -17,6 +17,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 - Fixtures: `tests/fixtures/` (e.g. Anthropic message payloads)
 - Add tests for real behavior; avoid trivial assertions
 - **Swarm acceptance harness:** `tests/test_e2e_two_agents.py` runs two real agents + mock providers over HTTP (combined catalog, load spreading, loop-guarded hops, scan TTL). Extend it for any mesh behavior change; contract invariants live in `tests/test_contract.py`
+- **Open LAN swarm CLI/doctor:** `tests/test_cli_swarm_init.py` (open vs `--secure` init, `swarm-token --create`); `tests/test_doctor_open_lan.py` (no token issue on LAN); `tests/test_config_json.py` (`import_config` applies `ensure_lan_mesh_defaults`)
 - macOS install scripts: `tests/test_bundled_install_scripts.sh`
 - Menubar agent start (quiet + LAN listen): `tests/test_serve_quiet_lan.py` — regression for bundled `serve -q` with `0.0.0.0` listen reaching uvicorn
 - Admin access: `tests/test_agent.py` — remote client 403; same-host LAN IP allowed via `local_admin_client_hosts`

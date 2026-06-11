@@ -16,7 +16,8 @@ Key modules: `app.py`, `service.py`, `admin.py`, `metrics.py`, `shard.py`. Stati
 - Dashboard tokens: edit `apps/netllm-mac/design-tokens.json`, run `scripts/generate-dashboard-tokens.py` (CI `--check`)
 - In-app update API: `GET /netllm/v1/update/check` (macOS menubar proxies this)
 - **Admin routes** (`admin.py`): config save, doctor, version, logs, discover, peers-scan — allowed from **this host** (`local_admin_client_hosts()` in `netllm-core`) or `Authorization: Bearer <cluster_token>`; remote LAN clients get read-only status/models unless token is set
-- **Web dashboard** (`static/dashboard.js`): status/models load without admin; doctor/config failures degrade gracefully (warn banner, not fatal)
+- **Doctor** (`doctor_payload`): open LAN without `cluster_token` is informational (`notes`), not an `issues` failure; secured pairing is optional via Settings / CLI
+- **Web dashboard** (`static/dashboard.js`): status/models load without admin; doctor/config failures degrade gracefully (warn banner, not fatal); cluster token label shows **open (trusted LAN)** when unset
 - **Loop guard:** every forward to a `peer:` backend sets `x-netllm-local-only: 1` (`AgentService._peer_forward_headers`) so peers serve locally and never re-forward; status/catalog handlers force-probe **local** backends only (peer rows stay fresh via heartbeats — probing them recurses)
 - Depends on all other workspace packages except `netllm-cli`
 
