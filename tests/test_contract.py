@@ -94,6 +94,24 @@ def test_init_non_tty_writes_single_machine_defaults(
     assert cfg.swarm.cluster_token == ""
 
 
+def test_save_config_handles_optional_none_fields(tmp_path: Path) -> None:
+    """A backend override without api_format (None) must round-trip —
+    TOML has no null, so save_config strips None leaves."""
+    from netllm_core.models import BackendOverride, RoutingPolicy
+
+    cfg = NetllmConfig()
+    cfg.routing.backends = [
+        BackendOverride(base_url="http://127.0.0.1:18081/v1", provider="custom")
+    ]
+    cfg.routing.policies = [RoutingPolicy(name="p1")]
+    out = tmp_path / "config.toml"
+    save_config(cfg, out)
+    reloaded = load_config(out)
+    assert reloaded.routing.backends[0].api_format is None
+    assert reloaded.routing.policies[0].api_format is None
+    assert reloaded.routing.policies[0].strategy is None
+
+
 def test_config_example_roundtrip(tmp_path: Path) -> None:
     assert CONFIG_EXAMPLE.is_file()
     cfg = load_config(CONFIG_EXAMPLE)
