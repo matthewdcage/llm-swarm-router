@@ -71,12 +71,59 @@ class AgentService:
         self.startup_warnings: list[str] = []
         # Hold references so background tasks are not garbage collected.
         self._background_tasks: set[asyncio.Task[None]] = set()
+        self._local_scan_cache: list[Backend] | None = None
+        self._local_scan_at = 0.0
+        self._local_scan_ttl_s = 10.0
+        # Dedupe concurrent scans at TTL expiry (cache stampede guard).
+        self._local_scan_lock = asyncio.Lock()
 
     async def refresh_local_backends(
         self,
         *,
         persist_provider_urls: bool = False,
         config_path: Path | None = None,
+        force_scan: bool = False,
+    ) -> list[Backend]:
+        """Merge local providers + LAN peers into the pool.
+
+        The provider port scan (with its 1-token diagnose probes) is
+        TTL-cached — it used to run on every proxied request. Peer rows
+        are always re-merged so heartbeat updates apply immediately.
+        """
+
+        def _cached_scan() -> list[Backend] | None:
+            if force_scan or persist_provider_urls:
+                return None
+            if self._local_scan_cache is None:
+                return None
+            if time.monotonic() - self._local_scan_at >= self._local_scan_ttl_s:
+                return None
+            return self._local_scan_cache
+
+        local = _cached_scan()
+        if local is None:
+            async with self._local_scan_lock:
+                # Another waiter may have refreshed while we queued.
+                local = _cached_scan()
+                if local is None:
+                    local = await self._scan_local_backends(
+                        persist_provider_urls=persist_provider_urls,
+                        config_path=config_path,
+                    )
+                    self._local_scan_cache = local
+                    self._local_scan_at = time.monotonic()
+        remote = (
+            self.swarm.peer_agent_backends() if self.config.routing.allow_remote else []
+        )
+        self.pool.merge_backends(local + remote)
+        self._update_health_metrics()
+        return local
+
+    async def _scan_local_backends(
+        self,
+        *,
+        persist_provider_urls: bool,
+        config_path: Path | None,
     ) -> list[Backend]:
         from netllm_core.models import save_config
         from netllm_discovery.local import merge_discovered_provider_urls
@@ -116,11 +163,6 @@ class AgentService:
                         agent_id=self.config.agent.agent_id,
                     )
                 )
-        remote = (
-            self.swarm.peer_agent_backends() if self.config.routing.allow_remote else []
-        )
-        self.pool.merge_backends(local + remote)
-        self._update_health_metrics()
         return local
 
     def _update_health_metrics(self) -> None:
@@ -169,15 +211,20 @@ class AgentService:
 
     async def list_models_aggregated(self) -> dict[str, Any]:
         await self.refresh_local_backends()
+
+        def _probe_local() -> None:
+            # Force-probe local providers only. Peer-agent rows are kept
+            # fresh by heartbeats; probing them from a catalog handler
+            # recurses (the peer's handler would probe us back).
+            for b in self.pool.backends:
+                if b.enabled and b.local:
+                    self.pool.is_healthy(b, force_refresh=True)
+
+        await asyncio.to_thread(_probe_local)
         seen: dict[str, dict[str, Any]] = {}
         for b in self.pool.backends:
             if not b.enabled:
                 continue
-            # Force-probe local providers only. Peer-agent rows are kept
-            # fresh by heartbeats; probing them from a catalog handler
-            # recurses (the peer's handler would probe us back).
-            if b.local:
-                self.pool.is_healthy(b, force_refresh=True)
             for mid in b.health.models:
                 if mid not in seen:
                     seen[mid] = {
@@ -377,6 +424,14 @@ class AgentService:
         if shard and shard.batch_id is not None and shard.index is not None:
             self._batch_ledger.mark_done(shard.batch_id, shard.index)
 
+    async def _offload_if_probing(self, fn: Any, /, *args: Any, **kwargs: Any) -> Any:
+        """Run selection in a worker thread only when a health probe could
+        fire; fresh caches stay on the event loop (no thread overhead,
+        no pool-exhaustion exposure under load)."""
+        if self.pool.any_health_stale():
+            return await asyncio.to_thread(fn, *args, **kwargs)
+        return fn(*args, **kwargs)
+
     async def proxy_chat_completion(
         self,
         payload: dict[str, Any],
@@ -397,7 +452,8 @@ class AgentService:
 
         while attempt < max_attempts:
             attempt += 1
-            backend = self._select_backend_for_request(
+            backend = await self._offload_if_probing(
+                self._select_backend_for_request,
                 model,
                 routing.strategy,
                 attempt,
@@ -477,7 +533,8 @@ class AgentService:
 
         while attempt < max_attempts:
             attempt += 1
-            backend = self._select_backend_for_request(
+            backend = await self._offload_if_probing(
+                self._select_backend_for_request,
                 model,
                 routing.strategy,
                 attempt,
@@ -678,8 +735,8 @@ class AgentService:
         if routing.allow_cloud_inject:
             self._inject_anthropic_cloud_backend(api_key)
 
-        candidates = self._message_backend_candidates(
-            model, local_only=routing.local_only
+        candidates = await self._offload_if_probing(
+            self._message_backend_candidates, model, local_only=routing.local_only
         )
         candidates = self._order_message_candidates(candidates, routing)
         last_error: Exception | None = None
@@ -747,8 +804,8 @@ class AgentService:
         if routing.allow_cloud_inject:
             self._inject_anthropic_cloud_backend(api_key)
 
-        candidates = self._message_backend_candidates(
-            model, local_only=routing.local_only
+        candidates = await self._offload_if_probing(
+            self._message_backend_candidates, model, local_only=routing.local_only
         )
         candidates = self._order_message_candidates(candidates, routing)
         last_error: Exception | None = None

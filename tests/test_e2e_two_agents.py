@@ -249,6 +249,46 @@ def test_round_robin_spreads_load_without_ping_pong(
     assert all(h == "1" for h in hop_headers)
 
 
+def _post_chat_with_retry(client: httpx.Client, base: str) -> httpx.Response:
+    """POST a chat completion, retrying transient 5xx/connection flakes
+    (Windows runners occasionally abort sockets under threaded uvicorn)."""
+    last: httpx.Response | None = None
+    for _ in range(3):
+        try:
+            last = client.post(
+                f"{base}/v1/chat/completions",
+                json={
+                    "model": MODEL,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
+            )
+        except httpx.TransportError:
+            time.sleep(0.2)
+            continue
+        if last.status_code < 500:
+            return last
+        time.sleep(0.2)
+    assert last is not None, "request never completed"
+    return last
+
+
+def test_provider_scan_is_ttl_cached_across_requests(
+    two_agent_mesh: dict[str, Any],
+) -> None:
+    """Routed requests must not trigger a fresh provider scan (with its
+    1-token diagnose probe) every time — the scan is TTL-cached."""
+    provider_a = two_agent_mesh["provider_a"]
+    base_a = two_agent_mesh["base_a"]
+
+    with httpx.Client(timeout=60.0) as client:
+        _post_chat_with_retry(client, base_a)
+        start_probes = provider_a["probe_hits"]
+        for _ in range(3):
+            resp = _post_chat_with_retry(client, base_a)
+            assert resp.status_code == 200, resp.text
+    assert provider_a["probe_hits"] == start_probes
+
+
 def test_local_spillover_idle_agent_serves_locally() -> None:
     """With local_spillover and a serial (idle) workload, requests never
     leave the machine even though a peer is registered."""
