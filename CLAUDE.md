@@ -1,6 +1,6 @@
 # Claude Code: swarm-llm
 
-Primary project guide: **[AGENTS.md](AGENTS.md)** (commands, architecture, do-not rules).
+Primary project guide: **[AGENTS.md](AGENTS.md)** (commands, architecture, do-not rules). DOX protocol: **[`.cursor/agents/AGENTS.md`](.cursor/agents/AGENTS.md)**; per-folder contracts under `packages/`, `apps/`, `docs/`, etc.
 
 **Slash commands** (`.claude/commands/`):
 

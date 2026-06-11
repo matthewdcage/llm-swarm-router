@@ -18,7 +18,7 @@ struct WelcomeView: View {
                 Button("Continue") { step = 1 }
             case 1:
                 Toggle("Listen on LAN (0.0.0.0)", isOn: $lanMode)
-                Text("Enable for swarm peers on your network. Set cluster_token in Settings for untrusted LANs.")
+                Text("Enables swarm on your network and turns on subnet scan at agent startup (Wi‑Fi often blocks mDNS). Set cluster_token in Settings for untrusted LANs.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Toggle("Start agent on launch", isOn: $autoStart)

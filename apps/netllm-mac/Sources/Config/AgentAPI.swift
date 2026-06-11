@@ -96,6 +96,34 @@ enum AgentAPI {
         }
     }
 
+    /// Subnet-scan for LAN agents (same as `netllm peers --subnet-scan`).
+    static func peersScan(baseURL: URL, save: Bool = false) async -> (peers: [PeerStatus], warnings: String)? {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("/netllm/v1/admin/peers-scan"),
+            resolvingAgainstBaseURL: false
+        )
+        if save {
+            components?.queryItems = [URLQueryItem(name: "save", value: "true")]
+        }
+        guard let url = components?.url else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return nil
+            }
+            let rows = json["peers"] as? [[String: Any]] ?? []
+            let peers = rows.map(parsePeer)
+            let warnings = (json["warnings"] as? [String] ?? []).joined(separator: " ")
+            return (peers, warnings)
+        } catch {
+            return nil
+        }
+    }
+
     private static func parseBackend(_ dict: [String: Any]) -> BackendStatus {
         let health = dict["health"] as? [String: Any] ?? [:]
         let models = health["models"] as? [String] ?? []

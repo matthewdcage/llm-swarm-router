@@ -216,7 +216,7 @@ def test_admin_config_save_round_trip() -> None:
             assert summary["routing"]["default_strategy"] == "round_robin"
 
 
-def test_admin_config_requires_loopback() -> None:
+def test_admin_config_rejects_remote_client() -> None:
     from unittest.mock import MagicMock
 
     from fastapi import HTTPException
@@ -229,6 +229,22 @@ def test_admin_config_requires_loopback() -> None:
     with pytest.raises(HTTPException) as exc:
         require_admin_access(request, cfg)
     assert exc.value.status_code == 403
+
+
+@patch(
+    "netllm_agent.admin.local_admin_client_hosts",
+    return_value=frozenset({"127.0.0.1", "10.0.0.9"}),
+)
+def test_admin_allows_same_host_lan_ip(_mock_hosts: object) -> None:
+    from unittest.mock import MagicMock
+
+    from netllm_agent.admin import require_admin_access
+
+    cfg = NetllmConfig()
+    request = MagicMock()
+    request.client.host = "10.0.0.9"
+    request.headers.get.return_value = ""
+    require_admin_access(request, cfg)
 
 
 @patch("netllm_discovery.lan.subnet_scan_agents", new_callable=AsyncMock)

@@ -137,7 +137,7 @@ bash packaging/scripts/create-dmg.sh
 ### Gate 4 — User-path rehearsal
 
 ```bash
-./scripts/emulate-user-install-mac.sh   # DMG → /Applications → launch
+./scripts/emulate-user-install-mac.sh   # Stage → macos-app-install.sh --source → /Applications
 ```
 
 Then manual (5 min):
@@ -154,7 +154,8 @@ Then manual (5 min):
 **Upgrade path (if prior build installed):**
 
 ```bash
-./scripts/upgrade-mac-app.sh dist/llm-swarm-router.dmg
+packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app
+# After notarization: ./scripts/upgrade-mac-app.sh dist/llm-swarm-router.dmg
 ```
 
 ---
@@ -186,7 +187,7 @@ After GitHub Release `published` (workflow attaches artifacts):
 |-------|-----|
 | Release workflow green | Actions → Release workflow |
 | Assets present | DMG, `.sha256`, deb, rpm, zip, winget yaml |
-| Download DMG from Releases page | Install on second machine (e.g. Mac mini) |
+| Download DMG from Releases page | Install on a second machine (clean field test) |
 | In-app update OR clean install | Version matches tag; Gate 4 subset on real hardware |
 | `GET /netllm/v1/update/check` | Returns new version for older clients |
 
@@ -233,7 +234,7 @@ Wait for `.github/workflows/release.yml` → Gate 6.
 
 ### Phase E — Field verify
 
-Mac mini: install from Releases DMG → Gate 4 subset → confirm update notification from `0.2.3.3` or older.
+Field machine: install from Releases DMG → Gate 4 subset → confirm update notification from `0.2.3.3` or older.
 
 ---
 

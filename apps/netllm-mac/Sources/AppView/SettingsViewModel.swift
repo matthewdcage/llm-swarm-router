@@ -22,6 +22,10 @@ final class SettingsViewModel {
     var agentLogs: AgentLogsPayload?
     private(set) var uiRevision = 0
 
+    private var livePollTask: Task<Void, Never>?
+    private var autoPeerScanTask: Task<Void, Never>?
+    private var didAutoPeerScan = false
+
     let configStore: ConfigStore
     let cli: CLIRunner
     private(set) var agentBaseURL: URL
@@ -104,10 +108,45 @@ final class SettingsViewModel {
 
     func reloadAll() async {
         await runAction("Reloading…") {
+            didAutoPeerScan = false
             document = try configStore.load()
             updateAgentURL()
             await refreshLiveData()
+            scheduleAutoPeerScanIfNeeded()
             setSuccess("Config and live status refreshed.")
+        }
+    }
+
+    /// Poll agent health while Settings is open so stats update without quit/restart.
+    func startLivePolling() {
+        livePollTask?.cancel()
+        livePollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.refreshLiveData()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    func stopLivePolling() {
+        livePollTask?.cancel()
+        livePollTask = nil
+        autoPeerScanTask?.cancel()
+        autoPeerScanTask = nil
+    }
+
+    /// After Restart Agent, wait until /health responds before refreshing stats.
+    func waitForAgentHealth(maxAttempts: Int = 30) async {
+        updateAgentURL()
+        for _ in 0..<maxAttempts {
+            if Task.isCancelled { return }
+            if await AgentAPI.isReachable(baseURL: agentBaseURL) {
+                agentReachable = true
+                bumpUI()
+                return
+            }
+            try? await Task.sleep(for: .seconds(1))
         }
     }
 
@@ -123,6 +162,7 @@ final class SettingsViewModel {
 
     func refreshLiveData() async {
         updateAgentURL()
+        let wasReachable = agentReachable
         agentReachable = await AgentAPI.isReachable(baseURL: agentBaseURL)
         if agentReachable {
             async let statusTask = AgentAPI.status(baseURL: agentBaseURL)
@@ -135,12 +175,40 @@ final class SettingsViewModel {
                 routedModels = AgentAPI.modelsFromStatus(status)
             }
             syncDiscoverProvidersFromStatus()
+            if !wasReachable {
+                scheduleAutoPeerScanIfNeeded()
+            }
         } else {
             status = nil
             agentVersion = nil
             routedModels = []
         }
         bumpUI()
+    }
+
+    private var swarmDiscoveryEnabled: Bool {
+        document.swarm.mdns
+            || document.swarm.subnet_scan
+            || !document.swarm.peers.isEmpty
+            || document.bindHost == "0.0.0.0"
+    }
+
+    private func scheduleAutoPeerScanIfNeeded() {
+        guard agentReachable, swarmDiscoveryEnabled, !didAutoPeerScan else { return }
+        autoPeerScanTask?.cancel()
+        autoPeerScanTask = Task { [weak self] in
+            await self?.autoDiscoverLanPeers()
+        }
+    }
+
+    /// Background subnet scan for Settings stats (no save; agent merges peers at runtime).
+    private func autoDiscoverLanPeers() async {
+        guard !didAutoPeerScan else { return }
+        didAutoPeerScan = true
+        if let result = await AgentAPI.peersScan(baseURL: agentBaseURL) {
+            lanPeers = result.peers
+            bumpUI()
+        }
     }
 
     /// Agent discovers providers on startup; mirror that in the Settings UI without a manual scan.
@@ -237,25 +305,20 @@ final class SettingsViewModel {
         Task {
             let label = save ? "Scanning LAN and saving peers…" : "Scanning LAN for peers…"
             await runAction(label) {
-                var args = ["peers", "--json", "--subnet-scan"]
-                if save { args.append("--save") }
-                let json = try parseCLIJSON(command: args)
-                guard let peers = json["peers"] as? [[String: Any]] else {
-                    throw ActionError.unexpectedResponse("peers")
-                }
-                let warnings = (json["warnings"] as? [String] ?? []).joined(separator: " ")
-                lanPeers = peers.map { row in
-                    PeerStatus(
-                        agentId: row["agent_id"] as? String ?? "",
-                        listenURL: row["listen_url"] as? String ?? "",
-                        role: row["role"] as? String ?? "peer",
-                        hostname: row["hostname"] as? String ?? ""
-                    )
-                }
-                if save {
-                    document = try configStore.load()
-                    needsRestart = true
-                }
+                try await applyPeersScan(save: save, showManualHints: true)
+            }
+        }
+    }
+
+    private func applyPeersScan(save: Bool, showManualHints: Bool) async throws {
+        if agentReachable, let result = await AgentAPI.peersScan(baseURL: agentBaseURL, save: save) {
+            lanPeers = result.peers
+            let warnings = result.warnings
+            if save {
+                document = try configStore.load()
+                needsRestart = true
+            }
+            if showManualHints {
                 if lanPeers.isEmpty {
                     let hint = warnings.isEmpty
                         ? "mDNS often fails on Wi‑Fi — subnet scan also found none."
@@ -267,12 +330,52 @@ final class SettingsViewModel {
                     var msg = "Found \(lanPeers.count) LAN agent(s): \(names)."
                     if save {
                         msg += " Restart agent to merge remote backends."
-                    } else {
-                        msg += " Use Scan & save, then Restart agent."
+                    } else if connectedPeerCount == 0 {
+                        msg += " Peers connect automatically when subnet scan is enabled."
                     }
                     if !warnings.isEmpty { msg += " \(warnings)" }
                     setSuccess(msg)
                 }
+            }
+            return
+        }
+
+        var args = ["peers", "--json", "--subnet-scan"]
+        if save { args.append("--save") }
+        let json = try parseCLIJSON(command: args)
+        guard let peers = json["peers"] as? [[String: Any]] else {
+            throw ActionError.unexpectedResponse("peers")
+        }
+        let warnings = (json["warnings"] as? [String] ?? []).joined(separator: " ")
+        lanPeers = peers.map { row in
+            PeerStatus(
+                agentId: row["agent_id"] as? String ?? "",
+                listenURL: row["listen_url"] as? String ?? "",
+                role: row["role"] as? String ?? "peer",
+                hostname: row["hostname"] as? String ?? ""
+            )
+        }
+        if save {
+            document = try configStore.load()
+            needsRestart = true
+        }
+        if showManualHints {
+            if lanPeers.isEmpty {
+                let hint = warnings.isEmpty
+                    ? "mDNS often fails on Wi‑Fi — subnet scan also found none."
+                    : warnings
+                setSuccess("Scan complete — no LAN agents found. \(hint)")
+            } else {
+                let names = lanPeers.map { $0.hostname.isEmpty ? $0.listenURL : $0.hostname }
+                    .joined(separator: ", ")
+                var msg = "Found \(lanPeers.count) LAN agent(s): \(names)."
+                if save {
+                    msg += " Restart agent to merge remote backends."
+                } else {
+                    msg += " Use Scan & save, then Restart agent."
+                }
+                if !warnings.isEmpty { msg += " \(warnings)" }
+                setSuccess(msg)
             }
         }
     }

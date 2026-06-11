@@ -18,7 +18,7 @@ Cross-platform: [editor-integration.md](editor-integration.md) · Agent help: `.
 
 | Tier | Platforms | Expectation |
 |------|-----------|-------------|
-| **Stable** | macOS | DMG menubar app on every published GitHub Release |
+| **Stable** | macOS | Menubar app via **build + install script** on macOS 26+; notarized GitHub DMG when signing is enabled |
 | **Alpha** | Linux, Windows | First deb/rpm/zip packages on each Release; breaking changes and install UX still settling: see release notes |
 | **Core** | All | HTTP API contract at `:11400`: additive changes only |
 
@@ -26,7 +26,7 @@ Cross-platform: [editor-integration.md](editor-integration.md) · Agent help: `.
 
 | Platform | Recommended install | Background agent | `netllm start/stop/restart` |
 |----------|---------------------|------------------|----------------------------|
-| **macOS** | [DMG](https://github.com/matthewdcage/llm-swarm-router/releases) → Applications | Menubar app supervises agent | App control socket or Homebrew `brew services` |
+| **macOS** | [Build from source](macos-install.md#build-from-source--install-script-recommended-on-macos-26) + `macos-app-install.sh --source` | Menubar app supervises agent | App control socket or Homebrew `brew services` |
 | **macOS** | Homebrew `brew install netllm` | `brew services start netllm` | Homebrew |
 | **Linux** | `.deb` / `.rpm` from Releases | systemd user unit `netllm` | `linux-systemd` when package installed |
 | **Windows** | `netllm-*-windows-x64.zip` | `NetllmAgent` Windows service | `windows-service` after `install-service.ps1` |
@@ -56,15 +56,15 @@ Agent lifespan runs provider discovery on start and persists URLs to config (all
 
 ## Release assets (one GitHub Release page)
 
-Latest: [v0.2.3.5](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.5) (macOS update UX + agent port recovery) · [v0.2.3.4](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.2.3.4) (lifecycle gates) · [All releases](https://github.com/matthewdcage/llm-swarm-router/releases)
+Latest: [v0.3.0.2](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.3.0.2) (menubar agent start + LAN listen) · [All releases](https://github.com/matthewdcage/llm-swarm-router/releases)
 
-| Asset | Platform |
-|-------|----------|
-| `llm-swarm-router.dmg` | macOS (stable) |
-| `netllm_*_amd64.deb` | Linux (alpha) |
-| `netllm-*.rpm` | Linux (alpha) |
-| `netllm-*-windows-x64.zip` | Windows (alpha) |
-| `netllm.yaml` | Winget manifest snippet (SHA256 + URL for winget-pkgs PR) |
+| Asset | Platform | Notes |
+|-------|----------|-------|
+| `llm-swarm-router.dmg` | macOS | Attached to releases; **ad-hoc until notarized** — prefer [source build + install script](macos-install.md#build-from-source--install-script-recommended-on-macos-26) on macOS 26+ |
+| `netllm_*_amd64.deb` | Linux | Alpha |
+| `netllm-*.rpm` | Linux | Alpha |
+| `netllm-*-windows-x64.zip` | Windows | Alpha |
+| `netllm.yaml` | Winget | Manifest snippet for winget-pkgs PR |
 
 Built by [.github/workflows/release.yml](../.github/workflows/release.yml) on `release: published` (macOS DMG, Linux deb/rpm, Windows zip + winget manifest).
 

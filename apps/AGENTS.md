@@ -25,7 +25,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md). Release builds: [../packaging/AGENTS.
 ```bash
 scripts/verify-before-pr.sh          # macOS Swift build
 scripts/verify-before-pr.sh --full   # + menubar e2e when Stage .app exists
-scripts/test-menubar-e2e.sh
+scripts/test-menubar-e2e.sh          # bundled serve -q + 0.0.0.0 listen smoke before DMG
 ```
 
 ## Child DOX Index

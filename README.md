@@ -16,7 +16,7 @@
 # llm-swarm-router
 
 <p align="center">
-  <a href="https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.3.0.1"><img src="https://img.shields.io/badge/version-0.3.0.1-orange?style=for-the-badge" alt="Version 0.3.0.1"></a>
+  <a href="https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.3.0.2"><img src="https://img.shields.io/badge/version-0.3.0.2-orange?style=for-the-badge" alt="Version 0.3.0.2"></a>
   <a href="docs/macos-install.md"><img src="https://img.shields.io/badge/macOS-Menubar%20app-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS app"></a>
   <a href="docs/linux-install.md"><img src="https://img.shields.io/badge/Linux-deb%2Frpm%20alpha-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux alpha"></a>
   <a href="docs/windows-install.md"><img src="https://img.shields.io/badge/Windows-zip%20alpha-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows alpha"></a>
@@ -78,25 +78,34 @@ Point **Cursor**, **Claude Code**, **Codex**, **Honcho**, or any compatible clie
 
 | Platform | Status | Install | Troubleshooting |
 |----------|--------|---------|-----------------|
-| **macOS** | Stable: menubar app + CLI | [docs/macos-install.md](docs/macos-install.md) · [DMG](https://github.com/matthewdcage/llm-swarm-router/releases) | [docs/macos-troubleshooting.md](docs/macos-troubleshooting.md) |
+| **macOS** | Stable: menubar app + CLI | [docs/macos-install.md](docs/macos-install.md) (build + install script on macOS 26+) | [docs/macos-troubleshooting.md](docs/macos-troubleshooting.md) |
 | **Linux** | Alpha: deb/rpm + systemd | [docs/linux-install.md](docs/linux-install.md) | [docs/linux-troubleshooting.md](docs/linux-troubleshooting.md) |
 | **Windows** | Alpha: zip + Windows service | [docs/windows-install.md](docs/windows-install.md) | [docs/windows-troubleshooting.md](docs/windows-troubleshooting.md) |
 | **All** (dev/CI) | Source: `uv sync` + `./netllm serve` | [CLI / source](#cli--source-install-all-platforms) below | `./netllm doctor` · http://127.0.0.1:11400/ui/ |
 
 Overview: [docs/platform-matrix.md](docs/platform-matrix.md) · Full doc index: [docs/README.md](docs/README.md)
 
-**Latest release:** [v0.3.0.1](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.3.0.1): macOS in-app update download fix; [v0.3.0.0](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.3.0.0): App Intents & Shortcuts, SwiftUI MenuBarExtra, `[[routing.policies]]`, launch at login. [All releases](https://github.com/matthewdcage/llm-swarm-router/releases).
+**Latest release:** [v0.3.0.2](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.3.0.2): macOS menubar agent start fix (quiet serve + LAN); [v0.3.0.1](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.3.0.1): in-app update download fix. [All releases](https://github.com/matthewdcage/llm-swarm-router/releases).
 
 ---
 
-## macOS: install in one step
+## macOS: install (recommended)
 
-**Recommended for Mac users:** download, drag, open. No terminal setup required.
+**On macOS 26 (Tahoe)+:** GitHub release DMGs are ad-hoc signed until Apple notarization is enabled — Gatekeeper may block them. **Build from source and run the install script** (tested path):
 
-1. Download **`llm-swarm-router.dmg`** from [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases/latest) (or [build from source](#build-the-macos-app-developers)).
-2. Open the DMG and drag **llm-swarm-router** to **Applications**.
-3. Launch from Applications. The bee icon appears in the menu bar.
-4. Complete the short welcome wizard (optional LAN mode, auto-start agent).
+```bash
+git clone https://github.com/matthewdcage/llm-swarm-router.git
+cd llm-swarm-router && git checkout v0.3.0.2
+uv sync && uv pip install venvstacks
+apps/netllm-mac/Scripts/build.sh release
+packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app
+```
+
+Launch from Applications. The bee icon appears in the menu bar. Complete the welcome wizard (optional LAN mode, auto-start agent).
+
+**CLI only (no menubar):** `uv sync && ./netllm init && ./netllm serve` — dashboard at http://127.0.0.1:11400/ui/
+
+Full steps: [docs/macos-install.md](docs/macos-install.md)
 
 <p align="center">
   <img src="assets/screenshots/llm-swarm-router-osx-menu.png" alt="llm-swarm-router MenuBarExtra popover v0.3.0.1 showing agent status, routing stats, and quick actions" width="360">
@@ -190,6 +199,8 @@ export OPENAI_API_KEY=netllm-local
 
 ## Wire your editor
 
+Point any compatible client at netllm **once**. Keep your model IDs; configure oMLX, Ollama, LM Studio, and swarm peers in `~/.config/netllm/config.toml` only (not per-client URL lists). LAN peers distribute automatically after `./netllm peers`.
+
 ```bash
 export OPENAI_BASE_URL=http://127.0.0.1:11400/v1
 export OPENAI_API_KEY=netllm-local
@@ -202,14 +213,14 @@ export ANTHROPIC_BASE_URL=http://127.0.0.1:11400
 export ANTHROPIC_API_KEY=netllm-local
 ```
 
-Pick a model ID from `./netllm models` (or the app **Settings → Models** tab). Full per-editor steps: [docs/editor-integration.md](docs/editor-integration.md).
+Pick a model ID from `./netllm models` (or the app **Settings → Models** tab). Full client table and per-editor steps: [docs/editor-integration.md](docs/editor-integration.md). Honcho connectors: [docs/honcho-integration.md](docs/honcho-integration.md).
 
 ---
 
 ## What you get
 
 <table>
-<tr><td><b>Native macOS app</b></td><td>Drag-to-Applications install. Menubar supervisor, welcome wizard, full Settings UI (status, backends, models, peers, routing, discovery, doctor). Embeds the Python agent, no separate <code>uv</code> setup for end users.</td></tr>
+<tr><td><b>Native macOS app</b></td><td>Build from source + install script on macOS 26+ (menubar supervisor, welcome wizard, Settings UI). GitHub DMG returns when notarized. Embeds the Python agent.</td></tr>
 <tr><td><b>Linux &amp; Windows packages (alpha)</b></td><td><code>.deb</code> / <code>.rpm</code> with systemd user unit, or Windows zip + <code>NetllmAgent</code> service, first packaged release for these platforms. Same agent core as macOS. Install from <a href="https://github.com/matthewdcage/llm-swarm-router/releases/latest">GitHub Releases</a>.</td></tr>
 <tr><td><b>Web dashboard (all platforms)</b></td><td><a href="http://127.0.0.1:11400/ui/">http://127.0.0.1:11400/ui/</a>, status, models, peers, discover, copy client env. macOS menubar adds <b>Open Dashboard</b>; Linux/Windows use browser + <code>netllm env</code>.</td></tr>
 <tr><td><b>Zero-touch local discovery</b></td><td>Agent scans on every start, oMLX (<code>:8080</code>+, macOS), Ollama (<code>:11434</code>), LM Studio (<code>:1234</code>), vLLM (<code>:8000</code>). Per-machine overrides in Settings or <code>discovery.provider_urls</code>. Found URLs persist automatically.</td></tr>
@@ -278,17 +289,16 @@ Requirements: macOS 15+, Apple Silicon, [uv](https://docs.astral.sh/uv/), Xcode 
 
 ```bash
 uv sync
+uv pip install venvstacks
 apps/netllm-mac/Scripts/build.sh release
-packaging/scripts/create-dmg.sh    # → dist/llm-swarm-router.dmg
+packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app
+# Optional maintainer DMG (ad-hoc until notarized): packaging/scripts/create-dmg.sh
 ```
 
 **Test like an end user** (build → Applications → launch):
 
 ```bash
-./scripts/emulate-user-install-mac.sh   # build + clean install
-
-# Upgrade from a downloaded release DMG (stops stale agents, verifies /ui/)
-./scripts/upgrade-mac-app.sh ~/Downloads/llm-swarm-router.dmg
+./scripts/emulate-user-install-mac.sh   # build + macos-app-install.sh --source
 ```
 
 Python layer packaging (venvstacks): [packaging/README.md](packaging/README.md)

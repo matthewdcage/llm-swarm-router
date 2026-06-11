@@ -29,6 +29,10 @@ apps/netllm-mac/build/
 # Local archive for moved/deprecated files (project convention; not shipped)
 archived/
 
+# Local maintainer secrets (Apple signing / notarization)
+.env
+.env.local
+
 # Cursor — local/personal (shared copies: .cursor/skills/, .cursor/rules/netllm.mdc, mcp.json.example)
 .cursor/plans/
 .cursor/outreach/

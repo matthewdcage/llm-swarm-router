@@ -7,18 +7,17 @@ from typing import Any
 
 from fastapi import HTTPException, Request
 from netllm_core.models import NetllmConfig, save_config
+from netllm_core.platform import local_admin_client_hosts
 
 from netllm_agent.service import AgentService
 
 _CONFIG_SECTIONS = frozenset({"agent", "discovery", "swarm", "routing", "ui"})
 
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
-
 
 def require_admin_access(request: Request, cfg: NetllmConfig) -> None:
-    """Allow admin routes from loopback or with a valid cluster token."""
+    """Allow admin routes from this host or with a valid cluster token."""
     client_host = (request.client.host if request.client else "").lower()
-    if client_host in _LOOPBACK_HOSTS:
+    if client_host in local_admin_client_hosts():
         return
     token = (cfg.swarm.cluster_token or "").strip()
     if token:
@@ -27,7 +26,7 @@ def require_admin_access(request: Request, cfg: NetllmConfig) -> None:
             return
     raise HTTPException(
         status_code=403,
-        detail="Admin routes require a loopback client or Bearer cluster token",
+        detail="Admin routes require a local client or Bearer cluster token",
     )
 
 

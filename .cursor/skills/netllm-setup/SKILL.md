@@ -39,7 +39,8 @@ allowed-tools:
 
 | User preference | Steps |
 |-----------------|-------|
-| **macOS DMG** | Download [latest Release](https://github.com/matthewdcage/llm-swarm-router/releases/latest) `llm-swarm-router.dmg` → drag to Applications → launch menubar app → welcome wizard. See [docs/macos-install.md](../../docs/macos-install.md). |
+| **macOS menubar (macOS 26+)** | Clone [latest release tag](https://github.com/matthewdcage/llm-swarm-router/releases/latest) → `uv sync` → `uv pip install venvstacks` → `apps/netllm-mac/Scripts/build.sh release` → `packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app`. GitHub DMG is ad-hoc until notarized — see [docs/macos-install.md](../../docs/macos-install.md). |
+| **macOS DMG (when notarized)** | Download `llm-swarm-router.dmg` from Releases → bundled `macos-app-install.sh --dmg` — not Gatekeeper-safe on macOS 26 until Developer ID notarization ships |
 | **Homebrew** | `brew tap matthewdcage/netllm <repo>` → `brew install netllm` → `brew services start netllm` |
 | **Linux deb/rpm** | Install `netllm_*_amd64.deb` or `netllm-*.rpm` from Releases → `netllm init` → `systemctl --user enable --now netllm`. See [docs/linux-install.md](../../docs/linux-install.md). |
 | **Windows zip** | Extract `netllm-*-windows-x64.zip` → run `install-service.ps1` as Admin → `netllm init` → `netllm start`. See [docs/windows-install.md](../../docs/windows-install.md). |

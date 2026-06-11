@@ -151,7 +151,7 @@ This repo uses consistent Python tooling:
 - Match existing package layout under `packages/`
 - Typer + Rich patterns for CLI changes in `netllm-cli`
 - Vendor SDKs stay isolated: `netllm-sdk-openai` and `netllm-sdk-anthropic` only: `netllm-core` must not import `openai` or `anthropic`
-- Do not delete files: move to `archived/` and log the action (project convention)
+- Do not delete files: move to local `archived/` and log in `archived/ARCHIVE_LOG.txt` (gitignored; never commit)
 - Do not commit secrets, API keys, or `.cursor/mcp.json`
 
 ### Agent skills

@@ -28,6 +28,7 @@ const state = {
   updatePollTimer: null,
   logsPollTimer: null,
   logs: null,
+  adminWarned: false,
 };
 
 function showToast(msg) {
@@ -63,7 +64,16 @@ async function api(path, options = {}) {
   const res = await fetch(path, options);
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || `${res.status} ${res.statusText}`);
+    let message = text || `${res.status} ${res.statusText}`;
+    try {
+      const json = JSON.parse(text);
+      if (json && typeof json.detail === "string") {
+        message = json.detail;
+      }
+    } catch {
+      /* keep raw text */
+    }
+    throw new Error(message);
   }
   if (res.status === 204) return null;
   const ct = res.headers.get("content-type") || "";
@@ -104,17 +114,23 @@ async function loadCore() {
   const status = await api("/netllm/v1/status");
   state.status = status;
   updateOmlxAdminLink();
-  const [models, doctor, env] = await Promise.all([
+  const [models, env] = await Promise.all([
     api("/v1/models"),
-    api("/netllm/v1/doctor"),
     api("/netllm/v1/client-env"),
   ]);
   state.models = models.data || [];
-  state.doctor = doctor;
   const vars = env.vars || env;
   state.envText = Object.entries(vars)
     .map(([k, v]) => `export ${k}=${v}`)
     .join("\n");
+  try {
+    state.doctor = await api("/netllm/v1/doctor");
+  } catch (e) {
+    state.doctor = { ok: false, issues: [], error: e.message };
+    warnAdminLimited(
+      "Doctor unavailable (admin API). Use http://127.0.0.1:11400/ui/ on this Mac or set a cluster token."
+    );
+  }
   try {
     const config = await api("/netllm/v1/config");
     if (!state.dirty) {
@@ -122,15 +138,20 @@ async function loadCore() {
       state.configDraft = cloneConfig(config);
     }
   } catch (e) {
-    setBanner(
-      "Config editor unavailable (admin API). Editable tabs need loopback access.",
-      "warn"
+    warnAdminLimited(
+      "Config editor unavailable (admin API). Use http://127.0.0.1:11400/ui/ on this Mac or set a cluster token."
     );
     if (!state.configDraft) {
       state.configDraft = emptyConfigDraft();
     }
   }
   updateStatusLine();
+}
+
+function warnAdminLimited(message) {
+  if (state.adminWarned) return;
+  state.adminWarned = true;
+  setBanner(message, "warn");
 }
 
 function emptyConfigDraft() {

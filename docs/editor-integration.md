@@ -17,6 +17,24 @@ export OPENAI_BASE_URL=http://127.0.0.1:11400/v1
 export OPENAI_API_KEY=netllm-local
 ```
 
+## Client configuration (all tools)
+
+Use the same pattern for **Cursor, Claude Code, Codex, Honcho, Continue, Cline, curl, and custom apps**:
+
+| Setting | Value |
+|---------|--------|
+| OpenAI-compatible base URL | `http://127.0.0.1:11400/v1` on the same machine, `http://<gateway-ip>:11400/v1` for a LAN gateway, or `http://host.docker.internal:11400/v1` when the client runs in Docker and netllm on the host |
+| API key | `netllm-local` (placeholder; real keys only for optional cloud failover) |
+| Model ID | Unchanged from your current setup; must match `./netllm models` exactly |
+| Backend URLs (oMLX, Ollama, LM Studio, vLLM) | **`~/.config/netllm/config.toml` only** — discovery, Settings UI, or `[[routing.backends]]`. Do not keep per-machine URL lists in each client. |
+| Multi-machine swarm | Run `./netllm serve --host 0.0.0.0` on each node; clients still use **one** netllm URL. Peers merge automatically (`./netllm peers`). Optional: `./netllm gateway` on one host, then point clients at that agent only. |
+
+**Anthropic Messages API clients** (Claude Code native path, some agents): use `http://127.0.0.1:11400` (no `/v1`) and `ANTHROPIC_API_KEY=netllm-local`.
+
+Verify after wiring: `./netllm test --model <your-model>` (add `--api anthropic` for Messages API).
+
+Per-tool UI steps below; Honcho-specific connector sharding: [honcho-integration.md](honcho-integration.md).
+
 ## Cursor
 
 1. **Cursor Settings** → **Models**
@@ -62,7 +80,16 @@ When your setup supports a custom OpenAI-compatible endpoint, use the same base 
 
 ## Honcho
 
-See [honcho-integration.md](honcho-integration.md). Use `http://host.docker.internal:11400/v1` when Honcho runs in Docker and netllm on the host.
+Full guide: [honcho-integration.md](honcho-integration.md). Follow **Client configuration (all tools)** above, then set Honcho-specific overrides:
+
+```toml
+# deriver / dialectic (example)
+[deriver.model_config.overrides]
+base_url = "http://host.docker.internal:11400/v1"
+api_key = "netllm-local"
+```
+
+Connectors: single `LLM_OPENAI_COMPATIBLE_BASE_URL` (not comma-separated URLs) plus `CONNECTOR_LLM_ROUTING_STRATEGY=batch_shard` when running parallel workers. See the Honcho guide for shard headers.
 
 ## LAN / swarm gateway
 
