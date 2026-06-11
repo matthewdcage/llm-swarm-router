@@ -144,6 +144,42 @@ def test_normalize_agent_url() -> None:
     assert norm("192.168.1.20") == "http://192.168.1.20:11400"
     assert norm("http://192.168.1.20:11400/") == "http://192.168.1.20:11400"
     assert norm("studio.local:11400") == "http://studio.local:11400"
+    assert norm("http://[fe80::1]") == "http://[fe80::1]:11400"
+    assert norm("http://[fe80::1]:11400") == "http://[fe80::1]:11400"
+
+
+def test_listen_port_of_handles_ipv6_and_bare_hosts() -> None:
+    port_of = cli_main._listen_port_of
+    assert port_of("127.0.0.1:11400") == "11400"
+    assert port_of("0.0.0.0:12000") == "12000"
+    assert port_of("[::1]:11400") == "11400"
+    assert port_of("::1") == "11400"
+    assert port_of("localhost") == "11400"
+
+
+def test_validate_join_token_rejects_server_error() -> None:
+    class FakeResp:
+        status_code = 500
+
+    class FakeClient:
+        def __init__(self, *a: object, **k: object) -> None:
+            pass
+
+        def __enter__(self) -> FakeClient:
+            return self
+
+        def __exit__(self, *a: object) -> None:
+            return None
+
+        def post(self, *a: object, **k: object) -> FakeResp:
+            return FakeResp()
+
+    import pytest as _pytest
+    import typer as _typer
+
+    with patch.object(cli_main.httpx, "Client", FakeClient):
+        with _pytest.raises(_typer.Exit):
+            cli_main._validate_join_token("http://192.168.1.20:11400", "tok", "me")
 
 
 def test_swarm_token_show_and_rotate(tmp_path: Path) -> None:

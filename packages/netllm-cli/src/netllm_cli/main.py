@@ -129,9 +129,19 @@ def _resolve_init_swarm_mode(*, swarm: bool, single: bool) -> bool:
     return False
 
 
+def _listen_port_of(listen: str) -> str:
+    """Port from a host:port listen string (last-colon split, IPv6-safe)."""
+    if "]" in listen:  # bracketed IPv6: [::1]:11400
+        port = listen.rpartition("]:")[2]
+    elif listen.count(":") == 1:  # host:port
+        port = listen.rpartition(":")[2]
+    else:  # bare host or bare IPv6 — no port present
+        port = ""
+    return port if port.isdigit() else "11400"
+
+
 def _apply_swarm_mode(cfg: NetllmConfig) -> None:
-    host, _, port = cfg.agent.listen.partition(":")
-    cfg.agent.listen = f"0.0.0.0:{port or '11400'}"
+    cfg.agent.listen = f"0.0.0.0:{_listen_port_of(cfg.agent.listen)}"
     cfg.swarm.cluster_token = secrets.token_urlsafe(24)
     cfg.routing.default_strategy = "local_spillover"
 
@@ -344,10 +354,12 @@ def discover(
 
 
 def _normalize_agent_url(url: str) -> str:
+    from urllib.parse import urlparse
+
     base = url.strip().rstrip("/")
     if not base.startswith("http"):
         base = f"http://{base}"
-    if ":" not in base.split("//", 1)[1]:
+    if urlparse(base).port is None:
         base = f"{base}:11400"
     return base
 
@@ -391,6 +403,16 @@ def _validate_join_token(base: str, token: str, agent_id: str) -> None:
             hints=[
                 "Show the token on the other machine: [cyan]netllm swarm-token[/]",
                 "Copy the full join command printed by [cyan]netllm init --swarm[/]",
+            ],
+        )
+        raise typer.Exit(1)
+    if resp.status_code not in (200, 204):
+        print_error(
+            "Swarm handshake failed",
+            f"Heartbeat probe returned HTTP {resp.status_code}.",
+            hints=[
+                "Check the other agent's logs",
+                "Verify both machines run a compatible netllm version",
             ],
         )
         raise typer.Exit(1)
@@ -461,8 +483,7 @@ def join(
 
 
 def _apply_swarm_join_listen(cfg: NetllmConfig) -> None:
-    host, _, port = cfg.agent.listen.partition(":")
-    cfg.agent.listen = f"0.0.0.0:{port or '11400'}"
+    cfg.agent.listen = f"0.0.0.0:{_listen_port_of(cfg.agent.listen)}"
 
 
 @app.command("swarm-token")
