@@ -259,23 +259,32 @@ def test_local_spillover_idle_agent_serves_locally() -> None:
     agent_a: dict[str, Any] = {"chat_inbound": 0, "local_only_headers": []}
     agent_b: dict[str, Any] = {"chat_inbound": 0, "local_only_headers": []}
 
-    pa_port, pb_port = _free_port(), _free_port()
-    aa_port, ab_port = _free_port(), _free_port()
-    servers = [
-        ServerThread(make_mock_provider("A", provider_a), pa_port),
-        ServerThread(make_mock_provider("B", provider_b), pb_port),
-        ServerThread(
-            make_agent(pa_port, aa_port, agent_a, strategy="local_spillover"), aa_port
-        ),
-        ServerThread(
-            make_agent(pb_port, ab_port, agent_b, strategy="local_spillover"), ab_port
-        ),
-    ]
     with patch(
         "netllm_discovery.swarm.is_lan_reachable_agent_url",
         lambda url: bool(url),
     ):
-        for server in servers:
+        provider_srv_a = ServerThread(make_mock_provider("A", provider_a), 0)
+        provider_srv_b = ServerThread(make_mock_provider("B", provider_b), 0)
+        provider_srv_a.start()
+        provider_srv_b.start()
+        aa_port, ab_port = _free_port(), _free_port()
+        servers = [
+            provider_srv_a,
+            provider_srv_b,
+            ServerThread(
+                make_agent(
+                    provider_srv_a.port, aa_port, agent_a, strategy="local_spillover"
+                ),
+                aa_port,
+            ),
+            ServerThread(
+                make_agent(
+                    provider_srv_b.port, ab_port, agent_b, strategy="local_spillover"
+                ),
+                ab_port,
+            ),
+        ]
+        for server in servers[2:]:
             server.start()
         try:
             base_a = f"http://127.0.0.1:{aa_port}"
