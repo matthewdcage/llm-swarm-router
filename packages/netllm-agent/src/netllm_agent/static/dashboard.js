@@ -743,7 +743,9 @@ function renderSwarmTab() {
   card.appendChild(hb);
 
   const token = el("div", "form-group");
-  const tokenLabel = state.configDraft.swarm.cluster_token_set ? "(set)" : "(not set)";
+  const tokenLabel = state.configDraft.swarm.cluster_token_set
+    ? "(secured)"
+    : "(open trusted LAN)";
   token.appendChild(textEl("label", "", `Cluster token ${tokenLabel}`));
   const tokenInput = document.createElement("input");
   tokenInput.type = "password";

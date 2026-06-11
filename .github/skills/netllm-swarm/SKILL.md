@@ -34,27 +34,24 @@ allowed-tools:
 - Same LAN/VLAN (guest Wi-Fi often blocks mDNS)
 - Local inference on at least one host (optional on workers if they only gateway)
 
-## Workflow (guided — preferred)
+## Workflow (DMG / trusted home LAN — default)
 
-1. **First machine: swarm init**
+1. **Each machine:** install app → welcome **Listen on LAN** (or Settings LAN toggle) → restart agent
+2. **Clients:** `export OPENAI_BASE_URL=http://<any-LAN-IP>:11400/v1` (Honcho, Cursor, etc.)
+3. **Verify:** `./netllm peers` — agents find each other via mDNS / subnet scan (no token)
+
+Open swarm: empty `swarm.cluster_token` is intentional on trusted LANs.
+
+## Workflow (CLI — same open default)
+
+1. **Each machine:**
    ```bash
-   ./netllm init --swarm    # or plain `init` and answer yes on the prompt
+   ./netllm init --swarm    # upgrades existing config; no --force
    ./netllm serve
    ```
-   This binds `0.0.0.0:11400`, generates `swarm.cluster_token`, selects the
-   `local_spillover` strategy, and **prints the exact join command** for the
-   other machines.
+   Binds `0.0.0.0:11400`, selects `local_spillover`, enables `subnet_scan` — **no token**.
 
-2. **Every other machine: join**
-   ```bash
-   ./netllm join http://<first-machine-ip>:11400 --token <printed-token>
-   ./netllm serve
-   ```
-   `join` validates reachability and the token, then writes LAN bind +
-   token + static peer + spillover. Lost the token? `./netllm swarm-token`
-   on any joined machine (or `--rotate` to replace it everywhere).
-
-3. **Verify the mesh**
+2. **Verify the mesh**
    ```bash
    ./netllm peers          # both machines listed; flags unreachable loopback binds
    ./netllm models --lan
@@ -72,7 +69,7 @@ allowed-tools:
 
 2. **Firewall**, allow inbound TCP `11400` and UDP `5353` (mDNS) on each host — `./netllm doctor` prints per-platform commands.
 
-3. **Security on untrusted LANs**, set `swarm.cluster_token` (same value everywhere) when using `0.0.0.0`. Warn user if token is empty. Heartbeats are rejected with 401 on token mismatch.
+3. **Security on untrusted LANs** (optional): Settings **Require cluster token**, or `./netllm init --swarm --secure`, or `./netllm swarm-token --create`. Then on other machines: `./netllm join http://<leader-ip>:11400 --token <token>`. Heartbeats require Bearer token when set; open swarms reject join-with-token.
 
 4. **Discover peers** (from any machine on the LAN)
    ```bash
@@ -104,8 +101,8 @@ allowed-tools:
 
 | Machine | Command |
 |---------|---------|
-| MacBook (Ollama) | `./netllm init --swarm && ./netllm serve` |
-| Linux box (vLLM) | `netllm join http://<macbook-ip>:11400 --token <printed>` then `netllm serve` |
+| MacBook (Ollama) | Menubar LAN on + restart agent (or `./netllm init --swarm && ./netllm serve`) |
+| Linux box (vLLM) | Same — LAN bind; open mesh needs no join on trusted LAN |
 | Either | `./netllm peers` then `./netllm models --lan` |
 
 **Guest network (no mDNS)**
@@ -158,7 +155,7 @@ curl -s http://<peer-LAN-IP>:11400/metrics | rg netllm_requests_total
 | Situation | Action |
 |-----------|--------|
 | No peers found | `./netllm doctor` (firewall UDP 5353 / TCP 11400 hints), same subnet, `--subnet-scan`, manual `swarm.peers` |
-| Peer "found but unreachable" | That machine is loopback-bound: run `netllm init --force --swarm` or `serve --host 0.0.0.0` there |
+| Peer "found but unreachable" | That machine is loopback-bound: enable LAN in menubar app, `netllm init --swarm`, or `serve --host 0.0.0.0` there |
 | Join rejected (401) | Token mismatch — `netllm swarm-token` on a joined machine, re-run `join` |
 | Join rejected (token vs open swarm) | The target has no token set — rotate one there first, or join without `--token` |
 | mDNS unavailable | `uv sync` or `./netllm doctor`; static peers still work |

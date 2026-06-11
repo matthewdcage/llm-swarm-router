@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException, Request
-from netllm_core.models import NetllmConfig, save_config
+from netllm_core.models import NetllmConfig, is_lan_listen, save_config
 from netllm_core.platform import local_admin_client_hosts
 
 from netllm_agent.service import AgentService
@@ -33,13 +33,12 @@ def require_admin_access(request: Request, cfg: NetllmConfig) -> None:
 def doctor_payload(cfg: NetllmConfig, service: AgentService) -> dict[str, Any]:
     """Read-only doctor summary for the dashboard (subset of CLI doctor)."""
     issues: list[dict[str, str]] = []
+    notes: list[str] = []
 
-    if cfg.agent.listen.startswith("0.0.0.0") and not cfg.swarm.cluster_token:
-        issues.append(
-            {
-                "title": "LAN exposure without cluster token",
-                "fix": "Set swarm.cluster_token when listening on 0.0.0.0",
-            }
+    if is_lan_listen(cfg.agent.listen) and not cfg.swarm.cluster_token:
+        notes.append(
+            "LAN swarm is open (no cluster token). Enable Require cluster token "
+            "in Settings on untrusted networks."
         )
 
     if cfg.agent.role == "gateway" and not cfg.agent.advertise:
@@ -75,7 +74,10 @@ def doctor_payload(cfg: NetllmConfig, service: AgentService) -> dict[str, Any]:
                 }
             )
 
-    return {"ok": not issues, "issues": issues}
+    payload: dict[str, Any] = {"ok": not issues, "issues": issues}
+    if notes:
+        payload["notes"] = notes
+    return payload
 
 
 def _backend_override_export(cfg: NetllmConfig) -> list[dict[str, Any]]:

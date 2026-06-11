@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import netllm_cli.main as cli_main
 import pytest
-from netllm_core.models import NetllmConfig, load_config, save_config
+from netllm_core.models import BackendOverride, NetllmConfig, load_config, save_config
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -36,8 +36,19 @@ def test_init_swarm_configures_mesh(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     cfg = load_config(cfg_path)
     assert cfg.agent.listen == "0.0.0.0:11400"
-    assert len(cfg.swarm.cluster_token) >= 24
+    assert cfg.swarm.cluster_token == ""
     assert cfg.routing.default_strategy == "local_spillover"
+    assert cfg.swarm.subnet_scan is True
+    assert "Open trusted-LAN swarm" in result.output
+    assert "netllm join" not in result.output
+
+
+def test_init_swarm_secure_creates_token(tmp_path: Path) -> None:
+    result, cfg_path = _init(tmp_path, "--swarm", "--secure")
+    assert result.exit_code == 0, result.output
+    cfg = load_config(cfg_path)
+    assert cfg.agent.listen == "0.0.0.0:11400"
+    assert len(cfg.swarm.cluster_token) >= 24
     assert "netllm join" in result.output
 
 
@@ -182,21 +193,95 @@ def test_validate_join_token_rejects_server_error() -> None:
             cli_main._validate_join_token("http://192.168.1.20:11400", "tok", "me")
 
 
-def test_swarm_token_show_and_rotate(tmp_path: Path) -> None:
+def test_init_swarm_upgrades_existing_config_without_force(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config.toml"
+    cfg = NetllmConfig()
+    cfg.routing.backends = [
+        BackendOverride(base_url="http://127.0.0.1:8080/v1", provider="omlx"),
+    ]
+    save_config(cfg, cfg_path)
+
+    result = runner.invoke(
+        cli_main.app,
+        ["init", "--swarm", "--config", str(cfg_path), "--no-global-cli"],
+    )
+    assert result.exit_code == 0, result.output
+    upgraded = load_config(cfg_path)
+    assert upgraded.agent.listen == "0.0.0.0:11400"
+    assert upgraded.swarm.cluster_token == ""
+    assert upgraded.routing.default_strategy == "local_spillover"
+    assert upgraded.swarm.subnet_scan is True
+    assert upgraded.routing.backends
+    assert "LAN swarm settings applied" in result.output
+    assert "Open trusted-LAN swarm" in result.output
+
+
+def test_swarm_token_open_lan_exit_zero(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config.toml"
+    cfg = NetllmConfig()
+    cfg.agent.listen = "0.0.0.0:11400"
+    save_config(cfg, cfg_path)
+
+    result = runner.invoke(cli_main.app, ["swarm-token", "--config", str(cfg_path)])
+    assert result.exit_code == 0, result.output
+    assert load_config(cfg_path).swarm.cluster_token == ""
+    assert "Open LAN swarm" in result.output
+    assert "--create" in result.output
+
+
+def test_swarm_token_create_mints(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config.toml"
+    cfg = NetllmConfig()
+    cfg.agent.listen = "0.0.0.0:11400"
+    save_config(cfg, cfg_path)
+
+    result = runner.invoke(
+        cli_main.app, ["swarm-token", "--create", "--config", str(cfg_path)]
+    )
+    assert result.exit_code == 0, result.output
+    token = load_config(cfg_path).swarm.cluster_token
+    assert len(token) >= 24
+    assert token in result.output
+    assert "netllm join" in result.output
+
+
+def test_swarm_token_missing_on_loopback_exits(tmp_path: Path) -> None:
     cfg_path = tmp_path / "config.toml"
     save_config(NetllmConfig(), cfg_path)
 
     result = runner.invoke(cli_main.app, ["swarm-token", "--config", str(cfg_path)])
     assert result.exit_code == 1
-    assert "No cluster token" in result.output
+    assert "not in LAN swarm mode" in result.output
+
+
+def test_swarm_token_rotate(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config.toml"
+    cfg = NetllmConfig()
+    cfg.agent.listen = "0.0.0.0:11400"
+    cfg.swarm.cluster_token = "existing-token"
+    save_config(cfg, cfg_path)
 
     result = runner.invoke(
         cli_main.app, ["swarm-token", "--rotate", "--config", str(cfg_path)]
     )
     assert result.exit_code == 0, result.output
     token = load_config(cfg_path).swarm.cluster_token
+    assert token != "existing-token"
     assert len(token) >= 24
     assert token in result.output
+
+
+def test_ensure_lan_mesh_defaults() -> None:
+    from netllm_core.models import ensure_lan_mesh_defaults
+
+    cfg = NetllmConfig()
+    cfg.agent.listen = "0.0.0.0:11400"
+    assert ensure_lan_mesh_defaults(cfg) is True
+    assert cfg.routing.default_strategy == "local_spillover"
+    assert cfg.swarm.subnet_scan is True
+    assert cfg.swarm.cluster_token == ""
+
+    assert ensure_lan_mesh_defaults(cfg) is False
 
 
 def test_heartbeat_requires_token_when_set() -> None:

@@ -378,9 +378,9 @@ struct SettingsWindowView: View {
             gridRow("Listen", model.document.agent.listen)
             Text("Changes apply after Save + Restart Agent.")
                 .font(.caption).foregroundStyle(.orange)
-            if model.document.isLanMode && model.document.swarm.cluster_token.isEmpty {
-                Label("Set swarm.cluster_token for untrusted LANs", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+            if model.document.isLanMode && !model.requireClusterToken {
+                Label("Open trusted-LAN swarm. Enable Require cluster token on the Swarm tab for untrusted networks.", systemImage: "info.circle")
+                    .foregroundStyle(.secondary)
                     .font(.caption)
             }
         }
@@ -435,7 +435,26 @@ struct SettingsWindowView: View {
                 TextField("10", value: $model.document.swarm.heartbeat_interval_s, format: .number)
                     .frame(width: 80)
             }
-            SecureField("Cluster token", text: $model.document.swarm.cluster_token)
+            Toggle("Require cluster token", isOn: $model.requireClusterToken)
+            Text("Default: open trusted home LAN. Enable to require pairing on untrusted networks.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if model.requireClusterToken {
+                SecureField("Cluster token (manual override)", text: $model.document.swarm.cluster_token)
+                if let joinCommand = model.joinCommandText() {
+                    HStack(alignment: .top) {
+                        Text(joinCommand)
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button("Copy join command") { model.copyJoinCommand() }
+                    }
+                } else if model.document.isLanMode {
+                    Text("Save and restart the agent to show the join command with your LAN URL.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             sectionHeader("Subnet CIDRs")
             EditableStringList(
                 items: $model.document.swarm.subnet_cidrs,

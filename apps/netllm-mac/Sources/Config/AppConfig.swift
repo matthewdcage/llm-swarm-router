@@ -115,6 +115,14 @@ struct AppConfig: Sendable {
             value: lanMode ? "true" : "false",
             section: "[swarm]"
         )
+        if lanMode {
+            lines = mergeTomlValue(
+                lines,
+                key: "default_strategy",
+                value: "\"local_spillover\"",
+                section: "[routing]"
+            )
+        }
         lines = mergeTomlValue(lines, key: "auto_start_on_launch", value: autoStart ? "true" : "false", section: "[ui]")
         try lines.joined(separator: "\n").write(to: path, atomically: true, encoding: .utf8)
     }

@@ -20,6 +20,8 @@ final class SettingsViewModel {
     var errorMessage: String?
     var needsRestart = false
     var agentLogs: AgentLogsPayload?
+    /// UI intent for secured swarm; synced from config on reload, applied on save.
+    var requireClusterToken = false
     private(set) var uiRevision = 0
 
     private var livePollTask: Task<Void, Never>?
@@ -31,7 +33,8 @@ final class SettingsViewModel {
     private(set) var agentBaseURL: URL
 
     static let strategies = [
-        "local_first", "failover", "round_robin", "least_load", "latency_weighted", "batch_shard",
+        "local_first", "local_spillover", "failover", "round_robin", "least_load",
+        "latency_weighted", "batch_shard",
     ]
     static let providers = ["omlx", "ollama", "lmstudio", "vllm"]
     static let roles = ["peer", "gateway"]
@@ -110,6 +113,7 @@ final class SettingsViewModel {
         await runAction("Reloading…") {
             didAutoPeerScan = false
             document = try configStore.load()
+            syncRequireClusterTokenFromDocument()
             updateAgentURL()
             await refreshLiveData()
             scheduleAutoPeerScanIfNeeded()
@@ -238,13 +242,44 @@ final class SettingsViewModel {
         }
     }
 
+    func syncRequireClusterTokenFromDocument() {
+        requireClusterToken = !document.swarm.cluster_token.isEmpty
+    }
+
+    func joinCommandText() -> String? {
+        let token = document.swarm.cluster_token.trimmingCharacters(in: .whitespaces)
+        guard !token.isEmpty else { return nil }
+        let listenURL = status?.listenURL.trimmingCharacters(in: .whitespaces) ?? ""
+        guard !listenURL.isEmpty else { return nil }
+        return JoinCommandExporter.format(listenURL: listenURL, token: token)
+    }
+
+    func copyJoinCommand() {
+        guard let command = joinCommandText() else { return }
+        JoinCommandExporter.copyToPasteboard(command)
+        setSuccess("Join command copied to clipboard.")
+    }
+
     func save() {
         Task {
             await runAction("Saving config…") {
+                document.applyLanMeshDefaults()
+                applyRequireClusterTokenOnSave()
                 _ = try configStore.save(document)
+                syncRequireClusterTokenFromDocument()
                 needsRestart = true
                 setSuccess("Saved config.toml — use Restart Agent for listen/routing changes.")
             }
+        }
+    }
+
+    private func applyRequireClusterTokenOnSave() {
+        if requireClusterToken {
+            if document.swarm.cluster_token.isEmpty {
+                document.swarm.cluster_token = ClusterTokenGenerator.make()
+            }
+        } else {
+            document.swarm.cluster_token = ""
         }
     }
 

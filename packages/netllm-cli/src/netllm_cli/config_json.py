@@ -7,7 +7,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from netllm_core.models import NetllmConfig, load_config, save_config
+from netllm_core.models import (
+    NetllmConfig,
+    ensure_lan_mesh_defaults,
+    load_config,
+    save_config,
+)
 
 
 def export_config(path: Path | None = None) -> dict[str, Any]:
@@ -17,6 +22,7 @@ def export_config(path: Path | None = None) -> dict[str, Any]:
 
 def import_config(data: dict[str, Any], path: Path | None = None) -> Path:
     cfg = NetllmConfig.model_validate(data)
+    ensure_lan_mesh_defaults(cfg)
     return save_config(cfg, path)
 
 

@@ -14,7 +14,13 @@ from typing import Any
 
 import httpx
 import typer
-from netllm_core.config import default_config_path, load_config, save_config
+from netllm_core.config import (
+    default_config_path,
+    ensure_lan_mesh_defaults,
+    is_lan_listen,
+    load_config,
+    save_config,
+)
 from netllm_core.models import NetllmConfig
 from netllm_core.version import get_version
 from netllm_discovery.lan import (
@@ -141,10 +147,16 @@ def _listen_port_of(listen: str) -> str:
     return port if port.isdigit() else "11400"
 
 
-def _apply_swarm_mode(cfg: NetllmConfig) -> None:
+def _apply_open_swarm_mode(cfg: NetllmConfig) -> None:
     cfg.agent.listen = f"0.0.0.0:{_listen_port_of(cfg.agent.listen)}"
-    cfg.swarm.cluster_token = secrets.token_urlsafe(24)
     cfg.routing.default_strategy = "local_spillover"
+    cfg.swarm.subnet_scan = True
+
+
+def _apply_secured_swarm_mode(cfg: NetllmConfig) -> None:
+    _apply_open_swarm_mode(cfg)
+    if not cfg.swarm.cluster_token:
+        cfg.swarm.cluster_token = secrets.token_urlsafe(24)
 
 
 def _join_command_for(cfg: NetllmConfig) -> str:
@@ -155,66 +167,61 @@ def _join_command_for(cfg: NetllmConfig) -> str:
 
 
 def _print_swarm_summary(cfg: NetllmConfig) -> None:
-    console.print(
-        Panel(
-            "[bold]Run on every other machine:[/]\n"
-            f"  [cyan]{_join_command_for(cfg)}[/]\n\n"
-            "[dim]Token saved in config (swarm.cluster_token) — show it any "
-            "time with[/] [cyan]netllm swarm-token[/]",
-            title="LAN swarm enabled",
-            border_style="green",
+    if cfg.swarm.cluster_token:
+        console.print(
+            Panel(
+                "[bold]Run on every other machine:[/]\n"
+                f"  [cyan]{_join_command_for(cfg)}[/]\n\n"
+                "[dim]Token saved in config (swarm.cluster_token) — show it any "
+                "time with[/] [cyan]netllm swarm-token[/]",
+                title="Secured LAN swarm enabled",
+                border_style="green",
+            )
         )
-    )
+    else:
+        console.print(
+            Panel(
+                "[bold]Open trusted-LAN swarm[/] — no cluster token required.\n\n"
+                "On other machines: enable LAN in the menubar app or run "
+                "[cyan]netllm init --swarm[/]. They will find this agent via "
+                "subnet scan / mDNS.\n\n"
+                "[dim]Untrusted network?[/] [cyan]netllm init --swarm --secure[/] "
+                "or [cyan]netllm swarm-token --create[/]",
+                title="LAN swarm enabled",
+                border_style="green",
+            )
+        )
 
 
-@app.command()
-def init(
-    config: Path | None = typer.Option(None, "--config", help="Config file path"),
-    force: bool = typer.Option(False, "--force", help="Overwrite existing config"),
-    global_cli: bool = typer.Option(
-        True,
-        "--global-cli/--no-global-cli",
-        help="Install `netllm` globally via uv and update shell PATH",
-    ),
-    swarm: bool = typer.Option(
-        False,
-        "--swarm",
-        help="LAN swarm mode: bind 0.0.0.0, generate cluster token, "
-        "spread load with local_spillover",
-    ),
-    single: bool = typer.Option(
-        False,
-        "--single",
-        help="Single-machine mode (loopback bind, local-only routing)",
-    ),
+def _swarm_next_steps(cfg: NetllmConfig, base: str) -> list[tuple[str, str]]:
+    steps: list[tuple[str, str]] = [
+        (suggested_cli("serve"), "Start the router (binds your LAN)"),
+        (
+            f"export OPENAI_BASE_URL={base}/v1",
+            "Point OpenAI clients at netllm",
+        ),
+        (suggested_cli("peers"), "Verify machines found each other"),
+        (suggested_cli("models"), "Combined model catalog"),
+    ]
+    if cfg.swarm.cluster_token:
+        steps.insert(1, (_join_command_for(cfg), "Run on every other machine"))
+    else:
+        steps.insert(
+            1,
+            (
+                suggested_cli("init --swarm"),
+                "On other machines — enable LAN mesh (open pairing)",
+            ),
+        )
+    return steps
+
+
+def _run_init_post_save(
+    cfg: NetllmConfig, cfg_path: Path, *, swarm_mode: bool, upgraded: bool = False
 ) -> None:
-    """Write default config, scan local providers, optionally install global CLI."""
-    if global_cli and find_repo_root() is not None:
-        installed = ensure_global_cli()
-        print_path_notice(installed=installed)
-
-    cfg_path = _config_path_option(config)
-    if cfg_path.is_file() and not force:
-        print_error(
-            "Config already exists",
-            f"[cyan]{cfg_path}[/] is already present.",
-            hints=[
-                "Scan providers: [cyan]netllm discover[/]",
-                "Overwrite: [cyan]netllm init --force[/]",
-                "Join a swarm without re-init: [cyan]netllm join URL --token T[/]",
-                "Edit config: [cyan]netllm config-edit[/]",
-            ],
-        )
-        raise typer.Exit(0)
-
-    swarm_mode = _resolve_init_swarm_mode(swarm=swarm, single=single)
-    cfg = NetllmConfig()
-    if swarm_mode:
-        _apply_swarm_mode(cfg)
-    save_config(cfg, cfg_path)
     base = listen_url(cfg.agent.listen)
-
-    print_heading("netllm initialized", f"Config written to {cfg_path}")
+    title = "LAN swarm settings applied" if upgraded else "netllm initialized"
+    print_heading(title, f"Config written to {cfg_path}")
     if swarm_mode:
         _print_swarm_summary(cfg)
 
@@ -246,31 +253,93 @@ def init(
         )
 
     if swarm_mode:
-        print_next_steps(
-            [
-                (suggested_cli("serve"), "Start the router (binds your LAN)"),
-                (_join_command_for(cfg), "Run on every other machine"),
-                (
-                    f"export OPENAI_BASE_URL={base}/v1",
-                    "Point OpenAI clients at netllm",
-                ),
-                (suggested_cli("peers"), "Verify machines found each other"),
-                (suggested_cli("models"), "Combined model catalog"),
-            ]
-        )
+        print_next_steps(_swarm_next_steps(cfg, base))
     else:
         print_next_steps(
             [
                 (suggested_cli("serve"), "Start the router (this terminal)"),
                 (
-                    suggested_cli("init --force --swarm"),
-                    "LAN swarm — mesh with other machines (token + LAN bind)",
+                    suggested_cli("init --swarm"),
+                    "LAN swarm — mesh with other machines (open trusted LAN)",
                 ),
                 (f"export OPENAI_BASE_URL={base}/v1", "Point OpenAI clients at netllm"),
                 (suggested_cli("status"), "New terminal — backends, peers, health"),
                 (suggested_cli("models"), "List all routed models"),
             ]
         )
+
+
+@app.command()
+def init(
+    config: Path | None = typer.Option(None, "--config", help="Config file path"),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing config"),
+    global_cli: bool = typer.Option(
+        True,
+        "--global-cli/--no-global-cli",
+        help="Install `netllm` globally via uv and update shell PATH",
+    ),
+    swarm: bool = typer.Option(
+        False,
+        "--swarm",
+        help="LAN swarm mode: bind 0.0.0.0, local_spillover, subnet scan "
+        "(open trusted LAN by default)",
+    ),
+    secure: bool = typer.Option(
+        False,
+        "--secure",
+        help="With --swarm: also generate swarm.cluster_token for secured pairing",
+    ),
+    single: bool = typer.Option(
+        False,
+        "--single",
+        help="Single-machine mode (loopback bind, local-only routing)",
+    ),
+) -> None:
+    """Write default config, scan local providers, optionally install global CLI."""
+    if global_cli and find_repo_root() is not None:
+        installed = ensure_global_cli()
+        print_path_notice(installed=installed)
+
+    cfg_path = _config_path_option(config)
+    swarm_mode = _resolve_init_swarm_mode(swarm=swarm, single=single)
+    if secure and not swarm_mode:
+        print_error(
+            "Conflicting flags",
+            "--secure requires --swarm (or answer yes to the swarm prompt).",
+        )
+        raise typer.Exit(1)
+
+    def _apply_init_swarm(cfg: NetllmConfig) -> None:
+        if secure:
+            _apply_secured_swarm_mode(cfg)
+        else:
+            _apply_open_swarm_mode(cfg)
+
+    if cfg_path.is_file() and not force:
+        if swarm_mode:
+            cfg = load_config(cfg_path)
+            _apply_init_swarm(cfg)
+            save_config(cfg, cfg_path)
+            _run_init_post_save(cfg, cfg_path, swarm_mode=True, upgraded=True)
+            return
+        print_error(
+            "Config already exists",
+            f"[cyan]{cfg_path}[/] is already present.",
+            hints=[
+                "Scan providers: [cyan]netllm discover[/]",
+                "LAN swarm upgrade: [cyan]netllm init --swarm[/]",
+                "Overwrite: [cyan]netllm init --force[/]",
+                "Join a swarm without re-init: [cyan]netllm join URL --token T[/]",
+                "Edit config: [cyan]netllm config-edit[/]",
+            ],
+        )
+        raise typer.Exit(0)
+
+    cfg = NetllmConfig()
+    if swarm_mode:
+        _apply_init_swarm(cfg)
+    save_config(cfg, cfg_path)
+    _run_init_post_save(cfg, cfg_path, swarm_mode=swarm_mode)
 
 
 @app.command()
@@ -490,11 +559,14 @@ def _apply_swarm_join_listen(cfg: NetllmConfig) -> None:
 @app.command("swarm-token")
 def swarm_token(
     config: Path | None = typer.Option(None, "--config", help="Config file path"),
+    create: bool = typer.Option(
+        False, "--create", help="Generate and save a cluster token if none is set"
+    ),
     rotate: bool = typer.Option(
         False, "--rotate", help="Generate and save a new cluster token"
     ),
 ) -> None:
-    """Show (or rotate) the cluster token other machines use to join."""
+    """Show (create or rotate) the cluster token other machines use to join."""
     cfg_path = _config_path_option(config)
     cfg = _require_config(cfg_path)
 
@@ -508,14 +580,41 @@ def swarm_token(
                 f"[cyan]{_join_command_for(cfg)}[/] there.",
             ]
         )
-
-    if not cfg.swarm.cluster_token:
+    elif create and not cfg.swarm.cluster_token:
+        if not is_lan_listen(cfg.agent.listen):
+            print_error(
+                "Not in LAN swarm mode",
+                "Enable LAN bind before creating a cluster token.",
+                hints=[
+                    "Enable swarm: [cyan]netllm init --swarm[/]",
+                    "Or bind LAN: [cyan]netllm serve --host 0.0.0.0[/]",
+                ],
+            )
+            raise typer.Exit(1)
+        cfg.swarm.cluster_token = secrets.token_urlsafe(24)
+        ensure_lan_mesh_defaults(cfg)
+        save_config(cfg, cfg_path)
+        console.print(
+            "[green]Cluster token created for secured LAN swarm.[/] "
+            "Run the join command on your other machines."
+        )
+    elif not cfg.swarm.cluster_token:
+        if is_lan_listen(cfg.agent.listen):
+            console.print(
+                "[green]Open LAN swarm[/] — no cluster token required on a "
+                "trusted home LAN."
+            )
+            console.print(
+                "[dim]Secured pairing:[/] [cyan]netllm swarm-token --create[/] "
+                "or [cyan]netllm init --swarm --secure[/]"
+            )
+            raise typer.Exit(0)
         print_error(
             "No cluster token set",
-            "This machine has no swarm token yet.",
+            "This machine is not in LAN swarm mode yet.",
             hints=[
-                "Create one: [cyan]netllm swarm-token --rotate[/]",
-                "Or re-init for swarm: [cyan]netllm init --force --swarm[/]",
+                "Enable swarm: [cyan]netllm init --swarm[/]",
+                "Or bind LAN: [cyan]netllm serve --host 0.0.0.0[/]",
             ],
         )
         raise typer.Exit(1)
@@ -720,7 +819,7 @@ def peers(
         warnings.append(
             f"Found agent [bold]{who}[/] but it is bound to loopback — "
             f"on that machine run [cyan]netllm serve --host 0.0.0.0[/] "
-            f"(or [cyan]netllm init --force --swarm[/])"
+            f"(or enable LAN in the menubar app / [cyan]netllm init --swarm[/])"
         )
 
     if as_json:
@@ -749,7 +848,7 @@ def peers(
             "accept LAN traffic (see notes above).",
             hints=[
                 "On each unreachable machine: "
-                "[cyan]netllm init --force --swarm[/] or "
+                "Enable LAN in the menubar app, [cyan]netllm init --swarm[/], or "
                 "[cyan]netllm serve --host 0.0.0.0[/]",
             ],
         )
@@ -854,6 +953,9 @@ def serve(
     cfg_path = _config_path_option(config)
     cfg = _require_config(cfg_path)
 
+    if ensure_lan_mesh_defaults(cfg):
+        save_config(cfg, cfg_path)
+
     if host or port:
         h = host or cfg.agent.listen.split(":")[0]
         p = port or int(cfg.agent.listen.split(":")[-1])
@@ -936,10 +1038,10 @@ def serve(
     base, lan_base = listen_urls(cfg.agent.listen)
     warnings: list[str] = []
 
-    if cfg.agent.listen.startswith("0.0.0.0"):
+    if is_lan_listen(cfg.agent.listen) and not cfg.swarm.cluster_token:
         warnings.append(
-            "Listening on 0.0.0.0 — the agent is reachable from your LAN. "
-            "Set swarm.cluster_token if others can join the swarm."
+            "LAN swarm is open (no cluster token). Trusted home LAN is fine; "
+            "run [cyan]netllm swarm-token[/] to require a token on other machines."
         )
 
     results = asyncio.run(scan_local_providers(cfg))
@@ -1278,18 +1380,17 @@ def doctor(
     """Check common misconfigurations."""
     cfg_path = _config_path_option(config)
     issues: list[tuple[str, str]] = []
+    notes: list[str] = []
 
     if not cfg_path.is_file():
         issues.append(("No config file", "Run `netllm init`"))
 
     cfg = load_config(cfg_path) if cfg_path.is_file() else NetllmConfig()
 
-    if cfg.agent.listen.startswith("0.0.0.0") and not cfg.swarm.cluster_token:
-        issues.append(
-            (
-                "LAN exposure without cluster token",
-                "Set swarm.cluster_token in config when listening on 0.0.0.0",
-            )
+    if is_lan_listen(cfg.agent.listen) and not cfg.swarm.cluster_token:
+        notes.append(
+            "LAN swarm is open (no cluster token). Use "
+            "`netllm swarm-token --create` or Settings on untrusted networks."
         )
 
     if cfg.agent.role == "gateway" and not cfg.agent.advertise:
@@ -1448,12 +1549,20 @@ def doctor(
                 pass
 
     if as_json:
-        payload = {
+        payload: dict[str, Any] = {
             "ok": not issues,
             "issues": [{"title": t, "fix": f} for t, f in issues],
         }
+        if notes:
+            payload["notes"] = notes
         typer.echo(json.dumps(payload))
         return
+
+    if notes:
+        console.print("[dim]Notes:[/]")
+        for note in notes:
+            console.print(f"  [dim]• {note}[/]")
+        console.print()
 
     if issues:
         console.print("[yellow]Issues found:[/]\n")

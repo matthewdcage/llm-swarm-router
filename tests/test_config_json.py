@@ -29,3 +29,13 @@ def test_export_import_roundtrip(tmp_path: Path) -> None:
 
     reloaded = export_config(path)
     assert reloaded["discovery"]["custom_endpoints"] == ["http://127.0.0.1:9999/v1"]
+
+
+def test_import_applies_lan_mesh_defaults(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    data = NetllmConfig().model_dump(mode="json")
+    data["agent"]["listen"] = "0.0.0.0:11400"
+    import_config(data, path)
+    exported = export_config(path)
+    assert exported["routing"]["default_strategy"] == "local_spillover"
+    assert exported["swarm"]["subnet_scan"] is True

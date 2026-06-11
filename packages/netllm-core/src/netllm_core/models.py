@@ -193,6 +193,30 @@ def default_config_path() -> Path:
     return Path.home() / ".config" / "netllm" / "config.toml"
 
 
+def is_lan_listen(listen: str) -> bool:
+    """True when the agent accepts connections from the LAN."""
+    if listen.startswith("0.0.0.0:"):
+        return True
+    if listen.startswith("[::]:") or listen == "[::]":
+        return True
+    host = listen.rsplit(":", 1)[0] if ":" in listen else listen
+    return host in {"0.0.0.0", "::"}
+
+
+def ensure_lan_mesh_defaults(cfg: NetllmConfig) -> bool:
+    """Apply mesh routing/discovery defaults for LAN bind; never mints tokens."""
+    if not is_lan_listen(cfg.agent.listen):
+        return False
+    changed = False
+    if cfg.routing.default_strategy == "local_first":
+        cfg.routing.default_strategy = "local_spillover"
+        changed = True
+    if not cfg.swarm.subnet_scan:
+        cfg.swarm.subnet_scan = True
+        changed = True
+    return changed
+
+
 def load_config(path: Path | None = None) -> NetllmConfig:
     import tomllib
 

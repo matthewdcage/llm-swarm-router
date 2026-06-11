@@ -12,6 +12,8 @@ from netllm_core.models import (
     UiConfig,
     default_config_path,
     default_log_dir,
+    ensure_lan_mesh_defaults,
+    is_lan_listen,
     load_config,
     save_config,
 )
@@ -28,6 +30,8 @@ __all__ = [
     "UiConfig",
     "default_config_path",
     "default_log_dir",
+    "ensure_lan_mesh_defaults",
+    "is_lan_listen",
     "load_config",
     "save_config",
 ]

@@ -63,11 +63,11 @@ allowed-tools:
    - `agent.listen`: loopback vs `0.0.0.0`
    - `agent.advertise`: required for gateway role
    - `swarm.mdns`: needs zeroconf from `uv sync`
-   - `swarm.cluster_token`: should be set when on `0.0.0.0`
+   - `swarm.cluster_token`: empty is fine on trusted home LAN (open swarm); set only for untrusted networks
 
 6. **Platform-specific swarm checks** (when `./netllm peers` is empty but LAN routing is expected):
    - **All platforms:** `./netllm doctor` now prints per-platform firewall commands (UDP 5353 mDNS in/out + TCP 11400 in) when mDNS looks blocked. LAN-bound agents auto-run a one-shot subnet scan 10s after start when mDNS finds nothing.
-   - **Loopback peers:** `./netllm peers` lists loopback-bound agents as *found but unreachable* — fix is `netllm init --force --swarm` or `serve --host 0.0.0.0` on that machine
+   - **Loopback peers:** `./netllm peers` lists loopback-bound agents as *found but unreachable* — fix is menubar LAN mode, `netllm init --swarm`, or `serve --host 0.0.0.0` on that machine
    - **Token mismatches:** heartbeats return 401; align tokens with `netllm swarm-token` + `netllm join URL --token T`
    - **Linux:** mDNS uses Avahi via `python-zeroconf`; install Avahi if browse fails. Fallback: `swarm.peers` or `./netllm peers --subnet-scan --save`
    - **Windows:** mDNS is often blocked by firewall or missing Bonjour: prefer static `swarm.peers` or `--subnet-scan`. Allow inbound TCP on agent port (default `11400`) when `serve --host 0.0.0.0`

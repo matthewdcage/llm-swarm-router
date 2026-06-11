@@ -29,7 +29,7 @@ Swift menubar application that supervises the netllm Python agent, exposes setti
 - Logs: `~/Library/Application Support/netllm/logs/`
 - **Gatekeeper:** ad-hoc Stage/DMG builds do not launch on macOS 26+; release path is Developer ID + notarize via [packaging/scripts/local-notarized-dmg.sh](../../packaging/scripts/local-notarized-dmg.sh) or CI ([macos-code-signing.md](../../docs/macos-code-signing.md))
 - **Settings live status:** `SettingsViewModel` polls `/health` + `/netllm/v1/status` every 2s while Settings is open; **Restart Agent** waits for `/health` before refreshing stats (avoids stale "waiting for HTTP health" / backends `—`)
-- **LAN swarm QoL:** welcome **Listen on LAN** sets `swarm.subnet_scan = true`; agent probes LAN at startup when enabled. Settings auto-runs `POST /netllm/v1/admin/peers-scan` once per session when agent is healthy (display only; runtime merge is agent-side). Manual **Scan & save** still persists `swarm.peers` when mDNS is blocked.
+- **LAN swarm QoL:** welcome **Listen on LAN** sets `swarm.subnet_scan = true` + `local_spillover` (open trusted LAN, no token). Settings **Require cluster token** toggle mints token on save and offers **Copy join command** for secured pairing. Settings auto-runs `POST /netllm/v1/admin/peers-scan` once per session when agent is healthy (display only; runtime merge is agent-side). Manual **Scan & save** still persists `swarm.peers` when mDNS is blocked.
 - **HTTP client host:** Settings and menubar **Open Dashboard** use `127.0.0.1` (`AppConfig.connectableHost`); web UI opened at `http://<LAN-IP>:11400/ui/` on the same Mac is equivalent after agent admin-host fix ([netllm-agent/AGENTS.md](../../packages/netllm-agent/AGENTS.md))
 
 ## Work Guidance

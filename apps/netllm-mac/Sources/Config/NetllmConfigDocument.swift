@@ -93,6 +93,17 @@ struct NetllmConfigDocument: Codable, Sendable {
     var isLanMode: Bool {
         bindHost == "0.0.0.0"
     }
+
+    /// Mesh routing/discovery defaults when listening on the LAN (no token minting).
+    mutating func applyLanMeshDefaults() {
+        guard isLanMode else { return }
+        if routing.default_strategy == "local_first" {
+            routing.default_strategy = "local_spillover"
+        }
+        if !swarm.subnet_scan {
+            swarm.subnet_scan = true
+        }
+    }
 }
 
 struct AgentVersionPayload: Sendable {
