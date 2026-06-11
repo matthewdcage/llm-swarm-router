@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import secrets
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -105,6 +107,65 @@ def _require_config(cfg_path: Path) -> NetllmConfig:
     return load_config(cfg_path)
 
 
+def _resolve_init_swarm_mode(*, swarm: bool, single: bool) -> bool:
+    """One guided question on a TTY; non-TTY stays single-machine."""
+    if swarm and single:
+        print_error(
+            "Conflicting flags",
+            "--swarm and --single are mutually exclusive.",
+        )
+        raise typer.Exit(1)
+    if swarm:
+        return True
+    if single:
+        return False
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        console.print(
+            "\n[bold]Single machine, or LAN swarm?[/]\n"
+            "  [dim]Swarm mode binds the agent to your LAN, generates a\n"
+            "  cluster token, and spreads same-model load across machines.[/]"
+        )
+        return typer.confirm("Set up a LAN swarm (mesh with other machines)?")
+    return False
+
+
+def _listen_port_of(listen: str) -> str:
+    """Port from a host:port listen string (last-colon split, IPv6-safe)."""
+    if "]" in listen:  # bracketed IPv6: [::1]:11400
+        port = listen.rpartition("]:")[2]
+    elif listen.count(":") == 1:  # host:port
+        port = listen.rpartition(":")[2]
+    else:  # bare host or bare IPv6 — no port present
+        port = ""
+    return port if port.isdigit() else "11400"
+
+
+def _apply_swarm_mode(cfg: NetllmConfig) -> None:
+    cfg.agent.listen = f"0.0.0.0:{_listen_port_of(cfg.agent.listen)}"
+    cfg.swarm.cluster_token = secrets.token_urlsafe(24)
+    cfg.routing.default_strategy = "local_spillover"
+
+
+def _join_command_for(cfg: NetllmConfig) -> str:
+    from netllm_discovery.lan import agent_url_from_listen
+
+    lan_url = agent_url_from_listen(cfg.agent.listen)
+    return f"netllm join {lan_url} --token {cfg.swarm.cluster_token}"
+
+
+def _print_swarm_summary(cfg: NetllmConfig) -> None:
+    console.print(
+        Panel(
+            "[bold]Run on every other machine:[/]\n"
+            f"  [cyan]{_join_command_for(cfg)}[/]\n\n"
+            "[dim]Token saved in config (swarm.cluster_token) — show it any "
+            "time with[/] [cyan]netllm swarm-token[/]",
+            title="LAN swarm enabled",
+            border_style="green",
+        )
+    )
+
+
 @app.command()
 def init(
     config: Path | None = typer.Option(None, "--config", help="Config file path"),
@@ -113,6 +174,17 @@ def init(
         True,
         "--global-cli/--no-global-cli",
         help="Install `netllm` globally via uv and update shell PATH",
+    ),
+    swarm: bool = typer.Option(
+        False,
+        "--swarm",
+        help="LAN swarm mode: bind 0.0.0.0, generate cluster token, "
+        "spread load with local_spillover",
+    ),
+    single: bool = typer.Option(
+        False,
+        "--single",
+        help="Single-machine mode (loopback bind, local-only routing)",
     ),
 ) -> None:
     """Write default config, scan local providers, optionally install global CLI."""
@@ -128,16 +200,22 @@ def init(
             hints=[
                 "Scan providers: [cyan]netllm discover[/]",
                 "Overwrite: [cyan]netllm init --force[/]",
+                "Join a swarm without re-init: [cyan]netllm join URL --token T[/]",
                 "Edit config: [cyan]netllm config-edit[/]",
             ],
         )
         raise typer.Exit(0)
 
+    swarm_mode = _resolve_init_swarm_mode(swarm=swarm, single=single)
     cfg = NetllmConfig()
+    if swarm_mode:
+        _apply_swarm_mode(cfg)
     save_config(cfg, cfg_path)
     base = listen_url(cfg.agent.listen)
 
     print_heading("netllm initialized", f"Config written to {cfg_path}")
+    if swarm_mode:
+        _print_swarm_summary(cfg)
 
     results = asyncio.run(scan_local_providers(cfg))
     online = [r for r in results if r.get("status") == "online"]
@@ -166,18 +244,32 @@ def init(
             ],
         )
 
-    print_next_steps(
-        [
-            (suggested_cli("serve"), "Start the router (this terminal)"),
-            (
-                suggested_cli("serve --host 0.0.0.0"),
-                "LAN + swarm — other machines can reach this agent",
-            ),
-            (f"export OPENAI_BASE_URL={base}/v1", "Point OpenAI clients at netllm"),
-            (suggested_cli("status"), "New terminal — backends, peers, health"),
-            (suggested_cli("models"), "List all routed models"),
-        ]
-    )
+    if swarm_mode:
+        print_next_steps(
+            [
+                (suggested_cli("serve"), "Start the router (binds your LAN)"),
+                (_join_command_for(cfg), "Run on every other machine"),
+                (
+                    f"export OPENAI_BASE_URL={base}/v1",
+                    "Point OpenAI clients at netllm",
+                ),
+                (suggested_cli("peers"), "Verify machines found each other"),
+                (suggested_cli("models"), "Combined model catalog"),
+            ]
+        )
+    else:
+        print_next_steps(
+            [
+                (suggested_cli("serve"), "Start the router (this terminal)"),
+                (
+                    suggested_cli("init --force --swarm"),
+                    "LAN swarm — mesh with other machines (token + LAN bind)",
+                ),
+                (f"export OPENAI_BASE_URL={base}/v1", "Point OpenAI clients at netllm"),
+                (suggested_cli("status"), "New terminal — backends, peers, health"),
+                (suggested_cli("models"), "List all routed models"),
+            ]
+        )
 
 
 @app.command()
@@ -259,6 +351,176 @@ def discover(
         print_warnings(hints)
     if online == 0:
         raise typer.Exit(1)
+
+
+def _normalize_agent_url(url: str) -> str:
+    from urllib.parse import urlparse
+
+    base = url.strip().rstrip("/")
+    if not base.startswith("http"):
+        base = f"http://{base}"
+    if urlparse(base).port is None:
+        base = f"{base}:11400"
+    return base
+
+
+def _fetch_join_status(base: str) -> dict[str, Any]:
+    """GET the target agent's status; raises typer.Exit on failure."""
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.get(f"{base}/netllm/v1/status")
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as exc:
+        message, hints = agent_unreachable_message(base, exc)
+        print_error("Swarm agent unreachable", message, hints=hints)
+        raise typer.Exit(1) from exc
+
+
+def _validate_join_token(base: str, token: str, agent_id: str) -> None:
+    """POST a heartbeat with the token — 401 means the token is wrong."""
+    payload = {
+        "agent_id": agent_id,
+        "listen_url": "",
+        "role": "peer",
+        "hostname": "joining",
+        "backends": [],
+    }
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.post(
+                f"{base}/netllm/v1/heartbeat", json=payload, headers=headers
+            )
+    except Exception as exc:
+        message, hints = agent_unreachable_message(base, exc)
+        print_error("Swarm agent unreachable", message, hints=hints)
+        raise typer.Exit(1) from exc
+    if resp.status_code == 401:
+        print_error(
+            "Invalid cluster token",
+            "The other agent rejected this token.",
+            hints=[
+                "Show the token on the other machine: [cyan]netllm swarm-token[/]",
+                "Copy the full join command printed by [cyan]netllm init --swarm[/]",
+            ],
+        )
+        raise typer.Exit(1)
+    if resp.status_code not in (200, 204):
+        print_error(
+            "Swarm handshake failed",
+            f"Heartbeat probe returned HTTP {resp.status_code}.",
+            hints=[
+                "Check the other agent's logs",
+                "Verify both machines run a compatible netllm version",
+            ],
+        )
+        raise typer.Exit(1)
+
+
+@app.command()
+def join(
+    url: str = typer.Argument(
+        ...,
+        help="Any agent already in the swarm, e.g. http://192.168.1.20:11400",
+    ),
+    token: str = typer.Option(
+        "",
+        "--token",
+        help="Cluster token from `netllm init --swarm` / `netllm swarm-token` "
+        "on the other machine",
+    ),
+    config: Path | None = typer.Option(None, "--config", help="Config file path"),
+) -> None:
+    """Join this machine to an existing LAN swarm."""
+    from netllm_discovery.lan import filter_own_peer_urls
+
+    cfg_path = _config_path_option(config)
+    cfg = load_config(cfg_path)
+
+    base = _normalize_agent_url(url)
+    status = _fetch_join_status(base)
+    if token and not status.get("cluster_token_set", False):
+        print_error(
+            "Token mismatch",
+            "You passed --token but the other agent has no cluster token set "
+            "— its heartbeats would be rejected by this machine.",
+            hints=[
+                "On the other machine: [cyan]netllm swarm-token --rotate[/], "
+                "then re-run join with that token",
+                "Or join an open swarm without [cyan]--token[/]",
+            ],
+        )
+        raise typer.Exit(1)
+    _validate_join_token(base, token, cfg.agent.agent_id)
+
+    cfg.swarm.cluster_token = token
+    _apply_swarm_join_listen(cfg)
+    cfg.routing.default_strategy = "local_spillover"
+    kept, rejected = filter_own_peer_urls([*cfg.swarm.peers, base], cfg.agent.listen)
+    if rejected:
+        print_error(
+            "Cannot join yourself",
+            f"[cyan]{base}[/] is this machine's own agent URL.",
+            hints=["Run join with the *other* machine's URL"],
+        )
+        raise typer.Exit(1)
+    cfg.swarm.peers = list(dict.fromkeys(kept))
+    save_config(cfg, cfg_path)
+
+    hostname = status.get("hostname") or status.get("agent_id") or base
+    print_heading(
+        "Joined swarm",
+        f"Peer: {hostname} @ {base} — config updated at {cfg_path}",
+    )
+    print_next_steps(
+        [
+            (suggested_cli("serve"), "Start the agent (binds your LAN)"),
+            (suggested_cli("peers"), "Verify the mesh sees both machines"),
+            (suggested_cli("models"), "Combined model catalog"),
+        ]
+    )
+
+
+def _apply_swarm_join_listen(cfg: NetllmConfig) -> None:
+    cfg.agent.listen = f"0.0.0.0:{_listen_port_of(cfg.agent.listen)}"
+
+
+@app.command("swarm-token")
+def swarm_token(
+    config: Path | None = typer.Option(None, "--config", help="Config file path"),
+    rotate: bool = typer.Option(
+        False, "--rotate", help="Generate and save a new cluster token"
+    ),
+) -> None:
+    """Show (or rotate) the cluster token other machines use to join."""
+    cfg_path = _config_path_option(config)
+    cfg = _require_config(cfg_path)
+
+    if rotate:
+        cfg.swarm.cluster_token = secrets.token_urlsafe(24)
+        save_config(cfg, cfg_path)
+        console.print("[green]New cluster token saved.[/]")
+        print_warnings(
+            [
+                "Update every other machine: re-run "
+                f"[cyan]{_join_command_for(cfg)}[/] there.",
+            ]
+        )
+
+    if not cfg.swarm.cluster_token:
+        print_error(
+            "No cluster token set",
+            "This machine has no swarm token yet.",
+            hints=[
+                "Create one: [cyan]netllm swarm-token --rotate[/]",
+                "Or re-init for swarm: [cyan]netllm init --force --swarm[/]",
+            ],
+        )
+        raise typer.Exit(1)
+
+    console.print(f"[bold]Cluster token:[/] [cyan]{cfg.swarm.cluster_token}[/]")
+    console.print(f"[bold]Join command:[/] [cyan]{_join_command_for(cfg)}[/]")
 
 
 @app.command()
