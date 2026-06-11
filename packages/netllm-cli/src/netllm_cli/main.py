@@ -43,6 +43,7 @@ from netllm_cli.ui import (
     console,
     default_provider_port_hint,
     enabled_provider_summary,
+    firewall_hints,
     inference_status_style,
     listen_url,
     listen_urls,
@@ -712,8 +713,26 @@ def peers(
         )
     )
 
+    unreachable = [p for p in peers_found if p.get("unreachable")]
+    peers_found = [p for p in peers_found if not p.get("unreachable")]
+    for p in unreachable:
+        who = p.get("agent_id") or p.get("listen_url", "?")
+        warnings.append(
+            f"Found agent [bold]{who}[/] but it is bound to loopback — "
+            f"on that machine run [cyan]netllm serve --host 0.0.0.0[/] "
+            f"(or [cyan]netllm init --force --swarm[/])"
+        )
+
     if as_json:
-        typer.echo(json.dumps({"peers": peers_found, "warnings": warnings}))
+        typer.echo(
+            json.dumps(
+                {
+                    "peers": peers_found,
+                    "unreachable": unreachable,
+                    "warnings": warnings,
+                }
+            )
+        )
         return
 
     print_heading(
@@ -733,7 +752,8 @@ def peers(
                 "Enable advertise: [cyan]agent.advertise = true[/] in config",
                 "Guest Wi‑Fi often blocks mDNS — try [cyan]--subnet-scan[/]",
                 "Manual: add URLs under [cyan]swarm.peers[/] in config.toml",
-            ],
+            ]
+            + firewall_hints(),
         )
         raise typer.Exit(1)
 
@@ -1399,6 +1419,17 @@ def doctor(
                         (
                             "mDNS advertise may have failed",
                             f"Try netllm serve --replace. {mdns_platform_hint()}",
+                        )
+                    )
+                if not found and not cfg.agent.listen.startswith("127."):
+                    fw = " · ".join(
+                        h.replace("[cyan]", "").replace("[/]", "")
+                        for h in firewall_hints()
+                    )
+                    issues.append(
+                        (
+                            "mDNS silent — multicast may be blocked",
+                            f"Check firewall (UDP 5353 in/out, TCP 11400 in). {fw}",
                         )
                     )
             except RuntimeError:

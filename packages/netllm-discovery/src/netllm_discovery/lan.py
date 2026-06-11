@@ -255,6 +255,7 @@ async def discover_lan_agents(
                         "agent_id": props.get("agent_id", ""),
                         "role": props.get("role", "peer"),
                         "source": "mdns",
+                        "unreachable": props.get("reachable") == "false",
                         "_props": props,
                     }
         except RuntimeError as exc:
@@ -279,6 +280,12 @@ async def discover_lan_agents(
         enriched: list[dict[str, Any]] = []
         for entry in by_url.values():
             url = entry.get("listen_url", "")
+            if entry.get("unreachable"):
+                # Loopback-bound peer: its advertised URL is not routable
+                # from this host (fetching it would hit our own agent).
+                # Keep the row so callers can explain the rebind fix.
+                enriched.append(entry)
+                continue
             if entry.get("backends") is not None and entry.get("agent_id"):
                 entry.setdefault("source", entry.get("source", "scan"))
                 enriched.append(entry)

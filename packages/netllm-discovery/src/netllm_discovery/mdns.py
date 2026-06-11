@@ -105,6 +105,8 @@ class MdnsAdvertiser:
             )
 
         try:
+            from netllm_discovery.lan import is_loopback_url
+
             host, port = parse_listen_host_port(self.listen)
             advertise_host, addr = _advertise_address(self.listen)
             listen_url = f"http://{advertise_host}:{port}"
@@ -113,6 +115,10 @@ class MdnsAdvertiser:
                 "role": self.role,
                 "version": self.version,
                 "listen_url": listen_url,
+                # Loopback binds are visible on mDNS but not routable from
+                # other hosts — flag them so peers can explain instead of
+                # silently dropping us.
+                "reachable": "false" if is_loopback_url(listen_url) else "true",
             }
             zc = Zeroconf()
             info = ServiceInfo(

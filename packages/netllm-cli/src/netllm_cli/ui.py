@@ -49,6 +49,28 @@ def mdns_platform_hint() -> str:
     return "Guest Wi-Fi may block mDNS; use swarm.peers or --subnet-scan"
 
 
+def firewall_hints() -> list[str]:
+    """Per-platform firewall commands for mDNS (UDP 5353) + agent (TCP 11400)."""
+    if sys.platform == "linux":
+        return [
+            "firewalld: [cyan]sudo firewall-cmd --permanent --add-service=mdns "
+            "&& sudo firewall-cmd --permanent --add-port=11400/tcp "
+            "&& sudo firewall-cmd --reload[/]",
+            "ufw: [cyan]sudo ufw allow 5353/udp && sudo ufw allow 11400/tcp[/]",
+        ]
+    if sys.platform == "win32":
+        return [
+            'mDNS in: [cyan]netsh advfirewall firewall add rule name="netllm mDNS" '
+            "dir=in protocol=UDP localport=5353 action=allow[/]",
+            'agent in: [cyan]netsh advfirewall firewall add rule name="netllm agent" '
+            "dir=in protocol=TCP localport=11400 action=allow[/]",
+        ]
+    return [
+        "macOS firewall: System Settings → Network → Firewall — "
+        "allow incoming connections for python/netllm",
+    ]
+
+
 def _listen_host_port(listen: str) -> tuple[str, str]:
     if listen.startswith("http"):
         from urllib.parse import urlparse

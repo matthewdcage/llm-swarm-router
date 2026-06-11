@@ -606,6 +606,45 @@ def test_order_message_candidates_spillover_sorts_by_load() -> None:
     assert ordered[0].id == "local"
 
 
+def test_auto_subnet_fallback_only_for_lan_binds() -> None:
+    from netllm_agent.service import AgentService
+
+    lan_cfg = NetllmConfig()
+    lan_cfg.agent.listen = "0.0.0.0:11400"
+    with patch("netllm_discovery.lan.local_lan_ip", return_value="192.168.1.5"):
+        assert AgentService(lan_cfg)._should_auto_subnet_fallback() is True
+
+    loop_cfg = NetllmConfig()  # default loopback bind
+    assert AgentService(loop_cfg)._should_auto_subnet_fallback() is False
+
+    no_mdns = NetllmConfig()
+    no_mdns.agent.listen = "0.0.0.0:11400"
+    no_mdns.swarm.mdns = False
+    assert AgentService(no_mdns)._should_auto_subnet_fallback() is False
+
+
+@pytest.mark.asyncio
+async def test_mdns_fallback_scan_skipped_when_peers_known() -> None:
+    from netllm_agent.service import AgentService
+    from netllm_discovery.swarm import PeerRecord
+
+    cfg = NetllmConfig()
+    cfg.agent.listen = "0.0.0.0:11400"
+    service = AgentService(cfg)
+    with patch.object(
+        service, "_discover_subnet_peers", new_callable=AsyncMock
+    ) as mock_scan:
+        await service._mdns_fallback_subnet_scan(delay_s=0)
+        mock_scan.assert_awaited_once()
+
+        service.swarm.register_peer(
+            PeerRecord(agent_id="p1", listen_url="http://192.168.1.9:11400")
+        )
+        mock_scan.reset_mock()
+        await service._mdns_fallback_subnet_scan(delay_s=0)
+        mock_scan.assert_not_awaited()
+
+
 def test_peer_forward_headers_loop_guard() -> None:
     from netllm_agent.service import AgentService
     from netllm_core.models import LOCAL_ONLY_HEADER

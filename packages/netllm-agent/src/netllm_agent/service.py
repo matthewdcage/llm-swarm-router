@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -786,8 +787,6 @@ class AgentService:
 
     def start_background(self) -> list[str]:
         warnings: list[str] = []
-        import asyncio
-
         loop = asyncio.get_running_loop()
 
         if self.config.agent.advertise and self.config.swarm.mdns:
@@ -804,6 +803,15 @@ class AgentService:
                 async def on_peer(url: str, props: dict[str, str]) -> None:
                     agent_id = props.get("agent_id", url)
                     if agent_id == self.config.agent.agent_id:
+                        return
+                    if props.get("reachable") == "false":
+                        # Loopback-bound peer — fetching its advertised URL
+                        # would hit our own agent. Surfaced by `netllm peers`.
+                        logger.info(
+                            "mDNS peer %s is loopback-bound (unreachable); "
+                            "it must serve with --host 0.0.0.0 to join",
+                            agent_id,
+                        )
                         return
                     record = await self.swarm.fetch_peer(url)
                     if record:
@@ -850,8 +858,33 @@ class AgentService:
         self.swarm.start_gossip(lambda: self.status_payload())
         if self.config.swarm.subnet_scan:
             asyncio.create_task(self._discover_subnet_peers())
+        elif self._should_auto_subnet_fallback():
+            asyncio.create_task(self._mdns_fallback_subnet_scan())
         self.startup_warnings = warnings
         return warnings
+
+    def _should_auto_subnet_fallback(self) -> bool:
+        """One-shot subnet scan when mDNS is on but may be blocked.
+
+        Only for LAN binds: loopback-bound agents cannot mesh anyway, and
+        default single-machine installs should never probe the subnet.
+        """
+        from netllm_discovery.lan import is_loopback_url
+
+        if not (self.config.swarm.mdns and self.config.agent.advertise):
+            return False
+        return not is_loopback_url(self.swarm.local_agent_url())
+
+    async def _mdns_fallback_subnet_scan(self, delay_s: float = 10.0) -> None:
+        await asyncio.sleep(delay_s)
+        if self.swarm.peers:
+            return
+        logger.info(
+            "mDNS found no peers after %.0fs — running one-time subnet "
+            "scan fallback (disable by adding static swarm.peers)",
+            delay_s,
+        )
+        await self._discover_subnet_peers()
 
     async def _discover_subnet_peers(self) -> None:
         from netllm_discovery.lan import discover_lan_agents
