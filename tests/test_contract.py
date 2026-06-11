@@ -250,7 +250,6 @@ def test_heartbeat_accepts_legacy_v03_backend_rows() -> None:
         "id": "omlx:http://127.0.0.1:8080/v1",
         "base_url": "http://127.0.0.1:8080/v1",
         "provider": "omlx",
-        "local": True,
         "health": {"status": "online", "models": ["mlx-model"]},
     }
     cfg = NetllmConfig()

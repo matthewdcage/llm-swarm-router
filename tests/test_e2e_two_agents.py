@@ -38,7 +38,11 @@ def _free_port() -> int:
 
 
 class ServerThread:
-    """Run an ASGI app under uvicorn in a daemon thread."""
+    """Run an ASGI app under uvicorn in a daemon thread.
+
+    Pass port 0 to let the OS pick a free port (race-free); the bound
+    port is available as ``self.port`` after ``start()``.
+    """
 
     def __init__(self, app: Any, port: int) -> None:
         self.port = port
@@ -55,6 +59,11 @@ class ServerThread:
             if time.monotonic() > deadline:
                 raise TimeoutError(f"uvicorn on :{self.port} did not start")
             time.sleep(0.05)
+        if self.port == 0:
+            for server in self.server.servers:
+                for sock in server.sockets:
+                    self.port = sock.getsockname()[1]
+                    break
 
     def stop(self) -> None:
         self.server.should_exit = True
@@ -136,22 +145,28 @@ def two_agent_mesh() -> Iterator[dict[str, Any]]:
     agent_a: dict[str, Any] = {"chat_inbound": 0, "local_only_headers": []}
     agent_b: dict[str, Any] = {"chat_inbound": 0, "local_only_headers": []}
 
-    pa_port, pb_port = _free_port(), _free_port()
-    aa_port, ab_port = _free_port(), _free_port()
-
-    servers = [
-        ServerThread(make_mock_provider("A", provider_a), pa_port),
-        ServerThread(make_mock_provider("B", provider_b), pb_port),
-        ServerThread(make_agent(pa_port, aa_port, agent_a), aa_port),
-        ServerThread(make_agent(pb_port, ab_port, agent_b), ab_port),
-    ]
     # Loopback peers are rejected in production; allow them for the harness.
     with patch(
         "netllm_discovery.swarm.is_lan_reachable_agent_url",
         lambda url: bool(url),
     ):
-        for server in servers:
-            server.start()
+        # Providers bind port 0 (OS-assigned, race-free). Agents need
+        # their port in config before binding, so they use _free_port().
+        provider_srv_a = ServerThread(make_mock_provider("A", provider_a), 0)
+        provider_srv_b = ServerThread(make_mock_provider("B", provider_b), 0)
+        provider_srv_a.start()
+        provider_srv_b.start()
+
+        aa_port, ab_port = _free_port(), _free_port()
+        agent_srv_a = ServerThread(
+            make_agent(provider_srv_a.port, aa_port, agent_a), aa_port
+        )
+        agent_srv_b = ServerThread(
+            make_agent(provider_srv_b.port, ab_port, agent_b), ab_port
+        )
+        agent_srv_a.start()
+        agent_srv_b.start()
+        servers = [provider_srv_a, provider_srv_b, agent_srv_a, agent_srv_b]
 
         base_a = f"http://127.0.0.1:{aa_port}"
         base_b = f"http://127.0.0.1:{ab_port}"
