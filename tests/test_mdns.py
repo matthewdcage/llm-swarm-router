@@ -58,6 +58,55 @@ def test_mdns_advertise_address_uses_lan_for_wildcard_bind() -> None:
     assert host == "10.0.0.32"
 
 
+def _captured_advertise_props(listen: str) -> dict[str, str]:
+    captured: dict[str, dict[str, bytes]] = {}
+
+    class FakeZeroconf:
+        def register_service(self, info: object) -> None:
+            pass
+
+        def unregister_service(self, info: object) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    def fake_service_info(*_args: object, **kwargs: object) -> MagicMock:
+        captured["props"] = kwargs.get("properties", {})
+        return MagicMock()
+
+    fake_zc_mod = MagicMock()
+    fake_zc_mod.Zeroconf = FakeZeroconf
+    fake_zc_mod.ServiceInfo = fake_service_info
+    fake_zc_mod.NonUniqueNameException = _FakeNonUnique
+
+    from netllm_discovery.mdns import MdnsAdvertiser
+
+    advertiser = MdnsAdvertiser(listen, "agent-x", "peer")
+    with (
+        patch("netllm_discovery.lan.local_lan_ip", return_value="10.0.0.32"),
+        patch.dict("sys.modules", {"zeroconf": fake_zc_mod}),
+    ):
+        thread = threading.Thread(target=advertiser._run, daemon=True)
+        thread.start()
+        assert advertiser._ready.wait(timeout=3.0)
+        advertiser._stop.set()
+        thread.join(timeout=3.0)
+    return {k: v.decode() for k, v in captured["props"].items()}
+
+
+def test_mdns_loopback_bind_advertises_unreachable_flag() -> None:
+    props = _captured_advertise_props("127.0.0.1:11400")
+    assert props["reachable"] == "false"
+    assert props["listen_url"] == "http://127.0.0.1:11400"
+
+
+def test_mdns_lan_bind_advertises_reachable_flag() -> None:
+    props = _captured_advertise_props("0.0.0.0:11400")
+    assert props["reachable"] == "true"
+    assert props["listen_url"] == "http://10.0.0.32:11400"
+
+
 def test_mdns_advertiser_sets_error_on_hard_failure() -> None:
     class FailingZeroconf:
         def register_service(self, info: object) -> None:

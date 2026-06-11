@@ -136,6 +136,38 @@ async def test_discover_lan_agents_filters_by_agent_id_not_listen_url() -> None:
 
 
 @pytest.mark.asyncio
+async def test_discover_lan_agents_keeps_unreachable_rows_without_fetch() -> None:
+    """Loopback-bound mDNS peers are surfaced (not silently dropped) and
+    their loopback URL is never fetched — that would hit our own agent."""
+    cfg = NetllmConfig()
+    cfg.agent.agent_id = "me"
+
+    props = {
+        "agent_id": "loopback-peer",
+        "role": "peer",
+        "listen_url": "http://127.0.0.1:11400",
+        "reachable": "false",
+        "source": "mdns",
+    }
+    with (
+        patch(
+            "netllm_discovery.lan.browse_mdns_peers",
+            return_value=[props],
+        ),
+        patch(
+            "netllm_discovery.lan.fetch_agent_status",
+            new_callable=AsyncMock,
+        ) as mock_fetch,
+    ):
+        peers = await discover_lan_agents(cfg, use_mdns=True, use_subnet=False)
+
+    mock_fetch.assert_not_awaited()
+    assert len(peers) == 1
+    assert peers[0]["unreachable"] is True
+    assert peers[0]["agent_id"] == "loopback-peer"
+
+
+@pytest.mark.asyncio
 async def test_fetch_agent_status_uses_probe_url_as_listen_url() -> None:
     from netllm_discovery.lan import fetch_agent_status
 
