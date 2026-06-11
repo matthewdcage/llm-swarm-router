@@ -134,9 +134,7 @@ def test_heartbeat_registers_peer(client: TestClient) -> None:
     peer_ids = [p["agent_id"] for p in status.get("peers", [])]
     assert "remote-1" in peer_ids
     remote_urls = [
-        b["base_url"]
-        for b in status.get("backends", [])
-        if not b.get("local")
+        b["base_url"] for b in status.get("backends", []) if not b.get("local")
     ]
     assert "http://192.168.1.99:11400/v1" in remote_urls
     assert not any("127.0.0.1:8080" in u for u in remote_urls)
@@ -541,9 +539,7 @@ def test_round_robin_routes_to_peer_agent_url(
                         base_url="http://127.0.0.1:8080/v1",
                         provider="omlx",
                         local=True,
-                        health=BackendHealth(
-                            status="online", models=["shared-model"]
-                        ),
+                        health=BackendHealth(status="online", models=["shared-model"]),
                     ).model_dump(mode="json")
                 ],
             },

@@ -107,9 +107,7 @@ class AgentService:
                     )
                 )
         remote = (
-            self.swarm.peer_agent_backends()
-            if self.config.routing.allow_remote
-            else []
+            self.swarm.peer_agent_backends() if self.config.routing.allow_remote else []
         )
         self.pool.merge_backends(local + remote)
         self._update_health_metrics()

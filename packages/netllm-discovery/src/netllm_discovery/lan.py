@@ -53,9 +53,7 @@ def own_agent_urls(listen: str) -> set[str]:
     return urls
 
 
-def filter_own_peer_urls(
-    peers: list[str], listen: str
-) -> tuple[list[str], list[str]]:
+def filter_own_peer_urls(peers: list[str], listen: str) -> tuple[list[str], list[str]]:
     """Drop swarm.peers entries that point at this agent. Returns kept, rejected."""
     own = own_agent_urls(listen)
     kept: list[str] = []
