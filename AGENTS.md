@@ -172,7 +172,7 @@ Editor wiring reference: [docs/editor-integration.md](docs/editor-integration.md
 Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow, issue templates, and review expectations.
 
 - Conventional commit messages; focus on why
-- Do not commit `.cursor/plans/`, `.cursor/outreach/`, `.cursor/hooks/`, `.cursor/mcp.json`, `.cursor/rules/graphify.mdc`, `archived/`, `.env`, or secrets
+- Do not commit `.cursor/plans/`, `.cursor/outreach/`, `.cursor/agents/`, `.cursor/coordinator/`, `tests/fixtures/coordinator-snapshot/`, coordinator-platform skill trees, `.cursor/hooks/`, `.cursor/mcp.json`, `.cursor/rules/graphify.mdc`, `archived/`, `.env`, or secrets
 - Do not commit unless the user explicitly asks (agents); human contributors open PRs per CONTRIBUTING.md
 
 ## Do not
@@ -214,7 +214,7 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - macOS menubar install/update: **recommended on macOS 26+:** clone release tag → `apps/netllm-mac/Scripts/build.sh release` → `packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app` ([docs/macos-install.md](docs/macos-install.md)); GitHub DMG + menubar **Updates** when notarized; bundled `macos-app-install.sh` under `Contents/Resources/Scripts/`; `scripts/upgrade-mac-app.sh` is repo-only; in-app update stops agent via `--in-app-update`, logs under `~/Library/Application Support/netllm/logs/`; **v0.3.0.2** fixes menubar **Agent: starting…** when `listen = "0.0.0.0:11400"` — [docs/release-notes/v0.3.0.2.md](docs/release-notes/v0.3.0.2.md)
 - **macOS Gatekeeper (26+):** ad-hoc GitHub DMGs fail launch (`no usable signature`); user docs point to **source build + install script** until notarized Developer ID releases ship — [docs/macos-code-signing.md](docs/macos-code-signing.md), [docs/macos-install.md](docs/macos-install.md). Personal Apple Developer account (matthewdcage@gmail.com) is active as of Jun 2026: Developer ID signing needs the `MACOS_CERTIFICATE_P12` GitHub secret + notarization app-specific password; cert exports and that password stay in 1Password / local gitignored `.env`, never in the repo
 - Release tag must match root `pyproject.toml` version; bump all workspace packages + `uv lock` before `gh release create`
-- `.cursor/coordinator/` is gitignored local PR overseer (state, drafts, scripts); orchestration via seven **Cursor subagents** in gitignored `.cursor/agents/coordinator-*.md` (incl. **prospector**, **telegram-runner**) — [`.cursor/coordinator/AGENTS.md`](.cursor/coordinator/AGENTS.md); run `run-coordinator-pass.sh` + `test-coordinator-loop.sh` before paste work; `test-discovery.sh` for offline discover-all smoke
+- `.cursor/coordinator/` and `.cursor/agents/` are **local-only** (gitignored; never on remote): PR overseer scripts, state, drafts, subagent prompts, and their `AGENTS.md` DOX tree; load [`.cursor/coordinator/AGENTS.md`](.cursor/coordinator/AGENTS.md) on the maintainer machine only; run `run-coordinator-pass.sh` + `test-coordinator-loop.sh` before paste work; `test-discovery.sh` for offline discover-all smoke; `coordinator-platform` skill lives under gitignored `.agents/skills/coordinator-platform/` locally
 - `.cursor/outreach/` is gitignored local outreach research/drafts; paste-ready convention: **Target:** / **Title:** / body after `---` (plain markdown, no YAML); neither tree belongs in the remote repo
 - Prefer posted voice examples in `.cursor/coordinator/examples/` (`examples/index.json`) over generic `voice.md` when drafting community replies
 - Stagehand fork for browser automation lives outside this repo (maintainer-local path in `.cursor/coordinator/state/browser-profiles.json`; example checkout: `/path/to/agent-stagehand-browser-agent`); coordinator resolves it via `browse-env.sh`; `browse` CLI via `npm link` in that repo's `packages/cli`
@@ -236,6 +236,7 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 | [`packaging/AGENTS.md`](packaging/AGENTS.md) | Cross-platform release builds |
 | [`tests/AGENTS.md`](tests/AGENTS.md) | Cross-package integration tests |
 | [`.agents/AGENTS.md`](.agents/AGENTS.md) | Canonical agent skills (sync to tool paths) |
-| [`.cursor/coordinator/AGENTS.md`](.cursor/coordinator/AGENTS.md) | Local PR coordinator (gitignored): scripts, state, browse-first stack |
 
-Updated: 2026-06-11 (v0.4.1.0 embeddings endpoint, capability gating, retry exclusion, peers-scan dedupe)
+Coordinator/outreach DOX (`.cursor/coordinator/`, `.cursor/agents/`, `.cursor/outreach/`) is local maintainer-only and is **not** listed here — it must not ship on the remote repo.
+
+Updated: 2026-06-12 (coordinator DOX local-only; no remote Child DOX entries)

@@ -40,6 +40,12 @@ archived/
 .cursor/outreach/
 .cursor/agents/
 .cursor/coordinator/
+# Coordinator DOX + platform skill (local maintainer only — never on remote)
+tests/fixtures/coordinator-snapshot/
+.agents/skills/coordinator-platform/
+.claude/skills/coordinator-platform/
+.cursor/skills/coordinator-platform/
+.github/skills/coordinator-platform/
 .cursor/rules/pr-coordinator.mdc
 .cursor/hooks/
 .cursor/hooks.json
