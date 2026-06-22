@@ -21,7 +21,7 @@ jobs:
       netllm_version: ${{ steps.version.outputs.netllm_version }}
       is_prerelease: ${{ steps.version.outputs.is_prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: version
         shell: bash
         run: |
@@ -52,7 +52,7 @@ jobs:
     env:
       NETLLM_VERSION: ${{ needs.resolve-version.outputs.netllm_version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
@@ -109,7 +109,7 @@ jobs:
     env:
       NETLLM_VERSION: ${{ needs.resolve-version.outputs.netllm_version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
@@ -144,7 +144,7 @@ jobs:
     env:
       NETLLM_VERSION: ${{ needs.resolve-version.outputs.netllm_version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
@@ -179,7 +179,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'release' && needs.resolve-version.outputs.is_prerelease == 'false'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
       - name: Bump Formula/netllm.rb for release tag
