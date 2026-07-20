@@ -19,6 +19,29 @@ except ImportError:  # pragma: no cover - discovery without core in odd layouts
 
 
 SERVICE_TYPE = "_netllm._tcp.local."
+
+
+def decode_service_info(
+    info, *, default_port: int = 11400
+) -> tuple[str, dict[str, str]]:
+    """Decode a zeroconf ServiceInfo into (listen_url, string props).
+
+    Shared by the background browser and the CLI's synchronous browse so
+    the two never drift.
+    """
+    props = {
+        k.decode() if isinstance(k, bytes) else k: (
+            v.decode() if isinstance(v, bytes) else v
+        )
+        for k, v in (info.properties or {}).items()
+    }
+    url = props.get("listen_url", "")
+    if not url and info.addresses:
+        addr = socket.inet_ntoa(info.addresses[0])
+        url = f"http://{addr}:{info.port or default_port}"
+    return url, props
+
+
 SERVICE_NAME = "netllm-agent"
 
 
@@ -222,16 +245,7 @@ class MdnsBrowser:
                 info = zc.get_service_info(type_, name)
                 if not info:
                     return
-                props = {
-                    k.decode() if isinstance(k, bytes) else k: (
-                        v.decode() if isinstance(v, bytes) else v
-                    )
-                    for k, v in (info.properties or {}).items()
-                }
-                url = props.get("listen_url", "")
-                if not url and info.addresses:
-                    addr = socket.inet_ntoa(info.addresses[0])
-                    url = f"http://{addr}:{info.port or 11400}"
+                url, props = decode_service_info(info)
                 if url:
                     outer.on_peer(url, props)
 

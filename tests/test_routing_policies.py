@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from netllm_core.models import NetllmConfig, RoutingPolicy
 from netllm_core.pool import RouterPool
 from netllm_core.routing_policy import match_routing_policy, resolve_routing
+
+_MOCK_ONLINE = {"status": "online", "models": ["m"], "model_count": 1}
 
 
 def test_match_policy_by_model_prefix_and_api_format() -> None:
@@ -60,7 +64,8 @@ def test_resolve_routing_allow_cloud_policy() -> None:
     assert resolved.strategy == "failover"
 
 
-def test_prefer_provider_filters_pool_selection() -> None:
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_prefer_provider_filters_pool_selection(mock_probe: object) -> None:
     from netllm_core.models import Backend, BackendHealth
 
     pool = RouterPool()

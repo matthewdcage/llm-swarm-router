@@ -312,8 +312,8 @@ def omlx_admin_url(base_url: str) -> str:
     return f"{raw}/admin"
 
 
-def find_omlx_admin_url(backends: list[Any]) -> str | None:
-    """Return admin URL for the best enabled oMLX backend (online, most models)."""
+def _best_omlx_base_url(backends: list[Any]) -> str | None:
+    """Best enabled oMLX backend base URL (online first, then most models)."""
     best: tuple[int, str] | None = None
     for backend in backends:
         provider = getattr(backend, "provider", None) or (
@@ -351,9 +351,13 @@ def find_omlx_admin_url(backends: list[Any]) -> str | None:
         score = model_count + (1000 if status == "online" else 0)
         if best is None or score > best[0]:
             best = (score, str(base_url))
-    if best is None:
-        return None
-    return omlx_admin_url(best[1])
+    return best[1] if best else None
+
+
+def find_omlx_admin_url(backends: list[Any]) -> str | None:
+    """Return admin URL for the best enabled oMLX backend (online, most models)."""
+    base = _best_omlx_base_url(backends)
+    return omlx_admin_url(base) if base else None
 
 
 def _omlx_service_base(base_url: str) -> str:
@@ -425,50 +429,14 @@ async def probe_omlx_admin_for_backends(
     client: Any | None = None,
 ) -> dict[str, Any] | None:
     """Probe the best enabled oMLX backend for admin stats."""
-    best: tuple[int, str] | None = None
-    for backend in backends:
-        provider = getattr(backend, "provider", None) or (
-            backend.get("provider") if isinstance(backend, dict) else None
-        )
-        if provider != "omlx":
-            continue
-        enabled = getattr(backend, "enabled", True)
-        if isinstance(backend, dict):
-            enabled = backend.get("enabled", True)
-        if not enabled:
-            continue
-        base_url = getattr(backend, "base_url", None) or (
-            backend.get("base_url") if isinstance(backend, dict) else None
-        )
-        if not base_url:
-            continue
-        health = getattr(backend, "health", None)
-        status = "unknown"
-        model_count = 0
-        if health is not None:
-            status = getattr(health, "status", None) or (
-                health.get("status") if isinstance(health, dict) else "unknown"
-            )
-            model_count = int(
-                getattr(health, "model_count", 0)
-                or (health.get("model_count", 0) if isinstance(health, dict) else 0)
-            )
-        elif isinstance(backend, dict):
-            health_dict = backend.get("health") or {}
-            status = health_dict.get("status", "unknown")
-            model_count = int(health_dict.get("model_count", 0) or 0)
-        if status == "offline":
-            continue
-        score = model_count + (1000 if status == "online" else 0)
-        if best is None or score > best[0]:
-            best = (score, str(base_url))
-    if best is None:
+    base = _best_omlx_base_url(backends)
+    if base is None:
         return None
 
     if client is not None:
-        return await probe_omlx_admin(best[1], client)
+        return await probe_omlx_admin(base, client)
 
     import httpx
 
     async with httpx.AsyncClient() as probe_client:
-        return await probe_omlx_admin(best[1], probe_client)
+        return await probe_omlx_admin(base, probe_client)

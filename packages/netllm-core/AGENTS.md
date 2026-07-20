@@ -8,7 +8,7 @@ Shared routing, backend health cache, configuration I/O, model catalog types, an
 
 ## Ownership
 
-Key modules: `config.py`, `routing_policy.py`, `pool.py`, `health.py`, `models.py`, `capabilities.py`, `anthropic_bridge.py`, `batch.py`, `update.py`, `platform.py`.
+Key modules: `config.py`, `routing_policy.py`, `pool.py`, `health.py`, `models.py`, `capabilities.py`, `anthropic_bridge.py`, `update.py`, `platform.py`.
 
 ## Local Contracts
 

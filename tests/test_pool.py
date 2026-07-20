@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from netllm_core.models import Backend, BackendHealth
-from netllm_core.pool import BatchDedupLedger, RouterPool, _stable_shard_index
+from netllm_core.pool import RouterPool, _stable_shard_index
 
 _MOCK_ONLINE = {"status": "online", "models": ["m"], "model_count": 1}
 
@@ -77,18 +77,6 @@ def test_failover_select_advances(_mock: object) -> None:
     assert first is not None and second is not None
     assert first.base_url == "http://a/v1"
     assert second.base_url == "http://b/v1"
-
-
-@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
-def test_dedup_ledger_reassign(_mock: object) -> None:
-    ledger = BatchDedupLedger()
-    backends = [
-        Backend(id="a", base_url="http://a/v1"),
-        Backend(id="b", base_url="http://b/v1"),
-    ]
-    ledger.assignments[0] = "http://a/v1"
-    next_url = ledger.reassign_failed(0, backends, current_url="http://a/v1")
-    assert next_url == "http://b/v1"
 
 
 @patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)

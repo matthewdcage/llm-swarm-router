@@ -66,7 +66,3 @@ def model_capability(model_id: str) -> ModelCapability:
     if tokens & _OTHER_TOKENS:
         return "other"
     return "chat"
-
-
-def is_chat_capable(model_id: str) -> bool:
-    return model_capability(model_id) == "chat"

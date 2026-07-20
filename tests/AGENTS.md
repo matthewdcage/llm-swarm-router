@@ -15,6 +15,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 
 - Runner: pytest with asyncio mode auto (root config)
 - Fixtures: `tests/fixtures/` (e.g. Anthropic message payloads)
+- **Coordinator platform (local maintainer; gitignored):** `tests/fixtures/coordinator-snapshot/`, `tests/fixtures/coordinator-monitor/`, `tests/test_coordinator_dispatch.py`, `tests/test_coordinator_engagement_monitor.py` — offline harness for `.cursor/coordinator/` scripts; never on remote
 - Add tests for real behavior; avoid trivial assertions
 - **Routing hardening:** `tests/test_routing_hardening.py` — per-request strategy/pin headers, hop-count loop backstop, peer-row pruning, offline re-probe window, config hot-apply, one-shot LAN defaults, merge-safe `config import`; `tests/test_agent.py::test_messages_api_round_robin_reaches_peer` locks the Messages-path strategy fix
 - **Swarm acceptance harness:** `tests/test_e2e_two_agents.py` runs two real agents + mock providers over HTTP (combined catalog, load spreading, loop-guarded hops, scan TTL). Extend it for any mesh behavior change; contract invariants live in `tests/test_contract.py`
@@ -43,4 +44,6 @@ scripts/verify-before-pr.sh
 |------|----------|
 | [`fixtures/`](fixtures/) | Shared test payloads |
 
-Fixtures are data only; no AGENTS.md.
+Fixtures are data only; no per-fixture AGENTS.md unless a fixture tree grows maintenance docs.
+
+Updated: 2026-07-20 (routing hardening tests; coordinator harness local-only)

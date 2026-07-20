@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from netllm_core.capabilities import model_capability
 from netllm_core.health import (
@@ -34,38 +34,6 @@ class _HealthEntry:
 class BatchShardPlan:
     assignments: dict[int, str]
     endpoints: list[str]
-
-
-@dataclass
-class BatchDedupLedger:
-    completed: set[int] = field(default_factory=set)
-    assignments: dict[int, str] = field(default_factory=dict)
-
-    def mark_done(self, index: int) -> None:
-        self.completed.add(index)
-
-    def pending_indices(self, total: int) -> list[int]:
-        return [i for i in range(total) if i not in self.completed]
-
-    def reassign_failed(
-        self,
-        failed_index: int,
-        backends: list[Backend],
-        *,
-        current_url: str,
-    ) -> str | None:
-        urls = [b.base_url for b in healthy_backends(backends)]
-        if not urls:
-            urls = [b.base_url for b in backends if b.enabled]
-        try:
-            pos = urls.index(current_url)
-        except ValueError:
-            pos = -1
-        for url in urls[pos + 1 :]:
-            if url != current_url:
-                self.assignments[failed_index] = url
-                return url
-        return None
 
 
 class RouterPool:
@@ -459,13 +427,6 @@ class RouterPool:
             assignments=assignments,
             endpoints=list(dict.fromkeys(urls)),
         )
-
-
-def healthy_backends(
-    backends: list[Backend], pool: RouterPool | None = None
-) -> list[Backend]:
-    p = pool or RouterPool()
-    return [b for b in backends if b.enabled and p.is_healthy(b)]
 
 
 def shard_index(shard_key: str, num_endpoints: int) -> int:

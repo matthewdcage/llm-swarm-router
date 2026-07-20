@@ -63,7 +63,7 @@ async def probe_openai_compat(
     try:
         resp = await client.get(models_url, headers=headers, timeout=timeout_s)
         return status_from_response(resp)
-    except (httpx.ConnectError, httpx.TimeoutException, Exception) as exc:
+    except Exception as exc:
         return status_from_exception(exc, timeout_s)
 
 
@@ -79,7 +79,7 @@ def probe_openai_compat_sync(
         with httpx.Client(timeout=timeout_s) as client:
             resp = client.get(models_url, headers=headers)
         return status_from_response(resp)
-    except (httpx.ConnectError, httpx.TimeoutException, Exception) as exc:
+    except Exception as exc:
         return status_from_exception(exc, timeout_s)
 
 
@@ -175,7 +175,7 @@ async def probe_anthropic_compat(
             messages_url, json=payload, headers=headers, timeout=timeout_s
         )
         return _anthropic_probe_status(resp)
-    except (httpx.ConnectError, httpx.TimeoutException, Exception) as exc:
+    except Exception as exc:
         return status_from_exception(exc, timeout_s)
 
 
@@ -198,7 +198,7 @@ def probe_anthropic_compat_sync(
         with httpx.Client(timeout=timeout_s) as client:
             resp = client.post(messages_url, json=payload, headers=headers)
         return _anthropic_probe_status(resp)
-    except (httpx.ConnectError, httpx.TimeoutException, Exception) as exc:
+    except Exception as exc:
         return status_from_exception(exc, timeout_s)
 
 

@@ -149,8 +149,9 @@ def _listen_port_of(listen: str) -> str:
 
 def _apply_open_swarm_mode(cfg: NetllmConfig) -> None:
     cfg.agent.listen = f"0.0.0.0:{_listen_port_of(cfg.agent.listen)}"
-    cfg.routing.default_strategy = "local_spillover"
-    cfg.swarm.subnet_scan = True
+    # Single source of truth for LAN mesh defaults (one-shot strategy
+    # upgrade + subnet_scan) — keep policy out of individual commands.
+    ensure_lan_mesh_defaults(cfg)
 
 
 def _apply_secured_swarm_mode(cfg: NetllmConfig) -> None:
@@ -526,7 +527,7 @@ def join(
 
     cfg.swarm.cluster_token = token
     _apply_swarm_join_listen(cfg)
-    cfg.routing.default_strategy = "local_spillover"
+    ensure_lan_mesh_defaults(cfg)
     kept, rejected = filter_own_peer_urls([*cfg.swarm.peers, base], cfg.agent.listen)
     if rejected:
         print_error(

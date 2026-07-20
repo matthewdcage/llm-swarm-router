@@ -239,21 +239,14 @@ def browse_mdns_peers(timeout_s: float = 3.0) -> list[dict[str, str]]:
 
     peers: dict[str, dict[str, str]] = {}
 
+    from netllm_discovery.mdns import decode_service_info
+
     class Listener:
         def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
             info = zc.get_service_info(type_, name)
             if not info:
                 return
-            props = {
-                (k.decode() if isinstance(k, bytes) else k): (
-                    v.decode() if isinstance(v, bytes) else v
-                )
-                for k, v in (info.properties or {}).items()
-            }
-            url = props.get("listen_url", "")
-            if not url and info.addresses:
-                addr = socket.inet_ntoa(info.addresses[0])
-                url = f"http://{addr}:{info.port or DEFAULT_AGENT_PORT}"
+            url, props = decode_service_info(info, default_port=DEFAULT_AGENT_PORT)
             agent_id = props.get("agent_id", name)
             if url:
                 peers[agent_id] = {**props, "listen_url": url, "source": "mdns"}

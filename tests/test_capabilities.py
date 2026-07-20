@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from netllm_core.capabilities import is_chat_capable, model_capability
+from netllm_core.capabilities import model_capability
 
 
 @pytest.mark.parametrize(
@@ -23,7 +23,6 @@ from netllm_core.capabilities import is_chat_capable, model_capability
 )
 def test_embedding_models_classified(model_id: str) -> None:
     assert model_capability(model_id) == "embedding"
-    assert not is_chat_capable(model_id)
 
 
 @pytest.mark.parametrize(
@@ -55,4 +54,3 @@ def test_non_chat_models_classified(model_id: str, expected: str) -> None:
 )
 def test_chat_and_unknown_models_default_to_chat(model_id: str) -> None:
     assert model_capability(model_id) == "chat"
-    assert is_chat_capable(model_id)

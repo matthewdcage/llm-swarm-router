@@ -97,13 +97,6 @@ def openai_to_anthropic_response(
     }
 
 
-def openai_error_to_anthropic(message: str) -> dict[str, Any]:
-    return {
-        "type": "error",
-        "error": {"type": "api_error", "message": message},
-    }
-
-
 async def translate_openai_stream_to_anthropic(
     chunks: AsyncIterator[str],
     *,

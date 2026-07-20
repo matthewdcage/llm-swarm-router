@@ -138,6 +138,8 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
             "subnet_scan": cfg.swarm.subnet_scan,
             "subnet_cidrs": list(cfg.swarm.subnet_cidrs),
             "heartbeat_interval_s": cfg.swarm.heartbeat_interval_s,
+            "peer_stale_after_s": cfg.swarm.peer_stale_after_s,
+            "rediscover_interval_s": cfg.swarm.rediscover_interval_s,
             "peers": list(cfg.swarm.peers),
             "cluster_token_set": bool(token),
         },
@@ -148,6 +150,10 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
             "spillover_max_local_in_flight": (
                 cfg.routing.spillover_max_local_in_flight
             ),
+            "health_ttl_s": cfg.routing.health_ttl_s,
+            "offline_retry_s": cfg.routing.offline_retry_s,
+            "max_backend_failures": cfg.routing.max_backend_failures,
+            "lan_defaults_applied": cfg.routing.lan_defaults_applied,
             "model_aliases": dict(cfg.routing.model_aliases),
             "backends": _backend_override_export(cfg),
             "backend_count": len(cfg.routing.backends),
