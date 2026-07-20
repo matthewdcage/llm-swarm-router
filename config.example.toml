@@ -5,6 +5,10 @@
 listen = "127.0.0.1:11400"
 role = "peer"
 advertise = true
+# agent_id and hostname are generated on first save; agent_id is this
+# node's swarm identity (used for peer dedupe and join validation).
+# agent_id = "a1b2c3d4"
+# hostname = "my-mac"
 
 [discovery]
 # macOS default (netllm init): omlx, ollama, lmstudio, vllm
@@ -23,6 +27,12 @@ subnet_scan = false
 subnet_cidrs = []
 cluster_token = ""
 heartbeat_interval_s = 10.0
+# Drop a peer after this long without a heartbeat...
+peer_stale_after_s = 45.0
+# ...and periodically re-probe previously seen peers (and re-scan the
+# subnet when subnet_scan is on) so peers lost to sleep/Wi-Fi blips
+# rejoin automatically. 0 disables re-discovery.
+rediscover_interval_s = 60.0
 
 [routing]
 # local_first: single machine. round_robin: spread same model across LAN peer agents.
@@ -30,8 +40,22 @@ heartbeat_interval_s = 10.0
 default_strategy = "local_first"
 allow_remote = true
 require_same_model_for_shard = true
-# local_spillover only: stay local below this many concurrent requests.
+# local_spillover only: serve locally while fewer than this many requests
+# are in flight locally; at or above it, spill to a LAN peer only when
+# that peer is strictly less loaded. Sequential (one-at-a-time) traffic
+# therefore always stays local — use round_robin / least_load to spread
+# light traffic across peers.
 spillover_max_local_in_flight = 2
+# Health cache: probe freshness window, faster re-probe for offline
+# backends, and consecutive failures before a backend is marked offline.
+health_ttl_s = 30.0
+offline_retry_s = 10.0
+max_backend_failures = 3
+
+# Per-request overrides (any client, no config change needed):
+#   x-netllm-strategy: round_robin        # one-off strategy override
+#   x-netllm-backend: peer:<agent-id>     # pin to a peer / backend id / URL
+#   x-netllm-local-only: 1                # never leave this machine
 
 # Mixed-provider fleets: map one canonical name to per-provider model IDs
 # so the same weights spread across oMLX / Ollama / LM Studio / vLLM.

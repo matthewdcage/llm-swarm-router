@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -198,7 +199,10 @@ def create_app(
         cfg.routing = merged.routing
         cfg.ui = merged.ui
         app.state.config = cfg
-        service.config = merged
+        # Hot-apply: re-sync pool knobs and invalidate the provider-scan
+        # cache so routing/backend edits take effect without a restart.
+        service.apply_config(merged)
+        await service.refresh_local_backends(force_scan=True)
         return result
 
     @app.post("/netllm/v1/admin/peers-scan")
@@ -219,7 +223,7 @@ def create_app(
         token = cfg.swarm.cluster_token
         if token:
             auth = request.headers.get("Authorization", "")
-            if auth != f"Bearer {token}":
+            if not secrets.compare_digest(auth, f"Bearer {token}"):
                 raise HTTPException(status_code=401, detail="Invalid cluster token")
         await service.handle_heartbeat(payload)
         return Response(status_code=204)

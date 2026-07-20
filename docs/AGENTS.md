@@ -15,6 +15,7 @@ User-facing install, troubleshoot, editor wiring, platform matrix, CI/release, a
 | Release / CI | `ci-and-release.md`, `release-notes/` |
 | Learnings | `solutions/` |
 | SDK maintenance | `sdk-versions.md` |
+| Routing audit & hardening | `routing-hardening-plan.md` |
 
 Parent rail: [../AGENTS.md](../AGENTS.md).
 

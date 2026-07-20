@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,7 @@ def require_admin_access(request: Request, cfg: NetllmConfig) -> None:
     token = (cfg.swarm.cluster_token or "").strip()
     if token:
         auth = request.headers.get("Authorization", "")
-        if auth == f"Bearer {token}":
+        if secrets.compare_digest(auth, f"Bearer {token}"):
             return
     raise HTTPException(
         status_code=403,

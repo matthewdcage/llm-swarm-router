@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import get_args
 
 from netllm_core.models import ApiFormat, RoutingConfig, RoutingPolicy, RoutingStrategy
+
+VALID_STRATEGIES: frozenset[str] = frozenset(get_args(RoutingStrategy))
 
 
 @dataclass(frozen=True)
@@ -13,6 +16,9 @@ class ResolvedRouting:
     local_only: bool
     allow_cloud_inject: bool
     prefer_provider: str | None
+    # Per-request backend pin (x-netllm-backend): backend id,
+    # peer agent id, or base URL. Wins over strategy on attempt 1.
+    pinned_backend: str | None = None
 
 
 def match_routing_policy(
@@ -39,8 +45,11 @@ def resolve_routing(
     model: str,
     api_format: ApiFormat,
     header_local_only: bool,
+    header_strategy: str | None = None,
+    header_backend: str | None = None,
 ) -> ResolvedRouting:
-    """Merge default routing config with optional policy match."""
+    """Merge default routing config, optional policy match, and
+    per-request header overrides (strategy header wins over policy)."""
     strategy: RoutingStrategy = routing.default_strategy
     local_only = header_local_only
     allow_cloud_inject = not header_local_only
@@ -58,9 +67,17 @@ def resolve_routing(
             local_only = True
             allow_cloud_inject = False
 
+    if header_strategy:
+        requested = header_strategy.strip().lower()
+        if requested in VALID_STRATEGIES:
+            strategy = requested  # type: ignore[assignment]
+
+    pinned = (header_backend or "").strip() or None
+
     return ResolvedRouting(
         strategy=strategy,
         local_only=local_only,
         allow_cloud_inject=allow_cloud_inject,
         prefer_provider=prefer_provider,
+        pinned_backend=pinned,
     )

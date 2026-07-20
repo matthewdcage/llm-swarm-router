@@ -567,43 +567,102 @@ def test_wants_local_only_header() -> None:
     assert not AgentService._wants_local_only({"x-netllm-local-only": "0"})
 
 
-def test_order_message_candidates_spillover_sorts_by_load() -> None:
-    from netllm_agent.service import AgentService
-    from netllm_core.routing_policy import ResolvedRouting
+@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_core.pool.probe_openai_compat_sync")
+@patch("netllm_sdk_openai.client.AsyncOpenAI")
+def test_messages_api_round_robin_reaches_peer(
+    mock_openai_cls: object,
+    mock_probe: object,
+    mock_scan: AsyncMock,
+) -> None:
+    """The Anthropic Messages path honors the routing strategy (it used
+    to bypass pool selection entirely and always serve locally)."""
+    from unittest.mock import MagicMock
 
     cfg = NetllmConfig()
-    cfg.routing.spillover_max_local_in_flight = 2
-    service = AgentService(cfg)
-    routing = ResolvedRouting(
-        strategy="local_spillover",
-        local_only=False,
-        allow_cloud_inject=False,
-        prefer_provider=None,
-    )
-    local = Backend(
-        id="local", base_url="http://127.0.0.1:8080/v1", local=True, in_flight=3
-    )
-    busy_peer = Backend(
-        id="peer:busy",
-        base_url="http://192.168.1.11:11400/v1",
-        provider="custom",
-        local=False,
-        in_flight=9,
-    )
-    idle_peer = Backend(
-        id="peer:idle",
-        base_url="http://192.168.1.12:11400/v1",
-        provider="custom",
-        local=False,
-        in_flight=0,
-    )
-    ordered = service._order_message_candidates([busy_peer, local, idle_peer], routing)
-    # Saturated local with a less-loaded peer: least-loaded remote first.
-    assert [b.id for b in ordered] == ["peer:idle", "peer:busy", "local"]
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    cfg.routing.default_strategy = "round_robin"
+    cfg.routing.allow_remote = True
 
-    local.in_flight = 0
-    ordered = service._order_message_candidates([busy_peer, local, idle_peer], routing)
-    assert ordered[0].id == "local"
+    mock_scan.return_value = [
+        {
+            "id": "omlx",
+            "status": "online",
+            "base_url": "http://127.0.0.1:8080/v1",
+            "model_count": 1,
+            "models": ["shared-model"],
+        }
+    ]
+    mock_probe.return_value = {
+        "status": "online",
+        "models": ["shared-model"],
+        "model_count": 1,
+    }
+
+    called_base_urls: list[str] = []
+    mock_client = MagicMock()
+
+    def track_openai_client(*_args: object, **kwargs: object) -> MagicMock:
+        base = str(kwargs.get("base_url", "")).rstrip("/")
+        if base:
+            called_base_urls.append(base)
+        return mock_client
+
+    mock_openai_cls.side_effect = track_openai_client
+
+    async def record_create(**kwargs: object) -> MagicMock:
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = {
+            "id": "cmpl-test",
+            "object": "chat.completion",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "model": kwargs.get("model", "shared-model"),
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+        return mock_response
+
+    mock_client.chat.completions.create = record_create
+
+    app = create_app(cfg)
+    with TestClient(app) as client:
+        client.post(
+            "/netllm/v1/heartbeat",
+            json={
+                "agent_id": "peer-remote",
+                "listen_url": "http://192.168.1.11:11400",
+                "role": "peer",
+                "hostname": "mac-mini",
+                "backends": [
+                    Backend(
+                        id="b1",
+                        base_url="http://127.0.0.1:8080/v1",
+                        provider="omlx",
+                        local=True,
+                        health=BackendHealth(status="online", models=["shared-model"]),
+                    ).model_dump(mode="json")
+                ],
+            },
+        )
+        for _ in range(2):
+            resp = client.post(
+                "/v1/messages",
+                json={
+                    "model": "shared-model",
+                    "max_tokens": 16,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
+            )
+            assert resp.status_code == 200
+
+    assert "http://127.0.0.1:8080/v1" in called_base_urls
+    assert "http://192.168.1.11:11400/v1" in called_base_urls
 
 
 @pytest.mark.asyncio
@@ -751,7 +810,17 @@ def test_peer_forward_headers_loop_guard() -> None:
         provider="omlx",
         local=True,
     )
-    assert AgentService._peer_forward_headers(peer) == {LOCAL_ONLY_HEADER: "1"}
+    from netllm_core.models import HOPS_HEADER
+
+    assert AgentService._peer_forward_headers(peer) == {
+        LOCAL_ONLY_HEADER: "1",
+        HOPS_HEADER: "1",
+    }
+    # Incoming hop count is propagated and incremented.
+    assert AgentService._peer_forward_headers(peer, {HOPS_HEADER: "1"}) == {
+        LOCAL_ONLY_HEADER: "1",
+        HOPS_HEADER: "2",
+    }
     assert AgentService._peer_forward_headers(local) is None
 
 
@@ -840,7 +909,7 @@ def test_peer_hop_sets_local_only_default_header(
         assert resp.status_code == 200
 
     peer_headers = headers_by_base.get("http://192.168.1.11:11400/v1")
-    assert peer_headers == {"x-netllm-local-only": "1"}
+    assert peer_headers == {"x-netllm-local-only": "1", "x-netllm-hops": "1"}
 
 
 @patch("netllm_discovery.lan.subnet_scan_agents", new_callable=AsyncMock)

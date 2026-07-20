@@ -16,6 +16,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 - Runner: pytest with asyncio mode auto (root config)
 - Fixtures: `tests/fixtures/` (e.g. Anthropic message payloads)
 - Add tests for real behavior; avoid trivial assertions
+- **Routing hardening:** `tests/test_routing_hardening.py` — per-request strategy/pin headers, hop-count loop backstop, peer-row pruning, offline re-probe window, config hot-apply, one-shot LAN defaults, merge-safe `config import`; `tests/test_agent.py::test_messages_api_round_robin_reaches_peer` locks the Messages-path strategy fix
 - **Swarm acceptance harness:** `tests/test_e2e_two_agents.py` runs two real agents + mock providers over HTTP (combined catalog, load spreading, loop-guarded hops, scan TTL). Extend it for any mesh behavior change; contract invariants live in `tests/test_contract.py`
 - **Open LAN swarm CLI/doctor:** `tests/test_cli_swarm_init.py` (open vs `--secure` init, `swarm-token --create`); `tests/test_doctor_open_lan.py` (no token issue on LAN); `tests/test_config_json.py` (`import_config` applies `ensure_lan_mesh_defaults`)
 - macOS install scripts: `tests/test_bundled_install_scripts.sh`

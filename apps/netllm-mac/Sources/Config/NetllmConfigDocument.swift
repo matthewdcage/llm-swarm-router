@@ -46,6 +46,9 @@ struct NetllmConfigDocument: Codable, Sendable {
         var default_strategy: String = "local_first"
         var allow_remote: Bool = true
         var require_same_model_for_shard: Bool = true
+        // One-shot marker: once the LAN upgrade has run, an explicit
+        // user strategy choice is never silently rewritten again.
+        var lan_defaults_applied: Bool = false
         var backends: [BackendOverride] = []
         var policies: [RoutingPolicy] = []
     }
@@ -97,8 +100,11 @@ struct NetllmConfigDocument: Codable, Sendable {
     /// Mesh routing/discovery defaults when listening on the LAN (no token minting).
     mutating func applyLanMeshDefaults() {
         guard isLanMode else { return }
-        if routing.default_strategy == "local_first" {
-            routing.default_strategy = "local_spillover"
+        if !routing.lan_defaults_applied {
+            if routing.default_strategy == "local_first" {
+                routing.default_strategy = "local_spillover"
+            }
+            routing.lan_defaults_applied = true
         }
         if !swarm.subnet_scan {
             swarm.subnet_scan = true

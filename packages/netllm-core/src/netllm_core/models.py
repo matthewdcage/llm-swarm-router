@@ -40,6 +40,13 @@ ApiFormat = Literal["openai", "anthropic"]
 ANTHROPIC_CLOUD_BASE_URL = "https://api.anthropic.com"
 OPENAI_CLOUD_BASE_URL = "https://api.openai.com/v1"
 LOCAL_ONLY_HEADER = "x-netllm-local-only"
+# Per-request routing overrides (optional; strategy must be a RoutingStrategy).
+STRATEGY_HEADER = "x-netllm-strategy"
+BACKEND_PIN_HEADER = "x-netllm-backend"
+# Hop counter set on agent→agent forwards. Backstop loop guard in case a
+# peer ignores or strips the local-only header.
+HOPS_HEADER = "x-netllm-hops"
+MAX_FORWARD_HOPS = 2
 
 
 def infer_api_format(provider: ProviderId) -> ApiFormat:
@@ -83,7 +90,14 @@ class DiscoverySwarmConfig(BaseModel):
     subnet_scan: bool = False
     subnet_cidrs: list[str] = Field(default_factory=list)
     cluster_token: str = ""
-    heartbeat_interval_s: float = 10.0
+    heartbeat_interval_s: float = Field(default=10.0, gt=0.0)
+    # Drop a peer from the registry after this many seconds without a
+    # heartbeat. Re-discovery (below) can bring it back.
+    peer_stale_after_s: float = Field(default=45.0, gt=0.0)
+    # Periodically re-probe previously seen peers and (when subnet_scan
+    # is on) re-scan the subnet, so peers lost to sleep/Wi-Fi blips
+    # rejoin without a restart. 0 disables.
+    rediscover_interval_s: float = Field(default=60.0, ge=0.0)
 
 
 class RoutingPolicy(BaseModel):
@@ -102,9 +116,20 @@ class RoutingConfig(BaseModel):
     default_strategy: RoutingStrategy = "local_first"
     allow_remote: bool = True
     require_same_model_for_shard: bool = True
-    # local_spillover: serve locally below this many concurrent requests,
-    # spill to the least-loaded LAN peer at or above it.
-    spillover_max_local_in_flight: int = 2
+    # local_spillover: serve locally while fewer than this many requests
+    # are in flight locally; at or above it, spill to a LAN peer only
+    # when that peer is strictly less loaded.
+    spillover_max_local_in_flight: int = Field(default=2, ge=1)
+    # Health cache: how long a probe result stays fresh, and how many
+    # consecutive request failures mark a backend offline.
+    health_ttl_s: float = Field(default=30.0, gt=0.0)
+    # Offline backends are re-probed after this many seconds instead of
+    # waiting out the full health TTL (faster recovery from blips).
+    offline_retry_s: float = Field(default=10.0, gt=0.0)
+    max_backend_failures: int = Field(default=3, ge=1)
+    # Set once ensure_lan_mesh_defaults() has upgraded a LAN-bound
+    # config; prevents re-overriding an explicit user strategy choice.
+    lan_defaults_applied: bool = False
     # Canonical model name -> provider-specific IDs. Lets mixed fleets
     # (oMLX vs Ollama vs LM Studio naming) serve one model name:
     #   [routing.model_aliases]
@@ -205,12 +230,20 @@ def is_lan_listen(listen: str) -> bool:
 
 
 def ensure_lan_mesh_defaults(cfg: NetllmConfig) -> bool:
-    """Apply mesh routing/discovery defaults for LAN bind; never mints tokens."""
+    """Apply mesh routing/discovery defaults for LAN bind; never mints tokens.
+
+    The strategy upgrade is one-shot (tracked via
+    routing.lan_defaults_applied): after the first upgrade, an explicit
+    user choice of local_first is respected instead of being silently
+    rewritten on every load/save.
+    """
     if not is_lan_listen(cfg.agent.listen):
         return False
     changed = False
-    if cfg.routing.default_strategy == "local_first":
-        cfg.routing.default_strategy = "local_spillover"
+    if not cfg.routing.lan_defaults_applied:
+        if cfg.routing.default_strategy == "local_first":
+            cfg.routing.default_strategy = "local_spillover"
+        cfg.routing.lan_defaults_applied = True
         changed = True
     if not cfg.swarm.subnet_scan:
         cfg.swarm.subnet_scan = True
@@ -248,4 +281,7 @@ def save_config(config: NetllmConfig, path: Path | None = None) -> Path:
         tomli_w.dumps(payload),  # type: ignore[arg-type]
         encoding="utf-8",
     )
+    # Config may hold cluster tokens / API keys — owner-only.
+    if os.name == "posix":
+        os.chmod(cfg_path, 0o600)
     return cfg_path

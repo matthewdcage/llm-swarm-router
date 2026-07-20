@@ -19,12 +19,27 @@ class ShardContext:
     shard_key: str | None = None
 
 
+_LEDGER_MAX_ENTRIES = 8192
+
+
 @dataclass
 class BatchRequestLedger:
-    """Tracks (batch_id, index) → backend URL for connector-style batch sharding."""
+    """Tracks (batch_id, index) → backend URL for connector-style batch sharding.
+
+    Bounded: oldest assignments are evicted past _LEDGER_MAX_ENTRIES so a
+    long-running agent doesn't grow the ledger without limit.
+    """
 
     assignments: dict[tuple[str, int], str] = field(default_factory=dict)
     completed: set[tuple[str, int]] = field(default_factory=set)
+
+    def _evict_if_full(self) -> None:
+        if len(self.assignments) < _LEDGER_MAX_ENTRIES:
+            return
+        drop = len(self.assignments) // 2
+        for key in list(self.assignments)[:drop]:
+            del self.assignments[key]
+            self.completed.discard(key)
 
     def assign(self, batch_id: str, index: int, backends: list[Backend]) -> str | None:
         key = (batch_id, index)
@@ -34,6 +49,7 @@ class BatchRequestLedger:
         if not urls:
             return None
         url = urls[index % len(urls)]
+        self._evict_if_full()
         self.assignments[key] = url
         return url
 
@@ -84,14 +100,15 @@ def extract_shard_context(
 
     user = payload.get("user")
     if user is not None:
-        user_str = str(user)
-        match = _USER_NETLLM.match(user_str)
+        # Only the explicit netllm:<batch>:<index> convention opts a
+        # request into sharding. A bare OpenAI `user` field (which many
+        # SDKs set for abuse tracking) must not silently pin routing.
+        match = _USER_NETLLM.match(str(user))
         if match:
             return ShardContext(
                 batch_id=match.group("batch"),
                 index=int(match.group("index")),
             )
-        return ShardContext(shard_key=user_str)
 
     metadata = payload.get("metadata")
     if isinstance(metadata, dict):

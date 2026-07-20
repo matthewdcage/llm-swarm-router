@@ -32,6 +32,9 @@ class SwarmRegistry:
     def __init__(self, config: NetllmConfig) -> None:
         self.config = config
         self.peers: dict[str, PeerRecord] = {}
+        # Every listen_url ever registered — re-discovery re-probes these
+        # so peers lost to sleep/network blips rejoin without a restart.
+        self.known_peer_urls: set[str] = set()
         self._task: asyncio.Task[None] | None = None
 
     def local_agent_url(self) -> str:
@@ -42,14 +45,25 @@ class SwarmRegistry:
     def register_peer(self, record: PeerRecord) -> None:
         record.last_seen = time.time()
         self.peers[record.agent_id] = record
+        url = record.listen_url.rstrip("/")
+        if url:
+            self.known_peer_urls.add(url)
 
-    def stale_peers(self, max_age_s: float = 45.0) -> list[str]:
+    def stale_peers(self, max_age_s: float | None = None) -> list[str]:
+        max_age = (
+            max_age_s if max_age_s is not None else self.config.swarm.peer_stale_after_s
+        )
         now = time.time()
-        return [pid for pid, p in self.peers.items() if now - p.last_seen > max_age_s]
+        return [pid for pid, p in self.peers.items() if now - p.last_seen > max_age]
 
-    def prune_stale(self, max_age_s: float = 45.0) -> None:
+    def prune_stale(self, max_age_s: float | None = None) -> None:
         for pid in self.stale_peers(max_age_s):
             del self.peers[pid]
+
+    def lost_peer_urls(self) -> list[str]:
+        """Previously seen peer URLs with no live registry entry."""
+        live = {p.listen_url.rstrip("/") for p in self.peers.values()}
+        return sorted(self.known_peer_urls - live)
 
     def _peer_local_rows(self, peer: PeerRecord) -> list[Backend]:
         """Validated `local=true` rows from a peer's heartbeat payload.
@@ -104,10 +118,6 @@ class SwarmRegistry:
                 )
             )
         return out
-
-    def peer_backends(self) -> list[Backend]:
-        """Deprecated: use peer_agent_backends() for gateway routing."""
-        return self.peer_agent_backends()
 
     async def fetch_peer(self, base_url: str) -> PeerRecord | None:
         url = base_url.rstrip("/") + "/netllm/v1/status"

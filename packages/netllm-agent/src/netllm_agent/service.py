@@ -19,8 +19,12 @@ from netllm_core.anthropic_bridge import (
 from netllm_core.capabilities import model_capability
 from netllm_core.models import (
     ANTHROPIC_CLOUD_BASE_URL,
+    BACKEND_PIN_HEADER,
+    HOPS_HEADER,
     LOCAL_ONLY_HEADER,
+    MAX_FORWARD_HOPS,
     OPENAI_CLOUD_BASE_URL,
+    STRATEGY_HEADER,
     Backend,
     NetllmConfig,
 )
@@ -63,6 +67,10 @@ class AgentService:
                 config.routing.spillover_max_local_in_flight
             ),
             model_aliases=config.routing.model_aliases,
+            health_ttl_s=config.routing.health_ttl_s,
+            offline_retry_s=config.routing.offline_retry_s,
+            max_failures=config.routing.max_backend_failures,
+            require_same_model_for_shard=(config.routing.require_same_model_for_shard),
         )
         self.swarm = SwarmRegistry(config)
         self._mdns_advertiser = None
@@ -117,8 +125,33 @@ class AgentService:
             self.swarm.peer_agent_backends() if self.config.routing.allow_remote else []
         )
         self.pool.merge_backends(local + remote)
+        # The registry is authoritative for peers: rows for peers it no
+        # longer tracks must not linger in the pool.
+        self.pool.prune_peer_rows({b.base_url for b in remote})
         self._update_health_metrics()
         return local
+
+    def apply_config(self, merged: NetllmConfig) -> None:
+        """Hot-apply a config change to the live router (no restart).
+
+        Anything the pool caches from config is re-synced here; the next
+        refresh_local_backends() picks up backend/peer list changes.
+        """
+        self.config = merged
+        self.swarm.config = merged
+        routing = merged.routing
+        self.pool.allow_remote = routing.allow_remote
+        self.pool.spillover_max_local_in_flight = max(
+            1, routing.spillover_max_local_in_flight
+        )
+        self.pool.model_aliases = routing.model_aliases
+        self.pool.health_ttl_s = routing.health_ttl_s
+        self.pool.offline_retry_s = min(routing.offline_retry_s, routing.health_ttl_s)
+        self.pool.max_failures = max(1, routing.max_backend_failures)
+        self.pool.require_same_model_for_shard = routing.require_same_model_for_shard
+        # Invalidate the provider-scan cache so backend overrides and
+        # discovery edits take effect on the next request.
+        self._local_scan_cache = None
 
     async def _scan_local_backends(
         self,
@@ -254,10 +287,20 @@ class AgentService:
         return {str(k).lower(): str(v) for k, v in headers.items()}
 
     @staticmethod
+    def _incoming_hops(headers: Mapping[str, str]) -> int:
+        raw = headers.get(HOPS_HEADER, "").strip()
+        return int(raw) if raw.isdigit() else 0
+
+    @staticmethod
     def _wants_local_only(headers: Mapping[str, str] | None) -> bool:
         hdrs = AgentService._normalize_headers(headers)
         raw = hdrs.get(LOCAL_ONLY_HEADER, "")
-        return raw.strip().lower() in ("1", "true", "yes")
+        if raw.strip().lower() in ("1", "true", "yes"):
+            return True
+        # Hop-count backstop: even if a peer strips the local-only
+        # header, a request that has already crossed the mesh must not
+        # be forwarded again.
+        return AgentService._incoming_hops(hdrs) >= MAX_FORWARD_HOPS
 
     def _model_for_backend(self, model: str, backend: Backend) -> str:
         """Resolve the requested (canonical) model name to the ID this
@@ -368,15 +411,24 @@ class AgentService:
             )
 
     @staticmethod
-    def _peer_forward_headers(backend: Backend) -> dict[str, str] | None:
+    def _peer_forward_headers(
+        backend: Backend, incoming: Mapping[str, str] | None = None
+    ) -> dict[str, str] | None:
         """Loop guard: agent-hop forwards must terminate at the peer.
 
         Without this header a peer running a distributing strategy
         (round_robin, least_load, ...) could bounce the request back,
-        ping-ponging it across the mesh.
+        ping-ponging it across the mesh. The hop counter is a second
+        line of defense should the local-only header ever be dropped.
         """
         if backend.id.startswith("peer:"):
-            return {LOCAL_ONLY_HEADER: "1"}
+            hops = AgentService._incoming_hops(
+                AgentService._normalize_headers(incoming)
+            )
+            return {
+                LOCAL_ONLY_HEADER: "1",
+                HOPS_HEADER: str(hops + 1),
+            }
         return None
 
     def _resolved_routing(
@@ -386,11 +438,14 @@ class AgentService:
         api_format: str,
         headers: Mapping[str, str] | None,
     ) -> ResolvedRouting:
+        hdrs = self._normalize_headers(headers)
         return resolve_routing(
             self.config.routing,
             model=model,
             api_format=api_format,  # type: ignore[arg-type]
-            header_local_only=self._wants_local_only(headers),
+            header_local_only=self._wants_local_only(hdrs),
+            header_strategy=hdrs.get(STRATEGY_HEADER),
+            header_backend=hdrs.get(BACKEND_PIN_HEADER),
         )
 
     def _select_backend_for_request(
@@ -403,7 +458,22 @@ class AgentService:
         local_only: bool = False,
         prefer_provider: str | None = None,
         exclude_ids: set[str] | None = None,
+        pinned: str | None = None,
     ) -> Backend | None:
+        if pinned:
+            backend = self.pool.backend_by_id(pinned)
+            if (
+                backend is not None
+                and not (local_only and not backend.local)
+                and backend.id not in (exclude_ids or set())
+            ):
+                return backend
+            if attempt == 1:
+                logger.warning(
+                    "pinned backend %r unavailable — falling back to %s",
+                    pinned,
+                    strategy,
+                )
         if strategy == "batch_shard":
             if shard and shard.batch_id is not None and shard.index is not None:
                 candidates = self.pool.backends_for_model(model)
@@ -515,6 +585,7 @@ class AgentService:
                 local_only=routing.local_only,
                 prefer_provider=routing.prefer_provider,
                 exclude_ids=tried,
+                pinned=routing.pinned_backend,
             )
             if backend is None:
                 break
@@ -525,7 +596,7 @@ class AgentService:
                 client = OpenAIUpstream(
                     backend.base_url,
                     api_key=backend.resolve_api_key() or "netllm-local",
-                    default_headers=self._peer_forward_headers(backend),
+                    default_headers=self._peer_forward_headers(backend, hdrs),
                 )
                 upstream_model = self._model_for_backend(model, backend)
                 upstream_payload = (
@@ -588,6 +659,7 @@ class AgentService:
         last_error: Exception | None = None
         max_attempts = max(len(self.pool.backends), 1)
         tried: set[str] = set()
+        yielded_any = False
 
         while attempt < max_attempts:
             attempt += 1
@@ -600,6 +672,7 @@ class AgentService:
                 local_only=routing.local_only,
                 prefer_provider=routing.prefer_provider,
                 exclude_ids=tried,
+                pinned=routing.pinned_backend,
             )
             if backend is None:
                 break
@@ -609,7 +682,7 @@ class AgentService:
                 client = OpenAIUpstream(
                     backend.base_url,
                     api_key=backend.resolve_api_key() or "netllm-local",
-                    default_headers=self._peer_forward_headers(backend),
+                    default_headers=self._peer_forward_headers(backend, hdrs),
                 )
                 upstream_model = self._model_for_backend(model, backend)
                 upstream_payload = (
@@ -623,6 +696,7 @@ class AgentService:
                 if upstream_model != model:
                     stream = self._restore_stream_model(stream, model)
                 async for chunk in stream:
+                    yielded_any = True
                     yield chunk
                 return
             except OpenAIUpstreamError as exc:
@@ -634,6 +708,15 @@ class AgentService:
                     attempt,
                     exc,
                 )
+                if yielded_any:
+                    # Content already reached the client; retrying would
+                    # replay a second response into the same SSE stream.
+                    # (The finally block below still releases the backend.)
+                    yield (
+                        "data: " + json.dumps({"error": {"message": str(exc)}}) + "\n\n"
+                    )
+                    yield "data: [DONE]\n\n"
+                    return
             finally:
                 self.pool.release(backend)
                 BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(
@@ -683,6 +766,7 @@ class AgentService:
                 local_only=routing.local_only,
                 prefer_provider=routing.prefer_provider,
                 exclude_ids=tried,
+                pinned=routing.pinned_backend,
             )
             if backend is None:
                 break
@@ -693,7 +777,7 @@ class AgentService:
                 client = OpenAIUpstream(
                     backend.base_url,
                     api_key=backend.resolve_api_key() or "netllm-local",
-                    default_headers=self._peer_forward_headers(backend),
+                    default_headers=self._peer_forward_headers(backend, hdrs),
                 )
                 upstream_model = self._model_for_backend(model, backend)
                 upstream_payload = (
@@ -804,72 +888,63 @@ class AgentService:
             ]
         )
 
-    def _order_message_candidates(
-        self, candidates: list[Backend], routing: ResolvedRouting
-    ) -> list[Backend]:
-        ordered = candidates
-        if routing.prefer_provider:
-            preferred = [b for b in ordered if b.provider == routing.prefer_provider]
-            if preferred:
-                others = [b for b in ordered if b.provider != routing.prefer_provider]
-                ordered = preferred + others
-        if routing.strategy in ("local_first", "local_spillover"):
-            local = [b for b in ordered if b.local]
-            remote = [b for b in ordered if not b.local]
-            if local:
-                ordered = local + remote
-            if routing.strategy == "local_spillover" and local and remote:
-                # Stable load sort keeps prefer_provider order on ties.
-                local_sorted = sorted(local, key=lambda b: b.in_flight)
-                remote_sorted = sorted(remote, key=lambda b: b.in_flight)
-                threshold = self.pool.spillover_max_local_in_flight
-                if (
-                    local_sorted[0].in_flight >= threshold
-                    and remote_sorted[0].in_flight < local_sorted[0].in_flight
-                ):
-                    ordered = remote_sorted + local_sorted
-                else:
-                    ordered = local_sorted + remote_sorted
-        return ordered
+    def _anthropic_fallback_backends(self, *, local_only: bool) -> list[Backend]:
+        """Anthropic-format backends tried after the OpenAI-format mesh.
 
-    def _message_backend_candidates(
-        self, model: str, *, local_only: bool = False
-    ) -> list[Backend]:
-        openai_backends: list[Backend] = []
-        anthropic_backends: list[Backend] = []
-        for b in self.pool.backends:
-            if not b.enabled:
-                continue
-            if not b.local and not self.pool.allow_remote:
-                continue
-            if local_only and not b.local:
-                continue
-            if b.api_format == "anthropic":
-                anthropic_backends.append(b)
-                continue
-            models = b.health.models
-            if not models or any(
-                m == model or m.startswith(model + ":") for m in models
-            ):
-                openai_backends.append(b)
-        local = [b for b in openai_backends if b.local]
-        remote = [b for b in openai_backends if not b.local]
-        strategy = self.config.routing.default_strategy
-        if strategy == "local_first":
-            ordered = local + remote
-        else:
-            ordered = openai_backends
-        if not ordered:
-            ordered = [
-                b
-                for b in self.pool.backends
-                if b.enabled
-                and b.api_format == "openai"
-                and (not local_only or b.local)
-                and (b.local or self.pool.allow_remote)
-            ]
-        healthy = [b for b in ordered if self.pool.is_healthy(b)]
-        return (healthy or ordered) + anthropic_backends
+        Strategy selection runs over local providers and LAN peers; the
+        Anthropic cloud (or any anthropic-format backend) stays a final
+        fallback so it never shadows the local mesh in a rotation.
+        """
+        return [
+            b
+            for b in self.pool.backends
+            if b.enabled
+            and b.api_format == "anthropic"
+            and (b.local or self.pool.allow_remote)
+            and (not local_only or b.local)
+        ]
+
+    async def _messages_attempt(
+        self,
+        backend: Backend,
+        payload: dict[str, Any],
+        model: str,
+        hdrs: Mapping[str, str],
+        api_key: str,
+        attempt: int,
+    ) -> dict[str, Any]:
+        """One acquire→call→account cycle for the Messages API."""
+        self.pool.acquire(backend)
+        BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
+        t0 = time.monotonic()
+        try:
+            result = await self._messages_on_backend(
+                backend, payload, model, hdrs, api_key
+            )
+            latency = time.monotonic() - t0
+            self.pool.mark_success(backend, latency * 1000)
+            REQUESTS_TOTAL.labels(
+                backend=backend.base_url, model=model, status="ok"
+            ).inc()
+            REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency)
+            self._request_count += 1
+            return result
+        except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
+            self.pool.mark_failure(backend)
+            REQUESTS_TOTAL.labels(
+                backend=backend.base_url, model=model, status="error"
+            ).inc()
+            logger.warning(
+                "messages backend %s failed (attempt %s): %s",
+                backend.base_url,
+                attempt,
+                exc,
+            )
+            raise
+        finally:
+            self.pool.release(backend)
+            BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
+            self._update_health_metrics()
 
     async def proxy_messages(
         self,
@@ -887,50 +962,47 @@ class AgentService:
         if routing.allow_cloud_inject:
             self._inject_anthropic_cloud_backend(api_key)
 
-        candidates = await self._offload_if_probing(
-            self._message_backend_candidates, model, local_only=routing.local_only
-        )
-        candidates = self._order_message_candidates(candidates, routing)
+        # Same strategy-driven selection loop as chat completions, so
+        # round_robin / least_load / latency_weighted spread Messages
+        # traffic across the mesh too. Anthropic-format backends are
+        # excluded here and tried afterwards as the fallback tier.
         last_error: Exception | None = None
-        max_attempts = max(len(candidates), 1)
-
-        for attempt in range(1, max_attempts + 1):
-            backend = candidates[attempt - 1] if attempt <= len(candidates) else None
+        tried: set[str] = {
+            b.id for b in self.pool.backends if b.api_format == "anthropic"
+        }
+        attempt = 0
+        max_attempts = max(len(self.pool.backends), 1)
+        while attempt < max_attempts:
+            attempt += 1
+            backend = await self._offload_if_probing(
+                self._select_backend_for_request,
+                model,
+                routing.strategy,
+                attempt,
+                None,
+                local_only=routing.local_only,
+                prefer_provider=routing.prefer_provider,
+                exclude_ids=tried,
+                pinned=routing.pinned_backend,
+            )
             if backend is None:
                 break
-            self.pool.acquire(backend)
-            BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
-            t0 = time.monotonic()
             try:
-                result = await self._messages_on_backend(
-                    backend, payload, model, hdrs, api_key
+                return await self._messages_attempt(
+                    backend, payload, model, hdrs, api_key, attempt
                 )
-                latency = time.monotonic() - t0
-                self.pool.mark_success(backend, latency * 1000)
-                REQUESTS_TOTAL.labels(
-                    backend=backend.base_url, model=model, status="ok"
-                ).inc()
-                REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency)
-                self._request_count += 1
-                return result
             except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
                 last_error = exc
-                self.pool.mark_failure(backend)
-                REQUESTS_TOTAL.labels(
-                    backend=backend.base_url, model=model, status="error"
-                ).inc()
-                logger.warning(
-                    "messages backend %s failed (attempt %s): %s",
-                    backend.base_url,
-                    attempt,
-                    exc,
+                tried.add(backend.id)
+
+        for backend in self._anthropic_fallback_backends(local_only=routing.local_only):
+            attempt += 1
+            try:
+                return await self._messages_attempt(
+                    backend, payload, model, hdrs, api_key, attempt
                 )
-            finally:
-                self.pool.release(backend)
-                BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(
-                    backend.in_flight
-                )
-                self._update_health_metrics()
+            except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
+                last_error = exc
 
         if last_error:
             raise last_error
@@ -957,27 +1029,59 @@ class AgentService:
         if routing.allow_cloud_inject:
             self._inject_anthropic_cloud_backend(api_key)
 
-        candidates = await self._offload_if_probing(
-            self._message_backend_candidates, model, local_only=routing.local_only
-        )
-        candidates = self._order_message_candidates(candidates, routing)
         last_error: Exception | None = None
-        max_attempts = max(len(candidates), 1)
-
-        for attempt in range(1, max_attempts + 1):
-            backend = candidates[attempt - 1] if attempt <= len(candidates) else None
-            if backend is None:
-                break
+        tried: set[str] = {
+            b.id for b in self.pool.backends if b.api_format == "anthropic"
+        }
+        attempt = 0
+        max_attempts = max(len(self.pool.backends), 1)
+        yielded_any = False
+        # Strategy loop over the OpenAI-format mesh, then anthropic-format
+        # fallbacks — mirrors proxy_messages.
+        candidates_exhausted = False
+        fallback_iter = iter(())
+        while True:
+            if not candidates_exhausted and attempt < max_attempts:
+                attempt += 1
+                backend = await self._offload_if_probing(
+                    self._select_backend_for_request,
+                    model,
+                    routing.strategy,
+                    attempt,
+                    None,
+                    local_only=routing.local_only,
+                    prefer_provider=routing.prefer_provider,
+                    exclude_ids=tried,
+                    pinned=routing.pinned_backend,
+                )
+                if backend is None:
+                    candidates_exhausted = True
+                    fallback_iter = iter(
+                        self._anthropic_fallback_backends(local_only=routing.local_only)
+                    )
+                    continue
+            else:
+                if not candidates_exhausted:
+                    candidates_exhausted = True
+                    fallback_iter = iter(
+                        self._anthropic_fallback_backends(local_only=routing.local_only)
+                    )
+                backend = next(fallback_iter, None)
+                if backend is None:
+                    break
+                attempt += 1
             self.pool.acquire(backend)
             BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
             try:
                 async for chunk in self._messages_stream_on_backend(
                     backend, payload, model, hdrs, api_key
                 ):
+                    yielded_any = True
                     yield chunk
                 return
             except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
                 last_error = exc
+                tried.add(backend.id)
                 self.pool.mark_failure(backend)
                 logger.warning(
                     "messages stream backend %s failed (attempt %s): %s",
@@ -985,6 +1089,23 @@ class AgentService:
                     attempt,
                     exc,
                 )
+                if yielded_any:
+                    # Partial SSE already sent — do not replay another
+                    # response; surface the error and end the stream.
+                    yield (
+                        "event: error\ndata: "
+                        + json.dumps(
+                            {
+                                "type": "error",
+                                "error": {
+                                    "type": "upstream_error",
+                                    "message": str(exc),
+                                },
+                            }
+                        )
+                        + "\n\n"
+                    )
+                    return
             finally:
                 self.pool.release(backend)
                 BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(
@@ -1026,7 +1147,7 @@ class AgentService:
         client = OpenAIUpstream(
             backend.base_url,
             api_key=backend.resolve_api_key() or "netllm-local",
-            default_headers=self._peer_forward_headers(backend),
+            default_headers=self._peer_forward_headers(backend, headers),
         )
         result = await client.chat_completion(oai_payload)
         return openai_to_anthropic_response(result, model=model)
@@ -1058,7 +1179,7 @@ class AgentService:
         client = OpenAIUpstream(
             backend.base_url,
             api_key=backend.resolve_api_key() or "netllm-local",
-            default_headers=self._peer_forward_headers(backend),
+            default_headers=self._peer_forward_headers(backend, headers),
         )
         async for chunk in translate_openai_stream_to_anthropic(
             client.chat_completion_stream(oai_payload),
@@ -1134,7 +1255,10 @@ class AgentService:
                     await self.refresh_local_backends()
 
                 def on_peer_sync(url: str, props: dict[str, str]) -> None:
-                    loop.call_soon_threadsafe(asyncio.create_task, on_peer(url, props))
+                    # _spawn_background retains the task reference —
+                    # a bare create_task here could be GC'd mid-flight.
+                    coro = on_peer(url, props)
+                    loop.call_soon_threadsafe(self._spawn_background, coro)
 
                 self._mdns_browser = MdnsBrowser(on_peer_sync)
                 self._mdns_browser.start()
@@ -1167,8 +1291,40 @@ class AgentService:
             self._spawn_background(self._discover_subnet_peers())
         elif self._should_auto_subnet_fallback():
             self._spawn_background(self._mdns_fallback_subnet_scan())
+        if self.config.swarm.rediscover_interval_s > 0:
+            self._spawn_background(self._rediscovery_loop())
         self.startup_warnings = warnings
         return warnings
+
+    async def _rediscovery_loop(self) -> None:
+        """Bring back peers lost to sleep / Wi-Fi blips without a restart.
+
+        The registry prunes peers after peer_stale_after_s; mDNS is
+        edge-triggered and the subnet scan is one-shot, so without this
+        loop a bidirectional heartbeat gap removes a peer permanently.
+        """
+        while True:
+            interval = self.config.swarm.rediscover_interval_s
+            if interval <= 0:
+                return
+            await asyncio.sleep(interval)
+            try:
+                lost = self.swarm.lost_peer_urls()
+                recovered = 0
+                for url in lost:
+                    record = await self.swarm.fetch_peer(url)
+                    if record and record.agent_id != self.config.agent.agent_id:
+                        self.swarm.register_peer(record)
+                        recovered += 1
+                if recovered:
+                    await self.refresh_local_backends()
+                    logger.info("re-discovery recovered %s peer(s)", recovered)
+                if not self.swarm.peers and self.config.swarm.subnet_scan:
+                    await self._discover_subnet_peers()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.debug("re-discovery pass failed: %s", exc)
 
     def _spawn_background(self, coro: Any) -> None:
         task = asyncio.create_task(coro)

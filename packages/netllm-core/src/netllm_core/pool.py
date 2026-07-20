@@ -17,7 +17,9 @@ from netllm_core.models import Backend, RoutingStrategy
 
 logger = logging.getLogger(__name__)
 
+# Defaults; per-pool values come from [routing] config.
 HEALTH_TTL_S = 30.0
+OFFLINE_RETRY_S = 10.0
 MAX_FAILURES = 3
 
 
@@ -75,6 +77,10 @@ class RouterPool:
         allow_remote: bool = True,
         spillover_max_local_in_flight: int = 2,
         model_aliases: dict[str, list[str]] | None = None,
+        health_ttl_s: float = HEALTH_TTL_S,
+        offline_retry_s: float = OFFLINE_RETRY_S,
+        max_failures: int = MAX_FAILURES,
+        require_same_model_for_shard: bool = True,
     ) -> None:
         self._backends: list[Backend] = []
         self._health_cache: dict[str, _HealthEntry] = {}
@@ -82,6 +88,10 @@ class RouterPool:
         self.allow_remote = allow_remote
         self.spillover_max_local_in_flight = max(1, spillover_max_local_in_flight)
         self.model_aliases = model_aliases or {}
+        self.health_ttl_s = health_ttl_s
+        self.offline_retry_s = min(offline_retry_s, health_ttl_s)
+        self.max_failures = max(1, max_failures)
+        self.require_same_model_for_shard = require_same_model_for_shard
         # Our own active forwards per peer agent URL. Peer rows are
         # rebuilt from heartbeats on every refresh, so this ledger keeps
         # in-flight hop counts from being wiped between heartbeats.
@@ -123,6 +133,41 @@ class RouterPool:
             by_url[b.base_url] = b
         self._backends = list(by_url.values())
 
+    def prune_peer_rows(self, keep_urls: set[str]) -> None:
+        """Drop peer-agent rows no longer present in the swarm registry.
+
+        Without this, a pruned/dead peer's row lingers forever and keeps
+        attracting selection attempts; its hop ledger entry would leak.
+        """
+        removed = [
+            b
+            for b in self._backends
+            if b.id.startswith("peer:") and b.base_url not in keep_urls
+        ]
+        if not removed:
+            return
+        gone = {b.base_url for b in removed}
+        self._backends = [b for b in self._backends if b.base_url not in gone]
+        for url in gone:
+            self._own_peer_hops.pop(url, None)
+
+    def backend_by_id(self, ref: str) -> Backend | None:
+        """Resolve a pin reference: backend id, peer agent id, or base URL."""
+        target = ref.strip()
+        if not target:
+            return None
+        url_target = target.rstrip("/")
+        for b in self._backends:
+            if not b.enabled:
+                continue
+            if (
+                b.id == target
+                or b.id == f"peer:{target}"
+                or b.base_url.rstrip("/") == url_target
+            ):
+                return b
+        return None
+
     def acquire(self, backend: Backend) -> None:
         """Count a request as in flight on this backend."""
         backend.in_flight += 1
@@ -141,8 +186,11 @@ class RouterPool:
         key = backend.cache_key()
         entry = self._health_cache.setdefault(key, _HealthEntry())
         entry.failures += 1
-        if entry.failures >= MAX_FAILURES:
+        if entry.failures >= self.max_failures:
             entry.online = False
+            # Stamp the trip time so the offline re-probe window
+            # (offline_retry_s) counts from now, not the last probe.
+            entry.last_check = time.monotonic()
             backend.health.status = "offline"
 
     def mark_success(self, backend: Backend, latency_ms: float | None = None) -> None:
@@ -170,9 +218,14 @@ class RouterPool:
             if not b.enabled:
                 continue
             cached = self._health_cache.get(b.cache_key())
-            if cached is None or now - cached.last_check >= HEALTH_TTL_S:
+            if cached is None or now - cached.last_check >= self._freshness_s(cached):
                 return True
         return False
+
+    def _freshness_s(self, entry: _HealthEntry) -> float:
+        """Offline entries re-probe sooner than the healthy TTL so a
+        backend tripped by transient failures is not blackholed."""
+        return self.health_ttl_s if entry.online else self.offline_retry_s
 
     def is_healthy(self, backend: Backend, *, force_refresh: bool = False) -> bool:
         if not backend.enabled:
@@ -183,7 +236,7 @@ class RouterPool:
         if (
             not force_refresh
             and cached is not None
-            and now - cached.last_check < HEALTH_TTL_S
+            and now - cached.last_check < self._freshness_s(cached)
         ):
             return cached.online
         probe_key = backend.resolve_api_key() or None
@@ -198,8 +251,13 @@ class RouterPool:
         backend.health.status = status.get("status", "unknown")
         backend.health.http_status = status.get("http_status")
         backend.health.detail = status.get("detail")
-        backend.health.models = status.get("models") or []
-        backend.health.model_count = status.get("model_count", 0)
+        probed_models = status.get("models") or []
+        if probed_models or online:
+            # A failed probe keeps the last known catalog (heartbeat- or
+            # probe-sourced) instead of wiping it to [] and breaking
+            # model matching until the next heartbeat.
+            backend.health.models = probed_models
+            backend.health.model_count = status.get("model_count", 0)
         backend.health.last_check = now
         return online
 
@@ -390,10 +448,11 @@ class RouterPool:
                 endpoints=[base],
             )
         models_set = {b.health.models[0] if b.health.models else "" for b in backends}
-        if len({m for m in models_set if m}) > 1:
+        if self.require_same_model_for_shard and len({m for m in models_set if m}) > 1:
             raise ValueError(
                 "batch_shard requires the same model on every backend; "
-                "found multiple model sets"
+                "found multiple model sets (set "
+                "routing.require_same_model_for_shard = false to override)"
             )
         assignments = {i: urls[i % len(urls)] for i in range(num_prompts)}
         return BatchShardPlan(
