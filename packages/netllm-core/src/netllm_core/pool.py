@@ -64,6 +64,9 @@ class RouterPool:
         # rebuilt from heartbeats on every refresh, so this ledger keeps
         # in-flight hop counts from being wiped between heartbeats.
         self._own_peer_hops: dict[str, int] = {}
+        # Successful requests served per backend id — surfaces "peer is
+        # discovered but idle" directly in status/dashboards.
+        self.routed_counts: dict[str, int] = {}
 
     @property
     def backends(self) -> list[Backend]:
@@ -168,6 +171,7 @@ class RouterPool:
         entry.online = True
         entry.last_check = time.monotonic()
         backend.health.status = "online"
+        self.routed_counts[backend.id] = self.routed_counts.get(backend.id, 0) + 1
         if latency_ms is not None:
             if backend.latency_ema_ms <= 0:
                 backend.latency_ema_ms = float(latency_ms)

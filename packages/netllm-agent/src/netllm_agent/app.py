@@ -55,6 +55,31 @@ def create_app(
     app.state.service = service
     app.state.config = cfg
 
+    def require_inference_access(request: Request) -> None:
+        """Opt-in gate (swarm.require_token_for_inference): non-local
+        clients must present the cluster token on /v1/* routes. Peer
+        agents forward with the token automatically."""
+        token = (cfg.swarm.cluster_token or "").strip()
+        if not cfg.swarm.require_token_for_inference or not token:
+            return
+        from netllm_core.platform import local_admin_client_hosts
+
+        client_host = (request.client.host if request.client else "").lower()
+        if client_host in local_admin_client_hosts():
+            return
+        auth = request.headers.get("Authorization", "")
+        if secrets.compare_digest(auth, f"Bearer {token}"):
+            return
+        if secrets.compare_digest(request.headers.get("x-api-key", ""), token):
+            return
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "This netllm agent requires the swarm cluster token for "
+                "inference. Send Authorization: Bearer <token>."
+            ),
+        )
+
     @app.get("/")
     async def root(request: Request) -> Any:
         accept = request.headers.get("accept", "")
@@ -230,11 +255,13 @@ def create_app(
 
     # --- OpenAI-compatible proxy ---
     @app.get("/v1/models")
-    async def openai_models() -> dict[str, Any]:
+    async def openai_models(request: Request) -> dict[str, Any]:
+        require_inference_access(request)
         return await service.list_models_aggregated()
 
     @app.post("/v1/chat/completions")
     async def openai_chat_completions(request: Request) -> Any:
+        require_inference_access(request)
         payload = await request.json()
         stream = bool(payload.get("stream"))
 
@@ -255,6 +282,7 @@ def create_app(
 
     @app.post("/v1/embeddings")
     async def openai_embeddings(request: Request) -> Any:
+        require_inference_access(request)
         payload = await request.json()
         try:
             return await service.proxy_embeddings(payload, headers=request.headers)
@@ -267,6 +295,7 @@ def create_app(
     # --- Anthropic Messages API proxy ---
     @app.post("/v1/messages")
     async def anthropic_messages(request: Request) -> Any:
+        require_inference_access(request)
         payload = await request.json()
         stream = bool(payload.get("stream"))
         hdrs = {k.lower(): v for k, v in request.headers.items()}

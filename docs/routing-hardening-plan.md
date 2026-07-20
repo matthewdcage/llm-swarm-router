@@ -119,15 +119,30 @@ Phase 2 — consolidation (done 2026-07-20)
   dashboard.js/Swift hand-mirroring) and moving the macOS app onto the admin
   API instead of CLI shell-outs.
 
-Phase 3 — durability/security
+Phase 3 — durability/security (done 2026-07-20)
 
-- Async health probes with shared, reused HTTP clients per backend (today a
-  new SDK client is built per attempt; sync probes can stall worker threads
-  5 s per unreachable peer).
-- Optional token enforcement on `/v1/*` for LAN binds.
-- `agent.listen` parse/validation at load (IPv6-safe) with friendly errors.
-- UI surfacing: per-peer "routed calls" counters in status/dashboard so
-  "discovered but idle" is visible at a glance.
+- ~~Reused HTTP clients~~: upstream SDK clients are cached per
+  (base_url, api_key, forward-headers) in `AgentService._openai_upstream`
+  (no more per-attempt client construction), and sync health probes share
+  one pooled `httpx.Client` (`health._shared_sync_client`). A full
+  async-probe rewrite remains optional future work — probes are still
+  sync but now connection-pooled and thread-offloaded.
+- ~~Optional token enforcement on `/v1/*`~~:
+  `swarm.require_token_for_inference = true` (with a `cluster_token`)
+  gates inference for non-local clients; local clients are exempt and
+  peer agents automatically forward with the cluster token
+  (`_upstream_api_key`).
+- ~~`agent.listen` validation~~: pydantic validator rejects malformed
+  host:port (IPv6-bracket aware) at load; the CLI now prints a friendly
+  "Config is invalid" error instead of a raw traceback.
+- ~~Per-backend routed-call counters~~: `pool.routed_counts` (successful
+  requests per backend id) is exposed as `routed_requests` in
+  `/netllm/v1/status` — "peer discovered but idle" is now directly
+  observable. Dashboard/menubar visualization of the counter is UI
+  polish left for a future pass.
+
+Still open (deferred): agent-served config schema for dashboard.js/Swift,
+macOS app migration to the admin API, full async health probes.
 
 Phase 4 — future feature: shared model lists & batch preferences
 

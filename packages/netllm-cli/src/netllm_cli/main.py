@@ -111,7 +111,18 @@ def _require_config(cfg_path: Path) -> NetllmConfig:
             ],
         )
         raise typer.Exit(1)
-    return load_config(cfg_path)
+    try:
+        return load_config(cfg_path)
+    except Exception as exc:  # pydantic ValidationError / TOML parse
+        print_error(
+            "Config is invalid",
+            f"Could not load [cyan]{cfg_path}[/]:\n{exc}",
+            hints=[
+                "Fix the value(s) above, or regenerate: [cyan]netllm init[/]",
+                "Edit in $EDITOR: [cyan]netllm config-edit[/]",
+            ],
+        )
+        raise typer.Exit(1) from exc
 
 
 def _resolve_init_swarm_mode(*, swarm: bool, single: bool) -> bool:

@@ -142,6 +142,7 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
             "rediscover_interval_s": cfg.swarm.rediscover_interval_s,
             "peers": list(cfg.swarm.peers),
             "cluster_token_set": bool(token),
+            "require_token_for_inference": cfg.swarm.require_token_for_inference,
         },
         "routing": {
             "default_strategy": cfg.routing.default_strategy,

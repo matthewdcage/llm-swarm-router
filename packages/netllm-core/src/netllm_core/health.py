@@ -11,6 +11,18 @@ DEFAULT_TIMEOUT = 5.0
 INFERENCE_TIMEOUT = 10.0
 SLOW_THRESHOLD_MS = 5000
 
+# Shared sync client for health probes: httpx.Client is thread-safe, and
+# reusing one keeps connections pooled instead of a TCP+TLS setup per
+# probe (selection paths can probe several backends per request).
+_sync_client: httpx.Client | None = None
+
+
+def _shared_sync_client() -> httpx.Client:
+    global _sync_client
+    if _sync_client is None:
+        _sync_client = httpx.Client(timeout=DEFAULT_TIMEOUT)
+    return _sync_client
+
 
 def status_from_response(resp: httpx.Response) -> dict[str, Any]:
     if resp.status_code == 200:
@@ -76,8 +88,7 @@ def probe_openai_compat_sync(
     models_url = base_url.rstrip("/") + "/models"
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     try:
-        with httpx.Client(timeout=timeout_s) as client:
-            resp = client.get(models_url, headers=headers)
+        resp = _shared_sync_client().get(models_url, headers=headers, timeout=timeout_s)
         return status_from_response(resp)
     except Exception as exc:
         return status_from_exception(exc, timeout_s)
@@ -195,8 +206,9 @@ def probe_anthropic_compat_sync(
         "messages": [{"role": "user", "content": "hi"}],
     }
     try:
-        with httpx.Client(timeout=timeout_s) as client:
-            resp = client.post(messages_url, json=payload, headers=headers)
+        resp = _shared_sync_client().post(
+            messages_url, json=payload, headers=headers, timeout=timeout_s
+        )
         return _anthropic_probe_status(resp)
     except Exception as exc:
         return status_from_exception(exc, timeout_s)

@@ -266,3 +266,76 @@ def test_config_json_import_merges_over_existing(tmp_path) -> None:
     assert loaded.routing.default_strategy == "round_robin"
     assert loaded.routing.model_aliases == {"canon": ["real-id"]}
     assert loaded.routing.spillover_max_local_in_flight == 5
+
+
+def test_listen_validation_rejects_malformed() -> None:
+    import pytest as _pytest
+
+    NetllmConfig(agent={"listen": "127.0.0.1:11400"})
+    NetllmConfig(agent={"listen": "[::]:11400"})
+    for bad in ("no-port", "host:notaport", ":11400", "host:0", ""):
+        with _pytest.raises(Exception):
+            NetllmConfig(agent={"listen": bad})
+
+
+def test_routed_counts_incremented_on_success() -> None:
+    pool = RouterPool()
+    b = _local()
+    pool.set_backends([b])
+    pool.mark_success(b)
+    pool.mark_success(b)
+    assert pool.routed_counts == {"local": 2}
+
+
+def test_inference_token_gate() -> None:
+    from unittest.mock import patch as _patch
+
+    from fastapi.testclient import TestClient
+    from netllm_agent.app import create_app
+
+    cfg = NetllmConfig()
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    cfg.swarm.cluster_token = "sekrit"
+    cfg.swarm.require_token_for_inference = True
+
+    with _patch(
+        "netllm_core.platform.local_admin_client_hosts",
+        return_value=frozenset({"10.9.9.9"}),
+    ):
+        app = create_app(cfg)
+        with TestClient(app) as client:
+            # TestClient's host ("testclient") is not local → rejected.
+            resp = client.get("/v1/models")
+            assert resp.status_code == 401
+            resp = client.get("/v1/models", headers={"Authorization": "Bearer sekrit"})
+            assert resp.status_code == 200
+            resp = client.get("/v1/models", headers={"Authorization": "Bearer wrong"})
+            assert resp.status_code == 401
+
+
+def test_peer_forward_uses_cluster_token() -> None:
+    from netllm_agent.service import AgentService
+
+    cfg = NetllmConfig()
+    cfg.swarm.cluster_token = "sekrit"
+    service = AgentService(cfg)
+    assert service._upstream_api_key(_peer("remote")) == "sekrit"
+    # Local providers keep their own key resolution (omlx default here).
+    assert service._upstream_api_key(_local()) == "omlx-local"
+    local_custom = Backend(id="c", base_url="http://127.0.0.1:9000/v1", local=True)
+    assert service._upstream_api_key(local_custom) == "netllm-local"
+
+
+def test_openai_upstream_client_reused() -> None:
+    from netllm_agent.service import AgentService
+
+    cfg = NetllmConfig()
+    service = AgentService(cfg)
+    peer = _peer("remote")
+    a = service._openai_upstream(peer, {"x-netllm-hops": "0"})
+    b = service._openai_upstream(peer, {"x-netllm-hops": "0"})
+    assert a is b
+    # Different hop depth → different forward headers → distinct client.
+    c = service._openai_upstream(peer, {"x-netllm-hops": "1"})
+    assert c is not a

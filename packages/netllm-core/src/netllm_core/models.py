@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from netllm_core.platform import (
     default_discovery_providers,
@@ -90,6 +90,10 @@ class DiscoverySwarmConfig(BaseModel):
     subnet_scan: bool = False
     subnet_cidrs: list[str] = Field(default_factory=list)
     cluster_token: str = ""
+    # When true (and a cluster_token is set), /v1/* inference routes
+    # require the Bearer token from non-local clients. Peer agents
+    # forward with the cluster token automatically.
+    require_token_for_inference: bool = False
     heartbeat_interval_s: float = Field(default=10.0, gt=0.0)
     # Drop a peer from the registry after this many seconds without a
     # heartbeat. Re-discovery (below) can bring it back.
@@ -145,6 +149,29 @@ class AgentConfig(BaseModel):
     advertise: bool = True
     agent_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
     hostname: str = Field(default_factory=default_hostname)
+
+    @field_validator("listen")
+    @classmethod
+    def _validate_listen(cls, v: str) -> str:
+        """Fail at load time with a clear message instead of deep in serve.
+
+        Accepts host:port and bracketed IPv6 [::]:port.
+        """
+        raw = v.strip()
+        if not raw:
+            raise ValueError("agent.listen must be host:port (e.g. 127.0.0.1:11400)")
+        if raw.startswith("["):
+            host, sep, port = raw.partition("]:")
+            valid = sep and port.isdigit()
+        else:
+            host, sep, port = raw.rpartition(":")
+            valid = bool(sep) and bool(host) and port.isdigit()
+        if not valid or not (0 < int(port) < 65536):
+            raise ValueError(
+                f"agent.listen {v!r} is not host:port "
+                "(e.g. 127.0.0.1:11400 or [::]:11400)"
+            )
+        return raw
 
 
 class UiConfig(BaseModel):

@@ -85,6 +85,10 @@ class AgentService:
         self._local_scan_ttl_s = 10.0
         # Dedupe concurrent scans at TTL expiry (cache stampede guard).
         self._local_scan_lock = asyncio.Lock()
+        # Reused upstream clients per (base_url, api_key, forward headers):
+        # constructing an SDK client (and its httpx pools) per attempt
+        # wasted a TCP+TLS setup on every request.
+        self._upstream_cache: dict[tuple, OpenAIUpstream] = {}
 
     async def refresh_local_backends(
         self,
@@ -215,6 +219,7 @@ class AgentService:
             "backends": [b.model_dump(mode="json") for b in self.pool.backends],
             "peers": self.swarm.all_peer_urls(),
             "routing_strategy": self.config.routing.default_strategy,
+            "routed_requests": dict(self.pool.routed_counts),
             "cluster_token_set": bool(self.config.swarm.cluster_token),
         }
         if omlx_admin:
@@ -431,6 +436,38 @@ class AgentService:
             }
         return None
 
+    def _upstream_api_key(self, backend: Backend) -> str:
+        """API key for an upstream call; peer forwards authenticate with
+        the cluster token so token-enforcing peers accept mesh traffic."""
+        key = backend.resolve_api_key()
+        if key:
+            return key
+        if backend.id.startswith("peer:") and self.config.swarm.cluster_token:
+            return self.config.swarm.cluster_token
+        return "netllm-local"
+
+    def _openai_upstream(
+        self, backend: Backend, headers: Mapping[str, str] | None
+    ) -> OpenAIUpstream:
+        fwd = self._peer_forward_headers(backend, headers)
+        api_key = self._upstream_api_key(backend)
+        cache_key = (
+            backend.base_url,
+            api_key,
+            tuple(sorted((fwd or {}).items())),
+        )
+        client = self._upstream_cache.get(cache_key)
+        if client is None:
+            if len(self._upstream_cache) > 64:
+                self._upstream_cache.clear()
+            client = OpenAIUpstream(
+                backend.base_url,
+                api_key=api_key,
+                default_headers=fwd,
+            )
+            self._upstream_cache[cache_key] = client
+        return client
+
     def _resolved_routing(
         self,
         model: str,
@@ -593,11 +630,7 @@ class AgentService:
             BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
             t0 = time.monotonic()
             try:
-                client = OpenAIUpstream(
-                    backend.base_url,
-                    api_key=backend.resolve_api_key() or "netllm-local",
-                    default_headers=self._peer_forward_headers(backend, hdrs),
-                )
+                client = self._openai_upstream(backend, hdrs)
                 upstream_model = self._model_for_backend(model, backend)
                 upstream_payload = (
                     {**payload, "model": upstream_model}
@@ -679,11 +712,7 @@ class AgentService:
             self.pool.acquire(backend)
             BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
             try:
-                client = OpenAIUpstream(
-                    backend.base_url,
-                    api_key=backend.resolve_api_key() or "netllm-local",
-                    default_headers=self._peer_forward_headers(backend, hdrs),
-                )
+                client = self._openai_upstream(backend, hdrs)
                 upstream_model = self._model_for_backend(model, backend)
                 upstream_payload = (
                     {**payload, "model": upstream_model}
@@ -774,11 +803,7 @@ class AgentService:
             BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
             t0 = time.monotonic()
             try:
-                client = OpenAIUpstream(
-                    backend.base_url,
-                    api_key=backend.resolve_api_key() or "netllm-local",
-                    default_headers=self._peer_forward_headers(backend, hdrs),
-                )
+                client = self._openai_upstream(backend, hdrs)
                 upstream_model = self._model_for_backend(model, backend)
                 upstream_payload = (
                     {**payload, "model": upstream_model}
@@ -1144,11 +1169,7 @@ class AgentService:
             return await client.messages_create(payload)
         oai_payload = anthropic_to_openai_request(payload)
         oai_payload["model"] = self._model_for_backend(model, backend)
-        client = OpenAIUpstream(
-            backend.base_url,
-            api_key=backend.resolve_api_key() or "netllm-local",
-            default_headers=self._peer_forward_headers(backend, headers),
-        )
+        client = self._openai_upstream(backend, headers)
         result = await client.chat_completion(oai_payload)
         return openai_to_anthropic_response(result, model=model)
 
@@ -1176,11 +1197,7 @@ class AgentService:
             return
         oai_payload = anthropic_to_openai_request(payload)
         oai_payload["model"] = self._model_for_backend(model, backend)
-        client = OpenAIUpstream(
-            backend.base_url,
-            api_key=backend.resolve_api_key() or "netllm-local",
-            default_headers=self._peer_forward_headers(backend, headers),
-        )
+        client = self._openai_upstream(backend, headers)
         async for chunk in translate_openai_stream_to_anthropic(
             client.chat_completion_stream(oai_payload),
             model=model,
