@@ -101,11 +101,13 @@ Phase 2 — consolidation
 - Serve config schema/defaults from the agent so `dashboard.js` and the Swift
   structs stop hand-mirroring the pydantic models (drift already happened).
 - macOS app: use the admin API for config/discover instead of CLI shell-outs.
-- Remove dead code: `batch.py` (`run_batch_shard` has no callers),
-  `is_chat_capable`, `openai_error_to_anthropic`, duplicate mDNS browse in
-  `lan.py`, duplicated oMLX scoring in `local.py`; either use or remove
+- Remove dead code: ~~`batch.py` (`run_batch_shard` has no callers)~~,
+  ~~`is_chat_capable`~~, ~~`openai_error_to_anthropic`~~, duplicate mDNS browse in
+  `lan.py`, ~~duplicated oMLX scoring in `local.py`~~; either use or remove
   `GET /netllm/v1/peers` and `/backends`.
-- Collapse the three LAN-defaults call sites onto `ensure_lan_mesh_defaults`.
+- Collapse the three LAN-defaults call sites onto `ensure_lan_mesh_defaults`
+  (partial: `netllm join` and open-swarm init now call `ensure_lan_mesh_defaults`
+  instead of duplicating strategy/subnet fields).
 
 Phase 3 — durability/security
 

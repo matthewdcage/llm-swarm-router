@@ -42,6 +42,9 @@ archived/
 .cursor/coordinator/
 # Coordinator DOX + platform skill (local maintainer only — never on remote)
 tests/fixtures/coordinator-snapshot/
+tests/fixtures/coordinator-monitor/
+tests/test_coordinator_dispatch.py
+tests/test_coordinator_engagement_monitor.py
 .agents/skills/coordinator-platform/
 .claude/skills/coordinator-platform/
 .cursor/skills/coordinator-platform/
