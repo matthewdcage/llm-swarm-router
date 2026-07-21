@@ -169,6 +169,12 @@ final class ServerProcess: @unchecked Sendable {
             proc.arguments = ["netllm", "serve", "-q", "--config", configPath.path]
         }
         proc.environment = runtime.makeEnvironment()
+        // Menubar apps are "background" to macOS: without an explicit QoS
+        // the agent child gets App Nap'd and can freeze at interpreter
+        // startup (observed: serve subprocess suspended with ~0 CPU until
+        // SIGCONT while a predecessor drained). The agent serves network
+        // requests — it must never nap.
+        proc.qualityOfService = .userInitiated
         proc.standardOutput = handle
         proc.standardError = handle
         proc.terminationHandler = { [weak self] term in

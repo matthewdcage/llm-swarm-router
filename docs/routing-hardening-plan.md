@@ -297,6 +297,12 @@ pressure by "nothing". Causes found:
     heartbeat version-drift warning can distinguish phase-5/6 builds
     from 0.4.1.0 installs (identical version strings on different code
     defeated it).
+11. **Agent subprocess App Nap fix.** The menubar app spawned the serve
+    child without a QoS class; macOS App Nap'd it (observed: frozen at
+    interpreter startup, ~0 CPU, no sockets, until SIGCONT) while a
+    predecessor drained — the health check then failed and installs
+    looked broken. `Process.qualityOfService = .userInitiated` keeps
+    the network-serving child schedulable.
 
 ## Verifying on your two machines
 
