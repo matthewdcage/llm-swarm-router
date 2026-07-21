@@ -89,6 +89,53 @@ def port_owner_pid(port: int) -> int | None:
     return None
 
 
+def pid_alive(pid: int) -> bool:
+    """True while the process exists (works cross-platform via psutil-free checks)."""
+    if sys.platform == "win32":
+        out = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5.0,
+        )
+        return str(pid) in out.stdout
+    try:
+        import os
+
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except OSError:
+        # EPERM etc: process exists but is not ours.
+        return True
+
+
+def force_kill_pid(pid: int) -> bool:
+    """SIGKILL / taskkill -F a process that ignored graceful termination."""
+    if sys.platform == "win32":
+        try:
+            out = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5.0,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
+        return out.returncode == 0
+    try:
+        import os
+        import signal
+
+        os.kill(pid, signal.SIGKILL)
+        return True
+    except OSError:
+        return False
+
+
 def terminate_pid(pid: int) -> bool:
     """Send graceful termination to a process; return True if signal sent."""
     if sys.platform == "win32":

@@ -280,6 +280,23 @@ pressure by "nothing". Causes found:
    live status) next to the raw bind address, so the advertised IP is
    visible for this machine; the Swarm tab already lists peers with
    their LAN URLs.
+8. **Orphaned-agent replace hardening.** `stop_netllm_on_port` waited
+   only for the *port* to free — a SIGTERM'd uvicorn releases its
+   listener immediately but keeps running until in-flight LLM requests
+   drain, still holding its mDNS registration and gossip loop. The
+   replacement then hit an mDNS name collision and started with LAN
+   advertising permanently disabled (observed after the phase-6 app
+   update: "peers detected for a moment, then gone"). Now the stop
+   helper waits for process exit and escalates to SIGKILL after the
+   grace window.
+9. **mDNS advertiser self-heals.** A startup advertise failure no
+   longer disables LAN advertising for the agent's lifetime — the
+   rediscovery loop retries every `rediscover_interval_s` until the
+   collision clears.
+10. **Version bumped to 0.4.2.0** across the workspace so the new
+    heartbeat version-drift warning can distinguish phase-5/6 builds
+    from 0.4.1.0 installs (identical version strings on different code
+    defeated it).
 
 ## Verifying on your two machines
 

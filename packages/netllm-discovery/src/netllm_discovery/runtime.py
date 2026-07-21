@@ -106,7 +106,18 @@ def _health_responds(url: str, *, timeout_s: float = 2.0) -> bool:
 
 
 def stop_netllm_on_port(port: int, *, wait_s: float = 5.0) -> bool:
-    """SIGTERM the process on port if it is a netllm agent; wait until port is free."""
+    """Stop the netllm agent on port and wait for the PROCESS to exit.
+
+    Waiting only for the port to free is not enough: a SIGTERM'd uvicorn
+    releases its listener immediately but keeps running until in-flight
+    LLM requests drain — minutes, sometimes never. That half-dead
+    instance keeps its mDNS registration and gossip loop alive, so the
+    replacement hits an mDNS name collision and starts with LAN
+    advertising permanently disabled (observed in the field). Escalate
+    to SIGKILL when the process outlives the grace window.
+    """
+    from netllm_discovery.process_util import force_kill_pid, pid_alive
+
     url = f"http://127.0.0.1:{port}"
     if probe_netllm_agent(url) is None and not _health_responds(url):
         return False
@@ -118,7 +129,14 @@ def stop_netllm_on_port(port: int, *, wait_s: float = 5.0) -> bool:
 
     deadline = time.monotonic() + wait_s
     while time.monotonic() < deadline:
-        if not is_port_in_use("127.0.0.1", port):
+        if not pid_alive(pid) and not is_port_in_use("127.0.0.1", port):
             return True
         time.sleep(0.2)
+    if pid_alive(pid):
+        force_kill_pid(pid)
+        kill_deadline = time.monotonic() + 3.0
+        while time.monotonic() < kill_deadline:
+            if not pid_alive(pid):
+                break
+            time.sleep(0.1)
     return not is_port_in_use("127.0.0.1", port)

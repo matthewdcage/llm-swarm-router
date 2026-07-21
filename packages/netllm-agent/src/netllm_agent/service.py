@@ -1342,68 +1342,87 @@ class AgentService:
             ).inc()
             raise
 
+    def _try_start_mdns(self) -> Exception | None:
+        """Start (or re-start) the mDNS advertiser + browser.
+
+        Returns the failure, or None on success. Safe to call again
+        later: a startup name collision (e.g. a draining predecessor
+        process still registered) must not disable LAN advertising for
+        the whole agent lifetime — the rediscovery loop retries.
+        """
+        if not (self.config.agent.advertise and self.config.swarm.mdns):
+            return None
+        if self._mdns_advertiser is not None:
+            return None
+        loop = asyncio.get_running_loop()
+        try:
+            from netllm_discovery.mdns import MdnsAdvertiser, MdnsBrowser
+
+            self._mdns_advertiser = MdnsAdvertiser(
+                self.config.agent.listen,
+                self.config.agent.agent_id,
+                self.config.agent.role,
+            )
+            self._mdns_advertiser.start()
+
+            async def on_peer(url: str, props: dict[str, str]) -> None:
+                agent_id = props.get("agent_id", url)
+                if agent_id == self.config.agent.agent_id:
+                    return
+                if props.get("reachable") == "false":
+                    # Loopback-bound peer — fetching its advertised URL
+                    # would hit our own agent. Surfaced by `netllm peers`.
+                    logger.info(
+                        "mDNS peer %s is loopback-bound (unreachable); "
+                        "it must serve with --host 0.0.0.0 to join",
+                        agent_id,
+                    )
+                    return
+                record = await self.swarm.fetch_peer(url)
+                if record:
+                    self.swarm.register_peer(record)
+                else:
+                    self.swarm.register_peer(
+                        PeerRecord(
+                            agent_id=agent_id,
+                            listen_url=url,
+                            role=props.get("role", "peer"),
+                        )
+                    )
+                await self.refresh_local_backends()
+
+            def on_peer_sync(url: str, props: dict[str, str]) -> None:
+                # _spawn_background retains the task reference —
+                # a bare create_task here could be GC'd mid-flight.
+                coro = on_peer(url, props)
+                loop.call_soon_threadsafe(self._spawn_background, coro)
+
+            self._mdns_browser = MdnsBrowser(on_peer_sync)
+            self._mdns_browser.start()
+            return None
+        except Exception as exc:
+            logger.warning("mDNS startup failed: %s", exc)
+            if self._mdns_advertiser:
+                self._mdns_advertiser.stop()
+                self._mdns_advertiser = None
+            if self._mdns_browser:
+                self._mdns_browser.stop()
+                self._mdns_browser = None
+            return exc
+
     def start_background(self) -> list[str]:
         warnings: list[str] = []
-        loop = asyncio.get_running_loop()
 
         if self.config.agent.advertise and self.config.swarm.mdns:
-            try:
-                from netllm_discovery.mdns import MdnsAdvertiser, MdnsBrowser
-
-                self._mdns_advertiser = MdnsAdvertiser(
-                    self.config.agent.listen,
-                    self.config.agent.agent_id,
-                    self.config.agent.role,
-                )
-                self._mdns_advertiser.start()
-
-                async def on_peer(url: str, props: dict[str, str]) -> None:
-                    agent_id = props.get("agent_id", url)
-                    if agent_id == self.config.agent.agent_id:
-                        return
-                    if props.get("reachable") == "false":
-                        # Loopback-bound peer — fetching its advertised URL
-                        # would hit our own agent. Surfaced by `netllm peers`.
-                        logger.info(
-                            "mDNS peer %s is loopback-bound (unreachable); "
-                            "it must serve with --host 0.0.0.0 to join",
-                            agent_id,
-                        )
-                        return
-                    record = await self.swarm.fetch_peer(url)
-                    if record:
-                        self.swarm.register_peer(record)
-                    else:
-                        self.swarm.register_peer(
-                            PeerRecord(
-                                agent_id=agent_id,
-                                listen_url=url,
-                                role=props.get("role", "peer"),
-                            )
-                        )
-                    await self.refresh_local_backends()
-
-                def on_peer_sync(url: str, props: dict[str, str]) -> None:
-                    # _spawn_background retains the task reference —
-                    # a bare create_task here could be GC'd mid-flight.
-                    coro = on_peer(url, props)
-                    loop.call_soon_threadsafe(self._spawn_background, coro)
-
-                self._mdns_browser = MdnsBrowser(on_peer_sync)
-                self._mdns_browser.start()
-            except Exception as exc:
+            exc = self._try_start_mdns()
+            if exc is not None:
                 warnings.append(
                     f"Swarm mDNS disabled ({exc}). "
-                    "A prior netllm serve may still be registered — try "
-                    "netllm serve --replace. Static peers in swarm.peers still work."
+                    "A prior netllm serve may still be registered — the "
+                    "agent retries automatically every "
+                    f"{self.config.swarm.rediscover_interval_s:.0f}s. "
+                    "Static peers in swarm.peers still work."
                 )
-                logger.warning("mDNS startup failed: %s", exc)
-                if self._mdns_advertiser:
-                    self._mdns_advertiser.stop()
-                    self._mdns_advertiser = None
-                if self._mdns_browser:
-                    self._mdns_browser.stop()
-                    self._mdns_browser = None
         elif self.config.swarm.mdns and not self.config.agent.advertise:
             warnings.append(
                 "swarm.mdns is true but agent.advertise is false — "
@@ -1438,6 +1457,15 @@ class AgentService:
                 return
             await asyncio.sleep(interval)
             try:
+                # A startup mDNS failure (name collision with a draining
+                # predecessor) must heal once the old process exits.
+                if (
+                    self.config.agent.advertise
+                    and self.config.swarm.mdns
+                    and self._mdns_advertiser is None
+                    and self._try_start_mdns() is None
+                ):
+                    logger.info("mDNS advertiser recovered on retry")
                 lost = self.swarm.lost_peer_urls()
                 recovered = 0
                 for url in lost:
