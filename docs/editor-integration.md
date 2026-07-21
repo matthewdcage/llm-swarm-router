@@ -134,11 +134,25 @@ curl -s http://127.0.0.1:11400/v1/chat/completions \
 
 ## Cloud failover (optional)
 
-When no local backend serves a model, netllm can inject OpenAI or Anthropic cloud backends if a **real** API key is available (environment variable or macOS Keychain via the menubar app). The placeholder `netllm-local` never enables cloud routing.
+When no local backend serves a model, netllm can route to a cloud backend if a **real** API key is available (environment variable, config, or macOS Keychain via the menubar app). The placeholder `netllm-local` never enables cloud routing.
 
-- OpenAI: set `OPENAI_API_KEY` or save a key in **Settings → Routing → Cloud failover** (macOS app)
-- Anthropic: set `ANTHROPIC_API_KEY` or the Keychain field above
-- Explicit `[[routing.backends]]` rows in `~/.config/netllm/config.toml` still override discovery
+**Pre-configured providers** — Moonshot AI (Kimi), Z.ai (GLM), OpenAI, Anthropic, and OpenRouter each have a base URL, model catalog, and auth mode built in (see [config.example.toml](../config.example.toml) `[cloud]` section for the full reference):
+
+```bash
+netllm cloud list                       # all five providers + enabled/key state
+netllm cloud enable moonshot            # enable one
+netllm cloud set-key moonshot           # prompt for a key (hidden input)
+netllm cloud set-key moonshot --env MOONSHOT_API_KEY   # reference an env var instead
+netllm cloud fallback local             # cloud tried first, local mesh as fallback
+netllm cloud test moonshot              # probe reachability + model catalog
+netllm cloud connect openrouter         # OAuth PKCE sign-in (browser) — OpenRouter only
+```
+
+On macOS, the same controls live in **Settings → Cloud** (keys stored in Keychain) and the `/ui/` dashboard's **Cloud** tab.
+
+- **Master switch**: `cloud.enabled = false` disables all cloud routing regardless of keys or policies.
+- **Fallback direction**: `cloud.fallback` = `"cloud"` (default: local first, cloud as last resort), `"local"` (cloud first, local as fallback), or `"none"` (no automatic fallback — only reachable via an explicit `allow_cloud` routing policy or `x-netllm-backend` pin).
+- Explicit `[[routing.backends]]` rows and the legacy `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` env-triggered inject still work unchanged — the `[cloud]` section is additive.
 
 Cloud paths are opt-in; default mesh behavior remains local-first.
 

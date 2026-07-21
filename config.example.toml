@@ -121,3 +121,55 @@ check_for_updates_automatically = true
 # api_key_env = "ANTHROPIC_API_KEY"
 # enabled = true
 # local = false
+
+# Pre-configured cloud providers (Moonshot/Kimi, Z.ai/GLM, OpenAI, Anthropic,
+# OpenRouter). See docs/cloud-providers-plan.md for the full design and
+# provider notes/caveats. Absent [cloud] section == pre-existing behavior:
+# cloud enabled, "cloud" fallback (local first, cloud as a last-resort
+# fallback), no provider pre-enabled.
+[cloud]
+enabled = true
+# "cloud": local/peer mesh first, cloud as a fallback tier (default).
+# "local": cloud tried first, local/peer mesh as the fallback tier.
+# "none": no automatic cross-tier fallback — cloud only reachable via an
+# explicit allow_cloud routing policy or an x-netllm-backend pin.
+fallback = "cloud"
+fallback_enabled = true
+
+# One entry per provider you want pre-configured. `netllm cloud list`
+# shows all five with their current state; `netllm cloud enable/disable/
+# set-key/fallback/test/connect` manage this section without hand-editing
+# the file. Keys are best kept out of this file — set via env
+# (api_key_env, or the provider's default env var from the registry) or,
+# on macOS, via Settings -> Cloud (stored in Keychain, never written here).
+#
+# [cloud.providers.moonshot]
+# enabled = true
+# region = "global"        # or "cn"
+# api_format = "openai"    # or "anthropic" (api.moonshot.ai/anthropic)
+# api_key_env = "MOONSHOT_API_KEY"
+#
+# [cloud.providers.zai]
+# enabled = true
+# region = "api"           # "api" (pay-as-you-go) | "coding_plan" | "cn"
+# api_key_env = "ZAI_API_KEY"
+# # GLM Coding Plan keys are contractually restricted to an approved-tools
+# # list per Z.ai's usage policy — prefer the "api" (pay-as-you-go) region
+# # for a router like this one.
+#
+# [cloud.providers.openai]
+# enabled = true
+# api_key_env = "OPENAI_API_KEY"
+#
+# [cloud.providers.anthropic]
+# enabled = true
+# api_key_env = "ANTHROPIC_API_KEY"
+# # auth = "plan_token"     # opt-in, unofficial for third-party routers —
+# #                          # resolves from CLAUDE_CODE_OAUTH_TOKEN
+# #                          # (`claude setup-token`); default is "api_key".
+#
+# [cloud.providers.openrouter]
+# enabled = true
+# api_key_env = "OPENROUTER_API_KEY"
+# # Or run `netllm cloud connect openrouter` for OAuth PKCE sign-in —
+# # the only provider here with a sanctioned third-party OAuth flow.

@@ -8,7 +8,7 @@ Shared routing, backend health cache, configuration I/O, model catalog types, an
 
 ## Ownership
 
-Key modules: `config.py`, `routing_policy.py`, `pool.py`, `health.py`, `models.py`, `capabilities.py`, `anthropic_bridge.py`, `update.py`, `platform.py`.
+Key modules: `config.py`, `routing_policy.py`, `pool.py`, `health.py`, `models.py`, `capabilities.py`, `anthropic_bridge.py`, `update.py`, `platform.py`, `cloud_providers.py`.
 
 ## Local Contracts
 
@@ -27,6 +27,9 @@ Key modules: `config.py`, `routing_policy.py`, `pool.py`, `health.py`, `models.p
 - **`max_in_flight_per_backend`** (config `routing.max_in_flight_per_backend`, 0 = off): every strategy prefers candidates under the cap; all-at-cap falls through to normal selection (never fail a request because of the cap)
 - **`"auto"` strategy**: agent maps shard-context requests to batch_shard before the pool; in the pool `auto` resolves to least_load
 - **Peer-row health hydration**: `merge_backends` copies the health cache verdict onto rebuilt peer rows — status display must never diverge from the cache's routing truth (`plan_batch_shard`/`BatchShardPlan` are gone; `routing.require_same_model_for_shard` is a kept-for-compat no-op)
+- **`cloud_providers.py`**: code-owned registry (base URLs, auth modes, model catalogs) for the five pre-configured providers — not user config, never persisted. `CloudConfig`/`CloudProviderConfig` in `models.py` hold the user-facing `[cloud]` section; absent section == `CloudConfig()` defaults (enabled=True, fallback="cloud") reproduce pre-cloud-feature behavior exactly. See [docs/cloud-providers-plan.md](../../docs/cloud-providers-plan.md).
+- **`Backend.cloud_provider`/`auth_mode`**: tags on materialized cloud rows (`netllm-agent`'s `_materialize_cloud_provider_backends`) — `cloud_provider` names the registry id (drives `pool.select_backend(prefer_cloud=…)` and pruning), `auth_mode` ("api_key" default, "bearer" for Anthropic `plan_token`) picks the upstream SDK auth kwarg
+- **`resolve_routing(..., cloud=…)`**: `cloud.enabled=False` hard-disables cloud regardless of policy; `cloud.fallback="none"` suppresses the *default* cloud-allowed stance but an explicit `allow_cloud` policy still opts a route in; `cloud.fallback="local"` sets `cloud_leads=True` (cloud tried before local/peer mesh)
 
 ## Work Guidance
 

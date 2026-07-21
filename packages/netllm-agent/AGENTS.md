@@ -26,6 +26,8 @@ Key modules: `app.py`, `service.py`, `admin.py`, `metrics.py`, `shard.py`. Stati
 - **Failure accounting** goes through `AgentService._mark_backend_failure` (never `pool.mark_failure(backend)` directly in proxy loops): capacity errors exclude the backend for that request only and must not trip it offline
 - **`auto` strategy** resolves in `_select_backend_for_request` (shard context → batch_shard, else least_load); shardless batch_shard requests bump `_shardless_fallbacks` (in `/netllm/v1/status`) and log only at 1 then every 100th — never per-request
 - **Config drift:** heartbeat/status carry `routing_strategy` + `version`; `peer_config_warnings()` feeds status `peer_warnings` and doctor `notes` on mismatch
+- **Cloud materialization** (`AgentService._materialize_cloud_provider_backends`, called from every proxy entry point and `list_models_aggregated`): syncs enabled `[cloud.providers.*]` entries into keyed `cloud-<id>` pool rows, skips rebuilding an unchanged row (preserves probed health/model catalog across requests), and prunes rows for providers no longer enabled via `pool.prune_cloud_provider_rows` — `cloud.enabled=False` prunes all cloud rows including the legacy `anthropic-cloud`/`openai-cloud` env-key injects, which are now also tagged with `cloud_provider`
+- **`admin.config_summary`/`apply_config_patch`** treat `cloud` like `routing.backends`: keys are write-only (`api_key_set: bool` in the read side; an omitted `api_key` in a patch preserves the stored one) — never round-trip a raw key over the admin API's GET path
 - Depends on all other workspace packages except `netllm-cli`
 
 ## Work Guidance
