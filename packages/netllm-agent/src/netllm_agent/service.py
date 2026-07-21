@@ -28,8 +28,9 @@ from netllm_core.models import (
     Backend,
     NetllmConfig,
 )
-from netllm_core.pool import RouterPool
+from netllm_core.pool import RouterPool, is_capacity_error
 from netllm_core.routing_policy import ResolvedRouting, resolve_routing
+from netllm_core.version import get_version
 from netllm_discovery.local import (
     find_omlx_admin_url,
     probe_omlx_admin_for_backends,
@@ -70,13 +71,17 @@ class AgentService:
             health_ttl_s=config.routing.health_ttl_s,
             offline_retry_s=config.routing.offline_retry_s,
             max_failures=config.routing.max_backend_failures,
-            require_same_model_for_shard=(config.routing.require_same_model_for_shard),
+            max_in_flight_per_backend=(config.routing.max_in_flight_per_backend),
         )
         self.swarm = SwarmRegistry(config)
         self._mdns_advertiser = None
         self._mdns_browser = None
         self._request_count = 0
         self._batch_ledger = BatchRequestLedger()
+        # batch_shard requests that arrived without shard context and
+        # fell back to round_robin — surfaced in /status so a degenerate
+        # strategy choice is visible, not just a log whisper.
+        self._shardless_fallbacks = 0
         self.startup_warnings: list[str] = []
         # Hold references so background tasks are not garbage collected.
         self._background_tasks: set[asyncio.Task[None]] = set()
@@ -152,7 +157,7 @@ class AgentService:
         self.pool.health_ttl_s = routing.health_ttl_s
         self.pool.offline_retry_s = min(routing.offline_retry_s, routing.health_ttl_s)
         self.pool.max_failures = max(1, routing.max_backend_failures)
-        self.pool.require_same_model_for_shard = routing.require_same_model_for_shard
+        self.pool.max_in_flight_per_backend = max(0, routing.max_in_flight_per_backend)
         # Invalidate the provider-scan cache so backend overrides and
         # discovery edits take effect on the next request.
         self._local_scan_cache = None
@@ -220,11 +225,44 @@ class AgentService:
             "peers": self.swarm.all_peer_urls(),
             "routing_strategy": self.config.routing.default_strategy,
             "routed_requests": dict(self.pool.routed_counts),
+            "capacity_rejections": dict(self.pool.capacity_rejections),
+            "shardless_fallbacks": self._shardless_fallbacks,
             "cluster_token_set": bool(self.config.swarm.cluster_token),
+            "version": get_version(),
         }
+        warnings = self.peer_config_warnings()
+        if warnings:
+            payload["peer_warnings"] = warnings
         if omlx_admin:
             payload["omlx_admin_url"] = omlx_admin
         return payload
+
+    def peer_config_warnings(self) -> list[str]:
+        """Config/version drift between this agent and live peers.
+
+        Mismatched strategies are legal (routing is per-gateway) but
+        usually unintentional — surface them instead of letting two
+        machines silently run different policies for weeks.
+        """
+        warnings: list[str] = []
+        my_strategy = self.config.routing.default_strategy
+        my_version = get_version()
+        for peer in self.swarm.peers.values():
+            if peer.agent_id == self.config.agent.agent_id:
+                continue
+            name = peer.hostname or peer.agent_id
+            if peer.routing_strategy and peer.routing_strategy != my_strategy:
+                warnings.append(
+                    f"peer {name} runs strategy '{peer.routing_strategy}' "
+                    f"but this agent runs '{my_strategy}' — set both to the "
+                    "same value (or 'auto') unless intentional"
+                )
+            if peer.version and peer.version != my_version:
+                warnings.append(
+                    f"peer {name} runs netllm {peer.version} but this agent "
+                    f"runs {my_version} — update the older machine"
+                )
+        return warnings
 
     async def status_payload_enriched(self) -> dict[str, Any]:
         payload = self.status_payload()
@@ -244,6 +282,8 @@ class AgentService:
                 role=payload.get("role", "peer"),
                 hostname=payload.get("hostname", ""),
                 backends=payload.get("backends", []),
+                routing_strategy=payload.get("routing_strategy", ""),
+                version=payload.get("version", ""),
             )
         )
         await self.refresh_local_backends()
@@ -284,6 +324,18 @@ class AgentService:
                     "capability": model_capability(canonical),
                 }
         return {"object": "list", "data": list(seen.values())}
+
+    def _mark_backend_failure(self, backend: Backend, exc: Exception) -> None:
+        """Route failure accounting through capacity classification.
+
+        Capacity rejections (busy model reload, rate limit, memory
+        guard) exclude the backend for *this* request only; hard errors
+        count toward the offline trip as before.
+        """
+        self.pool.mark_failure(
+            backend,
+            capacity=is_capacity_error(getattr(exc, "status_code", None), str(exc)),
+        )
 
     @staticmethod
     def _normalize_headers(headers: Mapping[str, str] | None) -> dict[str, str]:
@@ -511,6 +563,10 @@ class AgentService:
                     pinned,
                     strategy,
                 )
+        if strategy == "auto":
+            # Shard-context requests keep deterministic placement;
+            # everything else balances by live in-flight load.
+            strategy = "batch_shard" if shard else "least_load"
         if strategy == "batch_shard":
             if shard and shard.batch_id is not None and shard.index is not None:
                 candidates = self.pool.backends_for_model(model)
@@ -548,9 +604,18 @@ class AgentService:
                 )
 
             if attempt == 1:
-                logger.warning(
-                    "batch_shard without shard context — falling back to round_robin"
-                )
+                self._shardless_fallbacks += 1
+                # Every request hitting this path means the configured
+                # strategy is degenerate for this traffic — say so once,
+                # then keep a counter instead of spamming the log.
+                count = self._shardless_fallbacks
+                if count == 1 or count % 100 == 0:
+                    logger.warning(
+                        "batch_shard without shard context — falling back to "
+                        "round_robin (%s such requests so far; consider "
+                        "default_strategy = 'auto' or 'least_load')",
+                        count,
+                    )
                 return self.pool.select_backend(
                     model,
                     "round_robin",
@@ -652,7 +717,7 @@ class AgentService:
             except OpenAIUpstreamError as exc:
                 last_error = exc
                 tried.add(backend.id)
-                self.pool.mark_failure(backend)
+                self._mark_backend_failure(backend, exc)
                 REQUESTS_TOTAL.labels(
                     backend=backend.base_url, model=model, status="error"
                 ).inc()
@@ -824,7 +889,7 @@ class AgentService:
             except OpenAIUpstreamError as exc:
                 last_error = exc
                 tried.add(backend.id)
-                self.pool.mark_failure(backend)
+                self._mark_backend_failure(backend, exc)
                 REQUESTS_TOTAL.labels(
                     backend=backend.base_url, model=model, status="error"
                 ).inc()
@@ -955,7 +1020,7 @@ class AgentService:
             self._request_count += 1
             return result
         except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
-            self.pool.mark_failure(backend)
+            self._mark_backend_failure(backend, exc)
             REQUESTS_TOTAL.labels(
                 backend=backend.base_url, model=model, status="error"
             ).inc()
@@ -1107,7 +1172,7 @@ class AgentService:
             except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
                 last_error = exc
                 tried.add(backend.id)
-                self.pool.mark_failure(backend)
+                self._mark_backend_failure(backend, exc)
                 logger.warning(
                     "messages stream backend %s failed (attempt %s): %s",
                     backend.base_url,
@@ -1223,8 +1288,8 @@ class AgentService:
             ).inc()
             REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency)
             self._mark_shard_success(shard)
-        except OpenAIUpstreamError:
-            self.pool.mark_failure(backend)
+        except OpenAIUpstreamError as exc:
+            self._mark_backend_failure(backend, exc)
             REQUESTS_TOTAL.labels(
                 backend=backend.base_url, model=model, status="error"
             ).inc()

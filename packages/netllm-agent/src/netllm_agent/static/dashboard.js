@@ -2,6 +2,7 @@
 
 const PROVIDERS = ["omlx", "ollama", "lmstudio", "vllm"];
 const STRATEGIES = [
+  "auto",
   "local_first",
   "local_spillover",
   "failover",

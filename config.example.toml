@@ -38,11 +38,17 @@ peer_stale_after_s = 45.0
 rediscover_interval_s = 60.0
 
 [routing]
+# auto: shard-context requests use batch_shard, everything else balances
+#       by live in-flight load (recommended for mixed interactive traffic).
 # local_first: single machine. round_robin: spread same model across LAN peer agents.
 # local_spillover: serve locally while idle, spill to least-loaded peer when busy.
 default_strategy = "local_first"
 allow_remote = true
+# Deprecated (kept for config compatibility; see routing-hardening-plan.md).
 require_same_model_for_shard = true
+# Back-pressure cap applied by every strategy: selection prefers backends
+# with fewer than this many requests in flight. 0 disables.
+max_in_flight_per_backend = 0
 # local_spillover only: serve locally while fewer than this many requests
 # are in flight locally; at or above it, spill to a LAN peer only when
 # that peer is strictly less loaded. Sequential (one-at-a-time) traffic

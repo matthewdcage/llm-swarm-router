@@ -24,6 +24,10 @@ class PeerRecord:
     hostname: str = ""
     last_seen: float = field(default_factory=time.time)
     backends: list[dict[str, Any]] = field(default_factory=list)
+    # Advertised by heartbeats/status for config-drift detection; empty
+    # when the peer predates these fields.
+    routing_strategy: str = ""
+    version: str = ""
 
 
 class SwarmRegistry:
@@ -113,7 +117,7 @@ class SwarmRegistry:
                     provider="custom",
                     local=False,
                     agent_id=peer.agent_id,
-                    health=BackendHealth(models=models),
+                    health=BackendHealth(models=models, model_count=len(models)),
                     in_flight=self._peer_in_flight(peer),
                 )
             )
@@ -134,6 +138,8 @@ class SwarmRegistry:
                     role=data.get("role", "peer"),
                     hostname=data.get("hostname", ""),
                     backends=data.get("backends", []),
+                    routing_strategy=data.get("routing_strategy", ""),
+                    version=data.get("version", ""),
                 )
         except Exception as exc:
             logger.debug("peer fetch failed %s: %s", base_url, exc)
@@ -201,6 +207,8 @@ class SwarmRegistry:
                 "role": p.role,
                 "hostname": p.hostname,
                 "last_seen": p.last_seen,
+                "routing_strategy": p.routing_strategy,
+                "version": p.version,
             }
             for p in self.peers.values()
         ]

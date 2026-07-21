@@ -30,10 +30,28 @@ class _HealthEntry:
     failures: int = 0
 
 
-@dataclass
-class BatchShardPlan:
-    assignments: dict[int, str]
-    endpoints: list[str]
+# Capacity rejections: the backend is healthy but full right now (busy
+# model reload, rate limit, memory guard). These must steer the request
+# to another backend without counting toward the offline trip — tripping
+# a loaded-but-working backend offline blackholes it for offline_retry_s
+# while its work piles onto the survivors.
+_CAPACITY_STATUS = {409, 429, 503, 507}
+# Peer agents wrap upstream refusals in a 502, so the original status is
+# only visible in the message body — match known capacity markers too.
+_CAPACITY_MARKERS = (
+    "prefill_memory_exceeded",
+    "memory pressure",
+    "is busy",
+    "rate limit",
+)
+
+
+def is_capacity_error(status_code: int | None, message: str | None) -> bool:
+    """True when an upstream failure means "full now", not "broken"."""
+    if status_code in _CAPACITY_STATUS:
+        return True
+    msg = (message or "").lower()
+    return any(marker in msg for marker in _CAPACITY_MARKERS)
 
 
 class RouterPool:
@@ -48,7 +66,7 @@ class RouterPool:
         health_ttl_s: float = HEALTH_TTL_S,
         offline_retry_s: float = OFFLINE_RETRY_S,
         max_failures: int = MAX_FAILURES,
-        require_same_model_for_shard: bool = True,
+        max_in_flight_per_backend: int = 0,
     ) -> None:
         self._backends: list[Backend] = []
         self._health_cache: dict[str, _HealthEntry] = {}
@@ -59,7 +77,9 @@ class RouterPool:
         self.health_ttl_s = health_ttl_s
         self.offline_retry_s = min(offline_retry_s, health_ttl_s)
         self.max_failures = max(1, max_failures)
-        self.require_same_model_for_shard = require_same_model_for_shard
+        # 0 disables the cap. When set, selection prefers backends with
+        # fewer than this many requests in flight (all strategies).
+        self.max_in_flight_per_backend = max(0, max_in_flight_per_backend)
         # Our own active forwards per peer agent URL. Peer rows are
         # rebuilt from heartbeats on every refresh, so this ledger keeps
         # in-flight hop counts from being wiped between heartbeats.
@@ -67,6 +87,8 @@ class RouterPool:
         # Successful requests served per backend id — surfaces "peer is
         # discovered but idle" directly in status/dashboards.
         self.routed_counts: dict[str, int] = {}
+        # Capacity rejections per backend id (backend full, not broken).
+        self.capacity_rejections: dict[str, int] = {}
 
     @property
     def backends(self) -> list[Backend]:
@@ -85,6 +107,14 @@ class RouterPool:
                 b.in_flight += self._own_peer_hops.get(b.base_url, 0)
                 if existing is not None:
                     b.latency_ema_ms = existing.latency_ema_ms
+                # The rebuilt row's health defaults to "unknown", but the
+                # gating truth lives in _health_cache (which survives the
+                # merge). Hydrate the display fields so /status reports
+                # what routing actually believes about the peer.
+                cached = self._health_cache.get(b.cache_key())
+                if cached is not None and cached.last_check > 0:
+                    b.health.status = "online" if cached.online else "offline"
+                    b.health.last_check = cached.last_check
                 by_url[b.base_url] = b
                 continue
             if existing is not None and not existing.id.startswith("peer:"):
@@ -153,7 +183,16 @@ class RouterPool:
             hops = self._own_peer_hops
             hops[backend.base_url] = max(0, hops.get(backend.base_url, 0) - 1)
 
-    def mark_failure(self, backend: Backend) -> None:
+    def mark_failure(self, backend: Backend, *, capacity: bool = False) -> None:
+        if capacity:
+            # Backend is healthy but full (busy reload, rate limit,
+            # memory guard): steer this request elsewhere via the
+            # caller's exclude set, but never trip the backend offline —
+            # it can take the very next request.
+            self.capacity_rejections[backend.id] = (
+                self.capacity_rejections.get(backend.id, 0) + 1
+            )
+            return
         key = backend.cache_key()
         entry = self._health_cache.setdefault(key, _HealthEntry())
         entry.failures += 1
@@ -340,6 +379,25 @@ class RouterPool:
             if preferred:
                 all_candidates = preferred
 
+        if self.max_in_flight_per_backend > 0:
+            # Back-pressure guardrail for every strategy: don't stack
+            # more work on a saturated backend while an alternative has
+            # headroom. When all candidates are at the cap, fall through
+            # to normal selection rather than failing the request.
+            under_cap = [
+                b
+                for b in all_candidates
+                if b.in_flight < self.max_in_flight_per_backend
+            ]
+            if under_cap:
+                all_candidates = under_cap
+
+        if strategy == "auto":
+            # Shard-context requests are mapped to batch_shard by the
+            # agent before reaching the pool; everything else balances
+            # by live load.
+            strategy = "least_load"
+
         if strategy == "failover":
             if exclude_ids:
                 # Failed candidates are already filtered out, so the first
@@ -401,36 +459,6 @@ class RouterPool:
         if best_remote.in_flight < best_local.in_flight:
             return best_remote
         return best_local
-
-    def plan_batch_shard(
-        self,
-        model: str,
-        num_prompts: int,
-        *,
-        strategy: RoutingStrategy = "batch_shard",
-    ) -> BatchShardPlan:
-        backends = self.backends_for_model(model)
-        urls = [b.base_url for b in backends if b.enabled]
-        if not urls:
-            return BatchShardPlan(assignments={}, endpoints=[])
-        if strategy != "batch_shard":
-            base = urls[0]
-            return BatchShardPlan(
-                assignments={i: base for i in range(num_prompts)},
-                endpoints=[base],
-            )
-        models_set = {b.health.models[0] if b.health.models else "" for b in backends}
-        if self.require_same_model_for_shard and len({m for m in models_set if m}) > 1:
-            raise ValueError(
-                "batch_shard requires the same model on every backend; "
-                "found multiple model sets (set "
-                "routing.require_same_model_for_shard = false to override)"
-            )
-        assignments = {i: urls[i % len(urls)] for i in range(num_prompts)}
-        return BatchShardPlan(
-            assignments=assignments,
-            endpoints=list(dict.fromkeys(urls)),
-        )
 
 
 def shard_index(shard_key: str, num_endpoints: int) -> int:

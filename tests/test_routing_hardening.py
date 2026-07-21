@@ -163,25 +163,80 @@ def test_select_backend_honors_pin() -> None:
     assert picked is local
 
 
-def test_plan_batch_shard_mixed_models_flag() -> None:
-    pool_strict = RouterPool(require_same_model_for_shard=True)
-    pool_loose = RouterPool(require_same_model_for_shard=False)
+def test_merge_backends_hydrates_peer_health_from_cache() -> None:
+    pool = RouterPool()
+    peer = _peer()
+    peer.health.status = "unknown"
+    pool.set_backends([peer])
+    # A successful routed request marks the peer online in the cache.
+    pool.mark_success(peer)
+    # Heartbeat refresh rebuilds the row with default (unknown) health.
+    rebuilt = _peer()
+    rebuilt.health.status = "unknown"
+    pool.merge_backends([rebuilt])
+    row = next(b for b in pool.backends if b.id == "peer:remote")
+    assert row.health.status == "online"
+
+
+def test_peer_config_warnings_on_strategy_and_version_drift() -> None:
+    from netllm_agent.service import AgentService
+    from netllm_discovery.swarm import PeerRecord
+
+    cfg = NetllmConfig()
+    cfg.routing.default_strategy = "least_load"
+    service = AgentService(cfg)
+    service.swarm.register_peer(
+        PeerRecord(
+            agent_id="drifty",
+            listen_url="http://192.168.1.11:11400",
+            hostname="other-mac",
+            routing_strategy="round_robin",
+            version="0.0.1",
+        )
+    )
+    warnings = service.peer_config_warnings()
+    assert any("round_robin" in w for w in warnings)
+    assert any("0.0.1" in w for w in warnings)
+    # Peers predating the fields (empty strings) produce no noise.
+    service.swarm.register_peer(
+        PeerRecord(agent_id="older", listen_url="http://192.168.1.12:11400")
+    )
+    assert len(service.peer_config_warnings()) == 2
+
+
+def test_shardless_batch_shard_counts_fallbacks() -> None:
+    from netllm_agent.service import AgentService
+
+    cfg = NetllmConfig()
+    cfg.routing.default_strategy = "batch_shard"
+    service = AgentService(cfg)
+    local = _local()
+    service.pool.set_backends([local])
+    service.pool.mark_success(local)
+    picked = service._select_backend_for_request("shared-model", "batch_shard", 1, None)
+    assert picked is local
+    assert service._shardless_fallbacks == 1
+    assert service.status_payload()["shardless_fallbacks"] == 1
+
+
+def test_auto_strategy_maps_shard_context_to_batch_shard() -> None:
+    from netllm_agent.service import AgentService
+    from netllm_agent.shard import ShardContext
+
+    cfg = NetllmConfig()
+    service = AgentService(cfg)
     a = _local("a", "http://127.0.0.1:8080/v1")
     b = _local("b", "http://127.0.0.1:8081/v1")
-    b.health.models = ["other-model", "shared-model"]
-    for pool in (pool_strict, pool_loose):
-        pool.set_backends([a, b])
-        # Warm the health cache so selection never probes (probing
-        # would overwrite the hand-set catalogs).
-        pool.mark_success(a)
-        pool.mark_success(b)
-    try:
-        pool_strict.plan_batch_shard("shared-model", 4)
-        raise AssertionError("expected ValueError for mixed models")
-    except ValueError:
-        pass
-    plan = pool_loose.plan_batch_shard("shared-model", 4)
-    assert len(plan.assignments) == 4
+    b.in_flight = 3
+    service.pool.set_backends([a, b])
+    service.pool.mark_success(a)
+    service.pool.mark_success(b)
+    # No shard context: auto balances by load.
+    assert service._select_backend_for_request("shared-model", "auto", 1, None) is a
+    # Shard context: auto shards deterministically (numeric key = index).
+    shard = ShardContext(shard_key="1")
+    picked = service._select_backend_for_request("shared-model", "auto", 1, shard)
+    assert picked is b
 
 
 def test_apply_config_hot_syncs_pool() -> None:

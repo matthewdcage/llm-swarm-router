@@ -97,6 +97,9 @@ def doctor_payload(cfg: NetllmConfig, service: AgentService) -> dict[str, Any]:
                 }
             )
 
+    for warning in service.peer_config_warnings():
+        notes.append(warning)
+
     payload: dict[str, Any] = {"ok": not issues, "issues": issues}
     if notes:
         payload["notes"] = notes
@@ -151,6 +154,7 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
             "spillover_max_local_in_flight": (
                 cfg.routing.spillover_max_local_in_flight
             ),
+            "max_in_flight_per_backend": cfg.routing.max_in_flight_per_backend,
             "health_ttl_s": cfg.routing.health_ttl_s,
             "offline_retry_s": cfg.routing.offline_retry_s,
             "max_backend_failures": cfg.routing.max_backend_failures,

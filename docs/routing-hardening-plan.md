@@ -171,6 +171,72 @@ Sketch:
 - Batch planner uses group membership instead of "same first model on every
   backend", generalizing `require_same_model_for_shard`.
 
+Phase 5 — mesh utilization hardening (done 2026-07-21)
+
+Field diagnosis (Mac mini gateway + MacBook Pro peer, both 0.4.1.0): the
+mini stacked 4–5 requests locally while the MBP sat idle in bursts.
+Observed causes, in order of impact:
+
+1. **Degenerate strategy.** `default_strategy = "batch_shard"` with no
+   client sending shard context fell back to round_robin on 100% of
+   requests (wall-to-wall log warnings) — not load-aware, and
+   `spillover_max_local_in_flight` was silently ignored.
+2. **Capacity errors tripped the peer offline.** The MBP's oMLX
+   rejected requests with 409 "cannot reload runtime settings variant
+   until active requests finish" (wrapped as 502 by the peer agent);
+   3 such rejections benched the peer for `offline_retry_s` windows
+   while local work piled up. Local oMLX memory-guard 400s
+   (`prefill_memory_exceeded`) burned retry attempts the same way.
+3. **Status lied about peers.** Peer rows are rebuilt from heartbeats
+   on every refresh with default health, so `/netllm/v1/status`
+   permanently reported healthy peers as `unknown` with
+   `model_count=0` (the real gate lives in the pool's health cache) —
+   which misdirected the initial diagnosis toward "model discovery is
+   broken" when discovery was in fact working.
+4. **Silent config drift.** The two machines ran different strategies
+   for an unknown period; nothing surfaced it.
+
+Implemented:
+
+- **Capacity-error classification** (`pool.is_capacity_error`): HTTP
+  409/429/503/507 and known capacity markers in wrapped bodies
+  (`prefill_memory_exceeded`, "memory pressure", "is busy", "rate
+  limit") no longer count toward the offline trip. The backend is
+  excluded for that request only and `pool.capacity_rejections` (per
+  backend id) is exposed in `/netllm/v1/status`.
+- **`routing.max_in_flight_per_backend`** (default 0 = off):
+  back-pressure guardrail applied by *every* strategy — selection
+  prefers backends under the cap; when all are at the cap it falls
+  through rather than failing.
+- **`default_strategy = "auto"`**: shard-context requests route via
+  batch_shard; everything else balances by live in-flight load
+  (least_load). Recommended for mixed interactive traffic.
+- **Shardless-fallback telemetry**: batch_shard-without-context now
+  logs once (then every 100th) and exports `shardless_fallbacks` in
+  status, instead of spamming one warning per request.
+- **Peer-row health hydration**: `merge_backends` copies the health
+  cache's verdict (online/offline + last_check) onto rebuilt peer rows,
+  and peer rows carry `model_count`; status now reports what routing
+  actually believes.
+- **Config-drift warnings**: heartbeats/status already carried
+  `routing_strategy`; peers now record it plus `version`, and
+  mismatches surface as `peer_warnings` in status and notes in the
+  doctor payload.
+- **Dead code removed**: `plan_batch_shard` + `BatchShardPlan` (no
+  production callers; the live paths are the `BatchRequestLedger` and
+  the hash branch of `select_backend`).
+  `routing.require_same_model_for_shard` is therefore a no-op again —
+  the field is kept so existing configs load, and its semantics move to
+  the Phase 4 model_groups design.
+
+Deferred (pending evidence): normalizing per-request runtime-settings
+fields on peer forwards — first confirm which field makes oMLX reload a
+"runtime settings variant"; if it is oMLX config drift between machines
+(likely), aligning the two servers' model settings is the real fix.
+Also deferred: collapsing the two-layer strategy-fallback dispatch
+(`service._select_backend_for_request` vs `pool.select_backend`) — the
+retry semantics should live in one layer.
+
 ## Verifying on your two machines
 
 1. Update both machines, restart agents.

@@ -33,8 +33,8 @@ final class SettingsViewModel {
     private(set) var agentBaseURL: URL
 
     static let strategies = [
-        "local_first", "local_spillover", "failover", "round_robin", "least_load",
-        "latency_weighted", "batch_shard",
+        "auto", "local_first", "local_spillover", "failover", "round_robin",
+        "least_load", "latency_weighted", "batch_shard",
     ]
     static let providers = ["omlx", "ollama", "lmstudio", "vllm"]
     static let roles = ["peer", "gateway"]

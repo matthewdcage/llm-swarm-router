@@ -59,11 +59,11 @@ def test_select_backend_batch_shard_uses_numeric_shard_key(_mock: object) -> Non
             ),
         ]
     )
-    plan = pool.plan_batch_shard("m", 4, strategy="batch_shard")
+    expected = ["http://a/v1", "http://b/v1", "http://a/v1", "http://b/v1"]
     for i in range(4):
         selected = pool.select_backend("m", "batch_shard", shard_key=str(i))
         assert selected is not None
-        assert selected.base_url == plan.assignments[i]
+        assert selected.base_url == expected[i]
 
 
 def test_batch_request_ledger_reassign() -> None:

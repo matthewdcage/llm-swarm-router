@@ -23,6 +23,10 @@ Key modules: `config.py`, `routing_policy.py`, `pool.py`, `health.py`, `models.p
 - **`merge_backends` keeps local Backend object identity** (updates fields in place): in-flight requests hold a reference across refreshes, so replacing the row would leak `in_flight` counts — peer rows are still rebuilt from heartbeats + hop ledger
 - **Model matching is case-insensitive** (`model_names_for` alias keys, `_serves_model`); `capabilities.model_capability()` classifies model IDs (`chat`/`embedding`/`audio`/`rerank`/`other`, unknown defaults to `chat`) — agent uses it to reject chat against encoders and to filter `known_models(capability=…)`
 - **`select_backend(exclude_ids=…)`**: retry loops pass the per-request failed-backend set so the attempt budget walks on to untried candidates (e.g. a healthy LAN peer) instead of re-hitting a failing local backend
+- **Capacity vs hard failures** (`is_capacity_error`, `mark_failure(capacity=…)`): 409/429/503/507 and capacity markers in wrapped bodies (`prefill_memory_exceeded`, "is busy", "memory pressure", "rate limit" — peer agents wrap upstream refusals in 502, so match the message too) mean "full now, not broken" — they must never count toward the offline trip; tracked in `pool.capacity_rejections`
+- **`max_in_flight_per_backend`** (config `routing.max_in_flight_per_backend`, 0 = off): every strategy prefers candidates under the cap; all-at-cap falls through to normal selection (never fail a request because of the cap)
+- **`"auto"` strategy**: agent maps shard-context requests to batch_shard before the pool; in the pool `auto` resolves to least_load
+- **Peer-row health hydration**: `merge_backends` copies the health cache verdict onto rebuilt peer rows — status display must never diverge from the cache's routing truth (`plan_batch_shard`/`BatchShardPlan` are gone; `routing.require_same_model_for_shard` is a kept-for-compat no-op)
 
 ## Work Guidance
 

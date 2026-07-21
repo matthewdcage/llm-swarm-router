@@ -36,7 +36,7 @@ def test_stable_shard_index_deterministic() -> None:
 
 
 @patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
-def test_batch_shard_plan(_mock: object) -> None:
+def test_batch_shard_numeric_keys_round_robin(_mock: object) -> None:
     pool = RouterPool()
     pool.set_backends(
         [
@@ -52,11 +52,83 @@ def test_batch_shard_plan(_mock: object) -> None:
             ),
         ]
     )
-    plan = pool.plan_batch_shard("m", 4, strategy="batch_shard")
-    assert plan.assignments[0] == "http://a/v1"
-    assert plan.assignments[1] == "http://b/v1"
-    assert plan.assignments[2] == "http://a/v1"
-    assert plan.assignments[3] == "http://b/v1"
+    urls = [
+        pool.select_backend("m", "batch_shard", shard_key=str(i)).base_url
+        for i in range(4)
+    ]
+    assert urls == ["http://a/v1", "http://b/v1", "http://a/v1", "http://b/v1"]
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_capacity_failure_does_not_trip_offline(_mock: object) -> None:
+    from netllm_core.pool import is_capacity_error
+
+    pool = RouterPool(max_failures=1)
+    backend = Backend(
+        id="a",
+        base_url="http://a/v1",
+        health=BackendHealth(models=["m"], status="online"),
+    )
+    pool.set_backends([backend])
+    pool.mark_success(backend)
+    # Peer-wrapped 502 whose body carries the upstream 409 busy message.
+    assert is_capacity_error(502, "Error code: 502 - Model 'x' is busy") is True
+    assert is_capacity_error(409, "conflict") is True
+    assert is_capacity_error(400, "prefill_memory_exceeded: too large") is True
+    assert is_capacity_error(500, "boom") is False
+    pool.mark_failure(backend, capacity=True)
+    assert pool.is_healthy(backend) is True
+    assert pool.capacity_rejections["a"] == 1
+    # A hard failure still trips at max_failures=1.
+    pool.mark_failure(backend)
+    assert pool.is_healthy(backend) is False
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_max_in_flight_cap_prefers_backend_with_headroom(_mock: object) -> None:
+    pool = RouterPool(max_in_flight_per_backend=2)
+    busy = Backend(
+        id="busy",
+        base_url="http://busy/v1",
+        health=BackendHealth(models=["m"], status="online"),
+        in_flight=4,
+    )
+    idle = Backend(
+        id="idle",
+        base_url="http://idle/v1",
+        health=BackendHealth(models=["m"], status="online"),
+        in_flight=0,
+    )
+    pool.set_backends([busy, idle])
+    pool.mark_success(busy)
+    pool.mark_success(idle)
+    # round_robin would alternate; the cap must exclude the saturated one.
+    for _ in range(3):
+        assert pool.select_backend("m", "round_robin").id == "idle"
+    # All-at-cap falls through to normal selection instead of failing.
+    idle.in_flight = 5
+    assert pool.select_backend("m", "least_load") is not None
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_auto_strategy_selects_least_load(_mock: object) -> None:
+    pool = RouterPool()
+    loaded = Backend(
+        id="loaded",
+        base_url="http://loaded/v1",
+        health=BackendHealth(models=["m"], status="online"),
+        in_flight=3,
+    )
+    free = Backend(
+        id="free",
+        base_url="http://free/v1",
+        health=BackendHealth(models=["m"], status="online"),
+        in_flight=0,
+    )
+    pool.set_backends([loaded, free])
+    pool.mark_success(loaded)
+    pool.mark_success(free)
+    assert pool.select_backend("m", "auto").id == "free"
 
 
 @patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)

@@ -22,6 +22,7 @@ __all__ = [
 ]
 
 RoutingStrategy = Literal[
+    "auto",
     "failover",
     "round_robin",
     "local_first",
@@ -117,9 +118,16 @@ class RoutingPolicy(BaseModel):
 
 
 class RoutingConfig(BaseModel):
+    # "auto": requests with shard context use batch_shard; everything
+    # else balances by live in-flight load (least_load).
     default_strategy: RoutingStrategy = "local_first"
     allow_remote: bool = True
+    # Deprecated: only consumed by the removed batch planner. Kept so
+    # existing configs load; slated for the model_groups feature.
     require_same_model_for_shard: bool = True
+    # Back-pressure cap applied by every strategy: selection prefers
+    # backends with fewer than this many requests in flight. 0 = off.
+    max_in_flight_per_backend: int = Field(default=0, ge=0)
     # local_spillover: serve locally while fewer than this many requests
     # are in flight locally; at or above it, spill to a LAN peer only
     # when that peer is strictly less loaded.

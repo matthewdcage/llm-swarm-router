@@ -23,6 +23,9 @@ Key modules: `app.py`, `service.py`, `admin.py`, `metrics.py`, `shard.py`. Stati
 - **Capability gate:** chat/Messages requests against non-chat models (`netllm_core.capabilities`) return 400 with a `/v1/embeddings` hint — never burn the retry budget on encoders; `/v1/models` entries carry a `capability` field
 - **Retry exclusion:** chat/stream/embeddings loops track per-request failed backend ids and pass `exclude_ids` so retries reach untried peers; upstream API keys resolve via `backend.resolve_api_key()` (env fallbacks incl. `LMSTUDIO_API_KEY`)
 - **Peers-scan rows** are deduped by `agent_id` in discovery and flagged `self` in `peers_scan_payload` (dashboard labels "this machine", shows `also_reachable_at` for multi-homed hosts)
+- **Failure accounting** goes through `AgentService._mark_backend_failure` (never `pool.mark_failure(backend)` directly in proxy loops): capacity errors exclude the backend for that request only and must not trip it offline
+- **`auto` strategy** resolves in `_select_backend_for_request` (shard context → batch_shard, else least_load); shardless batch_shard requests bump `_shardless_fallbacks` (in `/netllm/v1/status`) and log only at 1 then every 100th — never per-request
+- **Config drift:** heartbeat/status carry `routing_strategy` + `version`; `peer_config_warnings()` feeds status `peer_warnings` and doctor `notes` on mismatch
 - Depends on all other workspace packages except `netllm-cli`
 
 ## Work Guidance
