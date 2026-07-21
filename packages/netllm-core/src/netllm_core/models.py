@@ -9,6 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from netllm_core.cloud_providers import CloudProviderId
 from netllm_core.platform import (
     default_discovery_providers,
     default_hostname,
@@ -64,6 +65,11 @@ class BackendOverride(BaseModel):
     api_key_env: str = ""
     enabled: bool = True
     local: bool = True
+    # Tags a backend row as materialized from [cloud.providers.<id>] (see
+    # CloudConfig below). Empty for hand-authored [[routing.backends]] rows.
+    # Additive field: old readers ignore it; old writers omit it (defaults
+    # to "").
+    cloud_provider: str = ""
 
     def resolved_api_format(self) -> ApiFormat:
         if self.api_format is not None:
@@ -192,12 +198,56 @@ class UiConfig(BaseModel):
     check_for_updates_automatically: bool = True
 
 
+CloudFallbackMode = Literal["cloud", "local", "none"]
+CloudAuthMode = Literal["api_key", "oauth_pkce", "plan_token"]
+
+
+class CloudProviderConfig(BaseModel):
+    """[cloud.providers.<id>] — one pre-configured cloud provider.
+
+    All fields default to the provider's registry entry (see
+    netllm_core.cloud_providers). enabled defaults False, so an absent or
+    default-valued entry changes nothing at runtime.
+    """
+
+    enabled: bool = False
+    region: str = ""
+    api_format: ApiFormat | None = None
+    auth: CloudAuthMode = "api_key"
+    api_key: str = ""
+    api_key_env: str = ""
+    models: list[str] = Field(default_factory=list)
+    base_url: str = ""
+
+
+class CloudConfig(BaseModel):
+    """[cloud] — master switch, fallback policy, and per-provider config.
+
+    Absent section == identical behavior to pre-cloud-feature releases:
+    enabled defaults True (preserves today's env-key-triggered inject),
+    fallback defaults "cloud" (today's implicit local-then-cloud order),
+    and no provider is enabled by default.
+    """
+
+    enabled: bool = True
+    fallback: CloudFallbackMode = "cloud"
+    fallback_enabled: bool = True
+    # One-shot migration flag (ensure_cloud_defaults), mirrors
+    # routing.lan_defaults_applied.
+    cloud_defaults_applied: bool = False
+    providers: dict[str, CloudProviderConfig] = Field(default_factory=dict)
+
+    def provider(self, provider_id: CloudProviderId) -> CloudProviderConfig:
+        return self.providers.get(provider_id, CloudProviderConfig())
+
+
 class NetllmConfig(BaseModel):
     agent: AgentConfig = Field(default_factory=AgentConfig)
     discovery: DiscoveryLocalConfig = Field(default_factory=DiscoveryLocalConfig)
     swarm: DiscoverySwarmConfig = Field(default_factory=DiscoverySwarmConfig)
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
     ui: UiConfig = Field(default_factory=UiConfig)
+    cloud: CloudConfig = Field(default_factory=CloudConfig)
 
     def resolved_log_dir(self) -> Path:
         if self.ui.log_dir:
@@ -229,6 +279,9 @@ class Backend(BaseModel):
     health: BackendHealth = Field(default_factory=BackendHealth)
     in_flight: int = 0
     latency_ema_ms: float = 0.0
+    # Set when this Backend was materialized from a [cloud.providers.<id>]
+    # config entry (see CloudConfig). Empty for local/peer/manual backends.
+    cloud_provider: str = ""
 
     def cache_key(self) -> str:
         return f"{self.provider}:{self.base_url}"
@@ -243,6 +296,12 @@ class Backend(BaseModel):
             "vllm": "VLLM_API_KEY",
         }
         env_name = env_map.get(self.provider, "")
+        if not env_name and self.cloud_provider:
+            from netllm_core.cloud_providers import get_provider_spec
+
+            spec = get_provider_spec(self.cloud_provider)
+            if spec is not None:
+                env_name = spec.api_key_env
         if env_name:
             from_env = os.environ.get(env_name, "")
             if from_env:
