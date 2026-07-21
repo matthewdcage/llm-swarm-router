@@ -155,6 +155,20 @@ class RouterPool:
             or b.base_url in keep_urls
         ]
 
+    def prune_cloud_provider_rows(self, keep_ids: set[str]) -> None:
+        """Drop materialized [cloud.providers.*] rows no longer configured.
+
+        Disabling a provider (or the cloud master switch) must remove its
+        pool row immediately — otherwise a stale keyed row keeps
+        attracting selection until restart. Legacy env-triggered injects
+        (ids "anthropic-cloud" / "openai-cloud") are tagged with
+        cloud_provider too, so they prune the same way when
+        cloud.enabled=false.
+        """
+        self._backends = [
+            b for b in self._backends if not b.cloud_provider or b.id in keep_ids
+        ]
+
     def prune_peer_rows(self, keep_urls: set[str]) -> None:
         """Drop peer-agent rows no longer present in the swarm registry.
 
@@ -390,6 +404,7 @@ class RouterPool:
         attempt: int = 1,
         local_only: bool = False,
         prefer_provider: str | None = None,
+        prefer_cloud: bool = False,
         exclude_ids: set[str] | None = None,
     ) -> Backend | None:
         if local_only:
@@ -410,6 +425,17 @@ class RouterPool:
             preferred = [b for b in all_candidates if b.provider == prefer_provider]
             if preferred:
                 all_candidates = preferred
+
+        if prefer_cloud:
+            # cloud.fallback = "local" (cloud-primary): steer every
+            # strategy toward materialized cloud backends first. Once all
+            # cloud candidates land in exclude_ids (tried/failed), this
+            # narrows to nothing and falls through to the full set —
+            # the same empty-preferred-list fallback prefer_provider uses
+            # above — so the local mesh becomes the retry fallback tier.
+            cloud_candidates = [b for b in all_candidates if b.cloud_provider]
+            if cloud_candidates:
+                all_candidates = cloud_candidates
 
         if self.max_in_flight_per_backend > 0:
             # Back-pressure guardrail for every strategy: don't stack

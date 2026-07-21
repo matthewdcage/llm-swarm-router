@@ -17,6 +17,7 @@ from netllm_core.anthropic_bridge import (
     translate_openai_stream_to_anthropic,
 )
 from netllm_core.capabilities import model_capability
+from netllm_core.cloud_providers import get_provider_spec
 from netllm_core.models import (
     ANTHROPIC_CLOUD_BASE_URL,
     BACKEND_PIN_HEADER,
@@ -26,6 +27,7 @@ from netllm_core.models import (
     OPENAI_CLOUD_BASE_URL,
     STRATEGY_HEADER,
     Backend,
+    BackendHealth,
     NetllmConfig,
 )
 from netllm_core.pool import RouterPool, is_capacity_error
@@ -324,6 +326,7 @@ class AgentService:
 
     async def list_models_aggregated(self) -> dict[str, Any]:
         await self.refresh_local_backends()
+        self._materialize_cloud_provider_backends()
 
         def _probe_local() -> None:
             # Force-probe local providers only. Peer-agent rows are kept
@@ -569,6 +572,7 @@ class AgentService:
             header_local_only=self._wants_local_only(hdrs),
             header_strategy=hdrs.get(STRATEGY_HEADER),
             header_backend=hdrs.get(BACKEND_PIN_HEADER),
+            cloud=self.config.cloud,
         )
 
     def _select_backend_for_request(
@@ -580,6 +584,7 @@ class AgentService:
         *,
         local_only: bool = False,
         prefer_provider: str | None = None,
+        prefer_cloud: bool = False,
         exclude_ids: set[str] | None = None,
         pinned: str | None = None,
     ) -> Backend | None:
@@ -634,6 +639,7 @@ class AgentService:
                     attempt=attempt,
                     local_only=local_only,
                     prefer_provider=prefer_provider,
+                    prefer_cloud=prefer_cloud,
                     exclude_ids=exclude_ids,
                 )
 
@@ -655,6 +661,7 @@ class AgentService:
                     "round_robin",
                     local_only=local_only,
                     prefer_provider=prefer_provider,
+                    prefer_cloud=prefer_cloud,
                     exclude_ids=exclude_ids,
                 )
             return self.pool.select_backend(
@@ -663,6 +670,7 @@ class AgentService:
                 attempt=attempt,
                 local_only=local_only,
                 prefer_provider=prefer_provider,
+                prefer_cloud=prefer_cloud,
                 exclude_ids=exclude_ids,
             )
 
@@ -688,6 +696,7 @@ class AgentService:
             attempt=attempt,
             local_only=local_only,
             prefer_provider=prefer_provider,
+            prefer_cloud=prefer_cloud,
             exclude_ids=exclude_ids,
         )
 
@@ -718,6 +727,7 @@ class AgentService:
         await self.refresh_local_backends()
         if routing.allow_cloud_inject:
             self._inject_openai_cloud_backend(self._openai_api_key(hdrs))
+            self._materialize_cloud_provider_backends()
         attempt = 0
         last_error: Exception | None = None
         max_attempts = max(len(self.pool.backends), 1)
@@ -733,6 +743,7 @@ class AgentService:
                 shard,
                 local_only=routing.local_only,
                 prefer_provider=routing.prefer_provider,
+                prefer_cloud=routing.cloud_leads,
                 exclude_ids=tried,
                 pinned=routing.pinned_backend,
             )
@@ -800,6 +811,7 @@ class AgentService:
         await self.refresh_local_backends()
         if routing.allow_cloud_inject:
             self._inject_openai_cloud_backend(self._openai_api_key(hdrs))
+            self._materialize_cloud_provider_backends()
         attempt = 0
         last_error: Exception | None = None
         max_attempts = max(len(self.pool.backends), 1)
@@ -816,6 +828,7 @@ class AgentService:
                 shard,
                 local_only=routing.local_only,
                 prefer_provider=routing.prefer_provider,
+                prefer_cloud=routing.cloud_leads,
                 exclude_ids=tried,
                 pinned=routing.pinned_backend,
             )
@@ -889,6 +902,7 @@ class AgentService:
         await self.refresh_local_backends()
         if routing.allow_cloud_inject:
             self._inject_openai_cloud_backend(self._openai_api_key(hdrs))
+            self._materialize_cloud_provider_backends()
         attempt = 0
         last_error: Exception | None = None
         max_attempts = max(len(self.pool.backends), 1)
@@ -906,6 +920,7 @@ class AgentService:
                 None,
                 local_only=routing.local_only,
                 prefer_provider=routing.prefer_provider,
+                prefer_cloud=routing.cloud_leads,
                 exclude_ids=tried,
                 pinned=routing.pinned_backend,
             )
@@ -982,6 +997,8 @@ class AgentService:
         return out
 
     def _inject_anthropic_cloud_backend(self, api_key: str) -> None:
+        if not self.config.cloud.enabled:
+            return
         if not api_key or api_key == "netllm-local":
             return
         if any(b.api_format == "anthropic" for b in self.pool.backends):
@@ -997,11 +1014,14 @@ class AgentService:
                     enabled=True,
                     local=False,
                     agent_id=self.config.agent.agent_id,
+                    cloud_provider="anthropic",
                 )
             ]
         )
 
     def _inject_openai_cloud_backend(self, api_key: str) -> None:
+        if not self.config.cloud.enabled:
+            return
         if not api_key:
             return
         cloud_url = OPENAI_CLOUD_BASE_URL.rstrip("/")
@@ -1021,9 +1041,99 @@ class AgentService:
                     enabled=True,
                     local=False,
                     agent_id=self.config.agent.agent_id,
+                    cloud_provider="openai",
                 )
             ]
         )
+
+    def _materialize_cloud_provider_backends(self) -> None:
+        """Sync [cloud.providers.*] into ephemeral pool rows.
+
+        Additive to the legacy env-key injects above: a provider entry is
+        only materialized when both the cloud master switch and the
+        provider's own `enabled` flag are on. Disabling either prunes the
+        row immediately (no restart needed) via prune_cloud_provider_rows.
+        """
+        cloud_cfg = self.config.cloud
+        if not cloud_cfg.enabled:
+            self.pool.prune_cloud_provider_rows(set())
+            return
+        new_backends: list[Backend] = []
+        keep_ids: set[str] = set()
+        for provider_id, provider_cfg in cloud_cfg.providers.items():
+            if not provider_cfg.enabled:
+                continue
+            spec = get_provider_spec(provider_id)
+            if spec is None:
+                continue
+            api_format = provider_cfg.api_format or spec.default_api_format
+            endpoint = spec.endpoint(provider_cfg.region or None)
+            base_url = provider_cfg.base_url or (
+                endpoint.anthropic_base_url
+                if api_format == "anthropic"
+                else endpoint.openai_base_url
+            )
+            if not base_url:
+                # Provider doesn't offer this api_format at this
+                # region/profile — skip rather than materialize a dead row.
+                continue
+            api_key = (
+                provider_cfg.api_key
+                or (
+                    os.environ.get(provider_cfg.api_key_env, "")
+                    if provider_cfg.api_key_env
+                    else ""
+                )
+                or os.environ.get(spec.api_key_env, "")
+            )
+            if not api_key and provider_cfg.auth == "api_key":
+                # Enabled but keyless: keep it out of the routable pool
+                # rather than injecting a backend guaranteed to 401. The
+                # CLI/admin surfaces (phase 2) will flag this state.
+                continue
+            backend_id = f"cloud-{provider_id}"
+            keep_ids.add(backend_id)
+            existing = self.pool.backend_by_id(backend_id)
+            if (
+                existing is not None
+                and existing.base_url == base_url
+                and existing.api_format == api_format
+                and existing.api_key == api_key
+            ):
+                # Already materialized and unchanged this session — skip
+                # the rebuild so accumulated health/probe state (real
+                # model catalog for providers with a live /models probe)
+                # isn't wiped on every request.
+                continue
+            models = list(provider_cfg.models) or (
+                [] if spec.models_endpoint else list(spec.static_models)
+            )
+            new_backends.append(
+                Backend(
+                    id=backend_id,
+                    base_url=base_url,
+                    provider="custom",
+                    api_format=api_format,
+                    api_key=api_key,
+                    enabled=True,
+                    local=False,
+                    agent_id=self.config.agent.agent_id,
+                    cloud_provider=provider_id,
+                    health=BackendHealth(
+                        status="unknown",
+                        models=models,
+                        model_count=len(models),
+                    ),
+                )
+            )
+        self.pool.merge_backends(new_backends)
+        # Legacy env-key injects (ids anthropic-cloud/openai-cloud) are
+        # tagged with cloud_provider too but are re-created per request by
+        # _inject_*_cloud_backend, so they're kept alongside the
+        # registry-materialized rows — only providers no longer
+        # enabled/configured get pruned.
+        legacy_ids = {"anthropic-cloud", "openai-cloud"}
+        self.pool.prune_cloud_provider_rows(keep_ids | legacy_ids)
 
     def _anthropic_fallback_backends(self, *, local_only: bool) -> list[Backend]:
         """Anthropic-format backends tried after the OpenAI-format mesh.
@@ -1098,6 +1208,7 @@ class AgentService:
         await self.refresh_local_backends()
         if routing.allow_cloud_inject:
             self._inject_anthropic_cloud_backend(api_key)
+            self._materialize_cloud_provider_backends()
 
         # Same strategy-driven selection loop as chat completions, so
         # round_robin / least_load / latency_weighted spread Messages
@@ -1119,6 +1230,7 @@ class AgentService:
                 None,
                 local_only=routing.local_only,
                 prefer_provider=routing.prefer_provider,
+                prefer_cloud=routing.cloud_leads,
                 exclude_ids=tried,
                 pinned=routing.pinned_backend,
             )
@@ -1165,6 +1277,7 @@ class AgentService:
         await self.refresh_local_backends()
         if routing.allow_cloud_inject:
             self._inject_anthropic_cloud_backend(api_key)
+            self._materialize_cloud_provider_backends()
 
         last_error: Exception | None = None
         tried: set[str] = {
@@ -1188,6 +1301,7 @@ class AgentService:
                     None,
                     local_only=routing.local_only,
                     prefer_provider=routing.prefer_provider,
+                    prefer_cloud=routing.cloud_leads,
                     exclude_ids=tried,
                     pinned=routing.pinned_backend,
                 )
