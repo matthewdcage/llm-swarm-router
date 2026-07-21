@@ -28,6 +28,9 @@ final class ServerProcess: @unchecked Sendable {
 
     private(set) var state: State = .stopped
     private var process: Process?
+    // Held while the agent child runs: without it macOS App Naps the
+    // background menubar app and demotes/freezes its children.
+    private var activityToken: NSObjectProtocol?
     private var logHandle: FileHandle?
     private var healthTask: Task<Void, Never>?
     private var consecutiveFailures = 0
@@ -190,6 +193,12 @@ final class ServerProcess: @unchecked Sendable {
         }
         try proc.run()
         process = proc
+        if activityToken == nil {
+            activityToken = ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiated, .automaticTerminationDisabled],
+                reason: "Serving LAN inference requests"
+            )
+        }
         startHealthCheckLoop()
     }
 
@@ -197,6 +206,10 @@ final class ServerProcess: @unchecked Sendable {
         let wasExpecting = expectingExit
         expectingExit = false
         process = nil
+        if let token = activityToken {
+            ProcessInfo.processInfo.endActivity(token)
+            activityToken = nil
+        }
         closeLog()
         if wasExpecting {
             update(.stopped)
@@ -297,6 +310,13 @@ final class ServerProcess: @unchecked Sendable {
                     pid = portOwnerPid() ?? 0
                 }
                 update(.running(pid: pid > 0 ? pid : 0))
+            } else if let proc = process, proc.isRunning {
+                // Thaw a child suspended before it could bind: on
+                // memory-pressured hosts macOS can freeze the spawned
+                // agent at interpreter startup (observed: ~0 CPU, no
+                // sockets, wakes on SIGCONT). SIGCONT is a no-op for a
+                // process that is actually running.
+                kill(proc.processIdentifier, SIGCONT)
             }
         case .failed:
             if healthy {
@@ -311,6 +331,11 @@ final class ServerProcess: @unchecked Sendable {
                 }
             } else {
                 consecutiveFailures += 1
+                if pid > 0 {
+                    // Same freezer guard as .starting: harmless when the
+                    // agent is merely slow, decisive when it was frozen.
+                    kill(pid, SIGCONT)
+                }
                 if consecutiveFailures >= maxHealthFailures, case .running = state {
                     update(.unresponsive(pid: pid))
                 }
