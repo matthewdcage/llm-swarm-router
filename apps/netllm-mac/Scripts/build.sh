@@ -113,7 +113,11 @@ done
 export PYTHONPATH="$PYPATH"
 export PYTHONDONTWRITEBYTECODE=1
 export NETLLM_BUNDLE_PATH="$(cd "$(dirname "$0")/../.." && pwd)"
-exec "$PYTHONHOME/bin/python3" -m netllm_cli.main "$@"
+# -S skips `import site`: the bundle needs no site processing (all
+# paths come from PYTHONPATH), and site init was observed to hang
+# forever in an opendir when spawned from the menubar app on a
+# memory-pressured host — freezing the agent before it could bind.
+exec "$PYTHONHOME/bin/python3" -S -m netllm_cli.main "$@"
 WRAPPER
 chmod +x "$APP/Contents/MacOS/netllm-cli"
 
