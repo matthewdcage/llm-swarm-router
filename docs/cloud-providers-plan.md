@@ -251,9 +251,22 @@ AGENTS.md/README touch-ups; workspace-wide version bump (`test_version_sync.py`)
    Plan only) — verify at Phase 1 integration; default `zai` to the OpenAI-format `paas/v4` URL.
 2. **Plan-auth legality** (Anthropic plan token in a router; any future OpenAI plan flow): ship
    behind explicit opt-in with the registry `notes` warning; never default.
-3. **Schema triple-mirror drift** (Python/Swift/JS): mitigated by phase ordering (core first) and
-   deep-merge, but a follow-up from routing-hardening-plan.md ("agent-served config schema")
-   would eliminate it — out of scope here.
+3. **Schema triple-mirror drift** (Python/Swift/JS) — **resolved for cloud provider display
+   metadata**, the part most likely to drift as providers get added or notes/regions change:
+   `GET /netllm/v1/cloud/providers` (`admin.cloud_provider_registry_payload`) is now the single
+   source of truth for `id`/`display_name`/`notes`/`regions`/`auth_modes`/`default_api_format`.
+   The dashboard already consumed this shape via `config_summary`'s `cloud.providers` (no
+   Python-side change needed there — its only hardcoded piece, the 5-id iteration list, is now a
+   documented offline-only bootstrap, `CLOUD_PROVIDER_IDS_BOOTSTRAP`, superseded by the live
+   `Object.keys(draft.providers)` once connected). The macOS app fetches the same endpoint
+   (`AgentAPI.cloudProviderRegistry`) into `SettingsViewModel.cloudProviderRegistry`, falling back
+   to `SettingsViewModel.cloudProvidersBootstrap` only when the agent is unreachable — so a stale
+   Swift-side `notes` string can no longer diverge from the Python registry in steady state.
+   **Still open, deliberately out of scope:** a generic schema for the *editable* config shape
+   (routing/discovery/swarm/agent/ui sections) that would let Swift/JS render forms without any
+   hand-authored structs at all — that's the larger routing-hardening-plan.md follow-up and remains
+   future work; today those sections still rely on additive fields + deep-merge (§3.2) to stay
+   non-breaking across the three mirrors.
 4. **Model ID churn** (Moonshot discontinued its k2 preview family with ~6 months notice): keep
    static catalogs minimal, prefer live `GET /models` wherever offered, and treat registry model
    lists as display hints, not routing constraints.

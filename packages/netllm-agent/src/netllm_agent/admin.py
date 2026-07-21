@@ -169,6 +169,29 @@ def _cloud_provider_export(cfg: NetllmConfig) -> dict[str, Any]:
     return out
 
 
+def cloud_provider_registry_payload() -> list[dict[str, Any]]:
+    """Static registry data for every pre-configured cloud provider.
+
+    Single source of truth consumed by the macOS app and web dashboard so
+    display metadata (name, notes, regions, auth modes) never has to be
+    hand-mirrored client-side — only the *shape* of user-editable fields
+    (enabled/region/api_format) is mirrored, per the deep-merge contract
+    documented in docs/cloud-providers-plan.md.
+    """
+    return [
+        {
+            "id": provider_id,
+            "display_name": spec.display_name,
+            "notes": spec.notes,
+            "regions": list(spec.endpoints.keys()),
+            "auth_modes": list(spec.auth_modes),
+            "default_api_format": spec.default_api_format,
+            "api_key_env": spec.api_key_env,
+        }
+        for provider_id, spec in CLOUD_PROVIDERS.items()
+    ]
+
+
 def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
     """Non-secret config slices for dashboard display and editing."""
     token = cfg.swarm.cluster_token

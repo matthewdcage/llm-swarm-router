@@ -85,6 +85,30 @@ enum AgentAPI {
         )
     }
 
+    /// Cloud provider registry (display metadata) — single source of
+    /// truth served by the agent (admin.cloud_provider_registry_payload)
+    /// so this data never has to be hand-mirrored in Swift. Falls back to
+    /// SettingsViewModel.cloudProviders (bootstrap defaults) when the
+    /// agent is unreachable.
+    static func cloudProviderRegistry(baseURL: URL) async -> [CloudProviderInfo]? {
+        guard let json = await fetchJSON(baseURL: baseURL, path: "/netllm/v1/cloud/providers")
+        else {
+            return nil
+        }
+        let rows = json["providers"] as? [[String: Any]] ?? []
+        guard !rows.isEmpty else { return nil }
+        return rows.compactMap { row in
+            guard let id = row["id"] as? String else { return nil }
+            return CloudProviderInfo(
+                id: id,
+                displayName: row["display_name"] as? String ?? id,
+                notes: row["notes"] as? String ?? "",
+                regions: row["regions"] as? [String] ?? ["global"],
+                keychainAccount: KeychainStore.accountForCloudProvider(id)
+            )
+        }
+    }
+
     static func isReachable(baseURL: URL) async -> Bool {
         var request = URLRequest(url: baseURL.appendingPathComponent("/health"))
         request.timeoutInterval = 2

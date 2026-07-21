@@ -12,6 +12,22 @@ enum KeychainStore {
         static let openrouterAPIKey = "openrouter_api_key"
     }
 
+    /// Maps a cloud provider registry id (from netllm_core.cloud_providers,
+    /// served at GET /netllm/v1/cloud/providers) to its Keychain account.
+    /// The single place this mapping lives — AgentAPI.cloudProviderRegistry
+    /// and SettingsViewModel.cloudProviders (offline bootstrap) both use it
+    /// instead of hand-rolling their own id -> account switch.
+    static func accountForCloudProvider(_ providerId: String) -> String {
+        switch providerId {
+        case "anthropic": return Account.anthropicAPIKey
+        case "openai": return Account.openaiAPIKey
+        case "moonshot": return Account.moonshotAPIKey
+        case "zai": return Account.zaiAPIKey
+        case "openrouter": return Account.openrouterAPIKey
+        default: return "\(providerId)_api_key"
+        }
+    }
+
     static func load(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

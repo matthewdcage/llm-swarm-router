@@ -6,9 +6,14 @@ import tempfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from netllm_agent.admin import config_summary, doctor_payload
+from netllm_agent.admin import (
+    cloud_provider_registry_payload,
+    config_summary,
+    doctor_payload,
+)
 from netllm_agent.app import create_app
 from netllm_agent.service import AgentService
+from netllm_core.cloud_providers import CLOUD_PROVIDERS
 from netllm_core.models import (
     CloudProviderConfig,
     NetllmConfig,
@@ -122,3 +127,36 @@ def test_doctor_ignores_disabled_master_switch() -> None:
     service = AgentService(cfg)
     payload = doctor_payload(cfg, service)
     assert not any("Moonshot" in issue["title"] for issue in payload["issues"])
+
+
+# --- agent-served cloud provider registry (schema drift fix) -------------
+
+
+def test_cloud_provider_registry_payload_covers_all_providers() -> None:
+    rows = cloud_provider_registry_payload()
+    ids = {row["id"] for row in rows}
+    assert ids == set(CLOUD_PROVIDERS)
+    for row in rows:
+        spec = CLOUD_PROVIDERS[row["id"]]
+        assert row["display_name"] == spec.display_name
+        assert row["notes"] == spec.notes
+        assert row["regions"] == list(spec.endpoints.keys())
+        assert row["auth_modes"] == list(spec.auth_modes)
+        assert row["default_api_format"] == spec.default_api_format
+        assert row["api_key_env"] == spec.api_key_env
+
+
+def test_cloud_providers_endpoint_serves_registry() -> None:
+    cfg = NetllmConfig()
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    app = create_app(cfg)
+    with TestClient(app) as client:
+        resp = client.get("/netllm/v1/cloud/providers")
+    assert resp.status_code == 200
+    body = resp.json()
+    ids = {row["id"] for row in body["providers"]}
+    assert ids == {"moonshot", "zai", "openai", "anthropic", "openrouter"}
+    moonshot = next(r for r in body["providers"] if r["id"] == "moonshot")
+    assert moonshot["display_name"] == "Moonshot AI (Kimi)"
+    assert "global" in moonshot["regions"]

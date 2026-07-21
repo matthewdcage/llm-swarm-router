@@ -26,7 +26,7 @@ struct CloudSettingsView: View {
                 .font(.title3.bold())
                 .padding(.top, 8)
 
-            ForEach(SettingsViewModel.cloudProviders, id: \.id) { provider in
+            ForEach(model.cloudProviders, id: \.id) { provider in
                 CloudProviderCard(model: model, provider: provider)
             }
 

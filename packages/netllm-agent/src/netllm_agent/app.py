@@ -20,6 +20,7 @@ from netllm_sdk_openai.client import OpenAIUpstreamError
 from netllm_agent.admin import (
     apply_config_patch,
     client_env_vars,
+    cloud_provider_registry_payload,
     config_summary,
     doctor_payload,
     logs_payload,
@@ -173,6 +174,14 @@ def create_app(
     async def netllm_config_summary(request: Request) -> dict[str, Any]:
         require_admin_access(request, cfg)
         return config_summary(cfg)
+
+    @app.get("/netllm/v1/cloud/providers")
+    async def netllm_cloud_providers(request: Request) -> dict[str, Any]:
+        """Registry metadata for the pre-configured cloud providers —
+        single source of truth for the macOS app and dashboard (see
+        admin.cloud_provider_registry_payload)."""
+        require_admin_access(request, cfg)
+        return {"providers": cloud_provider_registry_payload()}
 
     @app.get("/netllm/v1/client-env")
     async def netllm_client_env() -> dict[str, Any]:

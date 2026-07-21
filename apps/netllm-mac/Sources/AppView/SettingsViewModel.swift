@@ -20,6 +20,11 @@ final class SettingsViewModel {
     var errorMessage: String?
     var needsRestart = false
     var agentLogs: AgentLogsPayload?
+    /// Live cloud provider registry from GET /netllm/v1/cloud/providers
+    /// (single source of truth — see AgentAPI.cloudProviderRegistry). Empty
+    /// until the first successful fetch, or when the agent is unreachable;
+    /// `cloudProviders` below falls back to Self.cloudProvidersBootstrap.
+    var cloudProviderRegistry: [CloudProviderInfo] = []
     /// UI intent for secured swarm; synced from config on reload, applied on save.
     var requireClusterToken = false
     private(set) var uiRevision = 0
@@ -39,15 +44,19 @@ final class SettingsViewModel {
     static let providers = ["omlx", "ollama", "lmstudio", "vllm"]
     static let roles = ["peer", "gateway"]
 
-    // Mirrors netllm_core.cloud_providers.CLOUD_PROVIDERS — display metadata
-    // only; base URLs/keys stay server-side (registry + Keychain/env).
-    static let cloudProviders: [CloudProviderInfo] = [
+    // Offline-only fallback (agent unreachable / GET /netllm/v1/cloud/providers
+    // failed) — mirrors netllm_core.cloud_providers.CLOUD_PROVIDERS as it
+    // stood when this file was last touched. `cloudProviders` below always
+    // prefers the live `cloudProviderRegistry` when populated, so this list
+    // drifting from the Python registry only affects the brief window before
+    // the first successful fetch, not steady-state display.
+    static let cloudProvidersBootstrap: [CloudProviderInfo] = [
         CloudProviderInfo(
             id: "moonshot",
             displayName: "Moonshot AI (Kimi)",
             notes: "Pay-as-you-go API keys only; no OAuth/plan auth.",
             regions: ["global", "cn"],
-            keychainAccount: KeychainStore.Account.moonshotAPIKey
+            keychainAccount: KeychainStore.accountForCloudProvider("moonshot")
         ),
         CloudProviderInfo(
             id: "zai",
@@ -55,30 +64,36 @@ final class SettingsViewModel {
             notes: "GLM Coding Plan keys are restricted to an approved-tools list "
                 + "per Z.ai's usage policy.",
             regions: ["api", "coding_plan", "cn"],
-            keychainAccount: KeychainStore.Account.zaiAPIKey
+            keychainAccount: KeychainStore.accountForCloudProvider("zai")
         ),
         CloudProviderInfo(
             id: "openai",
             displayName: "OpenAI",
             notes: "API key only — no public OAuth client for third-party tools.",
             regions: ["global"],
-            keychainAccount: KeychainStore.Account.openaiAPIKey
+            keychainAccount: KeychainStore.accountForCloudProvider("openai")
         ),
         CloudProviderInfo(
             id: "anthropic",
             displayName: "Anthropic",
             notes: "Console API key (x-api-key).",
             regions: ["global"],
-            keychainAccount: KeychainStore.Account.anthropicAPIKey
+            keychainAccount: KeychainStore.accountForCloudProvider("anthropic")
         ),
         CloudProviderInfo(
             id: "openrouter",
             displayName: "OpenRouter",
             notes: "Also supports OAuth PKCE sign-in for a user-scoped key.",
             regions: ["global"],
-            keychainAccount: KeychainStore.Account.openrouterAPIKey
+            keychainAccount: KeychainStore.accountForCloudProvider("openrouter")
         ),
     ]
+
+    /// The provider list to render: live registry when available, offline
+    /// bootstrap otherwise. Always use this, never the static list directly.
+    var cloudProviders: [CloudProviderInfo] {
+        cloudProviderRegistry.isEmpty ? Self.cloudProvidersBootstrap : cloudProviderRegistry
+    }
 
     /// Peers the running agent is routing through (`/netllm/v1/status`).
     var connectedPeerCount: Int { status?.peers.count ?? 0 }
@@ -222,6 +237,12 @@ final class SettingsViewModel {
             syncDiscoverProvidersFromStatus()
             if !wasReachable {
                 scheduleAutoPeerScanIfNeeded()
+            }
+            // Static registry data — fetch once per session, not every poll.
+            if cloudProviderRegistry.isEmpty {
+                if let registry = await AgentAPI.cloudProviderRegistry(baseURL: agentBaseURL) {
+                    cloudProviderRegistry = registry
+                }
             }
         } else {
             status = nil

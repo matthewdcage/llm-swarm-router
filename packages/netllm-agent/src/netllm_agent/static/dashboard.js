@@ -12,7 +12,18 @@ const STRATEGIES = [
   "batch_shard",
 ];
 const ROLES = ["peer", "gateway"];
-const CLOUD_PROVIDER_IDS = ["moonshot", "zai", "openai", "anthropic", "openrouter"];
+// Fallback only, used when the admin config API is unreachable (offline
+// dashboard) and configDraft.cloud.providers is empty. Once connected,
+// the provider list comes from the agent's config summary (server is the
+// single source of truth for the provider set + all display metadata —
+// see admin.cloud_provider_registry_payload / GET /netllm/v1/cloud/providers).
+const CLOUD_PROVIDER_IDS_BOOTSTRAP = [
+  "moonshot",
+  "zai",
+  "openai",
+  "anthropic",
+  "openrouter",
+];
 
 const state = {
   tab: "status",
@@ -1032,7 +1043,13 @@ function renderCloudTab() {
     textEl("p", "empty", "Keys are write-only — a key already stored is never shown back.")
   );
 
-  CLOUD_PROVIDER_IDS.forEach((pid) => {
+  // Server-driven provider set (matches config_summary's cloud.providers,
+  // which always lists every registry provider) — bootstrap list only
+  // covers the admin-API-unreachable case.
+  const providerIds = Object.keys(draft.providers).length
+    ? Object.keys(draft.providers)
+    : CLOUD_PROVIDER_IDS_BOOTSTRAP;
+  providerIds.forEach((pid) => {
     root.appendChild(renderCloudProviderCard(pid, draft, summaryProviders[pid] || {}));
   });
 }
