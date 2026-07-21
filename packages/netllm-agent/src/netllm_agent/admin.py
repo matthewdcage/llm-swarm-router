@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException, Request
+from netllm_core.cloud_providers import CLOUD_PROVIDERS, get_provider_spec
 from netllm_core.models import NetllmConfig, is_lan_listen, save_config
 from netllm_core.platform import local_admin_client_hosts
 
 from netllm_agent.service import AgentService
 
-_CONFIG_SECTIONS = frozenset({"agent", "discovery", "swarm", "routing", "ui"})
+_CONFIG_SECTIONS = frozenset({"agent", "discovery", "swarm", "routing", "ui", "cloud"})
 
 
 def require_admin_access(request: Request, cfg: NetllmConfig) -> None:
@@ -82,6 +84,28 @@ def doctor_payload(cfg: NetllmConfig, service: AgentService) -> dict[str, Any]:
                 }
             )
 
+    if cfg.cloud.enabled:
+        for provider_id, provider_cfg in cfg.cloud.providers.items():
+            if not provider_cfg.enabled or provider_cfg.auth != "api_key":
+                continue
+            spec = get_provider_spec(provider_id)
+            if spec is None:
+                continue
+            has_key = bool(
+                provider_cfg.api_key
+                or provider_cfg.api_key_env
+                or os.environ.get(spec.api_key_env)
+            )
+            if not has_key:
+                issues.append(
+                    {
+                        "title": f"Cloud provider {spec.display_name} is enabled "
+                        "but has no API key",
+                        "fix": f"Set {spec.api_key_env} or add an api_key under "
+                        f"[cloud.providers.{provider_id}]",
+                    }
+                )
+
     if cfg.swarm.mdns and cfg.agent.advertise:
         try:
             import zeroconf  # noqa: F401
@@ -118,6 +142,31 @@ def _backend_override_export(cfg: NetllmConfig) -> list[dict[str, Any]]:
         }
         for b in cfg.routing.backends
     ]
+
+
+def _cloud_provider_export(cfg: NetllmConfig) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for provider_id, spec in CLOUD_PROVIDERS.items():
+        provider_cfg = cfg.cloud.providers.get(provider_id)
+        key_set = bool(
+            provider_cfg
+            and (provider_cfg.api_key or provider_cfg.api_key_env)
+            or os.environ.get(spec.api_key_env)
+        )
+        out[provider_id] = {
+            "display_name": spec.display_name,
+            "enabled": provider_cfg.enabled if provider_cfg else False,
+            "region": provider_cfg.region if provider_cfg else "",
+            "api_format": provider_cfg.api_format if provider_cfg else None,
+            "auth": provider_cfg.auth if provider_cfg else "api_key",
+            "api_key_set": key_set,
+            "models": list(provider_cfg.models) if provider_cfg else [],
+            "regions": list(spec.endpoints.keys()),
+            "auth_modes": list(spec.auth_modes),
+            "default_api_format": spec.default_api_format,
+            "notes": spec.notes,
+        }
+    return out
 
 
 def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
@@ -170,6 +219,12 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
             "auto_start_on_launch": cfg.ui.auto_start_on_launch,
             "log_dir": cfg.ui.log_dir or str(cfg.resolved_log_dir()),
             "check_for_updates_automatically": cfg.ui.check_for_updates_automatically,
+        },
+        "cloud": {
+            "enabled": cfg.cloud.enabled,
+            "fallback": cfg.cloud.fallback,
+            "fallback_enabled": cfg.cloud.fallback_enabled,
+            "providers": _cloud_provider_export(cfg),
         },
     }
 
@@ -265,6 +320,40 @@ def apply_config_patch(cfg: NetllmConfig, patch: dict[str, Any]) -> NetllmConfig
                     }
                 )
             current["routing"]["policies"] = merged_policies
+
+    if "cloud" in patch and isinstance(patch["cloud"], dict):
+        cloud_patch = patch["cloud"]
+        if "providers" in cloud_patch and isinstance(cloud_patch["providers"], dict):
+            existing_providers = cfg.cloud.providers
+            merged_providers: dict[str, Any] = {
+                pid: p.model_dump(mode="json") for pid, p in existing_providers.items()
+            }
+            for provider_id, entry in cloud_patch["providers"].items():
+                if not isinstance(entry, dict):
+                    continue
+                prior = existing_providers.get(provider_id)
+                merged_entry: dict[str, Any] = (
+                    prior.model_dump(mode="json") if prior else {}
+                )
+                for field in (
+                    "enabled",
+                    "region",
+                    "api_format",
+                    "auth",
+                    "api_key_env",
+                    "models",
+                    "base_url",
+                ):
+                    if field in entry:
+                        merged_entry[field] = entry[field]
+                # Keys are write-only: an empty/omitted value keeps the
+                # previously stored key instead of blanking it out.
+                if entry.get("api_key"):
+                    merged_entry["api_key"] = str(entry["api_key"])
+                elif prior is not None:
+                    merged_entry["api_key"] = prior.api_key
+                merged_providers[provider_id] = merged_entry
+            current["cloud"]["providers"] = merged_providers
 
     updated = NetllmConfig.model_validate(current)
     kept, rejected = _filter_own_swarm_peers(updated)

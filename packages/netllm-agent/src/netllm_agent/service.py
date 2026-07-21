@@ -238,6 +238,16 @@ class AgentService:
             "shardless_fallbacks": self._shardless_fallbacks,
             "cluster_token_set": bool(self.config.swarm.cluster_token),
             "version": get_version(),
+            "cloud": {
+                "enabled": self.config.cloud.enabled,
+                "fallback": self.config.cloud.fallback,
+                "fallback_enabled": self.config.cloud.fallback_enabled,
+                "enabled_providers": sorted(
+                    pid
+                    for pid, pcfg in self.config.cloud.providers.items()
+                    if pcfg.enabled
+                ),
+            },
         }
         warnings = self.peer_config_warnings()
         if warnings:

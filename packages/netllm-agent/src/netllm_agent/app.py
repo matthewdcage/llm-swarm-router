@@ -223,6 +223,7 @@ def create_app(
         cfg.swarm = merged.swarm
         cfg.routing = merged.routing
         cfg.ui = merged.ui
+        cfg.cloud = merged.cloud
         app.state.config = cfg
         # Hot-apply: re-sync pool knobs and invalidate the provider-scan
         # cache so routing/backend edits take effect without a restart.
