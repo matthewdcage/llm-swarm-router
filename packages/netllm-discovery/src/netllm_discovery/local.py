@@ -157,10 +157,18 @@ async def _probe_url(
     base_url: str,
     client: httpx.AsyncClient,
     api_key: str,
+    *,
+    diagnose: bool = False,
 ) -> dict[str, Any] | None:
     result = await probe_openai_compat(base_url, client, api_key=api_key or None)
     if result.get("status") != "online":
         return None
+    if not diagnose:
+        # Routine scans must stay read-only: the 1-token inference test
+        # forces the provider to LOAD a chat model, which on a
+        # memory-constrained host evicts the resident model every scan
+        # cycle. Only explicit CLI commands (discover/test) opt in.
+        return {**result, "latency_ms": None, "inference_status": None}
     diag = await diagnose_backend(base_url, client, api_key=api_key or None)
     return {
         **result,
@@ -175,6 +183,8 @@ async def _probe_provider(
     candidate_urls: list[str],
     client: httpx.AsyncClient,
     api_key: str = "",
+    *,
+    diagnose: bool = False,
 ) -> dict[str, Any]:
     if not candidate_urls:
         return {
@@ -187,7 +197,7 @@ async def _probe_provider(
         }
 
     hits = await asyncio.gather(
-        *[_probe_url(url, client, api_key) for url in candidate_urls]
+        *[_probe_url(url, client, api_key, diagnose=diagnose) for url in candidate_urls]
     )
     for url, hit in zip(candidate_urls, hits, strict=True):
         if hit is None:
@@ -219,8 +229,14 @@ async def scan_local_providers(
     config: NetllmConfig | None = None,
     *,
     include_custom: bool = True,
+    diagnose: bool = False,
 ) -> list[dict[str, Any]]:
-    """Probe configured URLs, env hints, and default local ports."""
+    """Probe configured URLs, env hints, and default local ports.
+
+    diagnose=True adds a 1-token inference latency test per provider —
+    this can force the provider to load a model, so it is reserved for
+    explicit CLI commands, never routine agent refreshes.
+    """
     cfg = config or NetllmConfig()
     enabled = set(cfg.discovery.providers)
     results: list[dict[str, Any]] = []
@@ -232,11 +248,17 @@ async def scan_local_providers(
                 continue
             urls = candidate_urls_for_provider(pid, cfg)
             key = _api_key_for_provider(pid, cfg)
-            tasks.append(_probe_provider(pid, pname, urls, client, key))
+            tasks.append(
+                _probe_provider(pid, pname, urls, client, key, diagnose=diagnose)
+            )
         if include_custom:
             for url in cfg.discovery.custom_endpoints:
                 norm = normalize_openai_base_url(url)
-                tasks.append(_probe_provider("custom", "Custom", [norm], client, ""))
+                tasks.append(
+                    _probe_provider(
+                        "custom", "Custom", [norm], client, "", diagnose=diagnose
+                    )
+                )
         for override in cfg.routing.backends:
             if override.enabled and override.base_url:
                 norm = normalize_openai_base_url(override.base_url)
@@ -247,6 +269,7 @@ async def scan_local_providers(
                         [norm],
                         client,
                         override.resolve_api_key(),
+                        diagnose=diagnose,
                     )
                 )
         if tasks:

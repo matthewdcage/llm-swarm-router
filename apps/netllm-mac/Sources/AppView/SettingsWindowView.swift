@@ -376,6 +376,9 @@ struct SettingsWindowView: View {
             gridRow("Agent ID", model.document.agent.agent_id)
             gridRow("Hostname", model.document.agent.hostname)
             gridRow("Listen", model.document.agent.listen)
+            // The bind address (0.0.0.0) is not what peers dial — show
+            // the resolved LAN URL the live agent actually advertises.
+            gridRow("LAN address", model.status?.listenURL ?? "agent not running")
             Text("Changes apply after Save + Restart Agent.")
                 .font(.caption).foregroundStyle(.orange)
             if model.document.isLanMode && !model.requireClusterToken {
@@ -497,8 +500,9 @@ struct SettingsWindowView: View {
                 Button("Add backend override") { model.addBackendOverride() }
             }
             ForEach(model.document.routing.backends.indices, id: \.self) { index in
+                // No `.id(array[index]...)` here: that subscript runs with
+                // stale indices after the array shrinks and traps.
                 backendOverrideEditor(index: index)
-                    .id(model.document.routing.backends[index].base_url)
             }
             sectionHeader("Cloud failover")
             CloudFailoverSettings()
@@ -625,9 +629,47 @@ struct SettingsWindowView: View {
         .disabled(model.isLoading)
     }
 
+    /// Bounds-safe binding: SwiftUI can re-evaluate stale ForEach children
+    /// after the array shrinks (reload / remove / doctor refresh); a direct
+    /// `$array[index]` subscript then traps (observed crash:
+    /// Array._checkSubscript via Binding getter in routingPolicyEditor).
+    private func safePolicyBinding(
+        _ index: Int
+    ) -> Binding<NetllmConfigDocument.RoutingPolicy> {
+        Binding(
+            get: {
+                let rows = model.document.routing.policies
+                return rows.indices.contains(index)
+                    ? rows[index] : NetllmConfigDocument.RoutingPolicy()
+            },
+            set: { newValue in
+                guard model.document.routing.policies.indices.contains(index)
+                else { return }
+                model.document.routing.policies[index] = newValue
+            }
+        )
+    }
+
+    private func safeOverrideBinding(
+        _ index: Int
+    ) -> Binding<NetllmConfigDocument.BackendOverride> {
+        Binding(
+            get: {
+                let rows = model.document.routing.backends
+                return rows.indices.contains(index)
+                    ? rows[index] : NetllmConfigDocument.BackendOverride()
+            },
+            set: { newValue in
+                guard model.document.routing.backends.indices.contains(index)
+                else { return }
+                model.document.routing.backends[index] = newValue
+            }
+        )
+    }
+
     @ViewBuilder
     private func routingPolicyEditor(index: Int) -> some View {
-        let binding = $model.document.routing.policies[index]
+        let binding = safePolicyBinding(index)
         VStack(alignment: .leading, spacing: 6) {
             TextField("Name", text: binding.name)
             TextField("Model prefix", text: binding.model_prefix)
@@ -666,7 +708,7 @@ struct SettingsWindowView: View {
 
     @ViewBuilder
     private func backendOverrideEditor(index: Int) -> some View {
-        let binding = $model.document.routing.backends[index]
+        let binding = safeOverrideBinding(index)
         VStack(alignment: .leading, spacing: 6) {
             TextField("Base URL", text: binding.base_url)
             TextField("Provider", text: binding.provider)

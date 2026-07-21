@@ -49,6 +49,10 @@ require_same_model_for_shard = true
 # Back-pressure cap applied by every strategy: selection prefers backends
 # with fewer than this many requests in flight. 0 disables.
 max_in_flight_per_backend = 0
+# Peer-role agents adopt the gateway's default_strategy from heartbeats
+# (runtime only), so the mesh cannot run conflicting strategies by
+# accident. Set false to keep an intentionally different strategy.
+follow_gateway = true
 # local_spillover only: serve locally while fewer than this many requests
 # are in flight locally; at or above it, spill to a LAN peer only when
 # that peer is strictly less loaded. Sequential (one-at-a-time) traffic

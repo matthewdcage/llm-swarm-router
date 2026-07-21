@@ -134,6 +134,27 @@ class RouterPool:
             by_url[b.base_url] = b
         self._backends = list(by_url.values())
 
+    def prune_local_provider_rows(
+        self, keep_urls: set[str], providers: set[str]
+    ) -> None:
+        """Drop local rows for discovery providers no longer scanned.
+
+        Removing a provider from discovery (or a backend disappearing
+        from the scan) must remove its pool row — otherwise a stale row
+        (e.g. an auth-gated LM Studio) keeps attracting selection until
+        restart. Rows for providers outside the discovery set (cloud
+        injects, config overrides) are untouched. In-flight requests
+        hold their own Backend reference, so dropping the row is safe.
+        """
+        self._backends = [
+            b
+            for b in self._backends
+            if b.id.startswith("peer:")
+            or not b.local
+            or b.provider not in providers
+            or b.base_url in keep_urls
+        ]
+
     def prune_peer_rows(self, keep_urls: set[str]) -> None:
         """Drop peer-agent rows no longer present in the swarm registry.
 
@@ -328,8 +349,19 @@ class RouterPool:
                 if not models and self.is_healthy(b):
                     models = b.health.models
                 if not models:
-                    # Unknown catalog (unprobed, auth-gated, cloud inject):
-                    # keep as a candidate rather than guessing wrong.
+                    if b.local and b.health.http_status in (401, 403):
+                        # Auth-gated local provider (e.g. LM Studio with
+                        # API auth): probes "online" (reachable) but every
+                        # inference call will 401. As a blind candidate it
+                        # shows in_flight=0 and wins every least_load pick,
+                        # starving real backends. Doctor flags the missing
+                        # key; skip until a valid key unlocks /models.
+                        # (Cloud injects stay blind candidates — their key
+                        # arrives per request, so a 401 probe means
+                        # nothing about the next call.)
+                        continue
+                    # Unknown catalog (unprobed, cloud inject): keep as
+                    # a candidate rather than guessing wrong.
                     out.append(b)
                     continue
                 if self._serves_model(models, names):

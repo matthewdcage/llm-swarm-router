@@ -155,6 +155,7 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
                 cfg.routing.spillover_max_local_in_flight
             ),
             "max_in_flight_per_backend": cfg.routing.max_in_flight_per_backend,
+            "follow_gateway": cfg.routing.follow_gateway,
             "health_ttl_s": cfg.routing.health_ttl_s,
             "offline_retry_s": cfg.routing.offline_retry_s,
             "max_backend_failures": cfg.routing.max_backend_failures,

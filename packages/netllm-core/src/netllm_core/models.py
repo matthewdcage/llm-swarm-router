@@ -128,6 +128,10 @@ class RoutingConfig(BaseModel):
     # Back-pressure cap applied by every strategy: selection prefers
     # backends with fewer than this many requests in flight. 0 = off.
     max_in_flight_per_backend: int = Field(default=0, ge=0)
+    # Peer-role agents adopt the gateway's advertised default_strategy
+    # from heartbeats (runtime only, not persisted), so a mesh can't run
+    # conflicting strategies by accident. Set false to opt out.
+    follow_gateway: bool = True
     # local_spillover: serve locally while fewer than this many requests
     # are in flight locally; at or above it, spill to a LAN peer only
     # when that peer is strictly less loaded.

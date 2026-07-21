@@ -78,7 +78,9 @@ async def test_scan_finds_omlx_on_alternate_port(
     cfg.discovery.providers = ["omlx", "ollama", "lmstudio", "vllm"]
     monkeypatch.setenv("OMLX_PORT", "8088")
 
-    async def fake_probe(url: str, client, api_key: str = "") -> dict | None:
+    async def fake_probe(
+        url: str, client, api_key: str = "", *, diagnose: bool = False
+    ) -> dict | None:
         if url == "http://127.0.0.1:8088/v1":
             return {
                 "status": "online",
@@ -102,7 +104,9 @@ async def test_scan_finds_omlx_on_alternate_port(
 async def test_scan_finds_vllm() -> None:
     cfg = NetllmConfig()
 
-    async def fake_probe(url: str, client, api_key: str = "") -> dict | None:
+    async def fake_probe(
+        url: str, client, api_key: str = "", *, diagnose: bool = False
+    ) -> dict | None:
         if url == "http://127.0.0.1:8000/v1":
             return {
                 "status": "online",
@@ -137,7 +141,9 @@ async def test_scan_uses_config_provider_url_before_scan() -> None:
     cfg.discovery.provider_urls = {"omlx": ["http://127.0.0.1:9999/v1"]}
     seen: list[str] = []
 
-    async def fake_probe(url: str, client, api_key: str = "") -> dict | None:
+    async def fake_probe(
+        url: str, client, api_key: str = "", *, diagnose: bool = False
+    ) -> dict | None:
         seen.append(url)
         if url == "http://127.0.0.1:9999/v1":
             return {
@@ -207,3 +213,29 @@ async def test_probe_omlx_admin_parses_server_info() -> None:
     assert stats is not None
     assert stats["primary_loaded_model"] == "demo-model"
     assert stats["admin_url"] == "http://127.0.0.1:8099/admin"
+
+
+@pytest.mark.asyncio
+async def test_routine_scan_never_runs_inference_diagnose() -> None:
+    """Routine scans must not 1-token-probe: with chat-capable model
+    selection the diagnose forces the provider to LOAD a model, which
+    evicts the resident model on memory-tight hosts every scan cycle."""
+    cfg = NetllmConfig()
+    cfg.discovery.providers = ["omlx"]
+    calls: list[str] = []
+
+    async def fake_diagnose(base_url: str, client, *, api_key=None, model=None):
+        calls.append(base_url)
+        return {"latency_ms": 1, "inference_status": "online"}
+
+    async def fake_health(base_url: str, client, *, api_key=None):
+        return {"status": "online", "models": ["m"], "model_count": 1}
+
+    with (
+        patch("netllm_discovery.local.probe_openai_compat", side_effect=fake_health),
+        patch("netllm_discovery.local.diagnose_backend", side_effect=fake_diagnose),
+    ):
+        await scan_local_providers(cfg)
+        assert calls == []
+        await scan_local_providers(cfg, diagnose=True)
+        assert calls  # explicit opt-in still diagnoses

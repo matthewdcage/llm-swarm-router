@@ -72,9 +72,7 @@ def test_doctor_endpoint_open_lan_note(monkeypatch: pytest.MonkeyPatch) -> None:
             }
         ]
 
-    monkeypatch.setattr(
-        "netllm_agent.service.scan_local_providers", _fake_agent_scan
-    )
+    monkeypatch.setattr("netllm_agent.service.scan_local_providers", _fake_agent_scan)
     monkeypatch.setattr(
         "netllm_core.pool.probe_openai_compat_sync",
         lambda *a, **k: {"status": "online", "models": ["m"], "model_count": 1},

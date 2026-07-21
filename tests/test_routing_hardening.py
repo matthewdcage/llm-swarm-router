@@ -394,3 +394,104 @@ def test_openai_upstream_client_reused() -> None:
     # Different hop depth → different forward headers → distinct client.
     c = service._openai_upstream(peer, {"x-netllm-hops": "1"})
     assert c is not a
+
+
+def test_auth_gated_blind_candidate_excluded() -> None:
+    """A 401/403 backend with an empty catalog must not be routable.
+
+    It probes "online" with in_flight=0, so as a blind candidate it wins
+    every least_load pick and starves real backends (live incident: an
+    auth-enabled LM Studio absorbed attempt 1 of every request).
+    """
+    pool = RouterPool()
+    gated = Backend(
+        id="lmstudio",
+        base_url="http://127.0.0.1:1234/v1",
+        provider="lmstudio",
+        local=True,
+        health=BackendHealth(status="online", http_status=401, models=[]),
+    )
+    real = _local()
+    pool.set_backends([gated, real])
+    pool.mark_success(gated)
+    pool.mark_success(real)
+    candidates = pool.backends_for_model("shared-model")
+    assert gated not in candidates
+    assert real in candidates
+
+
+def test_prune_local_provider_rows_drops_removed_provider() -> None:
+    pool = RouterPool()
+    lms = Backend(
+        id="lms",
+        base_url="http://127.0.0.1:1234/v1",
+        provider="lmstudio",
+        local=True,
+    )
+    omlx = _local()
+    cloud = Backend(
+        id="openai-cloud",
+        base_url="https://api.openai.com/v1",
+        provider="openai",
+        local=False,
+    )
+    pool.set_backends([lms, omlx, cloud, _peer()])
+    # Scan no longer returns lmstudio; provider set no longer includes it.
+    pool.prune_local_provider_rows({omlx.base_url}, {"omlx", "ollama"})
+    urls = {b.base_url for b in pool.backends}
+    assert lms.base_url in urls  # provider not in scanned set -> untouched
+    pool.prune_local_provider_rows({omlx.base_url}, {"omlx", "ollama", "lmstudio"})
+    urls = {b.base_url for b in pool.backends}
+    assert lms.base_url not in urls
+    assert omlx.base_url in urls
+    assert cloud.base_url in urls  # cloud inject untouched
+    assert any(b.id.startswith("peer:") for b in pool.backends)
+
+
+def test_load_aware_strategy_keeps_balancing_on_retry() -> None:
+    """After a backend fails, least_load retries must still balance by
+    load — not collapse to local-first failover."""
+    from netllm_agent.service import AgentService
+
+    cfg = NetllmConfig()
+    service = AgentService(cfg)
+    flaky = _local("flaky", "http://127.0.0.1:8080/v1")
+    busy_local = _local("busy", "http://127.0.0.1:8081/v1")
+    busy_local.in_flight = 5
+    peer = _peer()
+    service.pool.set_backends([flaky, busy_local, peer])
+    for b in (flaky, busy_local, peer):
+        service.pool.mark_success(b)
+    picked = service._select_backend_for_request(
+        "shared-model", "least_load", 2, None, exclude_ids={"flaky"}
+    )
+    assert picked is peer
+
+
+def test_follow_gateway_adopts_strategy() -> None:
+    from netllm_agent.service import AgentService
+
+    cfg = NetllmConfig()
+    cfg.agent.role = "peer"
+    cfg.routing.default_strategy = "least_load"
+    service = AgentService(cfg)
+    service._maybe_follow_gateway({"role": "gateway", "routing_strategy": "auto"})
+    assert service.config.routing.default_strategy == "auto"
+    # Invalid strategies are ignored.
+    service._maybe_follow_gateway({"role": "gateway", "routing_strategy": "bogus"})
+    assert service.config.routing.default_strategy == "auto"
+    # Gateways never adopt from other agents.
+    cfg2 = NetllmConfig()
+    cfg2.agent.role = "gateway"
+    cfg2.routing.default_strategy = "least_load"
+    service2 = AgentService(cfg2)
+    service2._maybe_follow_gateway({"role": "gateway", "routing_strategy": "auto"})
+    assert service2.config.routing.default_strategy == "least_load"
+    # Opt-out respected.
+    cfg3 = NetllmConfig()
+    cfg3.agent.role = "peer"
+    cfg3.routing.follow_gateway = False
+    cfg3.routing.default_strategy = "least_load"
+    service3 = AgentService(cfg3)
+    service3._maybe_follow_gateway({"role": "gateway", "routing_strategy": "auto"})
+    assert service3.config.routing.default_strategy == "least_load"

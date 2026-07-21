@@ -237,6 +237,50 @@ Also deferred: collapsing the two-layer strategy-fallback dispatch
 (`service._select_backend_for_request` vs `pool.select_backend`) — the
 retry semantics should live in one layer.
 
+Phase 6 — mesh fairness, scan safety & config-conflict prevention (done 2026-07-21)
+
+Field diagnosis round 2 (post phase-5 rollout): the MBP peer still got
+only sporadic traffic, and a chat model was being loaded under memory
+pressure by "nothing". Causes found:
+
+1. **Auth-gated blind candidate starved the mesh.** LM Studio with API
+   auth probes "online" (401 = reachable) with an empty catalog. Blind
+   candidates always show `in_flight=0`, so least_load picked LM Studio
+   first for *every* request → 401 → retry. Fixed: 401/403 backends
+   with no catalog are skipped in `backends_for_model` (doctor already
+   flags the missing key).
+2. **Retries collapsed to local-first.** Attempt ≥ 2 always used
+   `failover` ordering, so one flaky backend funneled every retry to
+   the local machine regardless of load. Fixed: load-aware strategies
+   (least_load, latency_weighted, round_robin, local_spillover) keep
+   their strategy on retries; `exclude_ids` already guarantees
+   progress.
+3. **Phase-5 probe fix backfired.** The 1-token diagnose used to hit an
+   embedding model (400, cheap); picking a chat-capable model made
+   every routine 10s scan ask the provider to LOAD a chat model —
+   memory-pressure evictions on both hosts. Fixed:
+   `scan_local_providers(diagnose=False)` is the default; only explicit
+   `netllm discover` opts into the inference test.
+4. **Stale local rows survived provider removal.** Dropping a provider
+   from `discovery.providers` left its pool row routable until restart.
+   Fixed: `prune_local_provider_rows` — the scan is authoritative for
+   discovery providers (cloud injects and overrides untouched).
+5. **Config conflicts across the mesh** are now self-healing:
+   `routing.follow_gateway = true` (default) makes peer-role agents
+   adopt the gateway's advertised `default_strategy` from heartbeats at
+   runtime. Explicit opt-out for intentionally-different peers.
+6. **macOS Settings crash (SIGTRAP)** — `routingPolicyEditor` /
+   `backendOverrideEditor` bound rows via `$array[index]`; after a
+   reload/remove shrank the array, SwiftUI re-evaluated stale ForEach
+   children and the subscript trapped (crash report:
+   `Array._checkSubscript` via `Binding.subscript.getter`). Fixed with
+   bounds-safe Binding accessors; the stray `.id(array[index]…)` in the
+   overrides ForEach removed.
+7. **Settings shows the resolved LAN address** ("LAN address" row from
+   live status) next to the raw bind address, so the advertised IP is
+   visible for this machine; the Swarm tab already lists peers with
+   their LAN URLs.
+
 ## Verifying on your two machines
 
 1. Update both machines, restart agents.

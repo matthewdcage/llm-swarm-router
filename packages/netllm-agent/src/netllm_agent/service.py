@@ -137,6 +137,13 @@ class AgentService:
         # The registry is authoritative for peers: rows for peers it no
         # longer tracks must not linger in the pool.
         self.pool.prune_peer_rows({b.base_url for b in remote})
+        # The scan is authoritative for discovery providers: a provider
+        # removed from config (or vanished from the scan) must not keep
+        # a stale routable row around until restart.
+        self.pool.prune_local_provider_rows(
+            {b.base_url for b in local},
+            set(self.config.discovery.providers),
+        )
         self._update_health_metrics()
         return local
 
@@ -271,10 +278,37 @@ class AgentService:
             payload["omlx_stats"] = omlx_stats
         return payload
 
+    def _maybe_follow_gateway(self, payload: dict[str, Any]) -> None:
+        """Adopt the gateway's strategy (runtime only) on peer-role agents.
+
+        Prevents accidental strategy drift across the mesh: the gateway
+        is authoritative unless routing.follow_gateway = false.
+        """
+        from netllm_core.routing_policy import VALID_STRATEGIES
+
+        if not self.config.routing.follow_gateway:
+            return
+        if self.config.agent.role == "gateway":
+            return
+        if payload.get("role") != "gateway":
+            return
+        remote = str(payload.get("routing_strategy") or "")
+        if not remote or remote not in VALID_STRATEGIES:
+            return
+        if remote == self.config.routing.default_strategy:
+            return
+        logger.info(
+            "adopting gateway strategy %r (was %r; routing.follow_gateway)",
+            remote,
+            self.config.routing.default_strategy,
+        )
+        self.config.routing.default_strategy = remote  # type: ignore[assignment]
+
     async def handle_heartbeat(self, payload: dict[str, Any]) -> None:
         agent_id = payload.get("agent_id", "")
         if not agent_id or agent_id == self.config.agent.agent_id:
             return
+        self._maybe_follow_gateway(payload)
         self.swarm.register_peer(
             PeerRecord(
                 agent_id=agent_id,
@@ -632,7 +666,20 @@ class AgentService:
                 exclude_ids=exclude_ids,
             )
 
-        use_strategy = strategy if attempt == 1 else "failover"
+        # Load-aware strategies keep balancing on retries — exclude_ids
+        # already guarantees progress past the failed backend. Dropping
+        # to failover (local-first) on attempt 2 meant one flaky backend
+        # funneled every retry to the local machine regardless of load.
+        load_aware = {
+            "least_load",
+            "latency_weighted",
+            "round_robin",
+            "local_spillover",
+        }
+        if attempt == 1 or strategy in load_aware:
+            use_strategy = strategy
+        else:
+            use_strategy = "failover"
         shard_key = shard.shard_key if shard else None
         return self.pool.select_backend(
             model,

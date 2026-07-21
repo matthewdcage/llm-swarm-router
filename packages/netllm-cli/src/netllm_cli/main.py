@@ -398,7 +398,9 @@ def discover(
     """Scan localhost for oMLX, Ollama, LM Studio, and vLLM."""
     cfg_path = _config_path_option(config)
     cfg = load_config(cfg_path)
-    results = asyncio.run(scan_local_providers(cfg))
+    # Explicit command: the 1-token latency diagnose is opted in here
+    # (it can make a provider load a model, so routine scans skip it).
+    results = asyncio.run(scan_local_providers(cfg, diagnose=True))
 
     if save_urls:
         cfg = merge_discovered_provider_urls(cfg, results)
