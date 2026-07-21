@@ -14,7 +14,9 @@ def test_mdns_advertiser_retries_on_non_unique_name() -> None:
     register_calls = 0
 
     class FakeZeroconf:
-        def register_service(self, info: object) -> None:
+        def register_service(
+            self, info: object, allow_name_change: bool = False
+        ) -> None:
             nonlocal register_calls
             register_calls += 1
             if register_calls == 1:
@@ -48,6 +50,10 @@ def test_mdns_advertiser_retries_on_non_unique_name() -> None:
 
     assert register_calls == 2
     assert advertiser._error is None
+    # Collision fallback re-registers under a pid-suffixed identity so a
+    # stale record from a SIGKILLed predecessor cannot block advertising.
+    second_info_call = fake_zc_mod.ServiceInfo.call_args_list[-1]
+    assert str(__import__("os").getpid()) in second_info_call.args[1]
 
 
 def test_mdns_advertise_address_uses_lan_for_wildcard_bind() -> None:

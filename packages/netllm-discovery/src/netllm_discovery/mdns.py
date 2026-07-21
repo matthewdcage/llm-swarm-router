@@ -153,26 +153,41 @@ class MdnsAdvertiser:
                 server=f"{self.agent_id}.local.",
             )
 
-            def _register() -> None:
+            def _register(target: ServiceInfo) -> None:
                 try:
-                    zc.unregister_service(info)
+                    zc.unregister_service(target)
                 except Exception:
                     pass
-                zc.register_service(info)
+                # Instance-name conflicts auto-resolve with a suffix —
+                # browsers dedupe by the agent_id property, so the
+                # instance name carries no identity.
+                zc.register_service(target, allow_name_change=True)
 
             try:
-                _register()
+                _register(info)
             except NonUniqueNameException:
+                # A SIGKILLed predecessor never sent mDNS goodbyes; its
+                # stale record (instance AND server name) lingers in
+                # caches for up to its TTL. Re-register under a
+                # pid-suffixed identity instead of fighting the ghost.
                 logger.warning(
-                    "mDNS name collision for %s — retrying after unregister",
+                    "mDNS name collision for %s — re-registering with "
+                    "pid-suffixed identity",
                     self.agent_id,
                 )
-                try:
-                    zc.unregister_service(info)
-                except Exception:
-                    pass
+                import os
+
+                suffix = f"{self.agent_id}-{os.getpid()}"
+                info = ServiceInfo(
+                    SERVICE_TYPE,
+                    f"{SERVICE_NAME}-{suffix}.{SERVICE_TYPE}",
+                    addresses=[addr],
+                    port=port,
+                    properties={k: v.encode() for k, v in props.items()},
+                    server=f"{suffix}.local.",
+                )
                 time.sleep(0.5)
-                _register()
+                _register(info)
 
             self._zeroconf = zc
             self._info = info
