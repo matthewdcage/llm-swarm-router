@@ -12,6 +12,7 @@ const STRATEGIES = [
   "batch_shard",
 ];
 const ROLES = ["peer", "gateway"];
+const CLOUD_PROVIDER_IDS = ["moonshot", "zai", "openai", "anthropic", "openrouter"];
 
 const state = {
   tab: "status",
@@ -163,6 +164,7 @@ function emptyConfigDraft() {
     swarm: { mdns: true, subnet_scan: false, subnet_cidrs: [], heartbeat_interval_s: 10, peers: [], cluster_token_set: false },
     routing: { default_strategy: "local_first", allow_remote: true, require_same_model_for_shard: true, backends: [], backend_count: 0, policies: [], policy_count: 0 },
     ui: { auto_start_on_launch: true, log_dir: "", check_for_updates_automatically: true },
+    cloud: { enabled: true, fallback: "cloud", fallback_enabled: true, providers: {} },
   };
 }
 
@@ -977,6 +979,135 @@ function renderBackendOverridesEditor() {
   return wrap;
 }
 
+const CLOUD_FALLBACK_MODES = ["cloud", "local", "none"];
+
+function renderCloudTab() {
+  const root = document.getElementById("tab-cloud");
+  root.replaceChildren();
+  root.appendChild(textEl("h1", "page-title", "Cloud"));
+  if (!state.configDraft.cloud) {
+    state.configDraft.cloud = { enabled: true, fallback: "cloud", fallback_enabled: true, providers: {} };
+  }
+  const draft = state.configDraft.cloud;
+  const summaryProviders = (state.config?.cloud?.providers) || {};
+
+  const card = el("div", "card");
+  card.appendChild(
+    checkboxRow("Cloud enabled (master switch)", draft.enabled !== false, (v) => {
+      draft.enabled = v;
+      markDirty();
+    })
+  );
+
+  const fallbackGroup = el("div", "form-group");
+  fallbackGroup.appendChild(textEl("label", "", "Fallback direction"));
+  const fallbackSel = document.createElement("select");
+  CLOUD_FALLBACK_MODES.forEach((m) => {
+    const opt = document.createElement("option");
+    opt.value = m;
+    opt.textContent =
+      m === "cloud" ? "cloud (local first, cloud fallback)" :
+      m === "local" ? "local (cloud first, local fallback)" :
+      "none (no automatic fallback)";
+    if ((draft.fallback || "cloud") === m) opt.selected = true;
+    fallbackSel.appendChild(opt);
+  });
+  fallbackSel.onchange = () => {
+    draft.fallback = fallbackSel.value;
+    markDirty();
+  };
+  fallbackGroup.appendChild(fallbackSel);
+  card.appendChild(fallbackGroup);
+
+  card.appendChild(
+    checkboxRow("Fallback enabled", draft.fallback_enabled !== false, (v) => {
+      draft.fallback_enabled = v;
+      markDirty();
+    })
+  );
+  root.appendChild(card);
+
+  root.appendChild(textEl("div", "section-label", "Providers"));
+  root.appendChild(
+    textEl("p", "empty", "Keys are write-only — a key already stored is never shown back.")
+  );
+
+  CLOUD_PROVIDER_IDS.forEach((pid) => {
+    root.appendChild(renderCloudProviderCard(pid, draft, summaryProviders[pid] || {}));
+  });
+}
+
+function renderCloudProviderCard(pid, cloudDraft, summary) {
+  if (!cloudDraft.providers[pid]) {
+    cloudDraft.providers[pid] = { enabled: false, region: "", api_format: null };
+  }
+  const entry = cloudDraft.providers[pid];
+  const card = el("div", "card");
+  const title = summary.display_name || pid;
+  card.appendChild(textEl("div", "section-label", title));
+  if (summary.notes) {
+    card.appendChild(textEl("p", "empty", summary.notes));
+  }
+
+  card.appendChild(
+    checkboxRow(`Enable ${title}`, !!entry.enabled, (v) => {
+      entry.enabled = v;
+      markDirty();
+    })
+  );
+
+  const regionGroup = el("div", "form-group");
+  regionGroup.appendChild(textEl("label", "", "Region / profile"));
+  const regionSel = document.createElement("select");
+  const regions = summary.regions && summary.regions.length ? summary.regions : [""];
+  regions.forEach((r) => {
+    const opt = document.createElement("option");
+    opt.value = r;
+    opt.textContent = r || "default";
+    if ((entry.region || "") === r) opt.selected = true;
+    regionSel.appendChild(opt);
+  });
+  regionSel.onchange = () => {
+    entry.region = regionSel.value;
+    markDirty();
+  };
+  regionGroup.appendChild(regionSel);
+  card.appendChild(regionGroup);
+
+  const formatGroup = el("div", "form-group");
+  formatGroup.appendChild(textEl("label", "", "API format"));
+  const formatSel = document.createElement("select");
+  ["", "openai", "anthropic"].forEach((f) => {
+    const opt = document.createElement("option");
+    opt.value = f;
+    opt.textContent = f || `default (${summary.default_api_format || "openai"})`;
+    if ((entry.api_format || "") === f) opt.selected = true;
+    formatSel.appendChild(opt);
+  });
+  formatSel.onchange = () => {
+    entry.api_format = formatSel.value || null;
+    markDirty();
+  };
+  formatGroup.appendChild(formatSel);
+  card.appendChild(formatGroup);
+
+  const keyGroup = el("div", "form-group");
+  const keyLabel = summary.api_key_set ? "API key (set — enter to replace)" : "API key";
+  keyGroup.appendChild(textEl("label", "", keyLabel));
+  const keyInput = document.createElement("input");
+  keyInput.type = "password";
+  keyInput.placeholder = summary.api_key_set ? "•••••••• (unchanged if left blank)" : "sk-...";
+  keyInput.autocomplete = "off";
+  keyInput.oninput = () => {
+    entry._pending_key = keyInput.value;
+    markDirty();
+  };
+  keyGroup.appendChild(keyInput);
+  card.appendChild(keyGroup);
+
+  return card;
+}
+
 function renderUiTab() {
   const root = document.getElementById("tab-ui");
   root.replaceChildren();
@@ -1189,6 +1320,7 @@ const TAB_RENDERERS = {
   discovery: renderDiscoveryTab,
   swarm: renderSwarmTab,
   routing: renderRoutingTab,
+  cloud: renderCloudTab,
   ui: renderUiTab,
   logs: renderLogsTab,
   tools: renderToolsTab,
@@ -1248,9 +1380,30 @@ function buildConfigPatch() {
       log_dir: d.ui.log_dir,
       check_for_updates_automatically: d.ui.check_for_updates_automatically !== false,
     },
+    cloud: buildCloudPatch(d.cloud),
   };
   if (d._cluster_token) patch.swarm.cluster_token = d._cluster_token;
   return patch;
+}
+
+function buildCloudPatch(cloudDraft) {
+  const draft = cloudDraft || { enabled: true, fallback: "cloud", fallback_enabled: true, providers: {} };
+  const providers = {};
+  Object.entries(draft.providers || {}).forEach(([pid, entry]) => {
+    const out = {
+      enabled: !!entry.enabled,
+      region: entry.region || "",
+      api_format: entry.api_format || null,
+    };
+    if (entry._pending_key) out.api_key = entry._pending_key;
+    providers[pid] = out;
+  });
+  return {
+    enabled: draft.enabled !== false,
+    fallback: draft.fallback || "cloud",
+    fallback_enabled: draft.fallback_enabled !== false,
+    providers,
+  };
 }
 
 async function saveConfig() {
@@ -1260,6 +1413,9 @@ async function saveConfig() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(buildConfigPatch()),
+    });
+    Object.values(state.configDraft.cloud?.providers || {}).forEach((entry) => {
+      delete entry._pending_key;
     });
     state.config = cloneConfig(state.configDraft);
     markDirty(false);
