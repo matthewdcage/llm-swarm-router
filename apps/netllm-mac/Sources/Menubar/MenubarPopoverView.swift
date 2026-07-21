@@ -130,6 +130,27 @@ struct MenubarPopoverView: View {
         }
     }
 
+    private var cloudRow: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(model.stats.cloudEnabled ? DesignTokens.ok : Color.secondary)
+                .frame(width: 6, height: 6)
+            Text("Cloud")
+                .font(.caption.weight(.medium))
+            Spacer()
+            Text(cloudSummaryText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var cloudSummaryText: String {
+        guard model.stats.cloudEnabled else { return "disabled" }
+        let count = model.stats.cloudEnabledProviders.count
+        let providers = count == 0 ? "no providers" : "\(count) provider\(count == 1 ? "" : "s")"
+        return "\(providers) · fallback=\(model.stats.cloudFallback)"
+    }
+
     private var linksSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             SettingsSectionTitle(title: "Open")
@@ -144,6 +165,10 @@ struct MenubarPopoverView: View {
             }
             popoverLink("Copy client env", systemImage: "doc.on.clipboard") {
                 model.copyEnv()
+            }
+            cloudRow
+            popoverLink("Cloud Settings…", systemImage: "cloud") {
+                model.openSettings()
             }
         }
     }

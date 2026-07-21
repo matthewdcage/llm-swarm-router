@@ -25,6 +25,7 @@ struct SettingsWindowView: View {
                     sidebarRow("Discovery", "magnifyingglass", "discovery", "Discovery settings")
                     sidebarRow("Swarm", "network", "swarm", "Swarm settings")
                     sidebarRow("Routing", "arrow.triangle.branch", "routing", "Routing settings")
+                    sidebarRow("Cloud", "cloud", "cloud", "Cloud provider settings")
                     sidebarRow("UI", "slider.horizontal.3", "ui", "App UI settings")
                 }
                 Section("Tools") {
@@ -86,6 +87,7 @@ struct SettingsWindowView: View {
         case "discovery": discoveryTab
         case "swarm": swarmTab
         case "routing": routingTab
+        case "cloud": cloudTab
         case "ui": uiTab
         case "logs": logsTab
         case "tools": toolsTab
@@ -504,8 +506,13 @@ struct SettingsWindowView: View {
                 // stale indices after the array shrinks and traps.
                 backendOverrideEditor(index: index)
             }
-            sectionHeader("Cloud failover")
-            CloudFailoverSettings()
+        }
+    }
+
+    private var cloudTab: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Cloud")
+            CloudSettingsView(model: model)
         }
     }
 

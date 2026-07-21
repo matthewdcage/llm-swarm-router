@@ -74,15 +74,22 @@ struct PythonRuntime: Sendable {
     }
 
     private func injectCloudAPIKeys(into env: inout [String: String]) {
-        if env["ANTHROPIC_API_KEY"]?.isEmpty != false,
-           let key = KeychainStore.load(account: KeychainStore.Account.anthropicAPIKey),
-           !key.isEmpty {
-            env["ANTHROPIC_API_KEY"] = key
-        }
-        if env["OPENAI_API_KEY"]?.isEmpty != false,
-           let key = KeychainStore.load(account: KeychainStore.Account.openaiAPIKey),
-           !key.isEmpty {
-            env["OPENAI_API_KEY"] = key
+        // Env var names must match each provider's CloudProviderSpec.api_key_env
+        // in netllm_core.cloud_providers — that's what _materialize_cloud_provider_backends
+        // falls back to when a [cloud.providers.*] entry has no inline api_key.
+        let keychainToEnvVar: [(account: String, envVar: String)] = [
+            (KeychainStore.Account.anthropicAPIKey, "ANTHROPIC_API_KEY"),
+            (KeychainStore.Account.openaiAPIKey, "OPENAI_API_KEY"),
+            (KeychainStore.Account.moonshotAPIKey, "MOONSHOT_API_KEY"),
+            (KeychainStore.Account.zaiAPIKey, "ZAI_API_KEY"),
+            (KeychainStore.Account.openrouterAPIKey, "OPENROUTER_API_KEY"),
+        ]
+        for (account, envVar) in keychainToEnvVar {
+            if env[envVar]?.isEmpty != false,
+               let key = KeychainStore.load(account: account),
+               !key.isEmpty {
+                env[envVar] = key
+            }
         }
     }
 }

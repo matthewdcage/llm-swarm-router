@@ -17,6 +17,9 @@ struct StatsSnapshot: Sendable {
     var onlineBackendCount: Int = 0
     var omlxAdminURL: String?
     var omlxLoadedModel: String?
+    var cloudEnabled: Bool = false
+    var cloudFallback: String = "cloud"
+    var cloudEnabledProviders: [String] = []
 }
 
 @MainActor
@@ -70,6 +73,11 @@ final class StatsPoller {
             }
             if let peers = status["peers"] as? [[String: Any]] {
                 snap.peerCount = peers.count
+            }
+            if let cloud = status["cloud"] as? [String: Any] {
+                snap.cloudEnabled = cloud["enabled"] as? Bool ?? false
+                snap.cloudFallback = cloud["fallback"] as? String ?? "cloud"
+                snap.cloudEnabledProviders = cloud["enabled_providers"] as? [String] ?? []
             }
         }
         if let models = await fetchJSON(path: "/v1/models") {

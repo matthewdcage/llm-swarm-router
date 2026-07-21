@@ -6,6 +6,7 @@ struct NetllmConfigDocument: Codable, Sendable {
     var swarm: SwarmSection = SwarmSection()
     var routing: RoutingSection = RoutingSection()
     var ui: UiSection = UiSection()
+    var cloud: CloudSection = CloudSection()
 
     struct AgentSection: Codable, Sendable {
         var listen: String = "127.0.0.1:11400"
@@ -68,6 +69,22 @@ struct NetllmConfigDocument: Codable, Sendable {
         var auto_start_on_launch: Bool = true
         var log_dir: String = ""
         var check_for_updates_automatically: Bool = true
+    }
+
+    struct CloudProviderConfig: Codable, Sendable {
+        var enabled: Bool = false
+        var region: String = ""
+        var api_format: String?
+    }
+
+    struct CloudSection: Codable, Sendable {
+        var enabled: Bool = true
+        var fallback: String = "cloud"
+        var fallback_enabled: Bool = true
+        // Keyed by provider id (moonshot, zai, openai, anthropic, openrouter).
+        // Keys themselves are Keychain-managed, not stored here — see
+        // KeychainStore.Account and PythonRuntime.injectCloudAPIKeys.
+        var providers: [String: CloudProviderConfig] = [:]
     }
 
     var bindHost: String {

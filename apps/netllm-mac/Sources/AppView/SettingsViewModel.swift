@@ -39,6 +39,47 @@ final class SettingsViewModel {
     static let providers = ["omlx", "ollama", "lmstudio", "vllm"]
     static let roles = ["peer", "gateway"]
 
+    // Mirrors netllm_core.cloud_providers.CLOUD_PROVIDERS — display metadata
+    // only; base URLs/keys stay server-side (registry + Keychain/env).
+    static let cloudProviders: [CloudProviderInfo] = [
+        CloudProviderInfo(
+            id: "moonshot",
+            displayName: "Moonshot AI (Kimi)",
+            notes: "Pay-as-you-go API keys only; no OAuth/plan auth.",
+            regions: ["global", "cn"],
+            keychainAccount: KeychainStore.Account.moonshotAPIKey
+        ),
+        CloudProviderInfo(
+            id: "zai",
+            displayName: "Z.ai (Zhipu GLM)",
+            notes: "GLM Coding Plan keys are restricted to an approved-tools list "
+                + "per Z.ai's usage policy.",
+            regions: ["api", "coding_plan", "cn"],
+            keychainAccount: KeychainStore.Account.zaiAPIKey
+        ),
+        CloudProviderInfo(
+            id: "openai",
+            displayName: "OpenAI",
+            notes: "API key only — no public OAuth client for third-party tools.",
+            regions: ["global"],
+            keychainAccount: KeychainStore.Account.openaiAPIKey
+        ),
+        CloudProviderInfo(
+            id: "anthropic",
+            displayName: "Anthropic",
+            notes: "Console API key (x-api-key).",
+            regions: ["global"],
+            keychainAccount: KeychainStore.Account.anthropicAPIKey
+        ),
+        CloudProviderInfo(
+            id: "openrouter",
+            displayName: "OpenRouter",
+            notes: "Also supports OAuth PKCE sign-in for a user-scoped key.",
+            regions: ["global"],
+            keychainAccount: KeychainStore.Account.openrouterAPIKey
+        ),
+    ]
+
     /// Peers the running agent is routing through (`/netllm/v1/status`).
     var connectedPeerCount: Int { status?.peers.count ?? 0 }
 

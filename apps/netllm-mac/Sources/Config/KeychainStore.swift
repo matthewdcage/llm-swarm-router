@@ -7,6 +7,9 @@ enum KeychainStore {
     enum Account {
         static let anthropicAPIKey = "anthropic_api_key"
         static let openaiAPIKey = "openai_api_key"
+        static let moonshotAPIKey = "moonshot_api_key"
+        static let zaiAPIKey = "zai_api_key"
+        static let openrouterAPIKey = "openrouter_api_key"
     }
 
     static func load(account: String) -> String? {
