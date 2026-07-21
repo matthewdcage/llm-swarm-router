@@ -28,6 +28,24 @@ async def test_messages_create_passes_payload(mock_cls: MagicMock) -> None:
     mock_client.messages.create.assert_awaited_once_with(**payload)
 
 
+@patch("netllm_sdk_anthropic.client.AsyncAnthropic")
+def test_default_auth_mode_uses_api_key_kwarg(mock_cls: MagicMock) -> None:
+    AnthropicUpstream("sk-test", base_url="https://api.anthropic.com")
+    kwargs = mock_cls.call_args.kwargs
+    assert kwargs["api_key"] == "sk-test"
+    assert "auth_token" not in kwargs
+
+
+@patch("netllm_sdk_anthropic.client.AsyncAnthropic")
+def test_bearer_auth_mode_uses_auth_token_kwarg(mock_cls: MagicMock) -> None:
+    AnthropicUpstream(
+        "plan-token-value", base_url="https://api.anthropic.com", auth_mode="bearer"
+    )
+    kwargs = mock_cls.call_args.kwargs
+    assert kwargs["auth_token"] == "plan-token-value"
+    assert "api_key" not in kwargs
+
+
 @pytest.mark.asyncio
 @patch("netllm_sdk_anthropic.client.AsyncAnthropic")
 async def test_messages_create_wraps_errors(mock_cls: MagicMock) -> None:

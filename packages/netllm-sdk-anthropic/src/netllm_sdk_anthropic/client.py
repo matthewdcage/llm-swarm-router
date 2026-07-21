@@ -26,11 +26,15 @@ class AnthropicUpstream:
         default_headers: dict[str, str] | None = None,
         connect_timeout: float = 5.0,
         read_timeout: float = 120.0,
+        auth_mode: str = "api_key",
     ) -> None:
         import httpx
 
         timeout = httpx.Timeout(read_timeout, connect=connect_timeout)
-        kwargs: dict[str, Any] = {"api_key": api_key, "timeout": timeout}
+        # "bearer": Authorization: Bearer <token> (WIF tokens, Anthropic
+        # plan_token mode) instead of the default x-api-key header.
+        key_kwarg = "auth_token" if auth_mode == "bearer" else "api_key"
+        kwargs: dict[str, Any] = {key_kwarg: api_key, "timeout": timeout}
         if base_url:
             kwargs["base_url"] = base_url.rstrip("/")
         if default_headers:

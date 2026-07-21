@@ -1096,19 +1096,27 @@ class AgentService:
                 )
                 or os.environ.get(spec.api_key_env, "")
             )
-            if not api_key and provider_cfg.auth == "api_key":
+            if not api_key and provider_cfg.auth == "plan_token":
+                # Anthropic plan_token mode (`claude setup-token`): the
+                # official env var is CLAUDE_CODE_OAUTH_TOKEN, not
+                # ANTHROPIC_API_KEY. Unofficial for third-party routers —
+                # documented by Anthropic for Claude Code CI only.
+                api_key = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
+            if not api_key and provider_cfg.auth in ("api_key", "plan_token"):
                 # Enabled but keyless: keep it out of the routable pool
                 # rather than injecting a backend guaranteed to 401. The
                 # CLI/admin surfaces (phase 2) will flag this state.
                 continue
             backend_id = f"cloud-{provider_id}"
             keep_ids.add(backend_id)
+            auth_mode = "bearer" if provider_cfg.auth == "plan_token" else "api_key"
             existing = self.pool.backend_by_id(backend_id)
             if (
                 existing is not None
                 and existing.base_url == base_url
                 and existing.api_format == api_format
                 and existing.api_key == api_key
+                and existing.auth_mode == auth_mode
             ):
                 # Already materialized and unchanged this session — skip
                 # the rebuild so accumulated health/probe state (real
@@ -1129,6 +1137,7 @@ class AgentService:
                     local=False,
                     agent_id=self.config.agent.agent_id,
                     cloud_provider=provider_id,
+                    auth_mode=auth_mode,
                     health=BackendHealth(
                         status="unknown",
                         models=models,
@@ -1401,6 +1410,7 @@ class AgentService:
                 key,
                 base_url=backend.base_url,
                 default_headers=self._anthropic_default_headers(headers),
+                auth_mode=backend.auth_mode,
             )
             return await client.messages_create(payload)
         oai_payload = anthropic_to_openai_request(payload)
@@ -1427,6 +1437,7 @@ class AgentService:
                 key,
                 base_url=backend.base_url,
                 default_headers=self._anthropic_default_headers(headers),
+                auth_mode=backend.auth_mode,
             )
             async for chunk in client.messages_stream(payload):
                 yield chunk

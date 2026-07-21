@@ -1683,8 +1683,15 @@ def cloud_enable(
     provider: str = typer.Argument(..., help="Provider id, e.g. moonshot"),
     config: Path | None = typer.Option(None, "--config"),
     region: str | None = typer.Option(None, "--region"),
+    auth: str | None = typer.Option(
+        None,
+        "--auth",
+        help="api_key (default) | oauth_pkce (openrouter only) | "
+        "plan_token (anthropic only, unofficial third-party use)",
+    ),
 ) -> None:
     """Enable a pre-configured cloud provider."""
+    from netllm_core.cloud_providers import get_provider_spec
     from netllm_core.models import CloudProviderConfig
 
     provider = _cloud_provider_id_or_exit(provider)
@@ -1694,6 +1701,15 @@ def cloud_enable(
     provider_cfg.enabled = True
     if region:
         provider_cfg.region = region
+    if auth:
+        spec = get_provider_spec(provider)
+        if spec is not None and auth not in spec.auth_modes:
+            print_error(
+                f"{auth!r} not supported by {provider!r}",
+                f"Supported auth modes: {', '.join(spec.auth_modes)}",
+            )
+            raise typer.Exit(1)
+        provider_cfg.auth = auth  # type: ignore[assignment]
     cfg.cloud.providers[provider] = provider_cfg
     save_config(cfg, cfg_path)
     console.print(f"[green]Enabled[/] cloud provider {provider!r}.")
@@ -1840,6 +1856,81 @@ def cloud_test(
         console.print(f"  Models: {len(diag.get('models') or [])}")
 
     asyncio.run(run())
+
+
+@cloud_app.command("connect")
+def cloud_connect(
+    provider: str = typer.Argument(
+        ..., help="Provider id — only openrouter supports OAuth today"
+    ),
+    config: Path | None = typer.Option(None, "--config"),
+    no_browser: bool = typer.Option(
+        False, "--no-browser", help="Print the authorize URL instead of opening it"
+    ),
+) -> None:
+    """OAuth PKCE sign-in for providers that support it (OpenRouter)."""
+    from netllm_core.cloud_providers import get_provider_spec
+    from netllm_core.models import CloudProviderConfig
+
+    from netllm_cli import oauth_pkce
+
+    provider = _cloud_provider_id_or_exit(provider)
+    spec = get_provider_spec(provider)
+    if spec is None or "oauth_pkce" not in spec.auth_modes:
+        print_error(
+            f"{provider!r} does not support OAuth",
+            "Only openrouter has a sanctioned third-party OAuth flow today "
+            "— use [cyan]netllm cloud set-key[/] for the others.",
+        )
+        raise typer.Exit(1)
+    if provider != "openrouter":
+        print_error(
+            "Not yet wired",
+            f"OAuth PKCE is only implemented for openrouter, not {provider!r}.",
+        )
+        raise typer.Exit(1)
+
+    verifier, challenge = oauth_pkce.generate_pkce_pair()
+    port, thread, server = oauth_pkce.start_local_callback_server()
+    callback_url = f"http://127.0.0.1:{port}/callback"
+    auth_url = oauth_pkce.build_authorize_url(
+        callback_url=callback_url, code_challenge=challenge
+    )
+    console.print("\n[bold]Sign in to OpenRouter[/] to authorize netllm.")
+    if no_browser:
+        console.print(f"  Open this URL:\n  [cyan]{auth_url}[/]")
+    else:
+        console.print("  Opening your browser…")
+        oauth_pkce.open_browser(auth_url)
+    console.print("  Waiting for authorization…")
+
+    try:
+        code = oauth_pkce.wait_for_callback(thread, server)
+    except oauth_pkce.PKCEFlowError as exc:
+        print_error("OpenRouter sign-in failed", str(exc))
+        raise typer.Exit(1) from exc
+
+    async def exchange() -> str:
+        return await oauth_pkce.exchange_code_for_key(code, verifier)
+
+    try:
+        key = asyncio.run(exchange())
+    except oauth_pkce.PKCEFlowError as exc:
+        print_error("OpenRouter sign-in failed", str(exc))
+        raise typer.Exit(1) from exc
+    except httpx.HTTPError as exc:
+        print_error("OpenRouter token exchange failed", str(exc))
+        raise typer.Exit(1) from exc
+
+    cfg_path = _config_path_option(config)
+    cfg = load_config(cfg_path)
+    provider_cfg = cfg.cloud.providers.get(provider) or CloudProviderConfig()
+    provider_cfg.enabled = True
+    provider_cfg.auth = "oauth_pkce"
+    provider_cfg.api_key = key
+    cfg.cloud.providers[provider] = provider_cfg
+    save_config(cfg, cfg_path)
+    console.print("[green]Connected.[/] OpenRouter key stored and provider enabled.")
 
 
 @app.command()

@@ -313,6 +313,47 @@ def test_materialize_respects_explicit_anthropic_api_format() -> None:
     assert row.base_url == "https://api.moonshot.ai/anthropic"
 
 
+def test_materialize_plan_token_auth_sets_bearer_auth_mode() -> None:
+    cfg = NetllmConfig()
+    cfg.cloud.providers["anthropic"] = CloudProviderConfig(
+        enabled=True, auth="plan_token", api_key="plan-token-value"
+    )
+    service = AgentService(cfg)
+    service._materialize_cloud_provider_backends()
+    row = service.pool.backend_by_id("cloud-anthropic")
+    assert row is not None
+    assert row.auth_mode == "bearer"
+    assert row.api_key == "plan-token-value"
+
+
+def test_materialize_plan_token_falls_back_to_claude_code_oauth_token_env(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "cc-oauth-token")
+    cfg = NetllmConfig()
+    cfg.cloud.providers["anthropic"] = CloudProviderConfig(
+        enabled=True, auth="plan_token"
+    )
+    service = AgentService(cfg)
+    service._materialize_cloud_provider_backends()
+    row = service.pool.backend_by_id("cloud-anthropic")
+    assert row is not None
+    assert row.api_key == "cc-oauth-token"
+    assert row.auth_mode == "bearer"
+
+
+def test_materialize_default_auth_mode_is_api_key() -> None:
+    cfg = NetllmConfig()
+    cfg.cloud.providers["anthropic"] = CloudProviderConfig(
+        enabled=True, api_key="sk-ant"
+    )
+    service = AgentService(cfg)
+    service._materialize_cloud_provider_backends()
+    row = service.pool.backend_by_id("cloud-anthropic")
+    assert row is not None
+    assert row.auth_mode == "api_key"
+
+
 # --- end-to-end via TestClient -------------------------------------------
 
 

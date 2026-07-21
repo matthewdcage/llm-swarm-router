@@ -282,6 +282,9 @@ class Backend(BaseModel):
     # Set when this Backend was materialized from a [cloud.providers.<id>]
     # config entry (see CloudConfig). Empty for local/peer/manual backends.
     cloud_provider: str = ""
+    # "api_key" (x-api-key / Bearer per SDK default) or "bearer" (force
+    # Authorization: Bearer — Anthropic plan_token mode, WIF tokens).
+    auth_mode: str = "api_key"
 
     def cache_key(self) -> str:
         return f"{self.provider}:{self.base_url}"

@@ -148,3 +148,94 @@ def test_cloud_test_probes_provider(mock_diagnose: AsyncMock, tmp_path: Path) ->
     )
     assert result.exit_code == 0, result.output
     assert "api.moonshot.ai" in result.output
+
+
+def test_cloud_enable_with_auth_mode(tmp_path: Path) -> None:
+    cfg_path = _cfg_path(tmp_path)
+    result = runner.invoke(
+        cli_main.app,
+        [
+            "cloud",
+            "enable",
+            "openrouter",
+            "--auth",
+            "oauth_pkce",
+            "--config",
+            str(cfg_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    cfg = load_config(cfg_path)
+    assert cfg.cloud.providers["openrouter"].auth == "oauth_pkce"
+
+
+def test_cloud_enable_rejects_unsupported_auth_mode(tmp_path: Path) -> None:
+    cfg_path = _cfg_path(tmp_path)
+    result = runner.invoke(
+        cli_main.app,
+        [
+            "cloud",
+            "enable",
+            "moonshot",
+            "--auth",
+            "oauth_pkce",
+            "--config",
+            str(cfg_path),
+        ],
+    )
+    assert result.exit_code != 0
+
+
+def test_cloud_connect_rejects_non_openrouter_provider(tmp_path: Path) -> None:
+    cfg_path = _cfg_path(tmp_path)
+    result = runner.invoke(
+        cli_main.app, ["cloud", "connect", "moonshot", "--config", str(cfg_path)]
+    )
+    assert result.exit_code != 0
+
+
+@patch("netllm_cli.oauth_pkce.exchange_code_for_key", new_callable=AsyncMock)
+@patch("netllm_cli.oauth_pkce.wait_for_callback")
+@patch("netllm_cli.oauth_pkce.start_local_callback_server")
+@patch("netllm_cli.oauth_pkce.open_browser")
+def test_cloud_connect_openrouter_full_flow(
+    mock_open_browser,
+    mock_start_server,
+    mock_wait,
+    mock_exchange,
+    tmp_path: Path,
+) -> None:
+    mock_start_server.return_value = (54321, object(), object())
+    mock_wait.return_value = "auth-code-value"
+    mock_exchange.return_value = "sk-or-user-key"
+
+    cfg_path = _cfg_path(tmp_path)
+    result = runner.invoke(
+        cli_main.app, ["cloud", "connect", "openrouter", "--config", str(cfg_path)]
+    )
+    assert result.exit_code == 0, result.output
+    mock_open_browser.assert_called_once()
+    cfg = load_config(cfg_path)
+    provider_cfg = cfg.cloud.providers["openrouter"]
+    assert provider_cfg.enabled is True
+    assert provider_cfg.auth == "oauth_pkce"
+    assert provider_cfg.api_key == "sk-or-user-key"
+
+
+@patch("netllm_cli.oauth_pkce.wait_for_callback")
+@patch("netllm_cli.oauth_pkce.start_local_callback_server")
+def test_cloud_connect_openrouter_no_browser_prints_url(
+    mock_start_server, mock_wait, tmp_path: Path
+) -> None:
+    import netllm_cli.oauth_pkce as oauth_pkce_module
+
+    mock_start_server.return_value = (54321, object(), object())
+    mock_wait.side_effect = oauth_pkce_module.PKCEFlowError("user cancelled")
+
+    cfg_path = _cfg_path(tmp_path)
+    result = runner.invoke(
+        cli_main.app,
+        ["cloud", "connect", "openrouter", "--no-browser", "--config", str(cfg_path)],
+    )
+    assert result.exit_code != 0
+    assert "openrouter.ai/auth" in result.output
