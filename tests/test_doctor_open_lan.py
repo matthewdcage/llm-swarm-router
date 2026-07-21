@@ -57,7 +57,28 @@ def test_doctor_open_lan_ok_json(
     assert any("open" in note.lower() for note in payload.get("notes", []))
 
 
-def test_doctor_endpoint_open_lan_note() -> None:
+def test_doctor_endpoint_open_lan_note(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Hermetic: the agent's own scan + health probe must not touch live
+    # local providers (a real LM Studio requiring auth would otherwise
+    # add a legitimate doctor issue and flip ok to False).
+    async def _fake_agent_scan(cfg: NetllmConfig) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": "ollama",
+                "base_url": "http://127.0.0.1:59999/v1",
+                "status": "online",
+                "models": ["m"],
+                "model_count": 1,
+            }
+        ]
+
+    monkeypatch.setattr(
+        "netllm_agent.service.scan_local_providers", _fake_agent_scan
+    )
+    monkeypatch.setattr(
+        "netllm_core.pool.probe_openai_compat_sync",
+        lambda *a, **k: {"status": "online", "models": ["m"], "model_count": 1},
+    )
     cfg = NetllmConfig()
     cfg.agent.listen = "0.0.0.0:11400"
     cfg.swarm.mdns = False

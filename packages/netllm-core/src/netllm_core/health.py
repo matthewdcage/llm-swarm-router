@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from netllm_core.capabilities import model_capability
+
 DEFAULT_TIMEOUT = 5.0
 INFERENCE_TIMEOUT = 10.0
 SLOW_THRESHOLD_MS = 5000
@@ -122,7 +124,13 @@ async def diagnose_backend(
             result["inference_status"] = "model_not_found"
             return result
     if not test_model and models:
-        test_model = models[0]
+        # The catalog often sorts embedding models first (e.g. bge-*);
+        # probing one of those with a chat completion 400s on every
+        # scan and spams the provider's log. Pick a chat-capable model.
+        test_model = next(
+            (m for m in models if model_capability(m) == "chat"),
+            models[0],
+        )
     if not test_model:
         result["inference_status"] = "no_models"
         return result
