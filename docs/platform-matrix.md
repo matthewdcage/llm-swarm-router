@@ -56,7 +56,7 @@ Agent lifespan runs provider discovery on start and persists URLs to config (all
 
 ## Release assets (one GitHub Release page)
 
-Latest: [v0.3.0.2](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.3.0.2) (menubar agent start + LAN listen) · [All releases](https://github.com/matthewdcage/llm-swarm-router/releases)
+Latest: [v0.4.5.0](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.4.5.0) (telemetry + menubar stats) · [v0.4.1.0](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.4.1.0) · [All releases](https://github.com/matthewdcage/llm-swarm-router/releases)
 
 | Asset | Platform | Notes |
 |-------|----------|-------|

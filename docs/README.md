@@ -16,7 +16,7 @@ Overview: [platform-matrix.md](platform-matrix.md)
 
 | Topic | Doc |
 |-------|-----|
-| Latest release | [v0.4.4.0 release notes](release-notes/v0.4.4.0.md) · [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases) |
+| Latest release | [v0.4.5.0 release notes](release-notes/v0.4.5.0.md) · [v0.4.1.0](release-notes/v0.4.1.0.md) · [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases) |
 | Prior alpha (Linux/Windows) | [v0.2.2 release notes](release-notes/v0.2.2-alpha.md) |
 | Linux/Windows QA checklist | [solutions/linux-windows-alpha-qa.md](solutions/linux-windows-alpha-qa.md) |
 
@@ -24,6 +24,7 @@ Overview: [platform-matrix.md](platform-matrix.md)
 
 | Topic | Doc |
 |-------|-----|
+| Telemetry API (dashboard / menubar) | [telemetry-api.md](telemetry-api.md) |
 | Wire Cursor, Claude Code, Codex, Honcho | [editor-integration.md](editor-integration.md) (start at **Client configuration**) |
 | Honcho (Docker / deriver / connectors) | [honcho-integration.md](honcho-integration.md) |
 | Quick diagnostic | `./netllm doctor` from repo root or global install |
