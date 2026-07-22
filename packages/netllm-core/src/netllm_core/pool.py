@@ -570,7 +570,7 @@ class RouterPool:
             if not pool:
                 return None
             if shard_key and len(pool) > 1:
-                idx = shard_index(shard_key, len(pool))
+                idx = shard_index(shard_key, pool)
                 return pool[idx]
             return pool[0]
 
@@ -578,7 +578,7 @@ class RouterPool:
             return self._select_local_spillover(all_candidates)
 
         if strategy == "batch_shard" and shard_key:
-            idx = shard_index(shard_key, len(all_candidates))
+            idx = shard_index(shard_key, all_candidates)
             return all_candidates[idx]
 
         return all_candidates[0]
@@ -603,17 +603,32 @@ class RouterPool:
         return best_local
 
 
-def shard_index(shard_key: str, num_endpoints: int) -> int:
-    """Map shard key to backend index (numeric keys use index % N)."""
-    if num_endpoints <= 1:
+def shard_index(shard_key: str, candidates: list[Backend]) -> int:
+    """Map a shard key to an index into `candidates`.
+
+    Numeric keys (plain batch indices, e.g. "0", "17") distribute evenly
+    across the current candidate count via `index % N` — the shard count
+    is inherently tied to the current worker count for a fixed-size batch,
+    so there's no "stable across membership change" property to preserve.
+
+    Non-numeric keys (session ids, connector keys) use rendezvous (HRW)
+    hashing over each candidate's stable `.id`: the winner is whichever
+    candidate scores highest for this key. Because each candidate's score
+    depends only on `(shard_key, candidate.id)` and not on who else is in
+    the list, adding or removing a candidate only changes the winner for
+    keys that scored highest on the affected candidate — every other key's
+    assignment is untouched. Plain `hash(key) % N` doesn't have this
+    property: changing N remaps most keys to a different index even when
+    the backend at that index had nothing to do with the change.
+    """
+    n = len(candidates)
+    if n <= 1:
         return 0
     if shard_key.lstrip("-").isdigit():
-        return int(shard_key) % num_endpoints
-    return _stable_shard_index(shard_key, num_endpoints)
+        return int(shard_key) % n
+    return max(range(n), key=lambda i: _hrw_score(shard_key, candidates[i].id))
 
 
-def _stable_shard_index(shard_key: str, num_endpoints: int) -> int:
-    if num_endpoints <= 1:
-        return 0
-    digest = hashlib.sha256(shard_key.encode("utf-8")).digest()
-    return int.from_bytes(digest[:8], "big") % num_endpoints
+def _hrw_score(shard_key: str, candidate_id: str) -> int:
+    digest = hashlib.sha256(f"{shard_key}:{candidate_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "big")

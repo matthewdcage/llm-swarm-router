@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from netllm_core.models import Backend, BackendHealth
-from netllm_core.pool import RouterPool, _stable_shard_index
+from netllm_core.pool import RouterPool, shard_index
 
 _MOCK_ONLINE = {"status": "online", "models": ["m"], "model_count": 1}
 
@@ -28,11 +28,41 @@ def test_is_healthy_uses_default_omlx_api_key(mock_probe: object) -> None:
     mock_probe.assert_called_once_with("http://127.0.0.1:8080/v1", api_key="omlx-local")
 
 
-def test_stable_shard_index_deterministic() -> None:
-    a = _stable_shard_index("session-1", 3)
-    b = _stable_shard_index("session-1", 3)
+def _fake_backends(ids: list[str]) -> list[Backend]:
+    return [Backend(id=i, base_url=f"http://{i}/v1") for i in ids]
+
+
+def test_shard_index_deterministic() -> None:
+    candidates = _fake_backends(["a", "b", "c"])
+    a = shard_index("session-1", candidates)
+    b = shard_index("session-1", candidates)
     assert a == b
     assert 0 <= a < 3
+
+
+def test_shard_index_hrw_only_reassigns_removed_backends_keys() -> None:
+    """Rendezvous (HRW) hashing property: removing a candidate only moves
+    the keys that were assigned to it — every other key's winner is
+    unchanged, unlike `hash(key) % N` which reshuffles almost everything
+    when N changes."""
+    before = _fake_backends(["a", "b", "c", "d", "e"])
+    keys = [f"key-{i}" for i in range(200)]
+    before_assignment = {k: before[shard_index(k, before)].id for k in keys}
+
+    after = _fake_backends(["a", "c", "d", "e"])  # "b" left the pool
+    after_assignment = {k: after[shard_index(k, after)].id for k in keys}
+
+    moved = {k for k in keys if before_assignment[k] != after_assignment[k]}
+    # Every moved key must have been on the removed backend — HRW never
+    # moves a key that wasn't assigned to the departed candidate.
+    assert moved <= {k for k, v in before_assignment.items() if v == "b"}
+    # And every key that *was* on "b" must have moved somewhere else.
+    assert {k for k, v in before_assignment.items() if v == "b"} <= moved
+
+
+def test_shard_index_numeric_keys_use_modulo() -> None:
+    candidates = _fake_backends(["a", "b"])
+    assert [shard_index(str(i), candidates) for i in range(4)] == [0, 1, 0, 1]
 
 
 @patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)

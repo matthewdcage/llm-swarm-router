@@ -36,10 +36,14 @@ def test_extract_shard_context_from_user_field() -> None:
 
 
 def test_shard_index_numeric_matches_plan_batch_shard() -> None:
-    assert shard_index("0", 2) == 0
-    assert shard_index("1", 2) == 1
-    assert shard_index("2", 2) == 0
-    assert shard_index("3", 2) == 1
+    candidates = [
+        Backend(id="a", base_url="http://a/v1"),
+        Backend(id="b", base_url="http://b/v1"),
+    ]
+    assert shard_index("0", candidates) == 0
+    assert shard_index("1", candidates) == 1
+    assert shard_index("2", candidates) == 0
+    assert shard_index("3", candidates) == 1
 
 
 @patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
