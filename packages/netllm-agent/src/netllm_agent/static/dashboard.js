@@ -40,6 +40,13 @@ const state = {
   logsPollTimer: null,
   logs: null,
   adminWarned: false,
+  // Models tab filter/collapse (docs/models-ux-plan.md phase D).
+  modelsSearchText: "",
+  modelsCollapsedGroups: new Set(),
+  // Cloud tab per-provider fetched catalogs, keyed by provider id —
+  // AgentAPI.cloudProviderModels twin (GET /netllm/v1/cloud/providers/{id}/models).
+  cloudCatalogs: {},
+  cloudCatalogFetching: new Set(),
 };
 
 function showToast(msg) {
@@ -539,35 +546,326 @@ function renderBackendsTab() {
   root.appendChild(scan);
 }
 
+// --- Models tab (docs/models-ux-plan.md phase D — dashboard twin of
+// ModelsTabView.swift): one machine-grouped, collapsible, searchable
+// list with pool membership badges and inline add/remove-pool editing
+// against the same configDraft.routing.model_pools the Routing tab
+// edits. Per-model activity metrics are deliberately absent — the
+// server only tracks per-backend counters (phase C, not built).
+
+// Swift mirror: SettingsViewModel.backendMatchesHostRef / pool.py's
+// RouterPool._backend_matches_host_ref. Keep in sync across all three.
+function backendMatchesHostRef(backend, ref) {
+  const target = (ref || "").trim();
+  if (!target) return false;
+  const trimSlash = (s) => (s && s.endsWith("/") ? s.slice(0, -1) : s || "");
+  if (backend.id === target) return true;
+  if (backend.id === `peer:${target}`) return true;
+  if (backend.agent_id && backend.agent_id === target) return true;
+  return trimSlash(backend.base_url) === trimSlash(target);
+}
+
+function modelPoolSummaries() {
+  const pools = state.configDraft?.routing?.model_pools || {};
+  return Object.entries(pools).map(([name, entry]) => ({
+    name,
+    enabled: entry.enabled !== false,
+    hosts: entry.hosts || [],
+    models: entry.models || [],
+  }));
+}
+
+function poolsContaining(modelId) {
+  return modelPoolSummaries().filter((p) => p.models.includes(modelId));
+}
+
+function poolsNotContaining(modelId) {
+  return modelPoolSummaries().filter((p) => !p.models.includes(modelId));
+}
+
+// Client-side pool effectiveness (mirrors SettingsViewModel.poolInactiveReason):
+// a pool is "active" iff >=1 host ref resolves to an online backend
+// serving >=1 pool model — all derivable from /netllm/v1/status.
+// Returns null when active, else a human-readable reason.
+function poolInactiveReason(pool) {
+  if (!pool.enabled) return "pool disabled";
+  const backends = state.status?.backends;
+  if (!backends) return "agent not running";
+  if (!pool.hosts.length) return "no hosts configured";
+  if (!pool.models.length) return "no models configured";
+  const matched = backends.filter((b) => pool.hosts.some((ref) => backendMatchesHostRef(b, ref)));
+  const matchedOnline = matched.filter((b) => b.health?.status === "online");
+  if (!matchedOnline.length) return "host offline";
+  const servesPoolModel = matchedOnline.some((b) =>
+    (b.health?.models || []).some((m) => pool.models.includes(m))
+  );
+  return servesPoolModel ? null : "no pool model served";
+}
+
+function ensureModelPools() {
+  if (!state.configDraft.routing) state.configDraft.routing = {};
+  if (!state.configDraft.routing.model_pools) state.configDraft.routing.model_pools = {};
+  return state.configDraft.routing.model_pools;
+}
+
+// Same pool/pool-2/... naming as the Swift addModelPool / the Routing
+// tab's generic dict-add button.
+function addModelPool() {
+  const pools = ensureModelPools();
+  let name = "pool";
+  let suffix = 1;
+  while (pools[name]) {
+    suffix += 1;
+    name = `pool-${suffix}`;
+  }
+  pools[name] = { enabled: true, hosts: [], models: [] };
+  markDirty();
+  return name;
+}
+
+function addModelToPool(poolName, modelId) {
+  const pools = ensureModelPools();
+  const entry = pools[poolName];
+  if (!entry) return;
+  if (!entry.models) entry.models = [];
+  if (!entry.models.includes(modelId)) entry.models.push(modelId);
+  markDirty();
+  showToast(`Added ${modelId} to pool ${poolName} — Save to persist.`);
+  renderModelsTab();
+}
+
+function removeModelFromPool(poolName, modelId) {
+  const pools = ensureModelPools();
+  const entry = pools[poolName];
+  if (!entry) return;
+  entry.models = (entry.models || []).filter((m) => m !== modelId);
+  markDirty();
+  showToast(`Removed ${modelId} from pool ${poolName} — Save to persist.`);
+  renderModelsTab();
+}
+
+// "New pool…" from a model row: create via the same pool/pool-2 naming,
+// seed it with the model. Naming/host setup continues on the Routing tab.
+function addModelToNewPool(modelId) {
+  const name = addModelPool();
+  addModelToPool(name, modelId);
+  showToast(`Created pool ${name} with ${modelId} — set its hosts on the Routing tab.`);
+}
+
+function modelsGroups() {
+  const status = state.status;
+  if (!status) return [];
+  const locals = [];
+  const cloudBuckets = []; // {key, backends}
+  const peerBuckets = []; // {key, backends}
+  (status.backends || []).forEach((b) => {
+    if (b.cloud_provider) {
+      const bucket = cloudBuckets.find((x) => x.key === b.cloud_provider);
+      if (bucket) bucket.backends.push(b);
+      else cloudBuckets.push({ key: b.cloud_provider, backends: [b] });
+    } else if (b.local) {
+      locals.push(b);
+    } else {
+      const key = b.agent_id || b.base_url;
+      const bucket = peerBuckets.find((x) => x.key === key);
+      if (bucket) bucket.backends.push(b);
+      else peerBuckets.push({ key, backends: [b] });
+    }
+  });
+
+  function makeGroup(id, title, subtitle, backends) {
+    const seen = new Set();
+    const rows = [];
+    backends.forEach((b) => {
+      (b.health?.models || []).forEach((m) => {
+        if (seen.has(m)) return;
+        seen.add(m);
+        rows.push({ model: m, provider: b.provider || "custom" });
+      });
+    });
+    rows.sort((a, b2) => a.model.localeCompare(b2.model, undefined, { sensitivity: "base" }));
+    return {
+      id,
+      title,
+      subtitle,
+      online: backends.some((b) => b.health?.status === "online"),
+      modelCount: rows.length,
+      inFlight: backends.reduce((sum, b) => sum + (b.in_flight || 0), 0),
+      rows,
+    };
+  }
+
+  const groups = [];
+  if (locals.length) {
+    const title = status.hostname || "This Mac";
+    const providers = [...new Set(locals.map((b) => b.provider || "custom"))].join(" · ");
+    groups.push(makeGroup("local", title, providers, locals));
+  }
+  peerBuckets.forEach((bucket) => {
+    const peer = (status.peers || []).find((p) => p.agent_id === bucket.key);
+    const title = peer?.hostname ? `${peer.hostname} (${peer.agent_id})` : bucket.key;
+    const providers = [...new Set(bucket.backends.map((b) => b.provider || "custom"))].join(" · ");
+    groups.push(makeGroup(`peer-${bucket.key}`, title, providers, bucket.backends));
+  });
+  cloudBuckets.forEach((bucket) => {
+    const display =
+      state.config?.cloud?.providers?.[bucket.key]?.display_name || bucket.key;
+    groups.push(makeGroup(`cloud-${bucket.key}`, `${display} (cloud)`, "", bucket.backends));
+  });
+  return groups;
+}
+
+function poolBadgeEl(pool) {
+  const reason = poolInactiveReason(pool);
+  const badge = el("span", `pool-badge${pool.enabled ? "" : " disabled"}${reason ? " inactive" : ""}`);
+  badge.title = !pool.enabled
+    ? `Pool ${pool.name} is disabled.`
+    : reason
+      ? `Pool ${pool.name} is inactive: ${reason}.`
+      : `Pool ${pool.name} is active.`;
+  badge.appendChild(el("span", "dot"));
+  badge.appendChild(document.createTextNode(pool.name));
+  return badge;
+}
+
+function renderModelRow(row) {
+  const rowEl = el("div", "model-row");
+  const nameWrap = el("div");
+  nameWrap.appendChild(textEl("div", "model-row-name", row.model));
+  nameWrap.appendChild(textEl("div", "model-row-provider", row.provider));
+  rowEl.appendChild(nameWrap);
+  rowEl.appendChild(el("div", "model-row-spacer"));
+
+  poolsContaining(row.model).forEach((pool) => {
+    const badge = poolBadgeEl(pool);
+    const rm = textEl("button", "secondary", "×");
+    rm.title = `Remove from ${pool.name}`;
+    rm.style.marginLeft = "0.25rem";
+    rm.onclick = () => removeModelFromPool(pool.name, row.model);
+    badge.appendChild(rm);
+    rowEl.appendChild(badge);
+  });
+
+  const menu = document.createElement("select");
+  menu.className = "pool-menu";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Add to pool…";
+  menu.appendChild(placeholder);
+  poolsNotContaining(row.model).forEach((pool) => {
+    const opt = document.createElement("option");
+    opt.value = pool.name;
+    opt.textContent = pool.name;
+    menu.appendChild(opt);
+  });
+  const newOpt = document.createElement("option");
+  newOpt.value = "__new__";
+  newOpt.textContent = "New pool…";
+  menu.appendChild(newOpt);
+  menu.onchange = () => {
+    if (menu.value === "__new__") addModelToNewPool(row.model);
+    else if (menu.value) addModelToPool(menu.value, row.model);
+    menu.value = "";
+  };
+  rowEl.appendChild(menu);
+  return rowEl;
+}
+
+function renderModelGroup(group, filterActive) {
+  const collapsed = !filterActive && state.modelsCollapsedGroups.has(group.id);
+  const wrap = el("div", `model-group${collapsed ? " collapsed" : ""}`);
+  const header = el("div", "model-group-header");
+  header.appendChild(textEl("span", "chevron", "▾"));
+  header.appendChild(el("span", `status-dot ${group.online ? "online" : "offline"}`));
+  const titleWrap = el("div");
+  titleWrap.appendChild(textEl("div", "model-group-title", group.title));
+  if (group.subtitle) titleWrap.appendChild(textEl("div", "model-group-subtitle", group.subtitle));
+  header.appendChild(titleWrap);
+  const summaryParts = [`${group.modelCount} model${group.modelCount === 1 ? "" : "s"}`];
+  if (group.inFlight > 0) summaryParts.push(`${group.inFlight} in flight`);
+  header.appendChild(textEl("span", "model-group-summary", summaryParts.join(" · ")));
+  header.onclick = () => {
+    if (state.modelsCollapsedGroups.has(group.id)) state.modelsCollapsedGroups.delete(group.id);
+    else state.modelsCollapsedGroups.add(group.id);
+    renderModelsTab();
+  };
+  wrap.appendChild(header);
+  const rows = el("div", "model-group-rows");
+  group.rows.forEach((row) => rows.appendChild(renderModelRow(row)));
+  wrap.appendChild(rows);
+  return wrap;
+}
+
 function renderModelsTab() {
   const root = document.getElementById("tab-models");
   root.replaceChildren();
   root.appendChild(textEl("h1", "page-title", "Models"));
-  root.appendChild(textEl("div", "section-label", "Routed models (agent)"));
-  const card = el("div", "card");
-  if (!state.models.length) {
-    card.appendChild(textEl("p", "empty", "No routed models — start agent and backends."));
-  } else {
-    const table = el("table");
-    const thead = el("thead");
-    const hr = el("tr");
-    hr.append(textEl("th", "", "Model"), textEl("th", "", "Owner"));
-    thead.appendChild(hr);
-    table.appendChild(thead);
-    const tbody = el("tbody");
-    state.models.forEach((m) => {
-      const tr = el("tr");
-      const td1 = el("td");
-      td1.appendChild(codeEl(m.id || ""));
-      tr.append(td1, textEl("td", "", m.owned_by || "—"));
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
-    card.appendChild(table);
+
+  const searchWrap = el("div", "model-search");
+  const searchIcon = textEl("span", "muted-sm", "🔍");
+  const searchInput = document.createElement("input");
+  searchInput.type = "text";
+  searchInput.placeholder = "Filter by model, provider, or host";
+  searchInput.value = state.modelsSearchText;
+  searchInput.oninput = () => {
+    state.modelsSearchText = searchInput.value;
+    renderModelsTab();
+  };
+  searchWrap.append(searchIcon, searchInput);
+  root.appendChild(searchWrap);
+
+  const groups = modelsGroups();
+  const needle = state.modelsSearchText.trim().toLowerCase();
+  const filterActive = needle.length > 0;
+  let visible = groups;
+  if (filterActive) {
+    visible = groups
+      .map((g) => {
+        const titleMatch =
+          g.title.toLowerCase().includes(needle) || g.subtitle.toLowerCase().includes(needle);
+        const rows = titleMatch
+          ? g.rows
+          : g.rows.filter(
+              (r) => r.model.toLowerCase().includes(needle) || r.provider.toLowerCase().includes(needle)
+            );
+        return { ...g, rows };
+      })
+      .filter((g) => g.rows.length > 0);
   }
-  root.appendChild(card);
-  root.appendChild(textEl("div", "section-label", "LAN models"));
-  root.appendChild(textEl("p", "empty", "Full LAN model merge: netllm models --lan in terminal."));
+
+  if (!groups.length) {
+    const card = el("div", "card");
+    card.appendChild(
+      textEl(
+        "p",
+        "empty",
+        state.healthy
+          ? "No backends yet — start oMLX or Ollama on this Mac. The agent finds them automatically."
+          : "Agent not running — start it to load the model catalog."
+      )
+    );
+    root.appendChild(card);
+  } else {
+    visible.forEach((g) => root.appendChild(renderModelGroup(g, filterActive)));
+    if (filterActive && !visible.length) {
+      root.appendChild(textEl("p", "empty", `No models match "${state.modelsSearchText}".`));
+    }
+  }
+
+  const actions = el("div", "topbar-actions");
+  const d1 = textEl("button", "secondary", "Refresh provider scan");
+  d1.onclick = runDiscover;
+  const d2 = textEl("button", "secondary", "Scan LAN peers");
+  d2.onclick = () => runPeersScan(false);
+  actions.append(d1, d2);
+  root.appendChild(actions);
+  root.appendChild(
+    textEl(
+      "p",
+      "empty",
+      "Pool edits write routing.model_pools — press Save in the toolbar to persist. Full LAN model merge: netllm models --lan in terminal."
+    )
+  );
 }
 
 function renderPeerRow(p) {
@@ -729,9 +1027,30 @@ function schemaSecretRow(field, draft, onDirty, overrides) {
 // draft[field.name], generalizing the pre-existing renderStringListEditor
 // (which is keyed by a dotted path into the *global* configDraft) to work
 // against any draft object.
+// Shared incrementing id so multiple <datalist> elements on one page
+// (e.g. two model pools) never collide.
+let _datalistSeq = 0;
+
+// Known-good candidates for a list_strings row (docs/models-ux-plan.md
+// phase A/D): a native <datalist> autocompletes the text input — assist,
+// not restrict, so free typing stays allowed (an offline host is a
+// legitimate value). `overrides.suggestions` is
+// [{value, label}, ...]; label falls back to value.
 function schemaListStringsRow(field, draft, onDirty, overrides) {
   const wrap = el("div", "card string-list");
   const list = el("div", "string-list");
+  const suggestions = overrides?.suggestions || [];
+  let datalistEl = null;
+  if (suggestions.length) {
+    datalistEl = document.createElement("datalist");
+    datalistEl.id = `dl-${field.name}-${_datalistSeq++}`;
+    suggestions.forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = s.value;
+      if (s.label && s.label !== s.value) opt.label = s.label;
+      datalistEl.appendChild(opt);
+    });
+  }
 
   function sync() {
     const inputs = list.querySelectorAll("input");
@@ -745,6 +1064,7 @@ function schemaListStringsRow(field, draft, onDirty, overrides) {
     input.type = "text";
     input.value = value;
     input.placeholder = overrides?.placeholder || "";
+    if (datalistEl) input.setAttribute("list", datalistEl.id);
     input.oninput = sync;
     const rm = textEl("button", "secondary", "−");
     rm.onclick = () => {
@@ -759,6 +1079,7 @@ function schemaListStringsRow(field, draft, onDirty, overrides) {
   const add = textEl("button", "secondary", `+ Add ${overrides?.itemLabel || ""}`.trim());
   add.onclick = () => addRow();
   wrap.append(list, add);
+  if (datalistEl) wrap.appendChild(datalistEl);
   return wrap;
 }
 
@@ -1197,11 +1518,51 @@ function renderRoutingTab() {
       renderSchemaField(byName.model_pools, draft, markDirty, {
         itemLabel: "model pool",
         keyPlaceholder: "pool name",
+        itemOverrides: {
+          hosts: { suggestions: knownHostRefs() },
+          models: { suggestions: knownModelIDs() },
+        },
       })
     );
   }
 }
 
+
+// Candidate refs for a model pool's `hosts` list (docs/models-ux-plan.md
+// phase A) — mirrors SettingsViewModel.knownHostRefs: local backend
+// base_urls + peer agent ids (status.peers + lanPeers), deduped.
+function knownHostRefs() {
+  const seen = new Set();
+  const refs = [];
+  (state.status?.backends || [])
+    .filter((b) => b.local)
+    .forEach((b) => {
+      const url = b.base_url;
+      if (!url || seen.has(url)) return;
+      seen.add(url);
+      refs.push({ value: url, label: `${b.provider || "custom"} · ${url}` });
+    });
+  [...(state.status?.peers || []), ...(state.lanPeers || [])].forEach((p) => {
+    if (!p.agent_id || seen.has(p.agent_id)) return;
+    seen.add(p.agent_id);
+    const label = p.hostname ? `${p.hostname} (${p.agent_id})` : p.agent_id;
+    refs.push({ value: p.agent_id, label });
+  });
+  return refs;
+}
+
+// Candidate model IDs for a pool's `models` list — union of every
+// backend's served models, deduped, sorted case-insensitively. Mirrors
+// SettingsViewModel.knownModelIDs.
+function knownModelIDs() {
+  const seen = new Set();
+  (state.status?.backends || []).forEach((b) => {
+    (b.health?.models || []).forEach((m) => seen.add(m));
+  });
+  return [...seen]
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+    .map((m) => ({ value: m }));
+}
 
 const CLOUD_FALLBACK_MODES = ["cloud", "local", "none"];
 
@@ -1263,7 +1624,7 @@ function renderCloudTab() {
 // through schemaDictOfObjectsRow's generic add/remove-key UI.
 function renderCloudProviderCard(pid, cloudDraft, summary, itemSchema) {
   if (!cloudDraft.providers[pid]) {
-    cloudDraft.providers[pid] = { enabled: false, region: "", api_format: null };
+    cloudDraft.providers[pid] = { enabled: false, region: "", api_format: null, models: [] };
   }
   const entry = cloudDraft.providers[pid];
   const card = el("div", "card");
@@ -1291,7 +1652,131 @@ function renderCloudProviderCard(pid, cloudDraft, summary, itemSchema) {
             : { label: keyLabel, placeholder: summary.api_key_set ? "•••••••• (unchanged if left blank)" : "sk-..." };
     card.appendChild(renderSchemaField(byName[name], entry, markDirty, overrides));
   });
+  card.appendChild(renderCloudModelsSection(pid, entry));
   return card;
+}
+
+// Model allowlist checklist (docs/models-ux-plan.md phase D — dashboard
+// twin of CloudSettingsView.swift's "Models" section): fetch the
+// provider's full catalog from GET /netllm/v1/cloud/providers/{id}/models,
+// then check/uncheck to control cloud.providers.<id>.models. Empty
+// allowlist = every model the provider serves (server default).
+function cloudModelEnabled(pid, modelId) {
+  const allowlist = state.configDraft.cloud.providers[pid]?.models || [];
+  return allowlist.length === 0 || allowlist.includes(modelId);
+}
+
+function toggleCloudModel(pid, modelId, enabled) {
+  const entry = state.configDraft.cloud.providers[pid];
+  if (!entry.models) entry.models = [];
+  if (entry.models.length === 0) {
+    if (enabled) return; // already enabled (empty = all)
+    const catalog = state.cloudCatalogs[pid];
+    if (!catalog) return; // need the catalog to know what "all" means
+    entry.models = catalog.models.filter((m) => m !== modelId);
+  } else if (enabled) {
+    if (!entry.models.includes(modelId)) entry.models.push(modelId);
+  } else {
+    entry.models = entry.models.filter((m) => m !== modelId);
+  }
+  markDirty();
+  renderCloudTab();
+}
+
+function resetCloudModels(pid) {
+  state.configDraft.cloud.providers[pid].models = [];
+  markDirty();
+  renderCloudTab();
+}
+
+async function fetchCloudCatalog(pid) {
+  if (state.cloudCatalogFetching.has(pid)) return;
+  state.cloudCatalogFetching.add(pid);
+  renderCloudTab();
+  try {
+    state.cloudCatalogs[pid] = await api(`/netllm/v1/cloud/providers/${pid}/models`);
+  } catch (e) {
+    showToast(`Could not fetch model catalog: ${e.message}`);
+  } finally {
+    state.cloudCatalogFetching.delete(pid);
+    renderCloudTab();
+  }
+}
+
+function staticCatalogNote(catalog) {
+  if (catalog.status === "no_api_key") {
+    return `No API key yet — showing the built-in catalog. ${catalog.detail || ""}`.trim();
+  }
+  if (catalog.status === "static_catalog") {
+    return "This provider has no live model-list API — showing the built-in catalog.";
+  }
+  return `Live catalog unavailable (${catalog.status}) — showing the built-in catalog.`;
+}
+
+function renderCloudModelsSection(pid, entry) {
+  const wrap = el("div", "cloud-models-section");
+  const header = el("div", "cloud-models-header");
+  header.appendChild(textEl("strong", "", "Models"));
+  if (state.cloudCatalogFetching.has(pid)) {
+    header.appendChild(textEl("span", "muted-sm", "Fetching…"));
+  }
+  const fetchBtn = textEl(
+    "button",
+    "secondary",
+    state.cloudCatalogs[pid] ? "Refresh model list" : "Fetch model list"
+  );
+  fetchBtn.disabled = !state.healthy || state.cloudCatalogFetching.has(pid);
+  fetchBtn.onclick = () => fetchCloudCatalog(pid);
+  header.appendChild(fetchBtn);
+  wrap.appendChild(header);
+
+  const catalog = state.cloudCatalogs[pid];
+  const allowlist = entry.models || [];
+  if (!catalog) {
+    if (allowlist.length) {
+      wrap.appendChild(
+        textEl("p", "muted-sm", `Restricted to: ${allowlist.join(", ")}. Fetch the model list to edit.`)
+      );
+    }
+    return wrap;
+  }
+
+  if (catalog.source === "static") {
+    wrap.appendChild(textEl("p", "muted-sm", staticCatalogNote(catalog)));
+  }
+  if (allowlist.length === 0) {
+    wrap.appendChild(
+      textEl("p", "muted-sm", `All ${catalog.models.length} models enabled (default). Uncheck any to restrict.`)
+    );
+  } else {
+    const summaryRow = el("div", "cloud-models-header");
+    summaryRow.appendChild(
+      textEl("span", "muted-sm", `${allowlist.length} of ${catalog.models.length} models enabled.`)
+    );
+    const resetBtn = textEl("button", "secondary", "Enable all");
+    resetBtn.onclick = () => resetCloudModels(pid);
+    summaryRow.appendChild(resetBtn);
+    wrap.appendChild(summaryRow);
+  }
+
+  // Configured models the fetched catalog doesn't list (renamed/deprecated
+  // upstream) stay visible so they can be unchecked.
+  const extras = allowlist.filter((m) => !catalog.models.includes(m));
+  const listWrap = el("div", "cloud-model-list");
+  [...catalog.models, ...extras].forEach((modelId) => {
+    listWrap.appendChild(
+      checkboxRow(modelId, cloudModelEnabled(pid, modelId), (v) => toggleCloudModel(pid, modelId, v))
+    );
+  });
+  wrap.appendChild(listWrap);
+  wrap.appendChild(
+    textEl(
+      "p",
+      "muted-sm",
+      "Model changes apply after Save + Restart Agent. Enabled models appear on the Models tab for pool assignment."
+    )
+  );
+  return wrap;
 }
 
 function renderUiTab() {

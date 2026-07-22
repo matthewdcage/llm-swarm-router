@@ -496,6 +496,100 @@ code {
 
 #toast.show { opacity: 1; }
 
+/* Models tab (docs/models-ux-plan.md phase D): machine-grouped
+   collapsible list + pool membership badges — dashboard twin of
+   ModelsTabView.swift. */
+.model-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(127, 127, 127, 0.08);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.model-search input {
+  border: none;
+  background: transparent;
+  outline: none;
+  flex: 1;
+  font-size: 0.875rem;
+  color: var(--fg, inherit);
+}
+.model-group {
+  background: rgba(127, 127, 127, 0.06);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 0.75rem;
+  overflow: hidden;
+}
+.model-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.9rem;
+  cursor: pointer;
+  user-select: none;
+}
+.model-group-header .chevron {
+  transition: transform 0.15s;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+.model-group.collapsed .chevron { transform: rotate(-90deg); }
+.model-group-title { font-weight: 600; }
+.model-group-subtitle { font-size: 0.75rem; color: var(--muted); }
+.model-group-summary {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.model-group-rows { border-top: 1px solid var(--border); }
+.model-group.collapsed .model-group-rows { display: none; }
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+.model-row:last-child { border-bottom: none; }
+.model-row-name { font-size: 0.875rem; }
+.model-row-provider { font-size: 0.7rem; color: var(--muted); }
+.model-row-spacer { flex: 1; }
+.pool-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(10, 132, 255, 0.15);
+  white-space: nowrap;
+}
+.pool-badge.disabled { background: rgba(127, 127, 127, 0.18); }
+.pool-badge .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--ok);
+}
+.pool-badge.inactive .dot { background: var(--warn); }
+.model-row select.pool-menu {
+  font-size: 0.75rem;
+  max-width: 9.5rem;
+}
+
+/* Cloud provider model allowlist checklist. */
+.cloud-models-section { margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--border); }
+.cloud-models-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.cloud-model-list { max-height: 220px; overflow-y: auto; }
+
 @media (max-width: 720px) {
   .app { flex-direction: column; }
   .sidebar {
