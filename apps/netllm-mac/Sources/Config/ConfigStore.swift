@@ -14,6 +14,16 @@ final class ConfigStore {
         return try JSONDecoder().decode(NetllmConfigDocument.self, from: data)
     }
 
+    /// Form shape for the schema-driven config sections (currently `ui`
+    /// only — see docs/config-schema-rewrite-plan.md §5 phase 4). Reached
+    /// via the bundled CLI, not HTTP, so it works even when the agent
+    /// process isn't running (same reasoning as `load()`/`save()` above).
+    func loadSchema() throws -> ConfigSchema {
+        let raw = try cli.run(["config", "schema"])
+        let data = Data(raw.utf8)
+        return try JSONDecoder().decode(ConfigSchema.self, from: data)
+    }
+
     func save(_ document: NetllmConfigDocument) throws -> URL {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

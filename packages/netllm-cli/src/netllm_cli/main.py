@@ -1654,6 +1654,22 @@ def config_export(
     emit_export(_config_path_option(config))
 
 
+@config_app.command("schema")
+def config_schema_cmd() -> None:
+    """Write the config form schema as JSON to stdout (macOS Settings UI).
+
+    Same document as GET /netllm/v1/config/schema, reachable here without
+    a running agent — the macOS app edits config.toml via this CLI even
+    when the agent process is stopped. See
+    docs/config-schema-rewrite-plan.md.
+    """
+    import json
+
+    from netllm_core.config_schema import config_schema_document
+
+    sys.stdout.write(json.dumps(config_schema_document()))
+
+
 @config_app.command("import")
 def config_import_cmd(
     config: Path | None = typer.Option(None, "--config"),

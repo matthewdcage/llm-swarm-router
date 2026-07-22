@@ -5,7 +5,14 @@ struct NetllmConfigDocument: Codable, Sendable {
     var discovery: DiscoverySection = DiscoverySection()
     var swarm: SwarmSection = SwarmSection()
     var routing: RoutingSection = RoutingSection()
-    var ui: UiSection = UiSection()
+    /// Dynamic — schema-driven (docs/config-schema-rewrite-plan.md §5
+    /// phase 4, Option A). Rendered by SchemaFormView against the
+    /// `ui` section of ConfigStore.loadSchema(); no typed UiSection
+    /// struct exists anymore for this section. Keys/values match
+    /// UiConfig's pydantic fields (auto_start_on_launch, log_dir,
+    /// check_for_updates_automatically) but nothing here enforces that
+    /// at compile time — the schema does, at render/save time.
+    var ui: [String: JSONValue] = [:]
     var cloud: CloudSection = CloudSection()
 
     struct AgentSection: Codable, Sendable {
@@ -63,12 +70,6 @@ struct NetllmConfigDocument: Codable, Sendable {
         var api_key_env: String = ""
         var enabled: Bool = true
         var local: Bool = true
-    }
-
-    struct UiSection: Codable, Sendable {
-        var auto_start_on_launch: Bool = true
-        var log_dir: String = ""
-        var check_for_updates_automatically: Bool = true
     }
 
     struct CloudProviderConfig: Codable, Sendable {

@@ -1,0 +1,106 @@
+import SwiftUI
+
+/// Per-field escape hatch for the generic renderer — the Swift twin of
+/// dashboard.js's `overrides` map (docs/config-schema-rewrite-plan.md §6
+/// risk 1). Covers what the schema can't express: a friendlier label than
+/// the field name, a placeholder, or a side effect on change (e.g. the
+/// `ui` tab's check_for_updates_automatically starting/stopping a poll
+/// timer).
+struct SchemaFieldOverride {
+    var label: String?
+    var placeholder: String?
+    var onChange: ((JSONValue) -> Void)?
+
+    init(label: String? = nil, placeholder: String? = nil, onChange: ((JSONValue) -> Void)? = nil) {
+        self.label = label
+        self.placeholder = placeholder
+        self.onChange = onChange
+    }
+}
+
+/// Renders every editable (non-read-only) field of one config schema
+/// section against a `[String: JSONValue]` draft — the Swift twin of
+/// dashboard.js's `renderSchemaForm`/`schemaFieldsCard`
+/// (docs/config-schema-rewrite-plan.md §5 phase 4). Currently covers the
+/// widgets the `ui` section pilot needs (toggle/text/number/select);
+/// list/dict-of-object widgets are a follow-up when a later section
+/// migrates (see the JS phase 3 equivalents for the intended shape).
+struct SchemaFormView: View {
+    let fields: [ConfigSchemaField]
+    @Binding var draft: [String: JSONValue]
+    var overrides: [String: SchemaFieldOverride] = [:]
+
+    var body: some View {
+        ForEach(fields.filter { !($0.readOnly ?? false) }) { field in
+            SchemaFieldRow(field: field, draft: $draft, override: overrides[field.name])
+        }
+    }
+}
+
+private struct SchemaFieldRow: View {
+    let field: ConfigSchemaField
+    @Binding var draft: [String: JSONValue]
+    var override: SchemaFieldOverride?
+
+    private var label: String {
+        if let override = override?.label { return override }
+        return field.name
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
+    }
+
+    private var currentValue: JSONValue {
+        draft[field.name] ?? field.fieldDefault ?? .null
+    }
+
+    private func setValue(_ value: JSONValue) {
+        draft[field.name] = value
+        override?.onChange?(value)
+    }
+
+    var body: some View {
+        switch field.widget {
+        case "toggle":
+            Toggle(label, isOn: Binding(
+                get: { currentValue.boolValue ?? false },
+                set: { setValue(.bool($0)) }
+            ))
+        case "select":
+            Picker(label, selection: Binding(
+                get: { currentValue.stringValue ?? "" },
+                set: { setValue(.string($0)) }
+            )) {
+                ForEach(field.options ?? [], id: \.self) { option in
+                    Text(option.isEmpty ? "(default)" : option).tag(option)
+                }
+            }
+        case "number":
+            HStack {
+                Text(label)
+                TextField(
+                    "",
+                    value: Binding(
+                        get: { currentValue.doubleValue ?? 0 },
+                        set: { setValue(.number($0)) }
+                    ),
+                    format: .number
+                )
+            }
+        default:
+            // "text" and any widget not yet given a dedicated Swift
+            // control (secret/list_strings/dict_list_strings/list/dict —
+            // see dashboard.js's equivalents) render as a plain text
+            // field rather than silently omitting the field.
+            HStack {
+                Text(label)
+                TextField(
+                    override?.placeholder ?? "",
+                    text: Binding(
+                        get: { currentValue.stringValue ?? "" },
+                        set: { setValue(.string($0)) }
+                    )
+                )
+            }
+        }
+    }
+}

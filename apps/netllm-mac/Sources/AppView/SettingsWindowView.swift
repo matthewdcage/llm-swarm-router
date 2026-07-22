@@ -517,21 +517,38 @@ struct SettingsWindowView: View {
     }
 
     private var uiTab: some View {
+        // Schema-driven (docs/config-schema-rewrite-plan.md §5 phase 4) —
+        // field order/labels/widgets come from ConfigStore.loadSchema()
+        // instead of a hand-typed UiSection struct. `overrides` covers
+        // what the schema can't express: the log-dir placeholder and
+        // check_for_updates_automatically's poll-timer side effect.
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("\(AppBranding.displayName) app")
             LoginItemSettings()
-            Toggle("Auto-start agent on launch", isOn: $model.document.ui.auto_start_on_launch)
-            Toggle("Check for updates automatically", isOn: $model.document.ui.check_for_updates_automatically)
-                .onChange(of: model.document.ui.check_for_updates_automatically) { _, enabled in
-                    if enabled {
-                        updateController.restartPollingIfNeeded()
-                    } else {
-                        updateController.stopPolling()
-                    }
-                }
-            HStack {
-                Text("Log directory")
-                TextField("default", text: $model.document.ui.log_dir)
+            if let uiFields = model.configSchema?.sections["ui"]?.fields {
+                SchemaFormView(
+                    fields: uiFields,
+                    draft: $model.document.ui,
+                    overrides: [
+                        "auto_start_on_launch": SchemaFieldOverride(
+                            label: "Auto-start agent on launch"
+                        ),
+                        "check_for_updates_automatically": SchemaFieldOverride(
+                            label: "Check for updates automatically",
+                            onChange: { value in
+                                if value.boolValue == true {
+                                    updateController.restartPollingIfNeeded()
+                                } else {
+                                    updateController.stopPolling()
+                                }
+                            }
+                        ),
+                        "log_dir": SchemaFieldOverride(label: "Log directory", placeholder: "default"),
+                    ]
+                )
+            } else {
+                Text("Config schema unavailable — reload Settings to retry.")
+                    .foregroundStyle(.secondary)
             }
             gridRow("Config file", AppConfig.defaultConfigPath().path)
         }

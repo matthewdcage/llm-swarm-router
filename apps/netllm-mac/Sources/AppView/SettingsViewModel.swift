@@ -5,6 +5,11 @@ import SwiftUI
 @Observable
 final class SettingsViewModel {
     var document = NetllmConfigDocument()
+    /// Form shape for schema-driven sections (`ui` — see
+    /// docs/config-schema-rewrite-plan.md §5 phase 4). nil until the
+    /// first successful `reloadAll()`; SchemaFormView call sites fall
+    /// back to a "schema unavailable" message when nil.
+    var configSchema: ConfigSchema?
     var status: AgentStatusPayload?
     var agentVersion: AgentVersionPayload?
     var discoverProviders: [DiscoverProvider] = []
@@ -169,6 +174,7 @@ final class SettingsViewModel {
         await runAction("Reloading…") {
             didAutoPeerScan = false
             document = try configStore.load()
+            configSchema = try? configStore.loadSchema()
             syncRequireClusterTokenFromDocument()
             updateAgentURL()
             await refreshLiveData()

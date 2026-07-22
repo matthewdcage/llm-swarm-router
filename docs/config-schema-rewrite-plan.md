@@ -28,8 +28,32 @@ instead of a hand-listed field set per section, so newly-exposed fields
 split into a LAN-mode checkbox + port number in the UI, exactly the
 "field needs a hand-authored widget" case §2 point 4 anticipates.
 Verified against a live agent (in-browser + direct API round-trip) and
-covered by `tests/test_dashboard_config_schema.py`. Phases 4–5 (Swift
-dynamic model, docs cleanup) not started. Companion to
+covered by `tests/test_dashboard_config_schema.py`. Phase 4 started
+(2026-07-22), `ui` section only (Option A, per §3.4's recommendation):
+new `netllm config schema` CLI command (`packages/netllm-cli` —
+`config_schema_document()` reached without a running agent, same
+reasoning as the pre-existing `config export`/`import`; covered by
+`tests/test_cli_config_json.py`); Swift gains `JSONValue` (a ~75-line
+Codable enum, `apps/netllm-mac/Sources/Config/JSONValue.swift`),
+`ConfigSchema`/`ConfigSchemaField` models, `ConfigStore.loadSchema()`,
+and a generic `SchemaFormView`/`SchemaFieldOverride`
+(`Sources/AppView/SchemaFormView.swift`) — the Swift twin of
+dashboard.js's `renderSchemaForm`/`overrides`, covering the
+toggle/select/number/text widgets the `ui` section needs.
+`NetllmConfigDocument.ui` changed from a typed `UiSection` struct to
+`[String: JSONValue]`; `UiSection` deleted. Verified with `swift build`
+(clean rebuild, zero errors) plus a standalone decode/round-trip smoke
+test against the actual `netllm config export`/`config schema` CLI
+output (not just synthetic JSON) — no Swift test target exists in this
+package to add a permanent test to, and the app's window can't be driven
+the way the web dashboard was (see the phase-4 kickoff discussion in
+this repo's history for why that verification gap is called out
+explicitly rather than silently assumed away). The other 5 sections
+(agent stays hand-written by design; discovery/swarm/routing/cloud need
+the list/dict-of-object Swift widgets dashboard.js's phase 3 already
+proved the shape of) are not migrated — natural next slice, but a
+materially bigger and riskier one than `ui` was, given the app can't be
+click-tested here. Phase 5 (docs cleanup) not started. Companion to
 [cloud-providers-plan.md](cloud-providers-plan.md) §"Schema triple-mirror
 drift" and the earlier `routing-hardening-plan.md` follow-up of the same
 name. This is the deferred, larger half of that item: a generic schema for
