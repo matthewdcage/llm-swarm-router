@@ -36,6 +36,12 @@ final class MenubarController: NSObject, NSMenuDelegate {
         )
         NotificationCenter.default.addObserver(
             self,
+            selector: #selector(hostSampleDidUpdate),
+            name: .hostSamplerDidUpdate,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
             selector: #selector(serverStateDidChange),
             name: ServerProcess.stateDidChangeNotification,
             object: nil
@@ -67,6 +73,12 @@ final class MenubarController: NSObject, NSMenuDelegate {
             ServingStatsMenuBuilder.apply(to: servingStatsMenu, snapshot: poller.snapshot)
             refreshSystemStatsPanel()
         }
+        gaugeController.refreshTitles()
+    }
+
+    @objc private func hostSampleDidUpdate() {
+        guard menuOpen else { return }
+        refreshSystemStatsPanel()
         gaugeController.refreshTitles()
     }
 
@@ -106,8 +118,12 @@ final class MenubarController: NSObject, NSMenuDelegate {
     }
 
     private func refreshSystemStatsPanel() {
-        let gpuMem = Double(model?.telemetrySnapshot.modelMemoryUsed ?? 0) / 1_073_741_824.0
-        systemStatsView?.refresh(sample: HostSampler.shared.current, gpuMemoryGB: gpuMem)
+        var sample = HostSampler.shared.current
+        let omlxMem = Double(model?.telemetrySnapshot.modelMemoryUsed ?? 0) / 1_073_741_824.0
+        if sample.gpuMemoryGB <= 0, omlxMem > 0 {
+            sample.gpuMemoryGB = omlxMem
+        }
+        systemStatsView?.refresh(sample: sample)
     }
 
     private func rebuildMenu() {
@@ -142,7 +158,7 @@ final class MenubarController: NSObject, NSMenuDelegate {
 
         let systemItem = NSMenuItem(title: "System Stats", action: nil, keyEquivalent: "")
         let systemMenu = NSMenu()
-        let panelView = SystemStatsMenuItemView(frame: NSRect(x: 0, y: 0, width: 280, height: 320))
+        let panelView = SystemStatsMenuItemView(frame: NSRect(x: 0, y: 0, width: 300, height: 400))
         systemStatsView = panelView
         let panelItem = NSMenuItem()
         panelItem.view = panelView

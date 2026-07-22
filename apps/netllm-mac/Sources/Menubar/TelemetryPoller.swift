@@ -44,7 +44,7 @@ struct TelemetrySnapshot {
     }
 
     var modelMemoryUsed: Int {
-        Int((raw["omlx"] as? [String: Any])?["model_memory_used"] as? NSNumber ?? 0)
+        Int(truncating: (raw["omlx"] as? [String: Any])?["model_memory_used"] as? NSNumber ?? 0)
     }
 }
 

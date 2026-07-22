@@ -1,42 +1,63 @@
 import AppKit
 
 final class SystemStatsMenuPanel: NSView {
-    private let width: CGFloat = 280
-    private let height: CGFloat = 320
+    private let width: CGFloat = 300
+    private let height: CGFloat = 400
+
+    private static let wiredColor = NSColor.systemBlue
+    private static let activeColor = NSColor.systemRed
+    private static let compressedColor = NSColor.systemPurple
+    private static let freeColor = NSColor.quaternaryLabelColor
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: width, height: height)
     }
 
-    func refresh(sample: HostSample, gpuMemoryGB: Double) {
+    func refresh(sample: HostSample) {
         self.sample = sample
-        self.gpuMemoryGB = gpuMemoryGB
         needsDisplay = true
     }
 
     private var sample = HostSample()
-    private var gpuMemoryGB: Double = 0
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         NSColor.windowBackgroundColor.setFill()
         bounds.fill()
 
-        let pad: CGFloat = 12
+        let pad: CGFloat = 14
         var y = bounds.height - pad
+
         y = drawSection(title: "CPU", y: y, pad: pad) { startY in
             var cursor = startY
-            cursor = drawBar(label: "E-cores", value: sample.eCorePct, color: .systemOrange, y: cursor, pad: pad)
-            cursor = drawBar(label: "P-cores", value: sample.pCorePct, color: .systemBlue, y: cursor, pad: pad)
-            cursor = drawSparkline(
-                values: HostSampler.shared.eCoreHistory,
+            cursor = drawMetricBar(
+                label: "E-cores",
+                value: sample.eCorePct,
                 color: .systemOrange,
-                y: cursor - 28,
-                pad: pad,
-                secondary: HostSampler.shared.pCoreHistory,
-                secondaryColor: .systemBlue
+                y: cursor,
+                pad: pad
             )
-            cursor -= 36
+            cursor = drawMetricBar(
+                label: "P-cores",
+                value: sample.pCorePct,
+                color: .systemBlue,
+                y: cursor,
+                pad: pad
+            )
+            cursor = drawCaption(
+                "E (amber) / P (blue) usage · \(HostSampler.sparklineWindow)s",
+                y: cursor - 2,
+                pad: pad
+            )
+            cursor = drawSparkline(
+                primary: HostSampler.shared.eCoreHistory.suffix(HostSampler.sparklineWindow),
+                primaryColor: .systemOrange,
+                secondary: HostSampler.shared.pCoreHistory.suffix(HostSampler.sparklineWindow),
+                secondaryColor: .systemBlue,
+                y: cursor - 26,
+                pad: pad
+            )
+            cursor -= 8
             cursor = drawLine("Thermal: \(sample.thermal)", y: cursor, pad: pad)
             let load = sample.loadAvg
             cursor = drawLine(
@@ -44,35 +65,63 @@ final class SystemStatsMenuPanel: NSView {
                 y: cursor,
                 pad: pad
             )
-            let uptime = formatUptime(sample.uptimeSeconds)
-            return drawLine("Uptime: \(uptime)", y: cursor, pad: pad)
+            return drawLine("Uptime: \(formatUptime(sample.uptimeSeconds))", y: cursor, pad: pad)
         }
 
-        y = drawSection(title: "GPU", y: y - 8, pad: pad) { startY in
+        y = drawSection(title: "GPU", y: y - 10, pad: pad) { startY in
             var cursor = startY
-            cursor = drawBar(label: "GPU", value: sample.gpuPct, color: .systemGreen, y: cursor, pad: pad)
-            cursor = drawLine(String(format: "GPU memory: %.2f GB", gpuMemoryGB), y: cursor, pad: pad)
-            return drawSparkline(values: HostSampler.shared.gpuHistory, color: .systemGreen, y: cursor - 24, pad: pad)
-        }
-
-        _ = drawSection(title: "MEMORY", y: y - 8, pad: pad) { startY in
-            var cursor = startY
-            let pct = sample.memoryTotalGB > 0 ? sample.memoryUsedGB / sample.memoryTotalGB * 100 : 0
+            cursor = drawMetricBar(label: "GPU", value: sample.gpuPct, color: .systemGreen, y: cursor, pad: pad)
+            let gpuMemPct = gpuMemoryPercent()
             cursor = drawLine(
-                String(
-                    format: "%.1f / %.0f GB (%.0f%%)",
-                    sample.memoryUsedGB,
-                    sample.memoryTotalGB,
-                    pct
-                ),
+                String(format: "GPU memory: %.2f GB in use", sample.gpuMemoryGB),
                 y: cursor,
                 pad: pad
             )
-            cursor = drawLine(String(format: "Wired: %.2f GB", sample.wiredGB), y: cursor, pad: pad)
-            cursor = drawLine(String(format: "Active: %.2f GB", sample.activeGB), y: cursor, pad: pad)
-            cursor = drawLine(String(format: "Compressed: %.2f GB", sample.compressedGB), y: cursor, pad: pad)
-            return drawLine(String(format: "Free: %.2f GB", sample.freeGB), y: cursor, pad: pad)
+            cursor = drawThinBar(value: gpuMemPct, color: .systemCyan, y: cursor - 4, pad: pad)
+            cursor = drawCaption(
+                "GPU (green) / GPU mem (cyan) · \(HostSampler.sparklineWindow)s",
+                y: cursor - 2,
+                pad: pad
+            )
+            return drawSparkline(
+                primary: HostSampler.shared.gpuHistory.suffix(HostSampler.sparklineWindow),
+                primaryColor: .systemGreen,
+                secondary: HostSampler.shared.gpuMemoryHistory.suffix(HostSampler.sparklineWindow),
+                secondaryColor: .systemCyan,
+                y: cursor - 26,
+                pad: pad,
+                normalizeSecondaryIndependently: true
+            )
         }
+
+        _ = drawSection(title: "MEMORY", y: y - 10, pad: pad) { startY in
+            var cursor = startY
+            let pct = sample.memoryTotalGB > 0 ? sample.memoryUsedGB / sample.memoryTotalGB * 100 : 0
+            cursor = drawMemoryHeader(
+                used: sample.memoryUsedGB,
+                total: sample.memoryTotalGB,
+                percent: pct,
+                y: cursor,
+                pad: pad
+            )
+            cursor = drawMemoryStackBar(y: cursor - 6, pad: pad)
+            cursor -= 8
+            cursor = drawLegend(label: "Wired", valueGB: sample.wiredGB, color: Self.wiredColor, y: cursor, pad: pad)
+            cursor = drawLegend(label: "Active", valueGB: sample.activeGB, color: Self.activeColor, y: cursor, pad: pad)
+            cursor = drawLegend(
+                label: "Compressed",
+                valueGB: sample.compressedGB,
+                color: Self.compressedColor,
+                y: cursor,
+                pad: pad
+            )
+            return drawLegend(label: "Free", valueGB: sample.freeGB, color: Self.freeColor, y: cursor, pad: pad)
+        }
+    }
+
+    private func gpuMemoryPercent() -> Double {
+        guard sample.memoryTotalGB > 0 else { return 0 }
+        return min(100, sample.gpuMemoryGB / sample.memoryTotalGB * 100)
     }
 
     private func drawSection(title: String, y: CGFloat, pad: CGFloat, body: (CGFloat) -> CGFloat) -> CGFloat {
@@ -81,55 +130,158 @@ final class SystemStatsMenuPanel: NSView {
             .font: NSFont.boldSystemFont(ofSize: 12),
             .foregroundColor: NSColor.systemBlue,
         ]
-        title.draw(at: NSPoint(x: pad, y: cursor - 14), withAttributes: attrs)
-        cursor -= 22
+        let size = (title as NSString).size(withAttributes: attrs)
+        let x = (bounds.width - size.width) / 2
+        title.draw(at: NSPoint(x: x, y: cursor - size.height), withAttributes: attrs)
+        cursor -= size.height + 8
         return body(cursor)
     }
 
     private func drawLine(_ text: String, y: CGFloat, pad: CGFloat) -> CGFloat {
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11),
+            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
             .foregroundColor: NSColor.labelColor,
         ]
         text.draw(at: NSPoint(x: pad, y: y - 12), withAttributes: attrs)
         return y - 16
     }
 
-    private func drawBar(label: String, value: Double, color: NSColor, y: CGFloat, pad: CGFloat) -> CGFloat {
-        _ = drawLine("\(label): \(Int(value))%", y: y, pad: pad)
-        let barY = y - 28
+    private func drawCaption(_ text: String, y: CGFloat, pad: CGFloat) -> CGFloat {
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 10),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+        text.draw(at: NSPoint(x: pad, y: y - 11), withAttributes: attrs)
+        return y - 14
+    }
+
+    private func drawMetricBar(label: String, value: Double, color: NSColor, y: CGFloat, pad: CGFloat) -> CGFloat {
+        let labelAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11),
+            .foregroundColor: NSColor.labelColor,
+        ]
+        let pctAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: NSColor.labelColor,
+        ]
+        let labelText = "\(label):"
+        (labelText as NSString).draw(at: NSPoint(x: pad, y: y - 12), withAttributes: labelAttrs)
+        let pctText = "\(Int(value.rounded()))%"
+        let pctSize = (pctText as NSString).size(withAttributes: pctAttrs)
+        pctText.draw(
+            at: NSPoint(x: bounds.width - pad - pctSize.width, y: y - 12),
+            withAttributes: pctAttrs
+        )
+
+        let barY = y - 24
         let barRect = NSRect(x: pad, y: barY, width: bounds.width - pad * 2, height: 8)
         NSColor.separatorColor.setFill()
         barRect.fill()
-        let fill = NSRect(x: pad, y: barY, width: (barRect.width * value / 100), height: 8)
-        color.setFill()
-        fill.fill()
+        let fillWidth = barRect.width * CGFloat(max(0, min(100, value)) / 100)
+        if fillWidth > 0 {
+            color.setFill()
+            NSRect(x: pad, y: barY, width: fillWidth, height: 8).fill()
+        }
+        return barY - 8
+    }
+
+    private func drawThinBar(value: Double, color: NSColor, y: CGFloat, pad: CGFloat) -> CGFloat {
+        let barY = y - 8
+        let barRect = NSRect(x: pad, y: barY, width: bounds.width - pad * 2, height: 4)
+        NSColor.separatorColor.setFill()
+        barRect.fill()
+        let fillWidth = barRect.width * CGFloat(max(0, min(100, value)) / 100)
+        if fillWidth > 0 {
+            color.setFill()
+            NSRect(x: pad, y: barY, width: fillWidth, height: 4).fill()
+        }
         return barY - 6
     }
 
+    private func drawMemoryHeader(used: Double, total: Double, percent: Double, y: CGFloat, pad: CGFloat) -> CGFloat {
+        let leftAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: NSColor.labelColor,
+        ]
+        let rightAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor.labelColor,
+        ]
+        let left = String(format: "%.1f / %.0f GB", used, total)
+        (left as NSString).draw(at: NSPoint(x: pad, y: y - 12), withAttributes: leftAttrs)
+        let right = String(format: "%.0f%%", percent)
+        let rightSize = (right as NSString).size(withAttributes: rightAttrs)
+        right.draw(
+            at: NSPoint(x: bounds.width - pad - rightSize.width, y: y - 12),
+            withAttributes: rightAttrs
+        )
+        return y - 18
+    }
+
+    private func drawMemoryStackBar(y: CGFloat, pad: CGFloat) -> CGFloat {
+        let barRect = NSRect(x: pad, y: y - 10, width: bounds.width - pad * 2, height: 10)
+        NSColor.separatorColor.setFill()
+        barRect.fill()
+        let total = max(sample.memoryTotalGB, sample.wiredGB + sample.activeGB + sample.compressedGB + sample.freeGB)
+        guard total > 0 else { return y - 14 }
+        var x = barRect.minX
+        let segments: [(Double, NSColor)] = [
+            (sample.wiredGB, Self.wiredColor),
+            (sample.activeGB, Self.activeColor),
+            (sample.compressedGB, Self.compressedColor),
+            (sample.freeGB, Self.freeColor),
+        ]
+        for (gb, color) in segments where gb > 0 {
+            let width = barRect.width * CGFloat(gb / total)
+            color.setFill()
+            NSRect(x: x, y: barRect.minY, width: max(1, width), height: barRect.height).fill()
+            x += width
+        }
+        return y - 16
+    }
+
+    private func drawLegend(label: String, valueGB: Double, color: NSColor, y: CGFloat, pad: CGFloat) -> CGFloat {
+        let swatch = NSRect(x: pad, y: y - 10, width: 8, height: 8)
+        color.setFill()
+        swatch.fill()
+        let text = String(format: "%@: %.2f GB", label, valueGB)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+            .foregroundColor: NSColor.labelColor,
+        ]
+        text.draw(at: NSPoint(x: pad + 14, y: y - 12), withAttributes: attrs)
+        return y - 14
+    }
+
     private func drawSparkline(
-        values: [Double],
-        color: NSColor,
+        primary: ArraySlice<Double>,
+        primaryColor: NSColor,
+        secondary: ArraySlice<Double>? = nil,
+        secondaryColor: NSColor? = nil,
         y: CGFloat,
         pad: CGFloat,
-        secondary: [Double]? = nil,
-        secondaryColor: NSColor? = nil
+        normalizeSecondaryIndependently: Bool = false
     ) -> CGFloat {
         let rect = NSRect(x: pad, y: y, width: bounds.width - pad * 2, height: 24)
-        drawSeries(values, in: rect, color: color)
+        drawSeries(Array(primary), in: rect, color: primaryColor)
         if let secondary, let secondaryColor {
-            drawSeries(secondary, in: rect, color: secondaryColor)
+            if normalizeSecondaryIndependently {
+                let maxMem = max(secondary.max() ?? 1, 0.001)
+                drawSeries(Array(secondary), in: rect, color: secondaryColor, ceiling: maxMem)
+            } else {
+                drawSeries(Array(secondary), in: rect, color: secondaryColor)
+            }
         }
         return y
     }
 
-    private func drawSeries(_ values: [Double], in rect: NSRect, color: NSColor) {
+    private func drawSeries(_ values: [Double], in rect: NSRect, color: NSColor, ceiling: Double? = nil) {
         guard values.count > 1 else { return }
-        let maxVal = max(values.max() ?? 1, 1)
+        let maxVal = max(ceiling ?? (values.max() ?? 1), 1)
         let path = NSBezierPath()
         for (idx, value) in values.enumerated() {
             let x = rect.minX + rect.width * CGFloat(idx) / CGFloat(values.count - 1)
-            let y = rect.minY + rect.height * CGFloat(value / maxVal)
+            let y = rect.minY + rect.height * CGFloat(min(value, maxVal) / maxVal)
             if idx == 0 { path.move(to: NSPoint(x: x, y: y)) }
             else { path.line(to: NSPoint(x: x, y: y)) }
         }
@@ -167,7 +319,7 @@ final class SystemStatsMenuItemView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    func refresh(sample: HostSample, gpuMemoryGB: Double) {
-        panel.refresh(sample: sample, gpuMemoryGB: gpuMemoryGB)
+    func refresh(sample: HostSample) {
+        panel.refresh(sample: sample)
     }
 }
