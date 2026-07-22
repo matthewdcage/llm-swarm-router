@@ -266,7 +266,8 @@ AGENTS.md/README touch-ups; workspace-wide version bump (`test_version_sync.py`)
    (routing/discovery/swarm/agent/ui sections) that would let Swift/JS render forms without any
    hand-authored structs at all — that's the larger routing-hardening-plan.md follow-up and remains
    future work; today those sections still rely on additive fields + deep-merge (§3.2) to stay
-   non-breaking across the three mirrors.
+   non-breaking across the three mirrors. Full rewrite plan:
+   [config-schema-rewrite-plan.md](config-schema-rewrite-plan.md).
 4. **Model ID churn** (Moonshot discontinued its k2 preview family with ~6 months notice): keep
    static catalogs minimal, prefer live `GET /models` wherever offered, and treat registry model
    lists as display hints, not routing constraints.
