@@ -70,6 +70,7 @@ class AgentService:
                 config.routing.spillover_max_local_in_flight
             ),
             model_aliases=config.routing.model_aliases,
+            model_pools=config.routing.model_pools,
             health_ttl_s=config.routing.health_ttl_s,
             offline_retry_s=config.routing.offline_retry_s,
             max_failures=config.routing.max_backend_failures,
@@ -170,6 +171,7 @@ class AgentService:
             1, routing.spillover_max_local_in_flight
         )
         self.pool.model_aliases = routing.model_aliases
+        self.pool.model_pools = routing.model_pools
         self.pool.health_ttl_s = routing.health_ttl_s
         self.pool.offline_retry_s = min(routing.offline_retry_s, routing.health_ttl_s)
         self.pool.max_failures = max(1, routing.max_backend_failures)
@@ -428,6 +430,11 @@ class AgentService:
         only resolve to the ``latest`` tag upstream. Case-insensitive
         matches fall back to the served ID's exact casing — providers
         like oMLX reject differently-cased names.
+
+        If nothing matches via aliases and the backend is a
+        routing.model_pools member, fall back to whichever pool-allowed
+        model it actually serves — the requested name is irrelevant once
+        a pool backend was selected for it (see RouterPool.resolve_via_pool).
         """
         served = backend.health.models
         if not served:
@@ -448,6 +455,9 @@ class AgentService:
                 sid = served_id.casefold()
                 if sid == name or sid.startswith(name + ":"):
                     return served_id
+        pool_model = self.pool.resolve_via_pool(backend, model)
+        if pool_model is not None:
+            return pool_model
         return model
 
     def _model_not_found_error(
@@ -462,7 +472,9 @@ class AgentService:
         return OpenAIUpstreamError(
             f"Model '{model}' not found on any backend. "
             f"Known models: {listing}. "
-            "Map provider-specific names with [routing.model_aliases].",
+            "Map provider-specific names with [routing.model_aliases], or "
+            "add the host to a [routing.model_pools] entry to accept any "
+            "request name.",
             status_code=404,
         )
 

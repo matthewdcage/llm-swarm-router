@@ -13,7 +13,7 @@ from netllm_core.health import (
     probe_anthropic_compat_sync,
     probe_openai_compat_sync,
 )
-from netllm_core.models import Backend, RoutingStrategy
+from netllm_core.models import Backend, ModelPool, RoutingStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,7 @@ class RouterPool:
         allow_remote: bool = True,
         spillover_max_local_in_flight: int = 2,
         model_aliases: dict[str, list[str]] | None = None,
+        model_pools: dict[str, ModelPool] | None = None,
         health_ttl_s: float = HEALTH_TTL_S,
         offline_retry_s: float = OFFLINE_RETRY_S,
         max_failures: int = MAX_FAILURES,
@@ -74,6 +75,7 @@ class RouterPool:
         self.allow_remote = allow_remote
         self.spillover_max_local_in_flight = max(1, spillover_max_local_in_flight)
         self.model_aliases = model_aliases or {}
+        self.model_pools = model_pools or {}
         self.health_ttl_s = health_ttl_s
         self.offline_retry_s = min(offline_retry_s, health_ttl_s)
         self.max_failures = max(1, max_failures)
@@ -323,6 +325,60 @@ class RouterPool:
         return [model, *(aliases or [])]
 
     @staticmethod
+    def _backend_matches_host_ref(backend: Backend, ref: str) -> bool:
+        """Same ref forms as backend_by_id: id, "peer:<agent-id>", bare
+        agent_id, or base_url — so a pool's `hosts` list can name a
+        machine the same way the x-netllm-backend pin header does."""
+        target = ref.strip()
+        if not target:
+            return False
+        return (
+            backend.id == target
+            or backend.id == f"peer:{target}"
+            or (backend.agent_id != "" and backend.agent_id == target)
+            or backend.base_url.rstrip("/") == target.rstrip("/")
+        )
+
+    def pool_models_for_backend(self, backend: Backend) -> list[str]:
+        """Union of allowed models from every enabled pool this backend
+        belongs to (routing.model_pools). Empty when the backend is not a
+        member of any enabled pool."""
+        names: list[str] = []
+        for pool in self.model_pools.values():
+            if not pool.enabled:
+                continue
+            if not any(
+                self._backend_matches_host_ref(backend, ref) for ref in pool.hosts
+            ):
+                continue
+            for m in pool.models:
+                if m not in names:
+                    names.append(m)
+        return names
+
+    def resolve_via_pool(self, backend: Backend, requested_model: str) -> str | None:
+        """Pick the model to actually invoke on a pool-member backend,
+        ignoring the requested name entirely (model_aliases already
+        failed to match by the time callers reach this).
+
+        Returns the first pool-allowed model this backend actually
+        serves, or None if the backend is not a pool member / serves
+        none of its pool's allowed models.
+        """
+        pool_models = self.pool_models_for_backend(backend)
+        if not pool_models:
+            return None
+        served = backend.health.models
+        for m in pool_models:
+            if m in served:
+                return m
+        folded = {m.casefold() for m in pool_models}
+        for served_id in served:
+            if served_id.casefold() in folded:
+                return served_id
+        return None
+
+    @staticmethod
     def _serves_model(served: list[str], names: list[str]) -> bool:
         folded = [n.casefold() for n in names]
         return any(
@@ -379,6 +435,13 @@ class RouterPool:
                     out.append(b)
                     continue
                 if self._serves_model(models, names):
+                    out.append(b)
+                    continue
+                # model_pools bypass: a pool-member backend is a candidate
+                # for ANY requested name, as long as it serves one of its
+                # pool's allowed models — independent of model_aliases.
+                pool_models = self.pool_models_for_backend(b)
+                if pool_models and self._serves_model(models, pool_models):
                     out.append(b)
             return out
 

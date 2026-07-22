@@ -146,8 +146,22 @@ macOS app migration to the admin API, full async health probes.
 
 Phase 4 — future feature: shared model lists & batch preferences
 
-User goal: machines with overlapping-but-not-identical catalogs share calls
-and batches according to saved, editable preferences.
+Done (2026-07-22), the simpler half of this: `[routing.model_pools.<name>]`
+(`netllm_core.models.ModelPool`) lets named hosts accept *any* requested
+model name — bypassing `model_aliases` matching entirely — as long as the
+host serves one of the pool's allowed `models`. No weighting, no
+`prefer`/`batch` fields, no dashboard UI yet; config-only. See
+`config.example.toml` and the README feature table. `RouterPool.
+backends_for_model` folds pool-eligible backends into the normal candidate
+set (`pool_models_for_backend`), and `AgentService._model_for_backend`
+falls back to `RouterPool.resolve_via_pool` to pick the actual upstream
+model once alias resolution comes up empty.
+
+Still future work (not built): the weighted/preferred variant below —
+`prefer` ordering, per-host `weights`, and `batch` eligibility for the
+shard planner. This is a strict superset of `model_pools`, not a separate
+mechanism; whoever builds it should fold `model_pools` into `model_groups`
+rather than keep two config sections doing overlapping things long-term.
 
 Sketch:
 

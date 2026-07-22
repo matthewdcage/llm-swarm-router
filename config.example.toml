@@ -90,6 +90,20 @@ max_backend_failures = 3
 # [routing.model_aliases]
 # "llama3" = ["llama3:8b-instruct-q4_K_M", "Meta-Llama-3-8B-Instruct-GGUF"]
 
+# Host-scoped catch-all pools: bypass model_aliases matching entirely for
+# the listed hosts. Any request, for any model name, is a candidate for a
+# pool's hosts as long as the host actually serves one of `models` — the
+# requested name is ignored once a pool backend is picked; whichever
+# pool-allowed model that host has loaded is what actually gets invoked.
+# Useful for a big-model host that should absorb overflow/misnamed
+# requests instead of 404ing. `hosts` accepts the same refs as the
+# x-netllm-backend pin header: backend id, "peer:<agent-id>", bare
+# agent_id, or base_url.
+# [routing.model_pools.big-mac-studio]
+# enabled = true
+# hosts = ["mac-studio"]
+# models = ["qwen2.5:72b-instruct", "llama3.1:70b"]
+
 # Optional routing policies (first match wins). Cloud paths require allow_cloud = true.
 # [[routing.policies]]
 # name = "local-openai"

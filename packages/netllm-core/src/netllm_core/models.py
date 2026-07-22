@@ -126,6 +126,27 @@ class RoutingPolicy(BaseModel):
     enabled: bool = True
 
 
+class ModelPool(BaseModel):
+    """[routing.model_pools.<name>] — a host-scoped catch-all pool.
+
+    Unlike model_aliases (canonical name -> served IDs, matched against
+    the *requested* name), a pool bypasses name matching entirely: any
+    backend listed in `hosts` becomes a candidate for ANY requested
+    model, as long as it actually serves one of `models`. The served
+    model in that intersection is what gets invoked upstream — the
+    client's requested name is irrelevant once a pool backend is
+    selected. Meant for a host running a fixed set of loaded models that
+    should absorb overflow/misnamed requests rather than 404.
+    """
+
+    enabled: bool = True
+    # Backend refs: backend id, "peer:<agent-id>", bare agent_id, or
+    # base_url — same ref forms accepted by the x-netllm-backend pin.
+    hosts: list[str] = Field(default_factory=list)
+    # Models this pool is allowed to serve for any incoming request name.
+    models: list[str] = Field(default_factory=list)
+
+
 class RoutingConfig(BaseModel):
     # "auto": requests with shard context use batch_shard; everything
     # else balances by live in-flight load (least_load).
@@ -160,6 +181,13 @@ class RoutingConfig(BaseModel):
     #   [routing.model_aliases]
     #   "llama3" = ["llama3:8b-instruct-q4_K_M", "Meta-Llama-3-8B-Instruct"]
     model_aliases: dict[str, list[str]] = Field(default_factory=dict)
+    # Host-scoped catch-all pools that bypass model_aliases matching
+    # entirely for their member backends — see ModelPool.
+    #   [routing.model_pools.<name>]
+    #   enabled = true
+    #   hosts = ["mac-studio"]
+    #   models = ["qwen2.5:72b-instruct"]
+    model_pools: dict[str, ModelPool] = Field(default_factory=dict)
     backends: list[BackendOverride] = Field(default_factory=list)
     policies: list[RoutingPolicy] = Field(default_factory=list)
 

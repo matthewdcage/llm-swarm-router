@@ -234,6 +234,10 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
             "max_backend_failures": cfg.routing.max_backend_failures,
             "lan_defaults_applied": cfg.routing.lan_defaults_applied,
             "model_aliases": dict(cfg.routing.model_aliases),
+            "model_pools": {
+                name: pool.model_dump(mode="json")
+                for name, pool in cfg.routing.model_pools.items()
+            },
             "backends": _backend_override_export(cfg),
             "backend_count": len(cfg.routing.backends),
             "policies": [p.model_dump(mode="json") for p in cfg.routing.policies],
