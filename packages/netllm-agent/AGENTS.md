@@ -35,6 +35,8 @@ Key modules: `app.py`, `service.py`, `admin.py`, `metrics.py`, `shard.py`. Stati
 - **`GET /netllm/v1/cloud/providers/{id}/models`** (`AgentService.cloud_provider_models_probe`): full model catalog for one provider — live probe of the provider's models API with the configured key (OpenAI-style `GET /models`, or `x-api-key` + `/v1/models` for Anthropic-only endpoints), falling back to the registry's `static_models` (source `"static"`, status `no_api_key`/`static_catalog`/probe error). Deliberately ignores the `cloud.providers.<id>.models` allowlist: a materialized backend's `health.models` IS the allowlist once set, so the allowlist-editing UI (macOS Cloud tab checklist) needs this endpoint to show what *could* be enabled. Tests: `tests/test_admin_cloud.py`.
 - **`GET /netllm/v1/config/schema`** (`netllm_core.config_schema.config_schema_document`, also reachable offline via `netllm config schema`): form *shape* (widget/type/options/write_only/read_only/item_schema) for the 6 editable config sections — companion to `admin.config_summary` (values). Adding a pydantic field to `NetllmConfig` needs a `json_schema_extra` hint only for non-default widget/secrecy behavior (see `tests/test_config_schema.py`'s drift check); the field then appears in the dashboard's `renderSchemaForm`-driven tabs and (for `ui`/`discovery`/`swarm`, and `routing.model_pools`) the macOS app for free. See [docs/config-schema-rewrite-plan.md](../../docs/config-schema-rewrite-plan.md).
 - Depends on all other workspace packages except `netllm-cli`
+- **Telemetry** (`telemetry.py`, `GET /netllm/v1/telemetry`): unified router + optional oMLX proxy; `watch=1` enables lazy oMLX `/admin/api/stats` + `/admin/api/activity` probes (refcounted subscribers); router session/alltime counters persist to `~/.config/netllm/stats.json`; optional `psutil` host block on Linux when installed
+- **Serving dashboard tab** (`static/dashboard.js`): polls telemetry when visible; Status tab loads `watch=0` snapshot for host summary + routed metrics
 
 ## Work Guidance
 
@@ -49,6 +51,7 @@ Key modules: `app.py`, `service.py`, `admin.py`, `metrics.py`, `shard.py`. Stati
 ./netllm test
 ./netllm test --api anthropic
 curl -s http://127.0.0.1:11400/ui/
+curl -s 'http://127.0.0.1:11400/netllm/v1/telemetry?watch=0' | python3 -m json.tool
 ```
 
 ## Child DOX Index

@@ -15,9 +15,11 @@ Canonical checklist for contributors and coding agents. Mirrors what GitHub Acti
 **Before push:** from repo root:
 
 ```bash
-./scripts/verify-before-pr.sh          # Python CI + optional macOS Swift
-./scripts/verify-before-pr.sh --full   # + menubar e2e when .app exists
+./scripts/verify-before-pr.sh          # Python CI + macOS swift test when on Darwin
+./scripts/verify-before-pr.sh --full   # + menubar e2e when Stage .app exists
 ```
+
+On macOS, `verify-before-pr.sh` also runs `swift test` in `apps/netllm-mac/`. Menubar e2e curls `GET /netllm/v1/telemetry?watch=0` as a smoke check.
 
 Rebase on `origin/main` before opening a PR; branch protection requires an up-to-date head.
 
@@ -53,6 +55,7 @@ curl -sf http://127.0.0.1:11400/health
 ./netllm models
 ./netllm test
 ./netllm test --api anthropic --model <chat-model>   # not TTS/embedding ids
+curl -sf 'http://127.0.0.1:11400/netllm/v1/telemetry?watch=0'
 ```
 
 Use **`./netllm`** from repo root — not the global `netllm` on PATH (`scripts/agent-verify-setup.sh` prefers global when present).

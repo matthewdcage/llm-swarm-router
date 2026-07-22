@@ -29,6 +29,18 @@ BACKEND_IN_FLIGHT = Gauge(
     ["backend"],
 )
 
+PROMPT_TOKENS_TOTAL = Counter(
+    "netllm_prompt_tokens_total",
+    "Total proxied prompt tokens",
+    ["backend", "model"],
+)
+
+COMPLETION_TOKENS_TOTAL = Counter(
+    "netllm_completion_tokens_total",
+    "Total proxied completion tokens",
+    ["backend", "model"],
+)
+
 
 def metrics_bytes() -> bytes:
     return generate_latest()

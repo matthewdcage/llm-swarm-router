@@ -233,6 +233,7 @@ final class SettingsViewModel {
             document = try configStore.load()
             configSchema = try? configStore.loadSchema()
             syncRequireClusterTokenFromDocument()
+            MenubarAppModel.shared.updateUiSettings(document.ui)
             updateAgentURL()
             await refreshLiveData()
             scheduleAutoPeerScanIfNeeded()
@@ -392,6 +393,7 @@ final class SettingsViewModel {
                 applyRequireClusterTokenOnSave()
                 _ = try configStore.save(document)
                 syncRequireClusterTokenFromDocument()
+                MenubarAppModel.shared.updateUiSettings(document.ui)
                 needsRestart = true
                 setSuccess("Saved config.toml — use Restart Agent for listen/routing changes.")
             }

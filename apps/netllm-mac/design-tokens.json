@@ -29,6 +29,10 @@
     "ok": "#34c759",
     "warn": "#ff9500",
     "danger": "#ff3b30",
+    "ppColor": "#0a84ff",
+    "tgColor": "#34c759",
+    "ecoreColor": "#ff9500",
+    "pcoreColor": "#0a84ff",
     "sidebarWidth": "210px",
     "radius": "10px",
     "monoFont": "\"SF Mono\", \"Cascadia Code\", \"Consolas\", monospace"

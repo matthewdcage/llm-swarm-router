@@ -52,6 +52,7 @@ def create_app(
         service.start_background()
         yield
         service.stop_background()
+        await service.telemetry.close()
 
     app = FastAPI(title="netllm-agent", version=get_version(), lifespan=lifespan)
     app.state.service = service
@@ -105,6 +106,7 @@ def create_app(
                 "embeddings": f"{base}/v1/embeddings",
                 "messages": f"{base}/v1/messages",
                 "status": f"{base}/netllm/v1/status",
+                "telemetry": f"{base}/netllm/v1/telemetry",
                 "version": f"{base}/netllm/v1/version",
                 "update_check": f"{base}/netllm/v1/update/check",
                 "dashboard": f"{base}/ui/",
@@ -143,6 +145,27 @@ def create_app(
 
         await asyncio.to_thread(_probe_local)
         return await service.status_payload_enriched()
+
+    @app.get("/netllm/v1/telemetry")
+    async def netllm_telemetry(
+        scopes: str = "router,omlx",
+        history: int = 60,
+        watch: bool = True,
+    ) -> dict[str, Any]:
+        scope_set = {s.strip() for s in scopes.split(",") if s.strip()}
+        if watch:
+            service.telemetry.subscribe()
+        try:
+            payload = await service.telemetry.build_payload(
+                service,
+                scopes=scope_set,
+                include_history=history > 0,
+            )
+            payload["subscribers"] = service.telemetry.has_subscribers
+            return payload
+        finally:
+            if watch:
+                service.telemetry.unsubscribe()
 
     @app.get("/netllm/v1/peers")
     async def netllm_peers() -> dict[str, Any]:

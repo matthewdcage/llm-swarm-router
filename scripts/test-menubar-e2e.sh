@@ -120,6 +120,9 @@ ok "GET /"
 curl -sf "${BASE}/netllm/v1/status" | rg -q '"agent_id"' || fail "status"
 ok "GET /netllm/v1/status"
 
+curl -sf "${BASE}/netllm/v1/telemetry?watch=0" | rg -q '"schema_version"' || fail "telemetry"
+ok "GET /netllm/v1/telemetry"
+
 curl -sf "${BASE}/metrics" | rg -q 'netllm_' || fail "metrics"
 ok "GET /metrics"
 

@@ -24,8 +24,40 @@ final class MenubarAppModel {
     let updateController = UpdateController.shared
 
     private(set) var stats = StatsSnapshot()
+    private(set) var telemetrySnapshot = TelemetrySnapshot()
+
+    func updateTelemetrySnapshot(_ snapshot: TelemetrySnapshot) {
+        telemetrySnapshot = snapshot
+    }
     private(set) var serverState: ServerProcess.State = .stopped
     private(set) var updateRevision = 0
+
+    var connectableHost: String {
+        guard let config else { return "127.0.0.1" }
+        return AppConfig.connectableHost(for: config.bindHost)
+    }
+
+    var agentPort: Int {
+        config?.port ?? 11400
+    }
+
+    var serverProcess: ServerProcess? { server }
+
+    var uiSettings: NetllmConfigDocument.UiSection {
+        uiSettingsCache
+    }
+
+    private var uiSettingsCache = NetllmConfigDocument.UiSection()
+
+    func updateUiSettings(_ ui: [String: JSONValue]) {
+        let projected = NetllmConfigDocument.UiSection(ui: ui)
+        uiSettingsCache = projected
+        MenubarController.shared.refreshAppearance(settings: projected)
+    }
+
+    var hasOmlxAdmin: Bool {
+        stats.omlxAdminURL != nil || OmlxURLs.adminURL(from: stats.backends) != nil
+    }
 
     private init() {}
 
@@ -137,7 +169,11 @@ final class MenubarAppModel {
     }
 
     private func syncFromPoller() {
-        stats = statsPoller.snapshot
+        syncStatsFromPoller(statsPoller.snapshot)
+    }
+
+    func syncStatsFromPoller(_ snap: StatsSnapshot) {
+        stats = snap
     }
 
     private func syncPollerRunning() {

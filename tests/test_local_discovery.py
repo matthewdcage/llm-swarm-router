@@ -194,6 +194,22 @@ def test_normalize_omlx_admin_payload_active_models() -> None:
     assert stats["loaded_models"] == ["qwen3-4b", "llama"]
 
 
+def test_normalize_omlx_stats_scope() -> None:
+    from netllm_discovery.local import _normalize_omlx_stats_scope
+
+    data = {
+        "total_prompt_tokens": 100,
+        "total_completion_tokens": 40,
+        "total_cached_tokens": 50,
+        "total_requests": 3,
+        "avg_prefill_tps": 10.5,
+        "avg_generation_tps": 4.2,
+    }
+    out = _normalize_omlx_stats_scope(data)
+    assert out["total_tokens"] == 140
+    assert out["cache_efficiency_pct"] == 50.0
+
+
 @pytest.mark.asyncio
 async def test_probe_omlx_admin_parses_server_info() -> None:
     class FakeResponse:

@@ -11,7 +11,7 @@ Swift menubar application that supervises the netllm Python agent, exposes setti
 | Path | Role |
 |------|------|
 | `Sources/App/` | Entry, delegate, lifecycle |
-| `Sources/Menubar/` | Status item, stats polling |
+| `Sources/Menubar/` | NSMenu menubar (`MenubarController`), telemetry poller, System Stats fly-out, Serving Stats submenu, optional gauge status items |
 | `Sources/Server/` | Process supervisor, control socket |
 | `Sources/Config/` | TOML slices, CLI shim, `AgentAPI` HTTP client, branding, tokens |
 | `Sources/AppView/` | Settings (`SettingsViewModel` live poll), welcome, about, glass chrome |
@@ -37,6 +37,7 @@ Swift menubar application that supervises the netllm Python agent, exposes setti
 - **Cloud provider display metadata is server-fetched, not hardcoded**: `SettingsViewModel.cloudProviders` (computed) prefers the live `cloudProviderRegistry` (populated once per session in `refreshLiveData()` via `AgentAPI.cloudProviderRegistry` → `GET /netllm/v1/cloud/providers`) and falls back to `SettingsViewModel.cloudProvidersBootstrap` only when the agent is unreachable. Always read `model.cloudProviders` in views — never the static bootstrap list directly.
 - **Models tab & pool pickers** (docs/models-ux-plan.md phases A + B1–B3): `ModelsTabView.swift` renders one machine-grouped, collapsible, searchable list from live `status.backends` (grouped via `BackendStatus.agentId`/`backendId`, parsed in `AgentAPI.parseBackend`); rows carry `routing.model_pools` membership badges (green/orange effectiveness dot computed client-side by `SettingsViewModel.poolInactiveReason` mirroring `pool.py _backend_matches_host_ref` — keep in sync) and an add/remove-pool menu writing the **same** `document.routing.model_pools` draft the Routing tab binds to. Routing's pool editor threads `SettingsViewModel.knownHostRefs`/`knownModelIDs` as `SchemaFieldOverride.suggestions` into `EditableStringList` (picker menu + soft unknown-value warning; free text stays allowed — offline hosts are legitimate). Models-tab filter/collapse state lives on the view model, not `@State` — the detail view's `.id(uiRevision)` resets view-local state every 2s poll. Per-model request metrics are deliberately absent (plan phase C: server doesn't track them; don't fake from backend counters).
 - **`document.ui`/`.discovery`/`.swarm` are `[String: JSONValue]`, not typed structs** (docs/config-schema-rewrite-plan.md §5 phase 4, Option A) — `JSONValue.swift`'s `Binding<[String: JSONValue]>` extensions (`.string()`/`.bool()`/`.double()`/`.stringArray()`/`.stringArray(_:subKey:)`) bridge them back to plain Swift types for existing views. `SchemaFormView`/`SchemaFieldOverride` (`Sources/AppView/SchemaFormView.swift`) render generically from `ConfigStore.loadSchema()` (`netllm config schema`) where a section has no hand-tuned view (`ui`, the 3 new swarm fields, `routing.model_pools`). `routing`'s other fields and all of `cloud` are still typed structs — deliberate, not partial-migration debt; see the plan doc before "finishing" that migration.
+- **Menubar UX:** AppKit `MenubarController` (not SwiftUI popover) polls `GET /netllm/v1/telemetry?watch=1` while menu open; **System Stats** uses native `HostSampler` (delta E/P CPU, IOKit GPU, stacked memory bar); **Serving Stats** shows router + oMLX session/all-time rows when oMLX admin is reachable (oMLX 0.5.2+); optional CPU/GPU/MEM/LIV gauges toggled under Settings → Appearance (`ui.menubar_*` in config schema)
 
 ## Work Guidance
 
@@ -47,6 +48,7 @@ Swift menubar application that supervises the netllm Python agent, exposes setti
 ## Verification
 
 ```bash
+cd apps/netllm-mac && swift build -c release && swift test
 apps/netllm-mac/Scripts/build.sh release
 scripts/verify-before-pr.sh
 scripts/test-menubar-e2e.sh

@@ -18,6 +18,8 @@ echo "==> test"
 if [[ "$(uname -s)" == "Darwin" ]]; then
   echo "==> swift release build (netllm-mac)"
   (cd "$ROOT/apps/netllm-mac" && swift build -c release) || fail "swift build -c release"
+  echo "==> swift test (netllm-mac)"
+  (cd "$ROOT/apps/netllm-mac" && swift test) || fail "swift test"
 
   if [[ "$FULL" == 1 ]]; then
     APP="$ROOT/apps/netllm-mac/build/Stage/llm-swarm-router.app"

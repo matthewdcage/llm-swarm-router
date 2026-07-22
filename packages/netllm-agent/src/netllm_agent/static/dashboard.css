@@ -279,6 +279,19 @@ button.danger { background: var(--danger); }
 
 .metric-card .sub { font-size: 0.75rem; color: var(--muted); }
 
+.sparkline-row {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.sparkline {
+  display: block;
+  background: var(--code-bg);
+  border-radius: calc(var(--radius) - 4px);
+}
+
 .grid-2 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
