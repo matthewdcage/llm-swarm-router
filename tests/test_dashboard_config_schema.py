@@ -65,11 +65,7 @@ def test_schema_endpoint_matches_default_ui_config(client: TestClient) -> None:
     doc = resp.json()
     assert doc == config_schema_document()
     ui_defaults = {f["name"]: f["default"] for f in doc["sections"]["ui"]["fields"]}
-    assert ui_defaults == {
-        "auto_start_on_launch": True,
-        "log_dir": "",
-        "check_for_updates_automatically": True,
-    }
+    assert ui_defaults == NetllmConfig().ui.model_dump()
 
 
 def test_dashboard_js_serves_remaining_sections_generic_widgets(
