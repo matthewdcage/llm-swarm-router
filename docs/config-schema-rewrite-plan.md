@@ -10,8 +10,26 @@ see §6 risk 1) and a schema-driven `emptyConfigDraft()` for the pilot
 section; the `ui` tab is the first migrated, other 5 tabs untouched.
 Verified against a live agent in-browser (toggle → dirty → save →
 persisted round-trip) and covered by
-`tests/test_dashboard_config_schema.py`. Phases 3–5 (remaining 5 JS
-sections, Swift dynamic model, docs cleanup) not started. Companion to
+`tests/test_dashboard_config_schema.py`. Phase 3 done (2026-07-22):
+discovery/swarm/routing/cloud migrated too — new generic widgets for
+list-of-strings, dict-of-list-of-strings (discovery.provider_urls),
+write-only secrets, list-of-objects (routing.policies/backends, with the
+`default_factory` hint wired to a `SCHEMA_ITEM_FACTORIES` registry), and
+dict-of-objects (routing.model_pools, with arbitrary user-typed keys —
+the newly generic UI for a same-day feature). Cloud's per-provider cards
+stay bespoke-shelled (live registry metadata — display name/regions/
+api_key_set — isn't in the shape-only schema) but now build their fields
+with the same generic per-field renderers. `buildConfigPatch()` is now a
+generic schema walk (`buildSchemaSectionPatch`/`schemaItemToPatch`)
+instead of a hand-listed field set per section, so newly-exposed fields
+(e.g. swarm's `peer_stale_after_s`) are not silently dropped on save.
+`renderRoutingPoliciesEditor`/`renderBackendOverridesEditor` deleted.
+`agent` stays intentionally hand-written — `listen` is a single string
+split into a LAN-mode checkbox + port number in the UI, exactly the
+"field needs a hand-authored widget" case §2 point 4 anticipates.
+Verified against a live agent (in-browser + direct API round-trip) and
+covered by `tests/test_dashboard_config_schema.py`. Phases 4–5 (Swift
+dynamic model, docs cleanup) not started. Companion to
 [cloud-providers-plan.md](cloud-providers-plan.md) §"Schema triple-mirror
 drift" and the earlier `routing-hardening-plan.md` follow-up of the same
 name. This is the deferred, larger half of that item: a generic schema for

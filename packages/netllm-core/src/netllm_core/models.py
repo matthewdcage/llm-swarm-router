@@ -68,8 +68,8 @@ class BackendOverride(BaseModel):
     # Tags a backend row as materialized from [cloud.providers.<id>] (see
     # CloudConfig below). Empty for hand-authored [[routing.backends]] rows.
     # Additive field: old readers ignore it; old writers omit it (defaults
-    # to "").
-    cloud_provider: str = ""
+    # to ""). Not user-settable from a form — server-materialized only.
+    cloud_provider: str = Field(default="", json_schema_extra={"read_only": True})
     # Manual per-backend concurrency cap (0 = defer to the pool's global
     # routing.max_in_flight_per_backend). Same semantics as Backend.max_concurrency.
     max_concurrency: int = Field(default=0, ge=0)

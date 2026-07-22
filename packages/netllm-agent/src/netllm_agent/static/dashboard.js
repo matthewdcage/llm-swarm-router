@@ -1,16 +1,8 @@
 /* llm-swarm-router web dashboard — native Settings parity */
 
 const PROVIDERS = ["omlx", "ollama", "lmstudio", "vllm"];
-const STRATEGIES = [
-  "auto",
-  "local_first",
-  "local_spillover",
-  "failover",
-  "round_robin",
-  "least_load",
-  "latency_weighted",
-  "batch_shard",
-];
+// STRATEGIES was hand-maintained here; routing.default_strategy's options
+// now come from the schema's Literal introspection (phase 3) instead.
 const ROLES = ["peer", "gateway"];
 // Fallback only, used when the admin config API is unreachable (offline
 // dashboard) and configDraft.cloud.providers is empty. Once connected,
@@ -188,19 +180,47 @@ function schemaSectionDefaults(schema, sectionKey, fallback) {
 }
 
 function emptyConfigDraft() {
+  // Every section's default now walks the fetched schema (phase 3); the
+  // literal second argument is the fallback for a schema-unavailable
+  // agent (predates the endpoint) or a fetch failure — see plan §4.
   return {
-    agent: { listen: "127.0.0.1:11400", role: "peer", advertise: true, agent_id: "", hostname: "" },
-    discovery: { providers: [...PROVIDERS], provider_urls: {}, custom_endpoints: [] },
-    swarm: { mdns: true, subnet_scan: false, subnet_cidrs: [], heartbeat_interval_s: 10, peers: [], cluster_token_set: false },
-    routing: { default_strategy: "local_first", allow_remote: true, require_same_model_for_shard: true, backends: [], backend_count: 0, policies: [], policy_count: 0 },
-    // First section migrated to the schema-driven default (phase 2) —
-    // the other 5 stay hand-written literals until phase 3.
+    agent: schemaSectionDefaults(state.configSchema, "agent", {
+      listen: "127.0.0.1:11400",
+      role: "peer",
+      advertise: true,
+      agent_id: "",
+      hostname: "",
+    }),
+    discovery: schemaSectionDefaults(state.configSchema, "discovery", {
+      providers: [...PROVIDERS],
+      provider_urls: {},
+      custom_endpoints: [],
+    }),
+    swarm: schemaSectionDefaults(state.configSchema, "swarm", {
+      mdns: true,
+      subnet_scan: false,
+      subnet_cidrs: [],
+      heartbeat_interval_s: 10,
+      peers: [],
+    }),
+    routing: schemaSectionDefaults(state.configSchema, "routing", {
+      default_strategy: "local_first",
+      allow_remote: true,
+      require_same_model_for_shard: true,
+      backends: [],
+      policies: [],
+    }),
     ui: schemaSectionDefaults(state.configSchema, "ui", {
       auto_start_on_launch: true,
       log_dir: "",
       check_for_updates_automatically: true,
     }),
-    cloud: { enabled: true, fallback: "cloud", fallback_enabled: true, providers: {} },
+    cloud: schemaSectionDefaults(state.configSchema, "cloud", {
+      enabled: true,
+      fallback: "cloud",
+      fallback_enabled: true,
+      providers: {},
+    }),
   };
 }
 
@@ -646,6 +666,7 @@ function schemaFieldRow(field, draft, onDirty, overrides, inputType) {
   const current = draft[field.name];
   input.value = current === undefined || current === null ? "" : current;
   if (overrides?.placeholder) input.placeholder = overrides.placeholder;
+  if (overrides?.step) input.step = overrides.step;
   input.oninput = () => {
     draft[field.name] = inputType === "number" ? Number(input.value) : input.value;
     onDirty();
@@ -659,20 +680,225 @@ function schemaSelectRow(field, draft, onDirty, overrides) {
   const group = el("div", "form-group");
   group.appendChild(textEl("label", "", schemaFieldLabel(field, overrides)));
   const select = document.createElement("select");
-  (overrides?.options || field.options || []).forEach((opt) => {
+  // Optional Literal fields (e.g. RoutingPolicy.api_format/strategy) get a
+  // leading "unset" option mapping to null, matching what the pydantic
+  // model actually allows — a required select has no such option.
+  const options = overrides?.options || field.options || [];
+  const withBlank = field.optional ? ["", ...options] : options;
+  withBlank.forEach((opt) => {
     const optionEl = document.createElement("option");
     optionEl.value = opt;
-    optionEl.textContent = overrides?.optionLabels?.[opt] || opt;
+    optionEl.textContent = overrides?.optionLabels?.[opt] || opt || "(default)";
     select.appendChild(optionEl);
   });
   select.value = draft[field.name] ?? field.default ?? "";
   select.onchange = () => {
-    draft[field.name] = select.value;
+    draft[field.name] = select.value || (field.optional ? null : select.value);
     onDirty();
     if (overrides?.onChange) overrides.onChange(draft[field.name]);
   };
   group.appendChild(select);
   return group;
+}
+
+// Secret fields (write_only: true) never round-trip a real value from the
+// server — draft[field.name] is always "". A typed value is stashed on
+// `draft[pendingKey]` instead (default "_pending_<field>", overridable —
+// swarm.cluster_token keeps its pre-existing "_cluster_token" key so
+// buildConfigPatch's existing read of it needs no change) and left for
+// the section's patch-builder to pick up, same convention the
+// hand-written cloud/swarm code already used before this field existed.
+function schemaSecretRow(field, draft, onDirty, overrides) {
+  const group = el("div", "form-group");
+  const pendingKey = overrides?.pendingKey || `_pending_${field.name}`;
+  group.appendChild(textEl("label", "", schemaFieldLabel(field, overrides)));
+  const input = document.createElement("input");
+  input.type = "password";
+  input.autocomplete = "off";
+  input.placeholder = overrides?.placeholder || "Leave blank to keep existing";
+  input.oninput = () => {
+    draft[pendingKey] = input.value;
+    onDirty();
+  };
+  group.appendChild(input);
+  return group;
+}
+
+// Plain list-of-strings (routing.model_aliases values aside — those are
+// dict_list_strings below): add/remove rows syncing straight back into
+// draft[field.name], generalizing the pre-existing renderStringListEditor
+// (which is keyed by a dotted path into the *global* configDraft) to work
+// against any draft object.
+function schemaListStringsRow(field, draft, onDirty, overrides) {
+  const wrap = el("div", "card string-list");
+  const list = el("div", "string-list");
+
+  function sync() {
+    const inputs = list.querySelectorAll("input");
+    draft[field.name] = [...inputs].map((i) => i.value.trim()).filter(Boolean);
+    onDirty();
+  }
+
+  function addRow(value = "") {
+    const item = el("div", "string-list-item");
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = value;
+    input.placeholder = overrides?.placeholder || "";
+    input.oninput = sync;
+    const rm = textEl("button", "secondary", "−");
+    rm.onclick = () => {
+      item.remove();
+      sync();
+    };
+    item.append(input, rm);
+    list.appendChild(item);
+  }
+
+  (draft[field.name] || []).forEach(addRow);
+  const add = textEl("button", "secondary", `+ Add ${overrides?.itemLabel || ""}`.trim());
+  add.onclick = () => addRow();
+  wrap.append(list, add);
+  return wrap;
+}
+
+// dict[str, list[str]] (discovery.provider_urls: one string-list per
+// known key). Unlike schemaDictRow below, keys here come from
+// overrides.keys (a fixed, known set — e.g. the provider id list), not
+// from user-typed row keys.
+function schemaDictListStringsRow(field, draft, onDirty, overrides) {
+  const wrap = el("div");
+  if (!draft[field.name]) draft[field.name] = {};
+  const dict = draft[field.name];
+  (overrides?.keys || Object.keys(dict)).forEach((key) => {
+    wrap.appendChild(textEl("div", "section-label", overrides?.keyLabels?.[key] || key));
+    const rowWrap = el("div", "card string-list");
+    const list = el("div", "string-list");
+    function sync() {
+      const inputs = list.querySelectorAll("input");
+      dict[key] = [...inputs].map((i) => i.value.trim()).filter(Boolean);
+      onDirty();
+    }
+    function addRow(value = "") {
+      const item = el("div", "string-list-item");
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = value;
+      input.placeholder = overrides?.placeholder || "";
+      input.oninput = sync;
+      const rm = textEl("button", "secondary", "−");
+      rm.onclick = () => {
+        item.remove();
+        sync();
+      };
+      item.append(input, rm);
+      list.appendChild(item);
+    }
+    (dict[key] || []).forEach(addRow);
+    const add = textEl("button", "secondary", "+ Add URL");
+    add.onclick = () => addRow();
+    rowWrap.append(list, add);
+    wrap.appendChild(rowWrap);
+  });
+  return wrap;
+}
+
+// list[BaseModel] (routing.policies / routing.backends): one removable
+// mini-form per item, fields driven by field.item_schema — the same
+// dispatch schemaFieldsCard uses for a whole section, just scoped to one
+// array element. `overrides.newItem()` supplies the "+ Add" default (the
+// plan's §6 risk 1 default_factory hint resolves to this); falls back to
+// field.item_schema's own per-field defaults.
+function schemaListOfObjectsRow(field, draft, onDirty, overrides) {
+  const wrap = el("div", "card");
+  if (!draft[field.name]) draft[field.name] = [];
+  const list = el("div", "string-list");
+
+  function itemDefault() {
+    if (overrides?.newItem) return overrides.newItem();
+    const out = {};
+    (field.item_schema || []).forEach((f) => (out[f.name] = f.default));
+    return out;
+  }
+
+  function addRow(entry) {
+    const item = el("div", "string-list-item schema-list-item");
+    const fieldsCard = schemaFieldsCard(field.item_schema || [], entry, onDirty, overrides?.itemOverrides);
+    item.appendChild(fieldsCard);
+    const rm = textEl("button", "secondary", "−");
+    rm.onclick = () => {
+      const idx = draft[field.name].indexOf(entry);
+      if (idx >= 0) draft[field.name].splice(idx, 1);
+      item.remove();
+      onDirty();
+    };
+    item.appendChild(rm);
+    list.appendChild(item);
+  }
+
+  draft[field.name].forEach((entry) => addRow(entry));
+  wrap.appendChild(list);
+  const add = textEl("button", "secondary", `+ Add ${overrides?.itemLabel || "row"}`);
+  add.onclick = () => {
+    const entry = itemDefault();
+    draft[field.name].push(entry);
+    addRow(entry);
+    onDirty();
+  };
+  wrap.appendChild(add);
+  return wrap;
+}
+
+// dict[str, BaseModel] with arbitrary user-typed keys (routing.model_pools:
+// pool name -> ModelPool). Cloud's dict[str, CloudProviderConfig] is NOT
+// rendered with this widget — its keys are a fixed, server-known registry
+// id set, not user-typed, so the cloud tab builds per-provider cards
+// directly with schemaFieldsCard (see renderCloudProviderCard).
+function schemaDictOfObjectsRow(field, draft, onDirty, overrides) {
+  const wrap = el("div", "card");
+  if (!draft[field.name]) draft[field.name] = {};
+  const dict = draft[field.name];
+  const list = el("div", "string-list");
+
+  function addRow(key, entry) {
+    const item = el("div", "string-list-item schema-list-item");
+    const keyInput = document.createElement("input");
+    keyInput.type = "text";
+    keyInput.value = key;
+    keyInput.placeholder = overrides?.keyPlaceholder || "name";
+    keyInput.oninput = () => {
+      const newKey = keyInput.value.trim();
+      if (!newKey || newKey === key) return;
+      delete dict[key];
+      dict[newKey] = entry;
+      key = newKey;
+      onDirty();
+    };
+    item.appendChild(keyInput);
+    item.appendChild(schemaFieldsCard(field.item_schema || [], entry, onDirty, overrides?.itemOverrides));
+    const rm = textEl("button", "secondary", "−");
+    rm.onclick = () => {
+      delete dict[key];
+      item.remove();
+      onDirty();
+    };
+    item.appendChild(rm);
+    list.appendChild(item);
+  }
+
+  Object.entries(dict).forEach(([key, entry]) => addRow(key, entry));
+  wrap.appendChild(list);
+  const add = textEl("button", "secondary", `+ Add ${overrides?.itemLabel || "row"}`);
+  add.onclick = () => {
+    const entry = {};
+    (field.item_schema || []).forEach((f) => (entry[f.name] = f.default));
+    const key = "";
+    dict[key] = entry;
+    addRow(key, entry);
+    onDirty();
+  };
+  wrap.appendChild(add);
+  return wrap;
 }
 
 function renderSchemaField(field, draft, onDirty, overrides) {
@@ -686,32 +912,49 @@ function renderSchemaField(field, draft, onDirty, overrides) {
   }
   if (field.widget === "select") return schemaSelectRow(field, draft, onDirty, overrides);
   if (field.widget === "number") return schemaFieldRow(field, draft, onDirty, overrides, "number");
-  // "text", "secret" (secret editing lands in phase 3 with the
-  // write-only convention), and any unrecognized widget all render as a
-  // plain text input for now rather than silently omitting the field.
+  if (field.widget === "secret") return schemaSecretRow(field, draft, onDirty, overrides);
+  if (field.widget === "list_strings") return schemaListStringsRow(field, draft, onDirty, overrides);
+  if (field.widget === "dict_list_strings") return schemaDictListStringsRow(field, draft, onDirty, overrides);
+  if (field.widget === "list") return schemaListOfObjectsRow(field, draft, onDirty, overrides);
+  if (field.widget === "dict") return schemaDictOfObjectsRow(field, draft, onDirty, overrides);
+  // "text" and any unrecognized widget render as a plain text input
+  // rather than silently omitting the field.
   return schemaFieldRow(field, draft, onDirty, overrides, "text");
 }
 
 /**
- * Render every editable (non-read_only) field of one config schema
- * section into a single card. `overrides` is keyed by field name — see
- * the header comment above for its shape.
+ * Render every editable (non-read_only) field in `fields` (a schema
+ * section's .fields, or a nested .item_schema) against `draft`, one card.
+ * `overrides` is keyed by field name — see the header comment above.
+ */
+function schemaFieldsCard(fields, draft, onDirty, overrides = {}) {
+  const card = el("div", "card");
+  fields
+    // `overrides[name].hidden` opts a field out of the generic layout
+    // entirely — e.g. cloud.providers, which a caller renders itself
+    // (per-provider cards need live registry metadata the schema doesn't
+    // carry) rather than as a generic dict-of-objects widget.
+    .filter((f) => !f.read_only && !overrides[f.name]?.hidden)
+    .forEach((field) => {
+      card.appendChild(renderSchemaField(field, draft, onDirty, overrides[field.name]));
+    });
+  return card;
+}
+
+/**
+ * Render every editable field of one top-level config schema section —
+ * thin wrapper over schemaFieldsCard for the common case.
  */
 function renderSchemaForm(sectionKey, schema, draft, onDirty, overrides = {}) {
-  const card = el("div", "card");
   const section = schema?.sections?.[sectionKey];
   if (!section) {
+    const card = el("div", "card");
     card.appendChild(
       textEl("p", "muted-sm", "Config schema unavailable — check the admin API connection.")
     );
     return card;
   }
-  section.fields
-    .filter((f) => !f.read_only)
-    .forEach((field) => {
-      card.appendChild(renderSchemaField(field, draft, onDirty, overrides[field.name]));
-    });
-  return card;
+  return schemaFieldsCard(section.fields, draft, onDirty, overrides);
 }
 
 function renderAgentTab() {
@@ -797,156 +1040,119 @@ function renderDiscoveryTab() {
   });
   root.appendChild(card);
 
+  // custom_endpoints/provider_urls/(swarm.)peers are schema-driven (phase
+  // 3) — `providers` above stays hand-written: its UX is "toggle each
+  // known provider on/off" against the fixed PROVIDERS list, not a
+  // free-text list editor, and the schema has no enum for a bare
+  // list[str] to drive that generically (see plan §6 risk 1's escape
+  // hatch — this is exactly the "field needs a hand-authored widget"
+  // case §2 point 4 anticipates).
+  const discoveryFields = state.configSchema?.sections?.discovery?.fields || [];
+  const byDiscoveryName = Object.fromEntries(discoveryFields.map((f) => [f.name, f]));
+
   root.appendChild(textEl("div", "section-label", "Custom servers (OpenAI-compatible)"));
   root.appendChild(
     textEl("p", "empty", "Any base URL the agent should route to — vLLM, custom gateways, etc.")
   );
-  root.appendChild(
-    renderStringListEditor("discovery.custom_endpoints", "http://127.0.0.1:8000/v1")
-  );
+  if (byDiscoveryName.custom_endpoints) {
+    root.appendChild(
+      renderSchemaField(byDiscoveryName.custom_endpoints, state.configDraft.discovery, markDirty, {
+        placeholder: "http://127.0.0.1:8000/v1",
+      })
+    );
+  }
 
   root.appendChild(textEl("div", "section-label", "Known provider URLs"));
   root.appendChild(
     textEl("p", "empty", "Pin non-default ports (e.g. oMLX on :8088). Tried before automatic port scan.")
   );
-  PROVIDERS.forEach((p) => {
-    root.appendChild(textEl("div", "section-label", `${p}`));
-    root.appendChild(renderProviderUrlsEditor(p));
-  });
+  if (byDiscoveryName.provider_urls) {
+    root.appendChild(
+      renderSchemaField(byDiscoveryName.provider_urls, state.configDraft.discovery, markDirty, {
+        keys: PROVIDERS,
+        placeholder: "http://127.0.0.1:8080/v1",
+      })
+    );
+  }
 
   root.appendChild(textEl("div", "section-label", "Known swarm agents (static peers)"));
   root.appendChild(
     textEl("p", "empty", "Other netllm agents on your LAN — used when mDNS is blocked.")
   );
-  root.appendChild(renderStringListEditor("swarm.peers", "http://10.0.0.32:11400"));
-}
-
-function renderProviderUrlsEditor(provider) {
-  const wrap = el("div", "card string-list");
-  if (!state.configDraft.discovery.provider_urls) state.configDraft.discovery.provider_urls = {};
-  const urls = state.configDraft.discovery.provider_urls[provider] || [];
-  const list = el("div", "string-list");
-
-  function sync() {
-    const inputs = list.querySelectorAll("input");
-    state.configDraft.discovery.provider_urls[provider] = [...inputs]
-      .map((i) => i.value.trim())
-      .filter(Boolean);
-    markDirty();
+  const swarmPeersField = (state.configSchema?.sections?.swarm?.fields || []).find(
+    (f) => f.name === "peers"
+  );
+  if (swarmPeersField) {
+    root.appendChild(
+      renderSchemaField(swarmPeersField, state.configDraft.swarm, markDirty, {
+        placeholder: "http://10.0.0.32:11400",
+      })
+    );
   }
-
-  function addRow(value = "") {
-    const item = el("div", "string-list-item");
-    const input = document.createElement("input");
-    input.type = "text";
-    input.value = value;
-    input.placeholder = "http://127.0.0.1:8080/v1";
-    input.oninput = sync;
-    const rm = textEl("button", "secondary", "−");
-    rm.onclick = () => {
-      item.remove();
-      sync();
-    };
-    item.append(input, rm);
-    list.appendChild(item);
-  }
-
-  urls.forEach(addRow);
-  const add = textEl("button", "secondary", "+ Add URL");
-  add.onclick = () => addRow();
-  wrap.append(list, add);
-  return wrap;
 }
 
 function renderSwarmTab() {
   const root = document.getElementById("tab-swarm");
   root.replaceChildren();
   root.appendChild(textEl("h1", "page-title", "Swarm"));
-  const card = el("div", "card");
-
-  card.appendChild(
-    checkboxRow("mDNS discovery", !!state.configDraft.swarm.mdns, (v) => {
-      state.configDraft.swarm.mdns = v;
-      markDirty();
-    })
-  );
-  card.appendChild(
-    checkboxRow("Subnet scan at startup", !!state.configDraft.swarm.subnet_scan, (v) => {
-      state.configDraft.swarm.subnet_scan = v;
-      markDirty();
-    })
-  );
-
-  const hb = el("div", "form-group");
-  hb.appendChild(textEl("label", "", "Heartbeat interval (seconds)"));
-  const hbInput = document.createElement("input");
-  hbInput.type = "number";
-  hbInput.step = "0.5";
-  hbInput.value = state.configDraft.swarm.heartbeat_interval_s ?? 10;
-  hbInput.onchange = () => {
-    state.configDraft.swarm.heartbeat_interval_s = parseFloat(hbInput.value) || 10;
-    markDirty();
-  };
-  hb.appendChild(hbInput);
-  card.appendChild(hb);
-
-  const token = el("div", "form-group");
+  // Whole section migrated to the schema-driven renderer (phase 3) —
+  // this also surfaces require_token_for_inference/peer_stale_after_s/
+  // rediscover_interval_s, which the hand-written version never exposed
+  // (see docs/config-schema-rewrite-plan.md §1's Swift/JS drift
+  // evidence — this dashboard had the same gap Swift did).
   const tokenLabel = state.configDraft.swarm.cluster_token_set
-    ? "(secured)"
-    : "(open trusted LAN)";
-  token.appendChild(textEl("label", "", `Cluster token ${tokenLabel}`));
-  const tokenInput = document.createElement("input");
-  tokenInput.type = "password";
-  tokenInput.placeholder = "Leave blank to keep existing";
-  tokenInput.oninput = () => {
-    state.configDraft._cluster_token = tokenInput.value;
-    markDirty();
-  };
-  token.appendChild(tokenInput);
-  card.appendChild(token);
-  root.appendChild(card);
-
-  root.appendChild(textEl("div", "section-label", "Subnet CIDRs"));
-  root.appendChild(renderStringListEditor("swarm.subnet_cidrs", "10.0.0.0/24"));
-  root.appendChild(textEl("div", "section-label", "Static peers"));
-  root.appendChild(renderStringListEditor("swarm.peers", "http://10.0.0.32:11400"));
+    ? "Cluster token (secured)"
+    : "Cluster token (open trusted LAN)";
+  root.appendChild(
+    renderSchemaForm("swarm", state.configSchema, state.configDraft.swarm, markDirty, {
+      cluster_token: { label: tokenLabel, pendingKey: "_cluster_token" },
+      heartbeat_interval_s: { step: "0.5" },
+      peer_stale_after_s: { step: "0.5" },
+      rediscover_interval_s: { step: "0.5" },
+      subnet_cidrs: { placeholder: "10.0.0.0/24", itemLabel: "CIDR" },
+      peers: { placeholder: "http://10.0.0.32:11400", itemLabel: "peer" },
+    })
+  );
 }
+
+// Resolves a schema field's "default_factory" hint (§6 risk 1 — a
+// named builder for a sensible "Add row" default instead of an empty
+// one) to the actual JS factory function.
+const SCHEMA_ITEM_FACTORIES = {
+  local_openai_policy: () => ({
+    name: "local-openai",
+    model_prefix: "",
+    api_format: "openai",
+    strategy: null,
+    prefer_provider: null,
+    allow_cloud: false,
+    enabled: true,
+  }),
+};
 
 function renderRoutingTab() {
   const root = document.getElementById("tab-routing");
   root.replaceChildren();
   root.appendChild(textEl("h1", "page-title", "Routing"));
+
+  const fields = state.configSchema?.sections?.routing?.fields || [];
+  const byName = Object.fromEntries(fields.map((f) => [f.name, f]));
+  const draft = state.configDraft.routing;
+
   const card = el("div", "card");
-
-  const strat = el("div", "form-group");
-  strat.appendChild(textEl("label", "", "Default strategy"));
-  const sel = document.createElement("select");
-  STRATEGIES.forEach((s) => {
-    const opt = document.createElement("option");
-    opt.value = s;
-    opt.textContent = s;
-    if (state.configDraft.routing.default_strategy === s) opt.selected = true;
-    sel.appendChild(opt);
+  [
+    "default_strategy",
+    "allow_remote",
+    "require_same_model_for_shard",
+    "max_in_flight_per_backend",
+    "follow_gateway",
+    "spillover_max_local_in_flight",
+    "health_ttl_s",
+    "offline_retry_s",
+    "max_backend_failures",
+  ].forEach((name) => {
+    if (byName[name]) card.appendChild(renderSchemaField(byName[name], draft, markDirty));
   });
-  sel.onchange = () => {
-    state.configDraft.routing.default_strategy = sel.value;
-    markDirty();
-  };
-  strat.appendChild(sel);
-  card.appendChild(strat);
-
-  card.appendChild(
-    checkboxRow("Allow remote backends", !!state.configDraft.routing.allow_remote, (v) => {
-      state.configDraft.routing.allow_remote = v;
-      markDirty();
-    })
-  );
-  card.appendChild(
-    checkboxRow("Require same model for shard", !!state.configDraft.routing.require_same_model_for_shard, (v) => {
-      state.configDraft.routing.require_same_model_for_shard = v;
-      markDirty();
-    })
-  );
   root.appendChild(card);
 
   root.appendChild(textEl("div", "section-label", "Routing policies"));
@@ -957,167 +1163,45 @@ function renderRoutingTab() {
       "First match wins. Cloud routing requires allow_cloud on an explicit policy row."
     )
   );
-  root.appendChild(renderRoutingPoliciesEditor());
+  if (byName.policies) {
+    root.appendChild(
+      renderSchemaField(byName.policies, draft, markDirty, {
+        itemLabel: "routing policy",
+        newItem: SCHEMA_ITEM_FACTORIES[byName.policies.default_factory],
+        itemOverrides: {
+          api_format: { optionLabels: { "": "any api_format" } },
+          strategy: { optionLabels: { "": "default strategy" } },
+        },
+      })
+    );
+  }
 
   root.appendChild(textEl("div", "section-label", "Backend overrides"));
   root.appendChild(
     textEl("p", "empty", "Manual routing entries for specific upstream URLs (optional).")
   );
-  root.appendChild(renderBackendOverridesEditor());
+  if (byName.backends) {
+    root.appendChild(renderSchemaField(byName.backends, draft, markDirty, { itemLabel: "backend" }));
+  }
+
+  root.appendChild(textEl("div", "section-label", "Model pools"));
+  root.appendChild(
+    textEl(
+      "p",
+      "empty",
+      "Host-scoped catch-all: listed hosts accept any requested model name, bypassing model_aliases matching, as long as they serve one of the pool's models."
+    )
+  );
+  if (byName.model_pools) {
+    root.appendChild(
+      renderSchemaField(byName.model_pools, draft, markDirty, {
+        itemLabel: "model pool",
+        keyPlaceholder: "pool name",
+      })
+    );
+  }
 }
 
-function renderRoutingPoliciesEditor() {
-  const wrap = el("div", "card");
-  if (!state.configDraft.routing.policies) state.configDraft.routing.policies = [];
-  const list = el("div", "string-list");
-
-  function sync() {
-    const rows = list.querySelectorAll(".routing-policy-row");
-    state.configDraft.routing.policies = [...rows].map((row) => {
-      const name = row.querySelector(".rp-name");
-      const prefix = row.querySelector(".rp-prefix");
-      const apiFormat = row.querySelector(".rp-api-format");
-      const strategy = row.querySelector(".rp-strategy");
-      const prefer = row.querySelector(".rp-prefer");
-      const allowCloud = row.querySelector(".rp-allow-cloud");
-      const enabled = row.querySelector(".rp-enabled");
-      return {
-        name: name.value.trim(),
-        model_prefix: prefix.value.trim(),
-        api_format: apiFormat.value || null,
-        strategy: strategy.value || null,
-        prefer_provider: prefer.value.trim() || null,
-        allow_cloud: allowCloud.checked,
-        enabled: enabled.checked,
-      };
-    }).filter((p) => p.name || p.model_prefix || p.api_format);
-    markDirty();
-  }
-
-  function addRow(entry = {}) {
-    const item = el("div", "routing-policy-row string-list-item");
-    const name = document.createElement("input");
-    name.type = "text";
-    name.className = "rp-name";
-    name.placeholder = "Policy name";
-    name.value = entry.name || "";
-    name.oninput = sync;
-    const prefix = document.createElement("input");
-    prefix.type = "text";
-    prefix.className = "rp-prefix";
-    prefix.placeholder = "Model prefix (optional)";
-    prefix.value = entry.model_prefix || "";
-    prefix.oninput = sync;
-    const apiFormat = document.createElement("select");
-    apiFormat.className = "rp-api-format";
-    ["", "openai", "anthropic"].forEach((v) => {
-      const opt = document.createElement("option");
-      opt.value = v;
-      opt.textContent = v || "any api_format";
-      if ((entry.api_format || "") === v) opt.selected = true;
-      apiFormat.appendChild(opt);
-    });
-    apiFormat.onchange = sync;
-    const strategy = document.createElement("select");
-    strategy.className = "rp-strategy";
-    ["", ...STRATEGIES].forEach((s) => {
-      const opt = document.createElement("option");
-      opt.value = s;
-      opt.textContent = s || "default strategy";
-      if ((entry.strategy || "") === s) opt.selected = true;
-      strategy.appendChild(opt);
-    });
-    strategy.onchange = sync;
-    const prefer = document.createElement("input");
-    prefer.type = "text";
-    prefer.className = "rp-prefer";
-    prefer.placeholder = "Prefer provider";
-    prefer.value = entry.prefer_provider || "";
-    prefer.oninput = sync;
-    const allowCloud = document.createElement("input");
-    allowCloud.type = "checkbox";
-    allowCloud.className = "rp-allow-cloud";
-    allowCloud.checked = !!entry.allow_cloud;
-    allowCloud.onchange = sync;
-    const enabled = document.createElement("input");
-    enabled.type = "checkbox";
-    enabled.className = "rp-enabled";
-    enabled.checked = entry.enabled !== false;
-    enabled.onchange = sync;
-    item.append(name, prefix, apiFormat, strategy, prefer, allowCloud, enabled);
-    list.appendChild(item);
-  }
-
-  state.configDraft.routing.policies.forEach((p) => addRow(p));
-  wrap.appendChild(list);
-  const addBtn = document.createElement("button");
-  addBtn.type = "button";
-  addBtn.className = "btn secondary";
-  addBtn.textContent = "Add routing policy";
-  addBtn.onclick = () => {
-    addRow({ name: "local-openai", api_format: "openai", allow_cloud: false, enabled: true });
-    sync();
-  };
-  wrap.appendChild(addBtn);
-  return wrap;
-}
-
-function renderBackendOverridesEditor() {
-  const wrap = el("div", "card");
-  if (!state.configDraft.routing.backends) state.configDraft.routing.backends = [];
-  const list = el("div", "string-list");
-
-  function sync() {
-    const rows = list.querySelectorAll(".backend-override-row");
-    state.configDraft.routing.backends = [...rows].map((row) => {
-      const url = row.querySelector(".bo-url");
-      const provider = row.querySelector(".bo-provider");
-      const enabled = row.querySelector(".bo-enabled");
-      return {
-        base_url: url.value.trim(),
-        provider: provider.value,
-        enabled: enabled.checked,
-      };
-    }).filter((b) => b.base_url);
-    markDirty();
-  }
-
-  function addRow(entry = {}) {
-    const item = el("div", "backend-override-row string-list-item");
-    const url = document.createElement("input");
-    url.type = "text";
-    url.className = "bo-url";
-    url.placeholder = "http://127.0.0.1:11434/v1";
-    url.value = entry.base_url || "";
-    url.oninput = sync;
-    const provider = document.createElement("select");
-    provider.className = "bo-provider";
-    [...PROVIDERS, "custom"].forEach((p) => {
-      const opt = document.createElement("option");
-      opt.value = p;
-      opt.textContent = p;
-      if ((entry.provider || "custom") === p) opt.selected = true;
-      provider.appendChild(opt);
-    });
-    provider.onchange = sync;
-    const enabled = document.createElement("input");
-    enabled.type = "checkbox";
-    enabled.className = "bo-enabled";
-    enabled.checked = entry.enabled !== false;
-    enabled.title = "Enabled";
-    enabled.onchange = sync;
-    const rm = textEl("button", "secondary", "−");
-    rm.onclick = () => { item.remove(); sync(); };
-    item.append(url, provider, enabled, rm);
-    list.appendChild(item);
-  }
-
-  (state.configDraft.routing.backends || []).forEach(addRow);
-  const add = textEl("button", "secondary", "+ Add backend");
-  add.onclick = () => addRow();
-  wrap.append(list, add);
-  return wrap;
-}
 
 const CLOUD_FALLBACK_MODES = ["cloud", "local", "none"];
 
@@ -1131,41 +1215,25 @@ function renderCloudTab() {
   const draft = state.configDraft.cloud;
   const summaryProviders = (state.config?.cloud?.providers) || {};
 
-  const card = el("div", "card");
-  card.appendChild(
-    checkboxRow("Cloud enabled (master switch)", draft.enabled !== false, (v) => {
-      draft.enabled = v;
-      markDirty();
+  // Master switch / fallback direction / fallback_enabled: plain scalar
+  // fields, schema-driven (phase 3).
+  root.appendChild(
+    renderSchemaForm("cloud", state.configSchema, draft, markDirty, {
+      enabled: { label: "Cloud enabled (master switch)" },
+      fallback: {
+        optionLabels: {
+          cloud: "cloud (local first, cloud fallback)",
+          local: "local (cloud first, local fallback)",
+          none: "none (no automatic fallback)",
+        },
+      },
+      fallback_enabled: { label: "Fallback enabled" },
+      // providers is rendered separately below (per-provider cards need
+      // the live registry summary — display name, regions, api_key_set —
+      // that only /netllm/v1/config carries, not the shape-only schema).
+      providers: { hidden: true },
     })
   );
-
-  const fallbackGroup = el("div", "form-group");
-  fallbackGroup.appendChild(textEl("label", "", "Fallback direction"));
-  const fallbackSel = document.createElement("select");
-  CLOUD_FALLBACK_MODES.forEach((m) => {
-    const opt = document.createElement("option");
-    opt.value = m;
-    opt.textContent =
-      m === "cloud" ? "cloud (local first, cloud fallback)" :
-      m === "local" ? "local (cloud first, local fallback)" :
-      "none (no automatic fallback)";
-    if ((draft.fallback || "cloud") === m) opt.selected = true;
-    fallbackSel.appendChild(opt);
-  });
-  fallbackSel.onchange = () => {
-    draft.fallback = fallbackSel.value;
-    markDirty();
-  };
-  fallbackGroup.appendChild(fallbackSel);
-  card.appendChild(fallbackGroup);
-
-  card.appendChild(
-    checkboxRow("Fallback enabled", draft.fallback_enabled !== false, (v) => {
-      draft.fallback_enabled = v;
-      markDirty();
-    })
-  );
-  root.appendChild(card);
 
   root.appendChild(textEl("div", "section-label", "Providers"));
   root.appendChild(
@@ -1178,12 +1246,22 @@ function renderCloudTab() {
   const providerIds = Object.keys(draft.providers).length
     ? Object.keys(draft.providers)
     : CLOUD_PROVIDER_IDS_BOOTSTRAP;
+  const itemSchema = state.configSchema?.sections?.cloud?.fields?.find(
+    (f) => f.name === "providers"
+  )?.item_schema;
   providerIds.forEach((pid) => {
-    root.appendChild(renderCloudProviderCard(pid, draft, summaryProviders[pid] || {}));
+    root.appendChild(renderCloudProviderCard(pid, draft, summaryProviders[pid] || {}, itemSchema));
   });
 }
 
-function renderCloudProviderCard(pid, cloudDraft, summary) {
+// cloud.providers is a dict[str, CloudProviderConfig], but unlike
+// routing.model_pools its keys are NOT user-typed — they're the fixed,
+// server-known registry id set (GET /netllm/v1/cloud/providers), each
+// with live display metadata (name, regions, notes, api_key_set) the
+// bare shape schema doesn't carry. So this renders one card per known id
+// directly with schemaFieldsCard/renderSchemaField, rather than going
+// through schemaDictOfObjectsRow's generic add/remove-key UI.
+function renderCloudProviderCard(pid, cloudDraft, summary, itemSchema) {
   if (!cloudDraft.providers[pid]) {
     cloudDraft.providers[pid] = { enabled: false, region: "", api_format: null };
   }
@@ -1194,63 +1272,25 @@ function renderCloudProviderCard(pid, cloudDraft, summary) {
   if (summary.notes) {
     card.appendChild(textEl("p", "empty", summary.notes));
   }
-
-  card.appendChild(
-    checkboxRow(`Enable ${title}`, !!entry.enabled, (v) => {
-      entry.enabled = v;
-      markDirty();
-    })
-  );
-
-  const regionGroup = el("div", "form-group");
-  regionGroup.appendChild(textEl("label", "", "Region / profile"));
-  const regionSel = document.createElement("select");
+  if (!itemSchema) {
+    card.appendChild(textEl("p", "muted-sm", "Config schema unavailable."));
+    return card;
+  }
+  const byName = Object.fromEntries(itemSchema.map((f) => [f.name, f]));
   const regions = summary.regions && summary.regions.length ? summary.regions : [""];
-  regions.forEach((r) => {
-    const opt = document.createElement("option");
-    opt.value = r;
-    opt.textContent = r || "default";
-    if ((entry.region || "") === r) opt.selected = true;
-    regionSel.appendChild(opt);
-  });
-  regionSel.onchange = () => {
-    entry.region = regionSel.value;
-    markDirty();
-  };
-  regionGroup.appendChild(regionSel);
-  card.appendChild(regionGroup);
-
-  const formatGroup = el("div", "form-group");
-  formatGroup.appendChild(textEl("label", "", "API format"));
-  const formatSel = document.createElement("select");
-  ["", "openai", "anthropic"].forEach((f) => {
-    const opt = document.createElement("option");
-    opt.value = f;
-    opt.textContent = f || `default (${summary.default_api_format || "openai"})`;
-    if ((entry.api_format || "") === f) opt.selected = true;
-    formatSel.appendChild(opt);
-  });
-  formatSel.onchange = () => {
-    entry.api_format = formatSel.value || null;
-    markDirty();
-  };
-  formatGroup.appendChild(formatSel);
-  card.appendChild(formatGroup);
-
-  const keyGroup = el("div", "form-group");
   const keyLabel = summary.api_key_set ? "API key (set — enter to replace)" : "API key";
-  keyGroup.appendChild(textEl("label", "", keyLabel));
-  const keyInput = document.createElement("input");
-  keyInput.type = "password";
-  keyInput.placeholder = summary.api_key_set ? "•••••••• (unchanged if left blank)" : "sk-...";
-  keyInput.autocomplete = "off";
-  keyInput.oninput = () => {
-    entry._pending_key = keyInput.value;
-    markDirty();
-  };
-  keyGroup.appendChild(keyInput);
-  card.appendChild(keyGroup);
-
+  ["enabled", "region", "api_format", "api_key"].forEach((name) => {
+    if (!byName[name]) return;
+    const overrides =
+      name === "enabled"
+        ? { label: `Enable ${title}` }
+        : name === "region"
+          ? { label: "Region / profile", options: regions, optionLabels: { "": "default" } }
+          : name === "api_format"
+            ? { optionLabels: { "": `default (${summary.default_api_format || "openai"})` } }
+            : { label: keyLabel, placeholder: summary.api_key_set ? "•••••••• (unchanged if left blank)" : "sk-..." };
+    card.appendChild(renderSchemaField(byName[name], entry, markDirty, overrides));
+  });
   return card;
 }
 
@@ -1482,55 +1522,99 @@ function switchTab(tab) {
   render();
 }
 
-function buildConfigPatch() {
-  const d = state.configDraft;
-  const patch = {
-    agent: {
-      listen: d.agent.listen,
-      role: d.agent.role,
-      advertise: d.agent.advertise,
-    },
-    discovery: {
-      providers: d.discovery.providers,
-      provider_urls: d.discovery.provider_urls,
-      custom_endpoints: d.discovery.custom_endpoints,
-    },
-    swarm: {
-      mdns: d.swarm.mdns,
-      subnet_scan: d.swarm.subnet_scan,
-      subnet_cidrs: d.swarm.subnet_cidrs,
-      heartbeat_interval_s: d.swarm.heartbeat_interval_s,
-      peers: d.swarm.peers,
-    },
-    routing: {
-      default_strategy: d.routing.default_strategy,
-      allow_remote: d.routing.allow_remote,
-      require_same_model_for_shard: d.routing.require_same_model_for_shard,
-      backends: d.routing.backends || [],
-      policies: d.routing.policies || [],
-    },
-    ui: {
-      auto_start_on_launch: d.ui.auto_start_on_launch,
-      log_dir: d.ui.log_dir,
-      check_for_updates_automatically: d.ui.check_for_updates_automatically !== false,
-    },
-    cloud: buildCloudPatch(d.cloud),
-  };
-  if (d._cluster_token) patch.swarm.cluster_token = d._cluster_token;
+// Turns one list/dict item's draft object (built by schemaListOfObjectsRow
+// / schemaDictOfObjectsRow / renderCloudProviderCard, each entry a plain
+// {field: value, ...} possibly carrying "_pending_<field>" secret
+// scratch keys) into the wire shape admin.apply_config_patch expects:
+// read_only fields dropped, write_only fields included only when a
+// pending value was actually typed (so omission preserves the prior
+// stored value server-side, same contract as before this rewrite).
+function schemaItemToPatch(itemSchema, entry) {
+  const out = {};
+  (itemSchema || []).forEach((f) => {
+    if (f.read_only) return;
+    if (f.write_only) {
+      const pendingKey = `_pending_${f.name}`;
+      if (entry[pendingKey]) out[f.name] = entry[pendingKey];
+      return;
+    }
+    out[f.name] = entry[f.name];
+  });
+  return out;
+}
+
+// Builds one section's patch by walking its schema fields — list/dict of
+// objects recurse through schemaItemToPatch, write_only scalars use
+// `pendingKeys[field]` (default "_pending_<field>"; swarm.cluster_token
+// keeps its pre-existing "_cluster_token" key, passed explicitly), and a
+// missing schema (older agent / fetch failure) falls back to a shallow
+// copy of the draft stripped of "_"-prefixed scratch keys rather than
+// silently emitting {} and wiping the section on save.
+function buildSchemaSectionPatch(sectionKey, schema, draft, pendingKeys = {}) {
+  const section = schema?.sections?.[sectionKey];
+  if (!section) {
+    const out = {};
+    Object.entries(draft || {}).forEach(([k, v]) => {
+      if (!k.startsWith("_")) out[k] = v;
+    });
+    return out;
+  }
+  const patch = {};
+  section.fields.forEach((field) => {
+    if (field.read_only) return;
+    if (field.write_only) {
+      const pendingKey = pendingKeys[field.name] || `_pending_${field.name}`;
+      if (draft[pendingKey]) patch[field.name] = draft[pendingKey];
+      return;
+    }
+    if (field.widget === "list" && field.item_schema) {
+      patch[field.name] = (draft[field.name] || []).map((entry) =>
+        schemaItemToPatch(field.item_schema, entry)
+      );
+      return;
+    }
+    if (field.widget === "dict" && field.item_schema) {
+      const out = {};
+      Object.entries(draft[field.name] || {}).forEach(([key, entry]) => {
+        if (!key) return; // skip an in-progress "type a name" row
+        out[key] = schemaItemToPatch(field.item_schema, entry);
+      });
+      patch[field.name] = out;
+      return;
+    }
+    patch[field.name] = draft[field.name];
+  });
   return patch;
 }
 
-function buildCloudPatch(cloudDraft) {
+function buildConfigPatch() {
+  const d = state.configDraft;
+  const schema = state.configSchema;
+  return {
+    agent: buildSchemaSectionPatch("agent", schema, d.agent),
+    discovery: buildSchemaSectionPatch("discovery", schema, d.discovery),
+    swarm: buildSchemaSectionPatch("swarm", schema, d.swarm, {
+      cluster_token: "_cluster_token",
+    }),
+    routing: buildSchemaSectionPatch("routing", schema, d.routing),
+    ui: buildSchemaSectionPatch("ui", schema, d.ui),
+    cloud: buildCloudPatch(d.cloud, schema),
+  };
+}
+
+function buildCloudPatch(cloudDraft, schema) {
   const draft = cloudDraft || { enabled: true, fallback: "cloud", fallback_enabled: true, providers: {} };
+  const itemSchema = schema?.sections?.cloud?.fields?.find((f) => f.name === "providers")?.item_schema;
   const providers = {};
   Object.entries(draft.providers || {}).forEach(([pid, entry]) => {
-    const out = {
-      enabled: !!entry.enabled,
-      region: entry.region || "",
-      api_format: entry.api_format || null,
-    };
-    if (entry._pending_key) out.api_key = entry._pending_key;
-    providers[pid] = out;
+    providers[pid] = itemSchema
+      ? schemaItemToPatch(itemSchema, entry)
+      : {
+          enabled: !!entry.enabled,
+          region: entry.region || "",
+          api_format: entry.api_format || null,
+          ...(entry._pending_api_key ? { api_key: entry._pending_api_key } : {}),
+        };
   });
   return {
     enabled: draft.enabled !== false,
