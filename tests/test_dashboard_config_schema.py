@@ -49,7 +49,9 @@ def test_dashboard_js_serves_generic_schema_renderer(client: TestClient) -> None
 
 def test_dashboard_js_syntax_is_valid() -> None:
     js_path = STATIC_DIR / "dashboard.js"
-    result = subprocess.run(["node", "--check", str(js_path)], capture_output=True, text=True)
+    result = subprocess.run(
+        ["node", "--check", str(js_path)], capture_output=True, text=True
+    )
     assert result.returncode == 0, result.stderr
 
 
@@ -70,7 +72,9 @@ def test_schema_endpoint_matches_default_ui_config(client: TestClient) -> None:
     }
 
 
-def test_dashboard_js_serves_remaining_sections_generic_widgets(client: TestClient) -> None:
+def test_dashboard_js_serves_remaining_sections_generic_widgets(
+    client: TestClient,
+) -> None:
     """Phase 3: discovery/swarm/routing/cloud all route through the
     generic renderer/patch-builder rather than hand-written render*Tab
     bodies — this is a drift regression test, not a UI test: it fails
@@ -91,7 +95,10 @@ def test_dashboard_js_serves_remaining_sections_generic_widgets(client: TestClie
     ]:
         assert marker in body, f"missing {marker!r}"
     # Superseded hand-written editors should be gone, not just unused.
-    for dead in ["function renderRoutingPoliciesEditor", "function renderBackendOverridesEditor"]:
+    for dead in [
+        "function renderRoutingPoliciesEditor",
+        "function renderBackendOverridesEditor",
+    ]:
         assert dead not in body, f"dead code still present: {dead!r}"
 
 
@@ -160,7 +167,9 @@ def test_admin_config_round_trips_routing_policies_backends_and_pools() -> None:
         reloaded = load_config(cfg_path)
         assert reloaded.routing.default_strategy == "local_first"
         assert reloaded.routing.model_pools["gpu-box"].hosts == ["mac-studio"]
-        assert reloaded.routing.model_pools["gpu-box"].models == ["qwen2.5:72b-instruct"]
+        assert reloaded.routing.model_pools["gpu-box"].models == [
+            "qwen2.5:72b-instruct"
+        ]
         assert reloaded.routing.backends[0].base_url == "http://10.0.0.5:11434/v1"
         assert reloaded.routing.backends[0].cloud_provider == ""
         assert reloaded.routing.policies[0].name == "test-policy"

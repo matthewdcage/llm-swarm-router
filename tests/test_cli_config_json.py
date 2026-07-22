@@ -29,7 +29,9 @@ def test_config_schema_matches_the_http_endpoint_document(tmp_path: Path) -> Non
 
 def test_config_export_then_import_round_trips(tmp_path: Path) -> None:
     cfg_path = _cfg_path(tmp_path)
-    export_result = runner.invoke(cli_main.app, ["config", "export", "--config", str(cfg_path)])
+    export_result = runner.invoke(
+        cli_main.app, ["config", "export", "--config", str(cfg_path)]
+    )
     assert export_result.exit_code == 0, export_result.output
     exported = json.loads(export_result.output)
     exported["ui"]["log_dir"] = "/tmp/custom-logs"

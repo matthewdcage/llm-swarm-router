@@ -79,7 +79,10 @@ def _field_spec(name: str, field: FieldInfo) -> dict[str, Any]:
     origin = get_origin(annotation)
     read_only = bool(extra.get("read_only"))
 
-    spec: dict[str, Any] = {"name": name, "default": _field_default(field, read_only=read_only)}
+    spec: dict[str, Any] = {
+        "name": name,
+        "default": _field_default(field, read_only=read_only),
+    }
     if optional:
         spec["optional"] = True
     if field.description:

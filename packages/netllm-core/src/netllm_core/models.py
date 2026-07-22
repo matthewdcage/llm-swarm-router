@@ -61,7 +61,9 @@ class BackendOverride(BaseModel):
     base_url: str
     provider: ProviderId = "custom"
     api_format: ApiFormat | None = None
-    api_key: str = Field(default="", json_schema_extra={"widget": "secret", "write_only": True})
+    api_key: str = Field(
+        default="", json_schema_extra={"widget": "secret", "write_only": True}
+    )
     api_key_env: str = ""
     enabled: bool = True
     local: bool = True
@@ -177,7 +179,9 @@ class RoutingConfig(BaseModel):
     max_backend_failures: int = Field(default=3, ge=1)
     # Set once ensure_lan_mesh_defaults() has upgraded a LAN-bound
     # config; prevents re-overriding an explicit user strategy choice.
-    lan_defaults_applied: bool = Field(default=False, json_schema_extra={"read_only": True})
+    lan_defaults_applied: bool = Field(
+        default=False, json_schema_extra={"read_only": True}
+    )
     # Canonical model name -> provider-specific IDs. Lets mixed fleets
     # (oMLX vs Ollama vs LM Studio naming) serve one model name:
     #   [routing.model_aliases]
@@ -267,7 +271,9 @@ class CloudProviderConfig(BaseModel):
     )
     api_format: ApiFormat | None = None
     auth: CloudAuthMode = "api_key"
-    api_key: str = Field(default="", json_schema_extra={"widget": "secret", "write_only": True})
+    api_key: str = Field(
+        default="", json_schema_extra={"widget": "secret", "write_only": True}
+    )
     api_key_env: str = ""
     models: list[str] = Field(default_factory=list)
     base_url: str = ""
@@ -287,7 +293,9 @@ class CloudConfig(BaseModel):
     fallback_enabled: bool = True
     # One-shot migration flag (ensure_cloud_defaults), mirrors
     # routing.lan_defaults_applied.
-    cloud_defaults_applied: bool = Field(default=False, json_schema_extra={"read_only": True})
+    cloud_defaults_applied: bool = Field(
+        default=False, json_schema_extra={"read_only": True}
+    )
     providers: dict[str, CloudProviderConfig] = Field(default_factory=dict)
 
     def provider(self, provider_id: CloudProviderId) -> CloudProviderConfig:

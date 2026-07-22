@@ -27,7 +27,10 @@ def test_sections_match_netllm_config_fields():
 
 def test_every_pydantic_field_has_a_schema_entry():
     for section_key, model in SECTIONS.items():
-        doc_fields = {f["name"] for f in config_schema_document()["sections"][section_key]["fields"]}
+        doc_fields = {
+            f["name"]
+            for f in config_schema_document()["sections"][section_key]["fields"]
+        }
         assert doc_fields == set(model.model_fields), (
             f"section {section_key!r}: schema fields {doc_fields} != "
             f"model fields {set(model.model_fields)}"
