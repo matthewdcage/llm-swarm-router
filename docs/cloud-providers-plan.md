@@ -262,12 +262,17 @@ AGENTS.md/README touch-ups; workspace-wide version bump (`test_version_sync.py`)
    (`AgentAPI.cloudProviderRegistry`) into `SettingsViewModel.cloudProviderRegistry`, falling back
    to `SettingsViewModel.cloudProvidersBootstrap` only when the agent is unreachable — so a stale
    Swift-side `notes` string can no longer diverge from the Python registry in steady state.
-   **Still open, deliberately out of scope:** a generic schema for the *editable* config shape
-   (routing/discovery/swarm/agent/ui sections) that would let Swift/JS render forms without any
-   hand-authored structs at all — that's the larger routing-hardening-plan.md follow-up and remains
-   future work; today those sections still rely on additive fields + deep-merge (§3.2) to stay
-   non-breaking across the three mirrors. Full rewrite plan:
-   [config-schema-rewrite-plan.md](config-schema-rewrite-plan.md).
+   **Now substantially done for the editable config shape too** (2026-07-22, phases 1-4 of
+   [config-schema-rewrite-plan.md](config-schema-rewrite-plan.md)): `GET
+   /netllm/v1/config/schema`/`netllm config schema` serves a generic form schema for the 6
+   editable sections; `dashboard.js` renders `ui`/`discovery`/`swarm`/`routing`/`cloud` from it
+   generically (`agent` stays hand-written — its `listen` field needs a composite LAN-mode +
+   port widget the schema can't express as a single field); the macOS app's `ui`/`discovery`/
+   `swarm` sections moved from hand-mirrored `Codable` structs to a dynamic `[String: JSONValue]`
+   model (`routing`'s other fields and all of `cloud` stay typed — a deliberate risk-based scope
+   limit, not a gap; see the plan doc's phase 4 notes). The `CLOUD_PROVIDER_IDS_BOOTSTRAP` line
+   above is the one hardcoded fallback that predates this and is superseded in spirit by the
+   schema's own minimal-bootstrap section list — cleanup tracked as phase 5 of the same plan.
 4. **Model ID churn** (Moonshot discontinued its k2 preview family with ~6 months notice): keep
    static catalogs minimal, prefer live `GET /models` wherever offered, and treat registry model
    lists as display hints, not routing constraints.

@@ -8,7 +8,7 @@ Shared routing, backend health cache, configuration I/O, model catalog types, an
 
 ## Ownership
 
-Key modules: `config.py`, `routing_policy.py`, `pool.py`, `health.py`, `models.py`, `capabilities.py`, `anthropic_bridge.py`, `update.py`, `platform.py`, `cloud_providers.py`.
+Key modules: `config.py`, `routing_policy.py`, `pool.py`, `health.py`, `models.py`, `capabilities.py`, `anthropic_bridge.py`, `update.py`, `platform.py`, `cloud_providers.py`, `config_schema.py`.
 
 ## Local Contracts
 
@@ -18,6 +18,7 @@ Key modules: `config.py`, `routing_policy.py`, `pool.py`, `health.py`, `models.p
 - **`ensure_lan_mesh_defaults()`** / **`is_lan_listen()`** in `models.py`: LAN bind → `local_spillover` + `subnet_scan` without minting `cluster_token`; called from CLI `serve`, config JSON import, and menubar save. The strategy upgrade is **one-shot** (`routing.lan_defaults_applied`) — an explicit user strategy choice is never rewritten after the first upgrade (mirrored in Swift `applyLanMeshDefaults`)
 - **Per-request routing headers** (constants in `models.py`, resolved in `routing_policy.resolve_routing`): `x-netllm-strategy` (one-off strategy override), `x-netllm-backend` (pin to backend id / `peer:<agent-id>` / base URL → `pool.backend_by_id`), `x-netllm-hops` (agent-hop counter; ≥ `MAX_FORWARD_HOPS` forces local — backstop beside `x-netllm-local-only`)
 - **Health knobs are config-driven** (`routing.health_ttl_s`, `offline_retry_s`, `max_backend_failures`): offline entries re-probe after the shorter `offline_retry_s` window, and a failed probe keeps the last known model catalog (never wipe `health.models` to `[]`)
+- **`config_schema.py`**: walks the 6 editable `NetllmConfig` sections (not an instance — shape, not values) into a form-schema document served at `GET /netllm/v1/config/schema` and `netllm config schema`. Widget/secrecy/read-only hints come from `Field(json_schema_extra={...})` on the relevant `models.py` field (`"widget"`, `"write_only"`, `"read_only"`, `"group"`, `"options_from"`, `"default_factory"` keys — grep `models.py` for live examples); fields without a hint get a widget inferred from their Python type. `tests/test_config_schema.py` fails loudly if a model field has no matching schema entry — the drift-prevention test the whole module exists for. See [docs/config-schema-rewrite-plan.md](../../docs/config-schema-rewrite-plan.md).
 - **`prune_peer_rows(keep_urls)`**: callers merging peers must follow with a prune so pool rows track the swarm registry (dead peers must not linger)
 - **`local_spillover`** (swarm default from guided init / LAN mode): serve locally below `routing.spillover_max_local_in_flight` concurrent requests, spill to the least-loaded peer above it; peer load = heartbeat-reported local rows + own active hops (`RouterPool._own_peer_hops` ledger — use `pool.acquire()`/`pool.release()`, never mutate `in_flight` directly)
 - **`merge_backends` keeps local Backend object identity** (updates fields in place): in-flight requests hold a reference across refreshes, so replacing the row would leak `in_flight` counts — peer rows are still rebuilt from heartbeats + hop ledger

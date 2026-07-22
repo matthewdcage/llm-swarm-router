@@ -1,6 +1,9 @@
 # Config schema rewrite plan — eliminate the Python/Swift/JS triple-mirror
 
-Status: **in progress** — phase 1 done (2026-07-22): `netllm_core/config_schema.py`
+Status: **phases 1-5 done (2026-07-22), with two deliberate scope limits**
+— see the phase 4/5 notes below for what's intentionally still typed
+(routing's non-`model_pools` fields, all of `cloud`, in Swift) and why.
+Phase 1 done: `netllm_core/config_schema.py`
 + `GET /netllm/v1/config/schema`, with `json_schema_extra` widget/secrecy/
 read-only hints on the 6 editable sections and a drift-regression test
 (`tests/test_config_schema.py`). Phase 2 done (2026-07-22): `dashboard.js`
@@ -330,10 +333,22 @@ the cloud-providers rollout discipline.
    as phase 2), then the remaining 5. `NetllmConfigDocument`'s typed
    structs are deleted section-by-section as each is proven, not in one
    big-bang cutover.
-5. **Docs + cleanup**: update `docs/cloud-providers-plan.md` and both
-   `AGENTS.md` files that currently describe the hand-mirrored contract;
-   remove `CLOUD_PROVIDER_IDS_BOOTSTRAP`-style hardcoded fallbacks in
-   favor of the schema's own minimal-bootstrap section (§4).
+5. **Docs + cleanup**: update `docs/cloud-providers-plan.md` and the
+   `AGENTS.md` files that describe the hand-mirrored contract.
+   **Done (2026-07-22):** `docs/cloud-providers-plan.md`'s "Schema
+   triple-mirror drift" item now reflects phases 1-4;
+   `packages/netllm-agent/AGENTS.md`, `packages/netllm-core/AGENTS.md`,
+   and `apps/netllm-mac/AGENTS.md` document `config_schema.py`, `GET
+   /netllm/v1/config/schema` / `netllm config schema`, and the Swift
+   `[String: JSONValue]` sections. **Not done, and not applicable after
+   all:** removing `CLOUD_PROVIDER_IDS_BOOTSTRAP` — on inspection this
+   constant is a fallback list of *cloud provider ids* (moonshot/zai/
+   openai/anthropic/openrouter) for when `GET /netllm/v1/cloud/providers`
+   is unreachable, a different problem (registry *content*) from what
+   `BOOTSTRAP_SECTIONS`/the config schema solve (editable-config
+   *shape*). Conflating the two in the original phase 5 wording above
+   was a mistake caught during implementation, not a completed cleanup
+   — `CLOUD_PROVIDER_IDS_BOOTSTRAP` stays, correctly, as-is.
 
 ## 6. Risks / open questions
 
