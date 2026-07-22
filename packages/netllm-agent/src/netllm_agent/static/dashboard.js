@@ -30,6 +30,11 @@ const state = {
   dirty: false,
   config: null,
   configDraft: null,
+  // Form shape for the editable config sections — see
+  // config_schema.py / GET /netllm/v1/config/schema. null until fetched
+  // (or against an older agent that predates the endpoint); sections not
+  // yet migrated to renderSchemaForm don't need it at all.
+  configSchema: null,
   status: null,
   versionInfo: null,
   updateInfo: null,
@@ -168,13 +173,33 @@ function warnAdminLimited(message) {
   setBanner(message, "warn");
 }
 
+// Section key -> default draft object, built by walking a fetched
+// GET /netllm/v1/config/schema section's fields. Falls back to a fixed
+// literal when the schema hasn't loaded yet (or predates this endpoint)
+// — see docs/config-schema-rewrite-plan.md §5 phase 2 / §4 bootstrap.
+function schemaSectionDefaults(schema, sectionKey, fallback) {
+  const section = schema?.sections?.[sectionKey];
+  if (!section) return fallback;
+  const out = {};
+  section.fields.forEach((f) => {
+    out[f.name] = f.default;
+  });
+  return out;
+}
+
 function emptyConfigDraft() {
   return {
     agent: { listen: "127.0.0.1:11400", role: "peer", advertise: true, agent_id: "", hostname: "" },
     discovery: { providers: [...PROVIDERS], provider_urls: {}, custom_endpoints: [] },
     swarm: { mdns: true, subnet_scan: false, subnet_cidrs: [], heartbeat_interval_s: 10, peers: [], cluster_token_set: false },
     routing: { default_strategy: "local_first", allow_remote: true, require_same_model_for_shard: true, backends: [], backend_count: 0, policies: [], policy_count: 0 },
-    ui: { auto_start_on_launch: true, log_dir: "", check_for_updates_automatically: true },
+    // First section migrated to the schema-driven default (phase 2) —
+    // the other 5 stay hand-written literals until phase 3.
+    ui: schemaSectionDefaults(state.configSchema, "ui", {
+      auto_start_on_launch: true,
+      log_dir: "",
+      check_for_updates_automatically: true,
+    }),
     cloud: { enabled: true, fallback: "cloud", fallback_enabled: true, providers: {} },
   };
 }
@@ -183,6 +208,17 @@ function checkForUpdatesAutomatically() {
   const ui = state.config?.ui || state.configDraft?.ui;
   if (ui && ui.check_for_updates_automatically === false) return false;
   return true;
+}
+
+async function loadConfigSchema() {
+  // Fetched once per refresh; a stale/missing schema just means the
+  // migrated section(s) fall back to their "schema unavailable" message
+  // in renderSchemaForm — every other tab is unaffected.
+  try {
+    state.configSchema = await api("/netllm/v1/config/schema");
+  } catch {
+    state.configSchema = null;
+  }
 }
 
 async function loadVersionInfo() {
@@ -583,6 +619,99 @@ function checkboxRow(label, checked, onChange) {
   cb.onchange = () => onChange(cb.checked);
   row.append(cb, document.createTextNode(label));
   return row;
+}
+
+// --- Generic schema-driven form renderer (docs/config-schema-rewrite-plan.md) ---
+//
+// renderSchemaForm(sectionKey, schema, draft, onDirty, overrides) walks a
+// fetched config schema section and renders one input per field,
+// dispatching on the field's "widget" to these DOM helpers — the same
+// low-level building blocks (checkboxRow, el/textEl) every hand-written
+// render*Tab() already uses. `overrides` is the escape hatch the plan's
+// §6 risk 1 calls for: per-field {label?, placeholder?, onChange?(value)}
+// for the handful of fields that need bespoke copy or a side effect
+// (e.g. ui.check_for_updates_automatically starting/stopping a poll
+// timer) without forking the whole section back into hand-written code.
+
+function schemaFieldLabel(field, overrides) {
+  if (overrides?.label) return overrides.label;
+  return field.name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function schemaFieldRow(field, draft, onDirty, overrides, inputType) {
+  const group = el("div", "form-group");
+  group.appendChild(textEl("label", "", schemaFieldLabel(field, overrides)));
+  const input = document.createElement("input");
+  input.type = inputType;
+  const current = draft[field.name];
+  input.value = current === undefined || current === null ? "" : current;
+  if (overrides?.placeholder) input.placeholder = overrides.placeholder;
+  input.oninput = () => {
+    draft[field.name] = inputType === "number" ? Number(input.value) : input.value;
+    onDirty();
+    if (overrides?.onChange) overrides.onChange(draft[field.name]);
+  };
+  group.appendChild(input);
+  return group;
+}
+
+function schemaSelectRow(field, draft, onDirty, overrides) {
+  const group = el("div", "form-group");
+  group.appendChild(textEl("label", "", schemaFieldLabel(field, overrides)));
+  const select = document.createElement("select");
+  (overrides?.options || field.options || []).forEach((opt) => {
+    const optionEl = document.createElement("option");
+    optionEl.value = opt;
+    optionEl.textContent = overrides?.optionLabels?.[opt] || opt;
+    select.appendChild(optionEl);
+  });
+  select.value = draft[field.name] ?? field.default ?? "";
+  select.onchange = () => {
+    draft[field.name] = select.value;
+    onDirty();
+    if (overrides?.onChange) overrides.onChange(draft[field.name]);
+  };
+  group.appendChild(select);
+  return group;
+}
+
+function renderSchemaField(field, draft, onDirty, overrides) {
+  if (field.widget === "toggle") {
+    const checked = draft[field.name] !== false;
+    return checkboxRow(schemaFieldLabel(field, overrides), checked, (v) => {
+      draft[field.name] = v;
+      onDirty();
+      if (overrides?.onChange) overrides.onChange(v);
+    });
+  }
+  if (field.widget === "select") return schemaSelectRow(field, draft, onDirty, overrides);
+  if (field.widget === "number") return schemaFieldRow(field, draft, onDirty, overrides, "number");
+  // "text", "secret" (secret editing lands in phase 3 with the
+  // write-only convention), and any unrecognized widget all render as a
+  // plain text input for now rather than silently omitting the field.
+  return schemaFieldRow(field, draft, onDirty, overrides, "text");
+}
+
+/**
+ * Render every editable (non-read_only) field of one config schema
+ * section into a single card. `overrides` is keyed by field name — see
+ * the header comment above for its shape.
+ */
+function renderSchemaForm(sectionKey, schema, draft, onDirty, overrides = {}) {
+  const card = el("div", "card");
+  const section = schema?.sections?.[sectionKey];
+  if (!section) {
+    card.appendChild(
+      textEl("p", "muted-sm", "Config schema unavailable — check the admin API connection.")
+    );
+    return card;
+  }
+  section.fields
+    .filter((f) => !f.read_only)
+    .forEach((field) => {
+      card.appendChild(renderSchemaField(field, draft, onDirty, overrides[field.name]));
+    });
+  return card;
 }
 
 function renderAgentTab() {
@@ -1129,34 +1258,22 @@ function renderUiTab() {
   const root = document.getElementById("tab-ui");
   root.replaceChildren();
   root.appendChild(textEl("h1", "page-title", "UI"));
-  const card = el("div", "card");
-  card.appendChild(
-    checkboxRow("Check for updates automatically", state.configDraft.ui.check_for_updates_automatically !== false, (v) => {
-      state.configDraft.ui.check_for_updates_automatically = v;
-      markDirty();
-      if (v) startUpdatePolling();
-      else stopUpdatePolling();
+  // First tab migrated to the schema-driven renderer (phase 2 of
+  // docs/config-schema-rewrite-plan.md) — field order, labels, and
+  // widgets come from GET /netllm/v1/config/schema instead of being
+  // hand-built here. `overrides` covers the two things the schema can't
+  // express: the auto-start label's macOS-specific parenthetical, and
+  // check_for_updates_automatically's start/stop-polling side effect.
+  root.appendChild(
+    renderSchemaForm("ui", state.configSchema, state.configDraft.ui, markDirty, {
+      check_for_updates_automatically: {
+        label: "Check for updates automatically",
+        onChange: (v) => (v ? startUpdatePolling() : stopUpdatePolling()),
+      },
+      auto_start_on_launch: { label: "Auto-start on launch (macOS menubar)" },
+      log_dir: { label: "Log directory", placeholder: "Default platform log dir" },
     })
   );
-  card.appendChild(
-    checkboxRow("Auto-start on launch (macOS menubar)", !!state.configDraft.ui.auto_start_on_launch, (v) => {
-      state.configDraft.ui.auto_start_on_launch = v;
-      markDirty();
-    })
-  );
-  const logGroup = el("div", "form-group");
-  logGroup.appendChild(textEl("label", "", "Log directory"));
-  const logInput = document.createElement("input");
-  logInput.type = "text";
-  logInput.value = state.configDraft.ui.log_dir || "";
-  logInput.placeholder = "Default platform log dir";
-  logInput.oninput = () => {
-    state.configDraft.ui.log_dir = logInput.value;
-    markDirty();
-  };
-  logGroup.appendChild(logInput);
-  card.appendChild(logGroup);
-  root.appendChild(card);
 }
 
 async function loadLogs() {
@@ -1484,7 +1601,12 @@ async function runPeersScan(save) {
 
 async function refresh() {
   await loadHealth();
-  await Promise.all([loadCore(), loadVersionInfo(), loadUpdateCheck()]);
+  await Promise.all([
+    loadCore(),
+    loadVersionInfo(),
+    loadUpdateCheck(),
+    loadConfigSchema(),
+  ]);
   render();
 }
 

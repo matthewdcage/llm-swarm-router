@@ -3,8 +3,15 @@
 Status: **in progress** — phase 1 done (2026-07-22): `netllm_core/config_schema.py`
 + `GET /netllm/v1/config/schema`, with `json_schema_extra` widget/secrecy/
 read-only hints on the 6 editable sections and a drift-regression test
-(`tests/test_config_schema.py`). Phases 2–5 (JS renderer, Swift dynamic
-model, docs cleanup) not started. Companion to
+(`tests/test_config_schema.py`). Phase 2 done (2026-07-22): `dashboard.js`
+gained a generic `renderSchemaForm()`/`renderSchemaField()` renderer with
+a small per-field `overrides` escape hatch (label/placeholder/onChange —
+see §6 risk 1) and a schema-driven `emptyConfigDraft()` for the pilot
+section; the `ui` tab is the first migrated, other 5 tabs untouched.
+Verified against a live agent in-browser (toggle → dirty → save →
+persisted round-trip) and covered by
+`tests/test_dashboard_config_schema.py`. Phases 3–5 (remaining 5 JS
+sections, Swift dynamic model, docs cleanup) not started. Companion to
 [cloud-providers-plan.md](cloud-providers-plan.md) §"Schema triple-mirror
 drift" and the earlier `routing-hardening-plan.md` follow-up of the same
 name. This is the deferred, larger half of that item: a generic schema for
