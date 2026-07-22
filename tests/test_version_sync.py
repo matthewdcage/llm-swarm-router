@@ -18,7 +18,16 @@ def _read(path: Path) -> str:
 def _pyproject_versions() -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     for path in sorted(REPO_ROOT.glob("**/pyproject.toml")):
-        if ".venv" in path.parts or "build" in path.parts or "rpm-stage" in path.parts:
+        if (
+            ".venv" in path.parts
+            or "build" in path.parts
+            or "rpm-stage" in path.parts
+            or "worktrees" in path.parts
+        ):
+            # worktrees: git worktree checkouts under .claude/worktrees/
+            # (agent sandboxes) pin whatever commit they were created
+            # at — a stale worktree predating a version bump is not a
+            # real drift in the actual workspace.
             continue
         data = tomllib.loads(path.read_text(encoding="utf-8"))
         version = data.get("project", {}).get("version")

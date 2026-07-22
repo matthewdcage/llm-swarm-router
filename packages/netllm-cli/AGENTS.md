@@ -19,6 +19,7 @@ Key modules: `main.py`, `ui.py`, `install.py`, `install_detect.py`, `config_json
 - **`serve -q` warnings:** use `print_warnings()` from `ui.py` only — never `console.print(..., file=...)` (Rich 13+ rejects `file=`; menubar supervises with `-q`, so startup warnings must not crash before uvicorn)
 - **`netllm cloud` sub-app:** `list`/`enable`/`disable`/`set-key`/`fallback`/`test`/`connect` edit `config.toml`'s `[cloud]` section directly (no running agent required) — mirrors `config_app`'s pattern of reading `load_config`/writing `save_config`, never the admin HTTP API. `cloud enable --auth` validates against the provider's `CloudProviderSpec.auth_modes`. `cloud connect openrouter` is the only OAuth path (PKCE, `oauth_pkce.py`) — everything else is `set-key`
 - **`oauth_pkce.py`** is intentionally CLI-only, not netllm-core: it needs `webbrowser`, `http.server`, and a real network round-trip to openrouter.ai, none of which belong in the shared routing package. The local callback server (`start_local_callback_server`/`wait_for_callback`) is a one-shot `http.server.HTTPServer.handle_request()` on a daemon thread — tests exercise it with a real loopback HTTP request rather than mocking the socket layer
+- **`netllm drain [on|off]`**: hits the *running* agent's `POST /netllm/v1/admin/drain` (httpx, like `status`/`test` — not a config edit, no `save_config`). Runtime-only on the agent side; the CLI has nothing to persist
 
 ## Work Guidance
 
