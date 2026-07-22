@@ -2,8 +2,17 @@ import Foundation
 
 struct NetllmConfigDocument: Codable, Sendable {
     var agent: AgentSection = AgentSection()
-    var discovery: DiscoverySection = DiscoverySection()
-    var swarm: SwarmSection = SwarmSection()
+    /// Dynamic — schema-driven (docs/config-schema-rewrite-plan.md §5
+    /// phase 4, Option A). No typed DiscoverySection/SwarmSection struct
+    /// exists anymore; existing hand-tuned views (discoveryTab/swarmTab
+    /// in SettingsWindowView) bind through the `Binding<[String:
+    /// JSONValue]>` bridging helpers in JSONValue.swift, unchanged in
+    /// behavior — only the storage type changed. This also exposes 3
+    /// swarm fields (require_token_for_inference, peer_stale_after_s,
+    /// rediscover_interval_s) the old typed struct never modeled, via a
+    /// generic SchemaFormView slice for genuinely new fields only.
+    var discovery: [String: JSONValue] = [:]
+    var swarm: [String: JSONValue] = [:]
     var routing: RoutingSection = RoutingSection()
     /// Dynamic — schema-driven (docs/config-schema-rewrite-plan.md §5
     /// phase 4, Option A). Rendered by SchemaFormView against the
@@ -21,22 +30,6 @@ struct NetllmConfigDocument: Codable, Sendable {
         var advertise: Bool = true
         var agent_id: String = ""
         var hostname: String = ""
-    }
-
-    struct DiscoverySection: Codable, Sendable {
-        var providers: [String] = ["omlx", "ollama", "lmstudio", "vllm"]
-        var custom_endpoints: [String] = []
-        /// Per-machine base URLs (e.g. oMLX on :8088). Empty = auto-scan default ports.
-        var provider_urls: [String: [String]] = [:]
-    }
-
-    struct SwarmSection: Codable, Sendable {
-        var peers: [String] = []
-        var mdns: Bool = true
-        var subnet_scan: Bool = false
-        var subnet_cidrs: [String] = []
-        var cluster_token: String = ""
-        var heartbeat_interval_s: Double = 10.0
     }
 
     struct RoutingPolicy: Codable, Sendable, Identifiable {
@@ -59,6 +52,11 @@ struct NetllmConfigDocument: Codable, Sendable {
         var lan_defaults_applied: Bool = false
         var backends: [BackendOverride] = []
         var policies: [RoutingPolicy] = []
+        /// Dynamic dict[name -> ModelPool] (docs/config-schema-rewrite-plan.md
+        /// §5 phase 4) — a same-day-added feature with no prior Swift UI,
+        /// so exposing it generically here is pure addition, not a
+        /// regression risk to an existing hand-tuned editor.
+        var model_pools: [String: JSONValue] = [:]
     }
 
     struct BackendOverride: Codable, Sendable, Identifiable {
@@ -124,8 +122,8 @@ struct NetllmConfigDocument: Codable, Sendable {
             }
             routing.lan_defaults_applied = true
         }
-        if !swarm.subnet_scan {
-            swarm.subnet_scan = true
+        if !swarm.bool("subnet_scan") {
+            swarm["subnet_scan"] = .bool(true)
         }
     }
 }

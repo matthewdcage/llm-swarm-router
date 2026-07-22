@@ -346,7 +346,7 @@ struct SettingsWindowView: View {
             ForEach(model.lanPeers) { peer in peerRow(peer) }
             sectionHeader("Static peers in config")
             EditableStringList(
-                items: $model.document.swarm.peers,
+                items: $model.document.swarm.stringArray("peers"),
                 placeholder: "http://10.0.0.32:11400",
                 defaultNew: "http://127.0.0.1:11400"
             )
@@ -420,7 +420,7 @@ struct SettingsWindowView: View {
             .id("provider-urls-\(model.uiRevision)")
             sectionHeader("Custom endpoints")
             EditableStringList(
-                items: $model.document.discovery.custom_endpoints,
+                items: $model.document.discovery.stringArray("custom_endpoints"),
                 placeholder: "http://127.0.0.1:8080/v1",
                 defaultNew: "http://127.0.0.1:8080/v1"
             )
@@ -431,21 +431,34 @@ struct SettingsWindowView: View {
     private var swarmTab: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("Swarm")
-            Toggle("mDNS discovery", isOn: $model.document.swarm.mdns)
-            Toggle("Subnet scan at startup", isOn: $model.document.swarm.subnet_scan)
+            Toggle("mDNS discovery", isOn: $model.document.swarm.bool("mdns", default: true))
+            Toggle("Subnet scan at startup", isOn: $model.document.swarm.bool("subnet_scan"))
             Text("Probes the LAN for agents on :11400 when the agent starts. Recommended when listening on 0.0.0.0.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Text("Heartbeat (s)")
-                TextField("10", value: $model.document.swarm.heartbeat_interval_s, format: .number)
-                    .frame(width: 80)
+                TextField(
+                    "10",
+                    value: $model.document.swarm.double("heartbeat_interval_s", default: 10),
+                    format: .number
+                )
+                .frame(width: 80)
+            }
+            // require_token_for_inference/peer_stale_after_s/rediscover_interval_s:
+            // newly exposed via the schema (docs/config-schema-rewrite-plan.md
+            // §5 phase 4) — the old typed SwarmSection never modeled these,
+            // so there's no prior behavior to preserve; render generically.
+            if let newSwarmFields = model.configSchema?.sections["swarm"]?.fields
+                .filter({ ["require_token_for_inference", "peer_stale_after_s", "rediscover_interval_s"].contains($0.name) })
+            {
+                SchemaFormView(fields: newSwarmFields, draft: $model.document.swarm)
             }
             Toggle("Require cluster token", isOn: $model.requireClusterToken)
             Text("Default: open trusted home LAN. Enable to require pairing on untrusted networks.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if model.requireClusterToken {
-                SecureField("Cluster token (manual override)", text: $model.document.swarm.cluster_token)
+                SecureField("Cluster token (manual override)", text: $model.document.swarm.string("cluster_token"))
                 if let joinCommand = model.joinCommandText() {
                     HStack(alignment: .top) {
                         Text(joinCommand)
@@ -462,14 +475,14 @@ struct SettingsWindowView: View {
             }
             sectionHeader("Subnet CIDRs")
             EditableStringList(
-                items: $model.document.swarm.subnet_cidrs,
+                items: $model.document.swarm.stringArray("subnet_cidrs"),
                 placeholder: "10.0.0.0/24",
                 defaultNew: "10.0.0.0/24"
             )
             .id("cidrs-\(model.uiRevision)")
             sectionHeader("Static peers")
             EditableStringList(
-                items: $model.document.swarm.peers,
+                items: $model.document.swarm.stringArray("peers"),
                 placeholder: "http://10.0.0.32:11400",
                 defaultNew: "http://127.0.0.1:11400"
             )
@@ -506,7 +519,50 @@ struct SettingsWindowView: View {
                 // stale indices after the array shrinks and traps.
                 backendOverrideEditor(index: index)
             }
+            sectionHeader("Model pools")
+            Text(
+                "Host-scoped catch-all: listed hosts accept any requested model name, bypassing model_aliases matching, as long as they serve one of the pool's models."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            actionButtons {
+                Button("Add model pool") { model.addModelPool() }
+            }
+            ForEach(Array(model.document.routing.model_pools.keys.sorted()), id: \.self) { name in
+                modelPoolEditor(name: name)
+            }
         }
+    }
+
+    /// routing.model_pools is a same-day-added feature with no prior
+    /// Swift UI (docs/config-schema-rewrite-plan.md §5 phase 4) — its
+    /// editor is fully generic (dict of dynamic entries, arbitrary
+    /// user-typed keys), unlike routingPolicyEditor/backendOverrideEditor
+    /// below which stay hand-tuned for their existing typed structs.
+    @ViewBuilder
+    private func modelPoolEditor(name: String) -> some View {
+        let entryBinding = Binding<[String: JSONValue]>(
+            get: { model.document.routing.model_pools[name]?.objectValue ?? [:] },
+            set: { model.document.routing.model_pools[name] = .object($0) }
+        )
+        let poolFields = model.configSchema?.sections["routing"]?.fields
+            .first(where: { $0.name == "model_pools" })?.itemSchema ?? []
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(name.isEmpty ? "(unnamed pool)" : name).font(.caption.weight(.medium))
+                Spacer()
+                Button(role: .destructive) {
+                    model.document.routing.model_pools.removeValue(forKey: name)
+                } label: {
+                    Image(systemName: "minus.circle")
+                }
+                .buttonStyle(.borderless)
+            }
+            SchemaFormView(fields: poolFields, draft: entryBinding)
+        }
+        .padding(8)
+        .background(Color.gray.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     private var cloudTab: some View {
@@ -811,7 +867,8 @@ struct SettingsWindowView: View {
 }
 
 /// Stable row IDs avoid SwiftUI index-based ForEach crashes when removing items.
-private struct EditableStringList: View {
+/// Not private: reused by SchemaFormView's list_strings widget.
+struct EditableStringList: View {
     @Binding var items: [String]
     var placeholder: String
     var defaultNew: String

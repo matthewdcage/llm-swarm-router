@@ -53,7 +53,55 @@ explicitly rather than silently assumed away). The other 5 sections
 the list/dict-of-object Swift widgets dashboard.js's phase 3 already
 proved the shape of) are not migrated — natural next slice, but a
 materially bigger and riskier one than `ui` was, given the app can't be
-click-tested here. Phase 5 (docs cleanup) not started. Companion to
+click-tested here. Phase 4 finished (2026-07-22) for discovery/swarm,
+plus an additive slice of routing, with a deliberately narrower scope
+than the JS phase 3 equivalent — a risk-based call, not an oversight:
+
+- `discovery`/`swarm` changed from typed `DiscoverySection`/`SwarmSection`
+  structs to `[String: JSONValue]` (closing the hand-mirrored-struct
+  drift those sections had), but the **existing hand-tuned SwiftUI view
+  code was kept**, adapted via new `Binding<[String: JSONValue]>`
+  bridging extensions (`.string()`/`.bool()`/`.double()`/`.stringArray()`/
+  `.stringArray(_:subKey:)` in `JSONValue.swift`) instead of being
+  replaced by the generic `SchemaFormView`. This closes the actual drift
+  problem (no more hand-mirrored shape) while leaving proven,
+  bespoke-behavior UI (the cluster-token/join-command coupling, the
+  crash-fix-documented bounds-safe list editors) visually and
+  behaviorally unchanged — safe to do without being able to click-test
+  the real app window. The 3 swarm fields the old struct never modeled
+  (`require_token_for_inference`, `peer_stale_after_s`,
+  `rediscover_interval_s`) are exposed for the first time via a
+  `SchemaFormView` slice filtered to just those field names — pure
+  addition, zero regression surface since nothing bound to them before.
+- `routing.model_pools` (dict[name -> ModelPool], arbitrary user-typed
+  keys) gets a first Swift UI via a new hand-written `modelPoolEditor`
+  using `SchemaFormView` per entry — again pure addition (this
+  same-day-added feature had no prior Swift UI at all to regress).
+  `routing`'s existing fields (`policies`/`backends`/`default_strategy`/
+  etc.) and their crash-fix-documented `safePolicyBinding`/
+  `safeOverrideBinding` editors are **untouched**.
+- `cloud` (an entire separate `CloudSettingsView.swift`, live-registry-
+  driven, Keychain-coupled) is **untouched** — deliberately out of scope
+  for this pass. Converting it carries real risk (it's the most complex
+  of the 6 sections) for a benefit this rewrite doesn't strictly need:
+  `CloudProviderConfig`'s Swift struct already omits `api_key`/
+  `api_key_env`/`auth` by design (Keychain-managed, per its own
+  docstring), so it was never fully hand-mirroring CloudConfig's shape
+  to begin with — the drift there is intentional, not accidental.
+
+Verified with a clean `swift build` (zero errors) plus a second
+standalone decode/round-trip smoke test against real
+`netllm config export` output containing swarm/discovery/model_pools
+data (not synthetic JSON) — same verification method as the `ui` pilot,
+same caveat about no in-app click-testing being possible here.
+`test_darwin_swift_default_providers_match_python` (tests/test_contract.py)
+updated to read `SettingsViewModel.providers` instead of the now-deleted
+`DiscoverySection`'s default literal.
+
+Phase 4 status: `ui`, `discovery`, `swarm` fully migrated;
+`routing.model_pools` added generically; `routing`'s other fields and
+all of `cloud` remain intentionally hand-written typed structs. Phase 5
+(docs cleanup) not started. Companion to
 [cloud-providers-plan.md](cloud-providers-plan.md) §"Schema triple-mirror
 drift" and the earlier `routing-hardening-plan.md` follow-up of the same
 name. This is the deferred, larger half of that item: a generic schema for

@@ -21,10 +21,12 @@ struct SchemaFieldOverride {
 /// Renders every editable (non-read-only) field of one config schema
 /// section against a `[String: JSONValue]` draft — the Swift twin of
 /// dashboard.js's `renderSchemaForm`/`schemaFieldsCard`
-/// (docs/config-schema-rewrite-plan.md §5 phase 4). Currently covers the
-/// widgets the `ui` section pilot needs (toggle/text/number/select);
-/// list/dict-of-object widgets are a follow-up when a later section
-/// migrates (see the JS phase 3 equivalents for the intended shape).
+/// (docs/config-schema-rewrite-plan.md §5 phase 4). Covers
+/// toggle/select/number/text/list_strings; dict_list_strings and
+/// list/dict-of-object widgets stay hand-tuned per call site (see
+/// discoveryTab's provider_urls and routingTab's model_pools editor in
+/// SettingsWindowView) rather than fully generic, matching how far this
+/// phase's risk-scoped migration goes — see the plan doc for why.
 struct SchemaFormView: View {
     let fields: [ConfigSchemaField]
     @Binding var draft: [String: JSONValue]
@@ -84,6 +86,18 @@ private struct SchemaFieldRow: View {
                         set: { setValue(.number($0)) }
                     ),
                     format: .number
+                )
+            }
+        case "list_strings":
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label).font(.caption.weight(.medium))
+                EditableStringList(
+                    items: Binding(
+                        get: { currentValue.arrayValue?.compactMap(\.stringValue) ?? [] },
+                        set: { setValue(.strings($0)) }
+                    ),
+                    placeholder: override?.placeholder ?? "",
+                    defaultNew: override?.placeholder ?? ""
                 )
             }
         default:

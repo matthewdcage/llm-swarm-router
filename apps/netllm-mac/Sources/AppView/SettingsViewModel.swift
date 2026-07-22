@@ -259,9 +259,9 @@ final class SettingsViewModel {
     }
 
     private var swarmDiscoveryEnabled: Bool {
-        document.swarm.mdns
-            || document.swarm.subnet_scan
-            || !document.swarm.peers.isEmpty
+        document.swarm.bool("mdns")
+            || document.swarm.bool("subnet_scan")
+            || !document.swarm.stringArray("peers").isEmpty
             || document.bindHost == "0.0.0.0"
     }
 
@@ -311,11 +311,11 @@ final class SettingsViewModel {
     }
 
     func syncRequireClusterTokenFromDocument() {
-        requireClusterToken = !document.swarm.cluster_token.isEmpty
+        requireClusterToken = !document.swarm.string("cluster_token").isEmpty
     }
 
     func joinCommandText() -> String? {
-        let token = document.swarm.cluster_token.trimmingCharacters(in: .whitespaces)
+        let token = document.swarm.string("cluster_token").trimmingCharacters(in: .whitespaces)
         guard !token.isEmpty else { return nil }
         let listenURL = status?.listenURL.trimmingCharacters(in: .whitespaces) ?? ""
         guard !listenURL.isEmpty else { return nil }
@@ -343,23 +343,25 @@ final class SettingsViewModel {
 
     private func applyRequireClusterTokenOnSave() {
         if requireClusterToken {
-            if document.swarm.cluster_token.isEmpty {
-                document.swarm.cluster_token = ClusterTokenGenerator.make()
+            if document.swarm.string("cluster_token").isEmpty {
+                document.swarm["cluster_token"] = .string(ClusterTokenGenerator.make())
             }
         } else {
-            document.swarm.cluster_token = ""
+            document.swarm["cluster_token"] = .string("")
         }
     }
 
     func providerURLBinding(_ provider: String) -> Binding<[String]> {
         Binding(
-            get: { self.document.discovery.provider_urls[provider] ?? [] },
+            get: { self.document.discovery["provider_urls"]?.objectValue?[provider]?.arrayValue?.compactMap(\.stringValue) ?? [] },
             set: { newValue in
+                var providerURLs = self.document.discovery["provider_urls"]?.objectValue ?? [:]
                 if newValue.isEmpty {
-                    self.document.discovery.provider_urls.removeValue(forKey: provider)
+                    providerURLs.removeValue(forKey: provider)
                 } else {
-                    self.document.discovery.provider_urls[provider] = newValue
+                    providerURLs[provider] = .strings(newValue)
                 }
+                self.document.discovery["provider_urls"] = .object(providerURLs)
                 self.bumpUI()
             }
         )
@@ -524,22 +526,30 @@ final class SettingsViewModel {
     }
 
     func toggleProvider(_ id: String, enabled: Bool) {
+        var providers = document.discovery.stringArray("providers")
         if enabled {
-            if !document.discovery.providers.contains(id) {
-                document.discovery.providers.append(id)
-            }
+            if !providers.contains(id) { providers.append(id) }
         } else {
-            document.discovery.providers.removeAll { $0 == id }
+            providers.removeAll { $0 == id }
         }
+        document.discovery["providers"] = .strings(providers)
         bumpUI()
     }
 
     func providerEnabled(_ id: String) -> Bool {
-        document.discovery.providers.contains(id)
+        document.discovery.stringArray("providers").contains(id)
     }
 
-    func addCustomEndpoint() {
-        document.discovery.custom_endpoints.append("http://127.0.0.1:8080/v1")
+    func addModelPool() {
+        var pools = document.routing.model_pools
+        var name = "pool"
+        var suffix = 1
+        while pools[name] != nil {
+            suffix += 1
+            name = "pool-\(suffix)"
+        }
+        pools[name] = .object(["enabled": .bool(true), "hosts": .strings([]), "models": .strings([])])
+        document.routing.model_pools = pools
         bumpUI()
     }
 
@@ -571,34 +581,6 @@ final class SettingsViewModel {
     func removeRoutingPolicy(at index: Int) {
         guard document.routing.policies.indices.contains(index) else { return }
         document.routing.policies.remove(at: index)
-        bumpUI()
-    }
-
-    func addPeerURL() {
-        document.swarm.peers.append("http://127.0.0.1:11400")
-        bumpUI()
-    }
-
-    func addSubnetCIDR() {
-        document.swarm.subnet_cidrs.append("192.168.1.0/24")
-        bumpUI()
-    }
-
-    func removeSubnetCIDR(at index: Int) {
-        guard document.swarm.subnet_cidrs.indices.contains(index) else { return }
-        document.swarm.subnet_cidrs.remove(at: index)
-        bumpUI()
-    }
-
-    func removePeerURL(at index: Int) {
-        guard document.swarm.peers.indices.contains(index) else { return }
-        document.swarm.peers.remove(at: index)
-        bumpUI()
-    }
-
-    func removeCustomEndpoint(at index: Int) {
-        guard document.discovery.custom_endpoints.indices.contains(index) else { return }
-        document.discovery.custom_endpoints.remove(at: index)
         bumpUI()
     }
 

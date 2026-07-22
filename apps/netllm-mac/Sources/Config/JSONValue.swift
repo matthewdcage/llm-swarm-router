@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// A dynamic JSON value — backs config draft sections whose shape isn't
 /// known at Swift compile time (docs/config-schema-rewrite-plan.md §3.4
@@ -78,5 +79,82 @@ enum JSONValue: Codable, Sendable, Equatable {
     var isNull: Bool {
         if case .null = self { return true }
         return false
+    }
+
+    static func strings(_ values: [String]) -> JSONValue {
+        .array(values.map(JSONValue.string))
+    }
+}
+
+extension Dictionary where Key == String, Value == JSONValue {
+    func string(_ key: String, default fallback: String = "") -> String {
+        self[key]?.stringValue ?? fallback
+    }
+
+    func bool(_ key: String, default fallback: Bool = false) -> Bool {
+        self[key]?.boolValue ?? fallback
+    }
+
+    func double(_ key: String, default fallback: Double = 0) -> Double {
+        self[key]?.doubleValue ?? fallback
+    }
+
+    func stringArray(_ key: String) -> [String] {
+        self[key]?.arrayValue?.compactMap(\.stringValue) ?? []
+    }
+}
+
+/// Bridges SwiftUI bindings against a dynamic `[String: JSONValue]` config
+/// section (docs/config-schema-rewrite-plan.md §5 phase 4) to plain
+/// Swift types, so existing hand-tuned views keep their exact bindings
+/// and behavior — only the underlying section type changes from a typed
+/// struct to a dynamic dict, closing the hand-mirrored-shape drift the
+/// plan targets without forcing every field through the generic
+/// SchemaFormView renderer.
+extension Binding where Value == [String: JSONValue] {
+    func string(_ key: String, default fallback: String = "") -> Binding<String> {
+        Binding<String>(
+            get: { wrappedValue.string(key, default: fallback) },
+            set: { wrappedValue[key] = .string($0) }
+        )
+    }
+
+    func bool(_ key: String, default fallback: Bool = false) -> Binding<Bool> {
+        Binding<Bool>(
+            get: { wrappedValue.bool(key, default: fallback) },
+            set: { wrappedValue[key] = .bool($0) }
+        )
+    }
+
+    func double(_ key: String, default fallback: Double = 0) -> Binding<Double> {
+        Binding<Double>(
+            get: { wrappedValue.double(key, default: fallback) },
+            set: { wrappedValue[key] = .number($0) }
+        )
+    }
+
+    func stringArray(_ key: String) -> Binding<[String]> {
+        Binding<[String]>(
+            get: { wrappedValue.stringArray(key) },
+            set: { wrappedValue[key] = .strings($0) }
+        )
+    }
+
+    /// dict[str, list[str]]-shaped field nested at `key` (e.g.
+    /// discovery.provider_urls[provider]) — the same fixed-known-keys
+    /// pattern as dashboard.js's schemaDictListStringsRow.
+    func stringArray(_ key: String, subKey: String) -> Binding<[String]> {
+        Binding<[String]>(
+            get: { wrappedValue[key]?.objectValue?[subKey]?.arrayValue?.compactMap(\.stringValue) ?? [] },
+            set: { newValue in
+                var object = wrappedValue[key]?.objectValue ?? [:]
+                if newValue.isEmpty {
+                    object.removeValue(forKey: subKey)
+                } else {
+                    object[subKey] = .strings(newValue)
+                }
+                wrappedValue[key] = .object(object)
+            }
+        )
     }
 }

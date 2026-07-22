@@ -159,10 +159,17 @@ def test_darwin_default_providers_include_omlx_and_vllm(
     reason="Swift config defaults are macOS-only",
 )
 def test_darwin_swift_default_providers_match_python() -> None:
-    """Lock Swift Settings defaults to Python discovery.providers on Darwin."""
-    doc_path = REPO_ROOT / "apps/netllm-mac/Sources/Config/NetllmConfigDocument.swift"
+    """Lock Swift Settings defaults to Python discovery.providers on Darwin.
+
+    discovery.providers moved from a NetllmConfigDocument.DiscoverySection
+    default to SettingsViewModel.providers (docs/config-schema-rewrite-plan.md
+    §5 phase 4 — discovery became a dynamic [String: JSONValue] section;
+    the providers checkbox loop still needs a known list to iterate,
+    which now lives on the view model instead of a typed struct default).
+    """
+    doc_path = REPO_ROOT / "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift"
     text = doc_path.read_text(encoding="utf-8")
-    marker = "providers: [String] = ["
+    marker = "static let providers = ["
     swift_defaults: list[str] = []
     for line in text.splitlines():
         stripped = line.strip()
