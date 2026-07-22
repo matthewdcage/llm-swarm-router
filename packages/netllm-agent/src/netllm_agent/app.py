@@ -194,6 +194,20 @@ def create_app(
         require_admin_access(request, cfg)
         return {"providers": cloud_provider_registry_payload()}
 
+    @app.get("/netllm/v1/cloud/providers/{provider_id}/models")
+    async def netllm_cloud_provider_models(
+        provider_id: str, request: Request
+    ) -> dict[str, Any]:
+        """Full model catalog for one provider, probed live from the
+        provider's API with the configured key (static_models fallback).
+        Ignores the models allowlist by design — this feeds the
+        allowlist-editing UI (docs/models-ux-plan.md follow-up)."""
+        require_admin_access(request, cfg)
+        payload = await service.cloud_provider_models_probe(provider_id)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="unknown cloud provider")
+        return payload
+
     @app.post("/netllm/v1/admin/drain")
     async def netllm_admin_drain(request: Request) -> dict[str, Any]:
         """Toggle this agent's drain state ahead of a planned restart or

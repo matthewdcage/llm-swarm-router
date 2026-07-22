@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
 from typing import Any
 
+import httpx
 from netllm_core.anthropic_bridge import (
     anthropic_to_openai_request,
     openai_to_anthropic_response,
@@ -1178,6 +1179,90 @@ class AgentService:
         # enabled/configured get pruned.
         legacy_ids = {"anthropic-cloud", "openai-cloud"}
         self.pool.prune_cloud_provider_rows(keep_ids | legacy_ids)
+
+    async def cloud_provider_models_probe(
+        self, provider_id: str
+    ) -> dict[str, Any] | None:
+        """Full model catalog for one cloud provider, straight from the
+        provider's API (GET /netllm/v1/cloud/providers/{id}/models).
+
+        Deliberately ignores the `models` allowlist: the materialized
+        backend's health.models IS the allowlist once one is set, so the
+        allowlist-editing UI needs this separate probe to show what
+        could be enabled. Providers without a live catalog endpoint (or
+        an unreachable/keyless probe) fall back to the registry's
+        static_models with source "static". Returns None for unknown
+        provider ids.
+        """
+        spec = get_provider_spec(provider_id)
+        if spec is None:
+            return None
+        provider_cfg = self.config.cloud.providers.get(provider_id)
+        endpoint = spec.endpoint(provider_cfg.region or None if provider_cfg else None)
+        api_key = ""
+        if provider_cfg is not None:
+            api_key = provider_cfg.api_key or (
+                os.environ.get(provider_cfg.api_key_env, "")
+                if provider_cfg.api_key_env
+                else ""
+            )
+        api_key = api_key or os.environ.get(spec.api_key_env, "")
+
+        def static_payload(status: str, detail: str | None = None) -> dict[str, Any]:
+            return {
+                "provider": provider_id,
+                "source": "static",
+                "status": status,
+                "detail": detail,
+                "models": list(spec.static_models),
+                "configured": list(provider_cfg.models) if provider_cfg else [],
+            }
+
+        if not spec.models_endpoint:
+            return static_payload("static_catalog")
+        if not api_key:
+            return static_payload("no_api_key", f"Set {spec.api_key_env} first")
+
+        from netllm_core.health import status_from_exception, status_from_response
+
+        try:
+            async with httpx.AsyncClient() as client:
+                if endpoint.openai_base_url:
+                    resp = await client.get(
+                        endpoint.openai_base_url.rstrip("/") + "/models",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        timeout=10.0,
+                    )
+                elif endpoint.anthropic_base_url:
+                    # Anthropic-only providers list models at /v1/models
+                    # with x-api-key auth (same {"data": [{"id": …}]}
+                    # shape status_from_response parses).
+                    resp = await client.get(
+                        endpoint.anthropic_base_url.rstrip("/") + "/v1/models",
+                        headers={
+                            "x-api-key": api_key,
+                            "anthropic-version": "2023-06-01",
+                        },
+                        timeout=10.0,
+                    )
+                else:
+                    return static_payload("no_endpoint")
+            probe = status_from_response(resp)
+        except Exception as exc:  # noqa: BLE001 — probe surface, never raise
+            probe = status_from_exception(exc, 10.0)
+        models = probe.get("models") or []
+        if probe.get("status") != "online" or not models:
+            return static_payload(
+                str(probe.get("status", "error")), probe.get("detail")
+            )
+        return {
+            "provider": provider_id,
+            "source": "live",
+            "status": "online",
+            "detail": None,
+            "models": models,
+            "configured": list(provider_cfg.models) if provider_cfg else [],
+        }
 
     def _anthropic_fallback_backends(self, *, local_only: bool) -> list[Backend]:
         """Anthropic-format backends tried after the OpenAI-format mesh.

@@ -64,6 +64,15 @@ testpaths = [
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+# Local-maintainer-only coordinator files (gitignored, never on remote):
+# ruff's gitignore respect proved racy run-to-run, flip-flopping the lint
+# gate — exclude them explicitly so scripts/ci.sh is deterministic.
+extend-exclude = [
+    "tests/test_coordinator_dispatch.py",
+    "tests/test_coordinator_engagement_monitor.py",
+    "tests/fixtures/coordinator-snapshot",
+    "tests/fixtures/coordinator-monitor",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]

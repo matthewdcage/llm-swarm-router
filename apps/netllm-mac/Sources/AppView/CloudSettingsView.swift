@@ -51,13 +51,22 @@ private struct CloudProviderCard: View {
     @Bindable var model: SettingsViewModel
     var provider: CloudProviderInfo
 
-    @State private var keyText = ""
-    @State private var feedback: String?
+    // Key draft/feedback/catalog state lives on the view model, keyed by
+    // provider id — @State here gets destroyed by the Settings detail
+    // view's `.id(uiRevision)` on every 2-second live poll, which is
+    // exactly the old "typed API key disappears" bug.
 
     private var binding: Binding<NetllmConfigDocument.CloudProviderConfig> {
         Binding(
             get: { model.document.cloud.providers[provider.id] ?? .init() },
             set: { model.document.cloud.providers[provider.id] = $0 }
+        )
+    }
+
+    private var keyBinding: Binding<String> {
+        Binding(
+            get: { model.cloudKeyDrafts[provider.id] ?? "" },
+            set: { model.cloudKeyDrafts[provider.id] = $0 }
         )
     }
 
@@ -87,46 +96,104 @@ private struct CloudProviderCard: View {
                 Text("openai").tag("openai")
                 Text("anthropic").tag("anthropic")
             }
-            SecureField("API key", text: $keyText)
+            SecureField("API key", text: keyBinding)
                 .textFieldStyle(.roundedBorder)
+                .onSubmit { model.saveCloudKey(provider) }
             HStack {
-                Button("Save key") { saveKey() }
-                Button("Clear key", role: .destructive) { clearKey() }
+                Button("Save key") { model.saveCloudKey(provider) }
+                Button("Clear key", role: .destructive) { model.clearCloudKey(provider) }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            if let feedback {
+            if let feedback = model.cloudKeyFeedback[provider.id] {
                 Text(feedback).font(.caption2).foregroundStyle(.orange)
             }
+            modelsSection
         }
         .padding(8)
         .background(.quaternary.opacity(0.25))
         .clipShape(RoundedRectangle(cornerRadius: 6))
-        .onAppear { keyText = KeychainStore.load(account: provider.keychainAccount) ?? "" }
+        .onAppear { model.loadCloudKeyDraftIfNeeded(provider) }
     }
 
-    private func saveKey() {
-        let trimmed = keyText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            KeychainStore.delete(account: provider.keychainAccount)
-            feedback = "Cleared."
-            return
+    /// Model allowlist editor: fetch the provider's full catalog from
+    /// the agent, then check/uncheck to control cloud.providers.<id>.models.
+    /// Empty allowlist = all models (server default).
+    @ViewBuilder
+    private var modelsSection: some View {
+        let allowlist = binding.wrappedValue.models
+        let catalog = model.cloudCatalogs[provider.id]
+        Divider()
+        HStack {
+            Text("Models").font(.subheadline.weight(.medium))
+            Spacer()
+            if model.cloudCatalogFetching.contains(provider.id) {
+                ProgressView().controlSize(.mini)
+            }
+            Button(catalog == nil ? "Fetch model list" : "Refresh model list") {
+                model.fetchCloudCatalog(provider.id)
+            }
+            .buttonStyle(.borderless)
+            .font(.caption)
+            .disabled(!model.agentReachable || model.cloudCatalogFetching.contains(provider.id))
         }
-        if trimmed == "netllm-local" {
-            feedback = "Use a real API key — netllm-local is the local-mesh placeholder."
-            return
-        }
-        do {
-            try KeychainStore.save(account: provider.keychainAccount, value: trimmed)
-            feedback = "Saved. Restart the agent to apply."
-        } catch {
-            feedback = "Could not save key to Keychain."
+        if let catalog {
+            if catalog.source == "static" {
+                Text(staticCatalogNote(catalog))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if allowlist.isEmpty {
+                Text("All \(catalog.models.count) models enabled (default). Uncheck any to restrict.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    Text("\(allowlist.count) of \(catalog.models.count) models enabled.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Button("Enable all") { model.resetCloudModels(provider.id) }
+                        .buttonStyle(.borderless)
+                        .font(.caption2)
+                }
+            }
+            ForEach(catalogWithConfiguredExtras(catalog, allowlist: allowlist), id: \.self) { modelID in
+                Toggle(modelID, isOn: Binding(
+                    get: { model.cloudModelEnabled(provider.id, model: modelID) },
+                    set: { model.toggleCloudModel(provider.id, model: modelID, enabled: $0) }
+                ))
+                .font(.caption)
+            }
+            Text("Model changes apply after Save + Restart Agent. Enabled models appear on the Models tab for pool assignment.")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if !allowlist.isEmpty {
+            Text("Restricted to: \(allowlist.joined(separator: ", ")). Fetch the model list to edit.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func clearKey() {
-        KeychainStore.delete(account: provider.keychainAccount)
-        keyText = ""
-        feedback = "Cleared. Restart the agent to drop the injected credential."
+    /// Configured models the fetched catalog doesn't list (renamed or
+    /// deprecated upstream) stay visible so they can be unchecked.
+    private func catalogWithConfiguredExtras(
+        _ catalog: CloudModelCatalog, allowlist: [String]
+    ) -> [String] {
+        catalog.models + allowlist.filter { !catalog.models.contains($0) }
+    }
+
+    private func staticCatalogNote(_ catalog: CloudModelCatalog) -> String {
+        switch catalog.status {
+        case "no_api_key":
+            return "No API key yet — showing the built-in catalog. "
+                + (catalog.detail ?? "")
+        case "static_catalog":
+            return "This provider has no live model-list API — showing the built-in catalog."
+        default:
+            return "Live catalog unavailable (\(catalog.status)) — showing the built-in catalog."
+        }
     }
 }

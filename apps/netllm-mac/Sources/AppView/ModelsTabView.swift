@@ -58,12 +58,23 @@ struct ModelsTabView: View {
     private var groups: [MachineGroup] {
         guard let status = model.status else { return [] }
         var locals: [BackendStatus] = []
+        // Cloud provider rows (cloud_provider set) get their own groups —
+        // they're non-local but carry this agent's id, so machine
+        // bucketing would mislabel them as a peer.
+        var cloudBuckets: [(key: String, backends: [BackendStatus])] = []
         // Keyed by agent id (or base_url when a peer predates agent_id
         // in its status payload) so multi-backend machines fold into one
         // group; ordered by first appearance.
         var peerBuckets: [(key: String, backends: [BackendStatus])] = []
         for backend in status.backends {
-            if backend.local {
+            if !backend.cloudProvider.isEmpty {
+                let key = backend.cloudProvider
+                if let index = cloudBuckets.firstIndex(where: { $0.key == key }) {
+                    cloudBuckets[index].backends.append(backend)
+                } else {
+                    cloudBuckets.append((key, [backend]))
+                }
+            } else if backend.local {
                 locals.append(backend)
             } else {
                 let key = backend.agentId.isEmpty ? backend.baseURL : backend.agentId
@@ -90,6 +101,17 @@ struct ModelsTabView: View {
                 title = bucket.backends.first?.baseURL ?? bucket.key
             }
             result.append(makeGroup(id: "peer-\(bucket.key)", title: title, backends: bucket.backends))
+        }
+        for bucket in cloudBuckets {
+            let display = model.cloudProviders
+                .first { $0.id == bucket.key }?.displayName ?? bucket.key
+            result.append(
+                makeGroup(
+                    id: "cloud-\(bucket.key)",
+                    title: "\(display) (cloud)",
+                    backends: bucket.backends
+                )
+            )
         }
         return result
     }

@@ -160,3 +160,81 @@ def test_cloud_providers_endpoint_serves_registry() -> None:
     moonshot = next(r for r in body["providers"] if r["id"] == "moonshot")
     assert moonshot["display_name"] == "Moonshot AI (Kimi)"
     assert "global" in moonshot["regions"]
+
+
+def test_cloud_provider_models_endpoint_static_catalog(monkeypatch) -> None:
+    """zai has no live /models endpoint — the probe returns the registry's
+    static catalog without any network call, plus the configured allowlist."""
+    monkeypatch.delenv("ZAI_API_KEY", raising=False)
+    cfg = NetllmConfig()
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    cfg.cloud.providers["zai"] = CloudProviderConfig(models=["glm-5.2"])
+    app = create_app(cfg)
+    with TestClient(app) as client:
+        resp = client.get("/netllm/v1/cloud/providers/zai/models")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source"] == "static"
+    assert body["models"] == list(CLOUD_PROVIDERS["zai"].static_models)
+    assert body["configured"] == ["glm-5.2"]
+
+
+def test_cloud_provider_models_endpoint_keyless_falls_back_static(
+    monkeypatch,
+) -> None:
+    """A models_endpoint provider with no key configured must not probe —
+    it reports no_api_key with the static fallback catalog."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    cfg = NetllmConfig()
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    app = create_app(cfg)
+    with TestClient(app) as client:
+        resp = client.get("/netllm/v1/cloud/providers/openai/models")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["source"] == "static"
+    assert body["status"] == "no_api_key"
+    assert body["models"] == list(CLOUD_PROVIDERS["openai"].static_models)
+
+
+def test_cloud_provider_models_endpoint_unknown_provider_404s() -> None:
+    cfg = NetllmConfig()
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    app = create_app(cfg)
+    with TestClient(app) as client:
+        resp = client.get("/netllm/v1/cloud/providers/nonesuch/models")
+    assert resp.status_code == 404
+
+
+def test_cloud_provider_models_probe_live_catalog(monkeypatch) -> None:
+    """With a key set, the probe hits the provider's /models endpoint and
+    returns the live catalog (allowlist deliberately ignored)."""
+    import asyncio
+
+    import httpx
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    cfg = NetllmConfig()
+    cfg.cloud.providers["openai"] = CloudProviderConfig(models=["gpt-5.6"])
+    service = AgentService(cfg)
+
+    async def fake_get(self, url, headers=None, timeout=None):
+        assert url == "https://api.openai.com/v1/models"
+        assert headers["Authorization"] == "Bearer sk-test"
+        request = httpx.Request("GET", url)
+        return httpx.Response(
+            200,
+            json={"data": [{"id": "gpt-5.6"}, {"id": "gpt-5.3-codex"}]},
+            request=request,
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    body = asyncio.run(service.cloud_provider_models_probe("openai"))
+    assert body is not None
+    assert body["source"] == "live"
+    assert body["status"] == "online"
+    assert body["models"] == ["gpt-5.6", "gpt-5.3-codex"]
+    assert body["configured"] == ["gpt-5.6"]

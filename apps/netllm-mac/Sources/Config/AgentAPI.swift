@@ -109,6 +109,27 @@ enum AgentAPI {
         }
     }
 
+    /// Full model catalog for one cloud provider (live probe with the
+    /// configured key, static registry fallback) — feeds the allowlist
+    /// checklist in CloudSettingsView. Independent of the allowlist by
+    /// design: the materialized backend's health.models IS the allowlist
+    /// once one is set, so status can't show what else could be enabled.
+    static func cloudProviderModels(baseURL: URL, providerID: String) async -> CloudModelCatalog? {
+        guard let json = await fetchJSON(
+            baseURL: baseURL,
+            path: "/netllm/v1/cloud/providers/\(providerID)/models",
+            timeout: 15
+        ) else {
+            return nil
+        }
+        return CloudModelCatalog(
+            source: json["source"] as? String ?? "static",
+            status: json["status"] as? String ?? "unknown",
+            detail: json["detail"] as? String,
+            models: json["models"] as? [String] ?? []
+        )
+    }
+
     static func isReachable(baseURL: URL) async -> Bool {
         var request = URLRequest(url: baseURL.appendingPathComponent("/health"))
         request.timeoutInterval = 2
@@ -162,7 +183,8 @@ enum AgentAPI {
             models: models,
             inFlight: parseInt(dict["in_flight"]),
             backendId: dict["id"] as? String ?? "",
-            agentId: dict["agent_id"] as? String ?? ""
+            agentId: dict["agent_id"] as? String ?? "",
+            cloudProvider: dict["cloud_provider"] as? String ?? ""
         )
     }
 
@@ -182,9 +204,11 @@ enum AgentAPI {
         )
     }
 
-    private static func fetchJSON(baseURL: URL, path: String) async -> [String: Any]? {
+    private static func fetchJSON(
+        baseURL: URL, path: String, timeout: TimeInterval = 5
+    ) async -> [String: Any]? {
         var request = URLRequest(url: baseURL.appendingPathComponent(path))
-        request.timeoutInterval = 5
+        request.timeoutInterval = timeout
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }

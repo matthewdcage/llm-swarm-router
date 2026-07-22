@@ -74,6 +74,10 @@ struct NetllmConfigDocument: Codable, Sendable {
         var enabled: Bool = false
         var region: String = ""
         var api_format: String?
+        /// Model allowlist (cloud.providers.<id>.models). Empty = every
+        /// model the provider serves (live /models probe or the registry's
+        /// static catalog) — matches the server's materialization rule.
+        var models: [String] = []
     }
 
     struct CloudSection: Codable, Sendable {
@@ -162,6 +166,20 @@ struct BackendStatus: Identifiable, Sendable {
     /// Owning agent — groups peer backends by machine and matches the
     /// bare-agent-id pool host ref. Empty on agents older than this field.
     var agentId: String = ""
+    /// Cloud provider id ("openai", "anthropic", …) when this row was
+    /// materialized from [cloud.providers.<id>]; empty for local/peer rows.
+    var cloudProvider: String = ""
+}
+
+/// One cloud provider's model catalog from
+/// GET /netllm/v1/cloud/providers/{id}/models — the full list of models
+/// the provider offers (live probe or static registry fallback),
+/// independent of the configured allowlist.
+struct CloudModelCatalog: Sendable {
+    var source: String
+    var status: String
+    var detail: String?
+    var models: [String]
 }
 
 struct PeerStatus: Identifiable, Sendable {

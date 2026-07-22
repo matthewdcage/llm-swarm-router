@@ -38,6 +38,18 @@ final class SettingsViewModel {
     /// 2-second live poll.
     var modelsSearchText = ""
     var modelsCollapsedGroups: Set<String> = []
+    /// Cloud tab per-provider drafts, keyed by provider id. Same
+    /// `.id(uiRevision)` constraint as above — these were @State in
+    /// CloudProviderCard, which the 2s live poll wiped mid-typing (the
+    /// "API key disappears" bug). Keychain is read once per provider per
+    /// session (nil draft = not loaded yet), also avoiding a Keychain
+    /// prompt per poll under ad-hoc signing.
+    var cloudKeyDrafts: [String: String] = [:]
+    var cloudKeyFeedback: [String: String] = [:]
+    /// Fetched provider catalogs (AgentAPI.cloudProviderModels) and the
+    /// in-flight marker for the fetch button.
+    var cloudCatalogs: [String: CloudModelCatalog] = [:]
+    var cloudCatalogFetching: Set<String> = []
     private(set) var uiRevision = 0
 
     private var livePollTask: Task<Void, Never>?
@@ -732,6 +744,103 @@ final class SettingsViewModel {
     func removeBackendOverride(at index: Int) {
         guard document.routing.backends.indices.contains(index) else { return }
         document.routing.backends.remove(at: index)
+        bumpUI()
+    }
+
+    // MARK: - Cloud providers (key drafts + model allowlist)
+
+    /// Lazy one-shot Keychain read: the draft dictionary is the source
+    /// of truth for the text field once populated, so live-poll view
+    /// rebuilds never reset what the user typed.
+    func loadCloudKeyDraftIfNeeded(_ provider: CloudProviderInfo) {
+        guard cloudKeyDrafts[provider.id] == nil else { return }
+        cloudKeyDrafts[provider.id] = KeychainStore.load(account: provider.keychainAccount) ?? ""
+    }
+
+    func saveCloudKey(_ provider: CloudProviderInfo) {
+        let trimmed = (cloudKeyDrafts[provider.id] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            KeychainStore.delete(account: provider.keychainAccount)
+            cloudKeyFeedback[provider.id] = "Cleared."
+            bumpUI()
+            return
+        }
+        if trimmed == "netllm-local" {
+            cloudKeyFeedback[provider.id] =
+                "Use a real API key — netllm-local is the local-mesh placeholder."
+            bumpUI()
+            return
+        }
+        do {
+            try KeychainStore.save(account: provider.keychainAccount, value: trimmed)
+            cloudKeyFeedback[provider.id] = "Saved. Restart the agent to apply."
+        } catch {
+            cloudKeyFeedback[provider.id] = "Could not save key to Keychain."
+        }
+        bumpUI()
+    }
+
+    func clearCloudKey(_ provider: CloudProviderInfo) {
+        KeychainStore.delete(account: provider.keychainAccount)
+        cloudKeyDrafts[provider.id] = ""
+        cloudKeyFeedback[provider.id] = "Cleared. Restart the agent to drop the injected credential."
+        bumpUI()
+    }
+
+    func fetchCloudCatalog(_ providerID: String) {
+        guard agentReachable, !cloudCatalogFetching.contains(providerID) else { return }
+        cloudCatalogFetching.insert(providerID)
+        bumpUI()
+        Task { [weak self] in
+            guard let self else { return }
+            let catalog = await AgentAPI.cloudProviderModels(
+                baseURL: agentBaseURL, providerID: providerID
+            )
+            cloudCatalogFetching.remove(providerID)
+            if let catalog {
+                cloudCatalogs[providerID] = catalog
+            } else {
+                cloudCatalogFeedbackUnavailable(providerID)
+            }
+            bumpUI()
+        }
+    }
+
+    private func cloudCatalogFeedbackUnavailable(_ providerID: String) {
+        cloudKeyFeedback[providerID] =
+            "Could not fetch the model catalog — is the agent running (and restarted after key changes)?"
+    }
+
+    /// Allowlist semantics mirror the server: empty = every model the
+    /// provider serves. First uncheck materializes the explicit list.
+    func cloudModelEnabled(_ providerID: String, model: String) -> Bool {
+        let allowlist = document.cloud.providers[providerID]?.models ?? []
+        return allowlist.isEmpty || allowlist.contains(model)
+    }
+
+    func toggleCloudModel(_ providerID: String, model: String, enabled: Bool) {
+        var config = document.cloud.providers[providerID] ?? .init()
+        if config.models.isEmpty {
+            guard !enabled else { return }
+            // Materialize "all" as the fetched catalog minus the one
+            // being disabled — needs a catalog to know what "all" is.
+            guard let catalog = cloudCatalogs[providerID] else { return }
+            config.models = catalog.models.filter { $0 != model }
+        } else if enabled {
+            if !config.models.contains(model) { config.models.append(model) }
+        } else {
+            config.models.removeAll { $0 == model }
+        }
+        document.cloud.providers[providerID] = config
+        bumpUI()
+    }
+
+    /// Back to "all models" (empty allowlist — the server default).
+    func resetCloudModels(_ providerID: String) {
+        guard var config = document.cloud.providers[providerID] else { return }
+        config.models = []
+        document.cloud.providers[providerID] = config
         bumpUI()
     }
 
