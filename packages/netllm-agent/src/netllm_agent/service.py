@@ -85,6 +85,13 @@ class AgentService:
         # strategy choice is visible, not just a log whisper.
         self._shardless_fallbacks = 0
         self.startup_warnings: list[str] = []
+        # Runtime-only (never persisted to config.toml): set via
+        # POST /netllm/v1/admin/drain ahead of a planned restart/shutdown.
+        # Broadcast in status_payload()/heartbeat so every peer stops
+        # selecting this agent for new work; existing in-flight requests
+        # finish normally, nothing here cancels them. Resets to False on
+        # the next process start.
+        self.draining = False
         # Hold references so background tasks are not garbage collected.
         self._background_tasks: set[asyncio.Task[None]] = set()
         self._local_scan_cache: list[Backend] | None = None
@@ -201,6 +208,7 @@ class AgentService:
                 if b.base_url.rstrip("/") == override.base_url.rstrip("/"):
                     b.api_key = key
                     b.api_format = override.resolved_api_format()
+                    b.max_concurrency = override.max_concurrency
                     found = True
             if not found:
                 local.append(
@@ -213,6 +221,7 @@ class AgentService:
                         enabled=True,
                         local=override.local,
                         agent_id=self.config.agent.agent_id,
+                        max_concurrency=override.max_concurrency,
                     )
                 )
         return local
@@ -238,6 +247,8 @@ class AgentService:
             "shardless_fallbacks": self._shardless_fallbacks,
             "cluster_token_set": bool(self.config.swarm.cluster_token),
             "version": get_version(),
+            "max_concurrency": self.config.agent.max_concurrency,
+            "draining": self.draining,
             "cloud": {
                 "enabled": self.config.cloud.enabled,
                 "fallback": self.config.cloud.fallback,
@@ -330,6 +341,8 @@ class AgentService:
                 backends=payload.get("backends", []),
                 routing_strategy=payload.get("routing_strategy", ""),
                 version=payload.get("version", ""),
+                max_concurrency=int(payload.get("max_concurrency", 0) or 0),
+                draining=bool(payload.get("draining", False)),
             )
         )
         await self.refresh_local_backends()

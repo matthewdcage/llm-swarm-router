@@ -90,6 +90,99 @@ def test_peer_agent_backends_uses_agent_url_not_loopback() -> None:
     assert all("127.0.0.1" not in b.base_url for b in backends)
 
 
+def test_peer_agent_backends_carries_self_declared_max_concurrency() -> None:
+    registry = SwarmRegistry(NetllmConfig())
+    registry.register_peer(
+        PeerRecord(
+            agent_id="peer-capped",
+            listen_url="http://192.168.1.12:11400",
+            backends=[],
+            max_concurrency=4,
+        )
+    )
+    backends = registry.peer_agent_backends()
+    assert len(backends) == 1
+    assert backends[0].max_concurrency == 4
+
+
+def test_peer_agent_backends_defaults_max_concurrency_to_unlimited() -> None:
+    registry = SwarmRegistry(NetllmConfig())
+    registry.register_peer(
+        PeerRecord(
+            agent_id="peer-unbounded",
+            listen_url="http://192.168.1.13:11400",
+            backends=[],
+        )
+    )
+    backends = registry.peer_agent_backends()
+    assert backends[0].max_concurrency == 0
+
+
+def test_peer_agent_backends_excludes_draining_peer() -> None:
+    registry = SwarmRegistry(NetllmConfig())
+    registry.register_peer(
+        PeerRecord(
+            agent_id="peer-draining",
+            listen_url="http://192.168.1.14:11400",
+            backends=[],
+            draining=True,
+        )
+    )
+    assert registry.peer_agent_backends() == []
+
+
+def test_peer_agent_backends_includes_non_draining_peer() -> None:
+    registry = SwarmRegistry(NetllmConfig())
+    registry.register_peer(
+        PeerRecord(
+            agent_id="peer-active",
+            listen_url="http://192.168.1.15:11400",
+            backends=[],
+            draining=False,
+        )
+    )
+    assert len(registry.peer_agent_backends()) == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_peer_parses_max_concurrency_and_draining() -> None:
+    registry = SwarmRegistry(NetllmConfig())
+    mock_response = {
+        "agent_id": "peer-c",
+        "listen_url": "http://192.168.1.16:11400",
+        "backends": [],
+        "max_concurrency": 6,
+        "draining": True,
+    }
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self) -> dict[str, object]:
+            return mock_response
+
+    class FakeClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> FakeClient:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def get(
+            self, url: str, headers: dict[str, str] | None = None
+        ) -> FakeResponse:
+            return FakeResponse()
+
+    with patch("netllm_discovery.swarm.httpx.AsyncClient", FakeClient):
+        record = await registry.fetch_peer("http://192.168.1.16:11400")
+    assert record is not None
+    assert record.max_concurrency == 6
+    assert record.draining is True
+
+
 def test_peer_agent_backends_skips_loopback_listen_url() -> None:
     registry = SwarmRegistry(NetllmConfig())
     registry.register_peer(

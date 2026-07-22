@@ -111,6 +111,59 @@ def test_max_in_flight_cap_prefers_backend_with_headroom(_mock: object) -> None:
 
 
 @patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_per_backend_max_concurrency_wins_over_global_cap(_mock: object) -> None:
+    """A backend's own declared max_concurrency (e.g. a peer's self-declared
+    agent.max_concurrency, or a manual BackendOverride) is authoritative
+    for its own row, even with no pool-wide max_in_flight_per_backend set."""
+    pool = RouterPool()  # max_in_flight_per_backend=0 (off) by default
+    capped = Backend(
+        id="capped",
+        base_url="http://capped/v1",
+        health=BackendHealth(models=["m"], status="online"),
+        in_flight=2,
+        max_concurrency=2,
+    )
+    uncapped = Backend(
+        id="uncapped",
+        base_url="http://uncapped/v1",
+        health=BackendHealth(models=["m"], status="online"),
+        in_flight=5,
+    )
+    pool.set_backends([capped, uncapped])
+    pool.mark_success(capped)
+    pool.mark_success(uncapped)
+    # capped is AT its own ceiling despite having fewer in-flight requests
+    # than uncapped, which has no ceiling of its own — must route to
+    # uncapped rather than stacking more onto the saturated one.
+    assert pool.select_backend("m", "least_load").id == "uncapped"
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_per_backend_max_concurrency_overrides_global_cap_value(_mock: object) -> None:
+    """A tighter per-backend cap than the pool-wide default is respected."""
+    pool = RouterPool(max_in_flight_per_backend=10)
+    tightly_capped = Backend(
+        id="tight",
+        base_url="http://tight/v1",
+        health=BackendHealth(models=["m"], status="online"),
+        in_flight=1,
+        max_concurrency=1,
+    )
+    normal = Backend(
+        id="normal",
+        base_url="http://normal/v1",
+        health=BackendHealth(models=["m"], status="online"),
+        in_flight=3,
+    )
+    pool.set_backends([tightly_capped, normal])
+    pool.mark_success(tightly_capped)
+    pool.mark_success(normal)
+    # tight is at its own (tighter) ceiling even though it's well under
+    # the pool-wide max_in_flight_per_backend=10.
+    assert pool.select_backend("m", "least_load").id == "normal"
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
 def test_auto_strategy_selects_least_load(_mock: object) -> None:
     pool = RouterPool()
     loaded = Backend(

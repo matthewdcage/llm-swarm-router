@@ -183,6 +183,22 @@ def create_app(
         require_admin_access(request, cfg)
         return {"providers": cloud_provider_registry_payload()}
 
+    @app.post("/netllm/v1/admin/drain")
+    async def netllm_admin_drain(request: Request) -> dict[str, Any]:
+        """Toggle this agent's drain state ahead of a planned restart or
+        shutdown. Draining removes this agent from every peer's routing
+        candidates (via the next heartbeat) without touching requests
+        already in flight here — nothing is cancelled. Runtime-only,
+        never persisted; resets to False on the next process start."""
+        require_admin_access(request, cfg)
+        body = await request.json()
+        if not isinstance(body, dict) or "draining" not in body:
+            raise HTTPException(
+                status_code=400, detail="Expected JSON object with 'draining': bool"
+            )
+        service.draining = bool(body["draining"])
+        return {"ok": True, "draining": service.draining}
+
     @app.get("/netllm/v1/client-env")
     async def netllm_client_env() -> dict[str, Any]:
         base = service.swarm.local_agent_url()

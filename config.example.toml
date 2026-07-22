@@ -9,6 +9,12 @@ advertise = true
 # node's swarm identity (used for peer dedupe and join validation).
 # agent_id = "a1b2c3d4"
 # hostname = "my-mac"
+# Self-declared ceiling on THIS machine's own concurrent requests
+# (summed across its local backends). Broadcast via heartbeat so every
+# peer's least_load/local_spillover selection respects it once this
+# machine hits the cap — no other machine can impose a limit on this
+# one. 0 = unlimited (default; matches pre-existing behavior).
+# max_concurrency = 8
 
 [discovery]
 # macOS default (netllm init): omlx, ollama, lmstudio, vllm
@@ -47,7 +53,11 @@ allow_remote = true
 # Deprecated (kept for config compatibility; see routing-hardening-plan.md).
 require_same_model_for_shard = true
 # Back-pressure cap applied by every strategy: selection prefers backends
-# with fewer than this many requests in flight. 0 disables.
+# with fewer than this many requests in flight. 0 disables. Applies
+# uniformly to every backend unless a specific one declares its own
+# ceiling: [agent] max_concurrency (above, for peers — self-declared,
+# broadcast via heartbeat) or [[routing.backends]] max_concurrency
+# (below, for a specific local/manual row) win over this global value.
 max_in_flight_per_backend = 0
 # Peer-role agents adopt the gateway's default_strategy from heartbeats
 # (runtime only), so the mesh cannot run conflicting strategies by
@@ -69,6 +79,11 @@ max_backend_failures = 3
 #   x-netllm-strategy: round_robin        # one-off strategy override
 #   x-netllm-backend: peer:<agent-id>     # pin to a peer / backend id / URL
 #   x-netllm-local-only: 1                # never leave this machine
+#
+# `netllm drain [on|off]` — ahead of a planned restart/shutdown, tell
+# every peer (via the next heartbeat) to stop routing new work here.
+# Requests already in flight finish normally; nothing is cancelled.
+# Runtime-only, resets on the next process start.
 
 # Mixed-provider fleets: map one canonical name to per-provider model IDs
 # so the same weights spread across oMLX / Ollama / LM Studio / vLLM.
@@ -103,6 +118,9 @@ check_for_updates_automatically = true
 # api_key_env = "OMLX_API_KEY"
 # enabled = true
 # local = true
+# Optional per-backend concurrency cap (0/omitted = defer to
+# routing.max_in_flight_per_backend below).
+# max_concurrency = 4
 
 # LM Studio with API authentication enabled (Settings -> Developer):
 # set LMSTUDIO_API_KEY in the agent's environment, or pin the token here.

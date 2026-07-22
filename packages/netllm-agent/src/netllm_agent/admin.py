@@ -202,6 +202,7 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
             "advertise": cfg.agent.advertise,
             "hostname": cfg.agent.hostname,
             "agent_id": cfg.agent.agent_id,
+            "max_concurrency": cfg.agent.max_concurrency,
         },
         "discovery": {
             "providers": list(cfg.discovery.providers),

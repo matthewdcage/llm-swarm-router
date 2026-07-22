@@ -1153,6 +1153,43 @@ def serve(
 
 
 @app.command()
+def drain(
+    state: str = typer.Argument(
+        "on", help="on: stop receiving new swarm work | off: rejoin routing"
+    ),
+    config: Path | None = typer.Option(None, "--config"),
+    url: str | None = typer.Option(None, "--url", help="Agent base URL"),
+) -> None:
+    """Ask peers to stop routing new work here (existing requests finish
+    normally). Runtime-only — resets on restart; run `netllm drain off`
+    to rejoin before it does."""
+    if state not in ("on", "off"):
+        print_error("Invalid state", f"{state!r} — expected 'on' or 'off'.")
+        raise typer.Exit(1)
+    cfg = load_config(_config_path_option(config))
+    base = (url or listen_url(cfg.agent.listen)).rstrip("/")
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.post(
+                f"{base}/netllm/v1/admin/drain", json={"draining": state == "on"}
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:
+        msg, hints = agent_unreachable_message(base, exc)
+        print_error("Agent unreachable", msg, hints=hints)
+        raise typer.Exit(1) from exc
+    if data.get("draining"):
+        console.print(
+            "[yellow]Draining.[/] Peers stop routing new work here on their next "
+            "heartbeat; requests already in flight finish normally. "
+            "[cyan]netllm drain off[/] to rejoin."
+        )
+    else:
+        console.print("[green]Rejoined routing.[/] No longer draining.")
+
+
+@app.command()
 def status(
     config: Path | None = typer.Option(None, "--config"),
     url: str | None = typer.Option(None, "--url", help="Agent base URL"),
@@ -1177,6 +1214,11 @@ def status(
         f"[bold]Strategy[/] {data.get('routing_strategy')}\n"
         f"[bold]URL[/]     {data.get('listen_url')}"
     )
+    if data.get("draining"):
+        info += "\n[yellow bold]Draining[/] — not receiving new swarm work"
+    max_concurrency = data.get("max_concurrency") or 0
+    if max_concurrency:
+        info += f"\n[bold]Max concurrency[/] {max_concurrency}"
     console.print(Panel(info, title="netllm agent", border_style="green"))
 
     cloud = data.get("cloud") or {}

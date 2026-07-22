@@ -70,6 +70,9 @@ class BackendOverride(BaseModel):
     # Additive field: old readers ignore it; old writers omit it (defaults
     # to "").
     cloud_provider: str = ""
+    # Manual per-backend concurrency cap (0 = defer to the pool's global
+    # routing.max_in_flight_per_backend). Same semantics as Backend.max_concurrency.
+    max_concurrency: int = Field(default=0, ge=0)
 
     def resolved_api_format(self) -> ApiFormat:
         if self.api_format is not None:
@@ -167,6 +170,12 @@ class AgentConfig(BaseModel):
     advertise: bool = True
     agent_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
     hostname: str = Field(default_factory=default_hostname)
+    # Self-declared ceiling on this machine's own concurrent requests
+    # (summed across all its local backends), broadcast via heartbeat so
+    # every peer's least_load/local_spillover selection respects it.
+    # 0 = unlimited (pre-existing behavior; only the sending machine's own
+    # config controls this — no peer imposes it on another).
+    max_concurrency: int = Field(default=0, ge=0)
 
     @field_validator("listen")
     @classmethod
@@ -285,6 +294,13 @@ class Backend(BaseModel):
     # "api_key" (x-api-key / Bearer per SDK default) or "bearer" (force
     # Authorization: Bearer — Anthropic plan_token mode, WIF tokens).
     auth_mode: str = "api_key"
+    # Concurrency ceiling for this specific row (0 = defer to the pool's
+    # global routing.max_in_flight_per_backend). For a peer row this is
+    # copied from that peer's self-declared agent.max_concurrency
+    # (swarm.py peer_agent_backends) — a peer never has this imposed by
+    # anyone but its own config. For a local/manual row it comes from
+    # BackendOverride.max_concurrency.
+    max_concurrency: int = Field(default=0, ge=0)
 
     def cache_key(self) -> str:
         return f"{self.provider}:{self.base_url}"

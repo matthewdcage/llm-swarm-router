@@ -28,6 +28,15 @@ class PeerRecord:
     # when the peer predates these fields.
     routing_strategy: str = ""
     version: str = ""
+    # Self-declared by the peer's own agent.max_concurrency (0 = peer
+    # imposes no ceiling of its own). Copied onto its routable Backend
+    # row in peer_agent_backends() so pool.select_backend's capacity
+    # guard respects it.
+    max_concurrency: int = 0
+    # Peer asked (via its own drain toggle) not to receive new work.
+    # Existing in-flight requests it's already serving are unaffected —
+    # this only removes it from future selection.
+    draining: bool = False
 
 
 class SwarmRegistry:
@@ -99,10 +108,19 @@ class SwarmRegistry:
         return sum(max(0, b.in_flight) for b in self._peer_local_rows(peer))
 
     def peer_agent_backends(self) -> list[Backend]:
-        """One routable backend per peer: the peer's agent OpenAI surface (/v1)."""
+        """One routable backend per peer: the peer's agent OpenAI surface (/v1).
+
+        A draining peer is omitted entirely — it asked not to receive new
+        work, so it must vanish from every strategy's candidate list.
+        Requests it's already serving are unaffected (this only stops
+        *future* selection, on this gateway and every other one that
+        receives its heartbeat).
+        """
         out: list[Backend] = []
         for peer in self.peers.values():
             if peer.agent_id == self.config.agent.agent_id:
+                continue
+            if peer.draining:
                 continue
             listen = peer.listen_url.rstrip("/")
             if not is_lan_reachable_agent_url(listen):
@@ -119,6 +137,7 @@ class SwarmRegistry:
                     agent_id=peer.agent_id,
                     health=BackendHealth(models=models, model_count=len(models)),
                     in_flight=self._peer_in_flight(peer),
+                    max_concurrency=max(0, peer.max_concurrency),
                 )
             )
         return out
@@ -140,6 +159,8 @@ class SwarmRegistry:
                     backends=data.get("backends", []),
                     routing_strategy=data.get("routing_strategy", ""),
                     version=data.get("version", ""),
+                    max_concurrency=int(data.get("max_concurrency", 0) or 0),
+                    draining=bool(data.get("draining", False)),
                 )
         except Exception as exc:
             logger.debug("peer fetch failed %s: %s", base_url, exc)

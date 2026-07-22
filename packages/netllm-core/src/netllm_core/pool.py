@@ -437,16 +437,24 @@ class RouterPool:
             if cloud_candidates:
                 all_candidates = cloud_candidates
 
-        if self.max_in_flight_per_backend > 0:
+        if self.max_in_flight_per_backend > 0 or any(
+            b.max_concurrency > 0 for b in all_candidates
+        ):
             # Back-pressure guardrail for every strategy: don't stack
             # more work on a saturated backend while an alternative has
             # headroom. When all candidates are at the cap, fall through
             # to normal selection rather than failing the request.
-            under_cap = [
-                b
-                for b in all_candidates
-                if b.in_flight < self.max_in_flight_per_backend
-            ]
+            #
+            # Per-backend b.max_concurrency (self-declared by a peer via
+            # agent.max_concurrency in its heartbeat, or a manual
+            # BackendOverride) wins over the pool-wide
+            # max_in_flight_per_backend when set — a machine's own
+            # declared ceiling is authoritative for its own row.
+            def _under_cap(b: Backend) -> bool:
+                cap = b.max_concurrency or self.max_in_flight_per_backend
+                return cap <= 0 or b.in_flight < cap
+
+            under_cap = [b for b in all_candidates if _under_cap(b)]
             if under_cap:
                 all_candidates = under_cap
 
