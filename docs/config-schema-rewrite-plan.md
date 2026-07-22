@@ -1,6 +1,10 @@
 # Config schema rewrite plan — eliminate the Python/Swift/JS triple-mirror
 
-Status: **proposed** (not started). Companion to
+Status: **in progress** — phase 1 done (2026-07-22): `netllm_core/config_schema.py`
++ `GET /netllm/v1/config/schema`, with `json_schema_extra` widget/secrecy/
+read-only hints on the 6 editable sections and a drift-regression test
+(`tests/test_config_schema.py`). Phases 2–5 (JS renderer, Swift dynamic
+model, docs cleanup) not started. Companion to
 [cloud-providers-plan.md](cloud-providers-plan.md) §"Schema triple-mirror
 drift" and the earlier `routing-hardening-plan.md` follow-up of the same
 name. This is the deferred, larger half of that item: a generic schema for

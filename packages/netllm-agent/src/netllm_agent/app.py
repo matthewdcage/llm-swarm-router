@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from netllm_core.config_schema import config_schema_document
 from netllm_core.models import NetllmConfig
 from netllm_core.update import build_update_check_payload, version_payload
 from netllm_core.version import get_version
@@ -174,6 +175,16 @@ def create_app(
     async def netllm_config_summary(request: Request) -> dict[str, Any]:
         require_admin_access(request, cfg)
         return config_summary(cfg)
+
+    @app.get("/netllm/v1/config/schema")
+    async def netllm_config_schema(request: Request) -> dict[str, Any]:
+        """Form shape for the 6 editable config sections — see
+        config_summary above for values. Version-gated: the document only
+        changes on a netllm version bump, so clients can cache it across
+        sessions keyed on the returned "version" (see
+        docs/config-schema-rewrite-plan.md §3.2)."""
+        require_admin_access(request, cfg)
+        return config_schema_document()
 
     @app.get("/netllm/v1/cloud/providers")
     async def netllm_cloud_providers(request: Request) -> dict[str, Any]:

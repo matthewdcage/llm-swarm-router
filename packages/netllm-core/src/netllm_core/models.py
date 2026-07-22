@@ -61,7 +61,7 @@ class BackendOverride(BaseModel):
     base_url: str
     provider: ProviderId = "custom"
     api_format: ApiFormat | None = None
-    api_key: str = ""
+    api_key: str = Field(default="", json_schema_extra={"widget": "secret", "write_only": True})
     api_key_env: str = ""
     enabled: bool = True
     local: bool = True
@@ -99,7 +99,9 @@ class DiscoverySwarmConfig(BaseModel):
     mdns: bool = True
     subnet_scan: bool = False
     subnet_cidrs: list[str] = Field(default_factory=list)
-    cluster_token: str = ""
+    cluster_token: str = Field(
+        default="", json_schema_extra={"widget": "secret", "write_only": True}
+    )
     # When true (and a cluster_token is set), /v1/* inference routes
     # require the Bearer token from non-local clients. Peer agents
     # forward with the cluster token automatically.
@@ -175,7 +177,7 @@ class RoutingConfig(BaseModel):
     max_backend_failures: int = Field(default=3, ge=1)
     # Set once ensure_lan_mesh_defaults() has upgraded a LAN-bound
     # config; prevents re-overriding an explicit user strategy choice.
-    lan_defaults_applied: bool = False
+    lan_defaults_applied: bool = Field(default=False, json_schema_extra={"read_only": True})
     # Canonical model name -> provider-specific IDs. Lets mixed fleets
     # (oMLX vs Ollama vs LM Studio naming) serve one model name:
     #   [routing.model_aliases]
@@ -189,15 +191,26 @@ class RoutingConfig(BaseModel):
     #   models = ["qwen2.5:72b-instruct"]
     model_pools: dict[str, ModelPool] = Field(default_factory=dict)
     backends: list[BackendOverride] = Field(default_factory=list)
-    policies: list[RoutingPolicy] = Field(default_factory=list)
+    # default_factory names a client-side named builder for "Add row"
+    # (a sensible starting policy, not an empty one) — see
+    # docs/config-schema-rewrite-plan.md §6 risk 1.
+    policies: list[RoutingPolicy] = Field(
+        default_factory=list,
+        json_schema_extra={"default_factory": "local_openai_policy"},
+    )
 
 
 class AgentConfig(BaseModel):
     listen: str = "127.0.0.1:11400"
     role: AgentRole = "peer"
     advertise: bool = True
-    agent_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
-    hostname: str = Field(default_factory=default_hostname)
+    agent_id: str = Field(
+        default_factory=lambda: str(uuid.uuid4())[:8],
+        json_schema_extra={"read_only": True},
+    )
+    hostname: str = Field(
+        default_factory=default_hostname, json_schema_extra={"read_only": True}
+    )
     # Self-declared ceiling on this machine's own concurrent requests
     # (summed across all its local backends), broadcast via heartbeat so
     # every peer's least_load/local_spillover selection respects it.
@@ -248,10 +261,13 @@ class CloudProviderConfig(BaseModel):
     """
 
     enabled: bool = False
-    region: str = ""
+    region: str = Field(
+        default="",
+        json_schema_extra={"widget": "select", "options_from": "registry.regions"},
+    )
     api_format: ApiFormat | None = None
     auth: CloudAuthMode = "api_key"
-    api_key: str = ""
+    api_key: str = Field(default="", json_schema_extra={"widget": "secret", "write_only": True})
     api_key_env: str = ""
     models: list[str] = Field(default_factory=list)
     base_url: str = ""
@@ -271,7 +287,7 @@ class CloudConfig(BaseModel):
     fallback_enabled: bool = True
     # One-shot migration flag (ensure_cloud_defaults), mirrors
     # routing.lan_defaults_applied.
-    cloud_defaults_applied: bool = False
+    cloud_defaults_applied: bool = Field(default=False, json_schema_extra={"read_only": True})
     providers: dict[str, CloudProviderConfig] = Field(default_factory=dict)
 
     def provider(self, provider_id: CloudProviderId) -> CloudProviderConfig:
