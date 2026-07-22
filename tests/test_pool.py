@@ -234,6 +234,42 @@ def test_least_load_selects_lowest_in_flight(_mock: object) -> None:
     assert selected.base_url == "http://b/v1"
 
 
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_least_load_rotates_fairly_on_ties(_mock: object) -> None:
+    """Regression: min() breaks ties by returning the first candidate, and
+    all_candidates is local-then-remote — a local backend tied with an
+    idle peer used to win every single time, starving the peer of any
+    selection unless it was strictly less loaded. Ties must rotate."""
+    pool = RouterPool()
+    local = Backend(
+        id="local", base_url="http://127.0.0.1:8080/v1", local=True, in_flight=0
+    )
+    peer = Backend(
+        id="peer:remote", base_url="http://peer/v1", local=False, in_flight=0
+    )
+    pool.set_backends([local, peer])
+    picks = {pool.select_backend("m", "least_load").base_url for _ in range(4)}
+    assert picks == {"http://127.0.0.1:8080/v1", "http://peer/v1"}
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_least_load_single_minimum_is_unchanged(_mock: object) -> None:
+    """No tie: behavior is identical to a plain min() — the fairness
+    rotation only kicks in when candidates are exactly tied."""
+    pool = RouterPool()
+    local = Backend(
+        id="local", base_url="http://127.0.0.1:8080/v1", local=True, in_flight=3
+    )
+    peer = Backend(
+        id="peer:remote", base_url="http://peer/v1", local=False, in_flight=0
+    )
+    pool.set_backends([local, peer])
+    for _ in range(4):
+        selected = pool.select_backend("m", "least_load")
+        assert selected is not None
+        assert selected.base_url == "http://peer/v1"
+
+
 def _spillover_pool(local_in_flight: int, remote_in_flight: int) -> RouterPool:
     pool = RouterPool(spillover_max_local_in_flight=2)
     pool.set_backends(

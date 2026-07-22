@@ -471,7 +471,20 @@ class RouterPool:
             return b
 
         if strategy == "least_load":
-            return min(all_candidates, key=lambda x: x.in_flight)
+            # min() breaks ties by returning the first element, and
+            # all_candidates is local-then-remote — so every exact tie
+            # (very common at small in-flight counts, e.g. both at 0 or
+            # both at 1) silently favored local forever, starving peers
+            # of anything but strictly-lower-load selections. Rotate
+            # fairly among tied candidates instead; unchanged when
+            # there's a single clear minimum (the common case).
+            lowest = min(b.in_flight for b in all_candidates)
+            tied = [b for b in all_candidates if b.in_flight == lowest]
+            if len(tied) == 1:
+                return tied[0]
+            b = tied[self._round_robin_idx % len(tied)]
+            self._round_robin_idx += 1
+            return b
 
         if strategy == "latency_weighted":
             with_latency = [b for b in all_candidates if b.latency_ema_ms > 0]
