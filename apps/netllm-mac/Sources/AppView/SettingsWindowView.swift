@@ -304,21 +304,10 @@ struct SettingsWindowView: View {
     }
 
     private var modelsTab: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Routed models (agent)")
-            modelList(model.routedModels, empty: "No routed models — start agent and backends.")
-            sectionHeader("Local provider models")
-            actionButtons {
-                Button("Refresh via discover") { model.runDiscover() }
-            }
-            modelList(model.localModels, empty: "Start oMLX/Ollama — models appear when the agent finds them.")
-            sectionHeader("LAN models")
-            actionButtons {
-                Button("Scan peers") { model.runPeersScan() }
-            }
-            Text("Full LAN model merge: `netllm models --lan` in terminal.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
+        // Machine-grouped, searchable list with pool membership editing
+        // (docs/models-ux-plan.md B2/B3) — replaced the flat
+        // routed/local dumps.
+        ModelsTabView(model: model)
     }
 
     private var peersTab: some View {
@@ -574,7 +563,14 @@ struct SettingsWindowView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            SchemaFormView(fields: poolFields ?? [], draft: entryBinding)
+            SchemaFormView(
+                fields: poolFields ?? [],
+                draft: entryBinding,
+                overrides: [
+                    "hosts": SchemaFieldOverride(suggestions: model.knownHostRefs),
+                    "models": SchemaFieldOverride(suggestions: model.knownModelIDs),
+                ]
+            )
         }
         .padding(8)
         .background(Color.gray.opacity(0.08))
@@ -823,22 +819,6 @@ struct SettingsWindowView: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
-    private func modelList(_ rows: [ModelRow], empty: String) -> some View {
-        Group {
-            if rows.isEmpty {
-                Text(empty).foregroundStyle(.secondary)
-            } else {
-                ForEach(rows) { row in
-                    HStack {
-                        Text(row.model)
-                        Spacer()
-                        Text("\(row.provider) · \(row.scope)").font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-    }
-
     private func backendRow(_ backend: BackendStatus) -> some View {
         HStack(alignment: .top) {
             statusDot(backend.health == "online")
@@ -888,6 +868,10 @@ struct EditableStringList: View {
     @Binding var items: [String]
     var placeholder: String
     var defaultNew: String
+    /// Known-good candidates (docs/models-ux-plan.md phase A). Non-empty
+    /// enables the picker menu and per-row soft validation; free typing
+    /// stays allowed either way (offline hosts are legitimate values).
+    var suggestions: [SchemaSuggestion] = []
 
     @State private var rowIDs: [UUID] = []
 
@@ -897,6 +881,11 @@ struct EditableStringList: View {
                 if let index = rowIDs.firstIndex(of: rowID), index < items.count {
                     HStack {
                         TextField(placeholder, text: binding(for: index))
+                        if isUnknownValue(at: index) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(.orange)
+                                .help("Not currently known — check spelling or bring the host online.")
+                        }
                         Button(role: .destructive) { remove(rowID: rowID) } label: {
                             Image(systemName: "minus.circle")
                         }
@@ -904,10 +893,42 @@ struct EditableStringList: View {
                     }
                 }
             }
-            Button("Add", action: add)
+            HStack {
+                Button("Add", action: add)
+                if !unusedSuggestions.isEmpty {
+                    Menu {
+                        ForEach(unusedSuggestions) { suggestion in
+                            Button(suggestion.label) { append(suggestion.value) }
+                        }
+                    } label: {
+                        Image(systemName: "plus.circle")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help("Add a known value")
+                }
+            }
         }
         .onAppear { resetRowIDs() }
         .onChange(of: items.count) { _, _ in syncRowIDs() }
+    }
+
+    private var unusedSuggestions: [SchemaSuggestion] {
+        suggestions.filter { !items.contains($0.value) }
+    }
+
+    /// Soft validation only — a value no suggestion matches is warned
+    /// about, never blocked (the host may simply be offline right now).
+    private func isUnknownValue(at index: Int) -> Bool {
+        guard !suggestions.isEmpty, items.indices.contains(index) else { return false }
+        let value = items[index].trimmingCharacters(in: .whitespaces)
+        guard !value.isEmpty else { return false }
+        return !suggestions.contains { $0.value == value }
+    }
+
+    private func append(_ value: String) {
+        items.append(value)
+        rowIDs.append(UUID())
     }
 
     private func binding(for index: Int) -> Binding<String> {

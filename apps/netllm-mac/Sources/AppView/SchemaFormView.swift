@@ -6,14 +6,39 @@ import SwiftUI
 /// the field name, a placeholder, or a side effect on change (e.g. the
 /// `ui` tab's check_for_updates_automatically starting/stopping a poll
 /// timer).
+/// One pickable candidate for a list_strings row: the canonical value
+/// inserted into config, plus an optional friendlier display label
+/// (e.g. value "a1b2c3" labeled "studio-mac (a1b2c3)").
+struct SchemaSuggestion: Identifiable, Hashable {
+    var value: String
+    var label: String
+
+    var id: String { value }
+
+    init(_ value: String, label: String? = nil) {
+        self.value = value
+        self.label = label ?? value
+    }
+}
+
 struct SchemaFieldOverride {
     var label: String?
     var placeholder: String?
+    /// Known-good candidates for list_strings rows (docs/models-ux-plan.md
+    /// phase A): assist, not restrict — free typing stays allowed for
+    /// offline/not-yet-seen hosts; unknown values get a soft warning only.
+    var suggestions: [SchemaSuggestion]?
     var onChange: ((JSONValue) -> Void)?
 
-    init(label: String? = nil, placeholder: String? = nil, onChange: ((JSONValue) -> Void)? = nil) {
+    init(
+        label: String? = nil,
+        placeholder: String? = nil,
+        suggestions: [SchemaSuggestion]? = nil,
+        onChange: ((JSONValue) -> Void)? = nil
+    ) {
         self.label = label
         self.placeholder = placeholder
+        self.suggestions = suggestions
         self.onChange = onChange
     }
 }
@@ -97,7 +122,8 @@ private struct SchemaFieldRow: View {
                         set: { setValue(.strings($0)) }
                     ),
                     placeholder: override?.placeholder ?? "",
-                    defaultNew: override?.placeholder ?? ""
+                    defaultNew: override?.placeholder ?? "",
+                    suggestions: override?.suggestions ?? []
                 )
             }
         default:

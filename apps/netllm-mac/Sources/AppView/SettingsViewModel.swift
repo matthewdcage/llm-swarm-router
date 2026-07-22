@@ -32,6 +32,12 @@ final class SettingsViewModel {
     var cloudProviderRegistry: [CloudProviderInfo] = []
     /// UI intent for secured swarm; synced from config on reload, applied on save.
     var requireClusterToken = false
+    /// Models tab filter/collapse state (docs/models-ux-plan.md B2).
+    /// Lives here, not in @State: the Settings detail view is keyed by
+    /// `.id(uiRevision)`, so view-local state would reset on every
+    /// 2-second live poll.
+    var modelsSearchText = ""
+    var modelsCollapsedGroups: Set<String> = []
     private(set) var uiRevision = 0
 
     private var livePollTask: Task<Void, Never>?
@@ -162,6 +168,45 @@ final class SettingsViewModel {
             return "Found on LAN"
         }
         return "LAN swarm agents"
+    }
+
+    /// Candidate refs for a model pool's `hosts` list (docs/models-ux-plan.md
+    /// phase A) — deduped union of local backend base_urls and peer agent
+    /// ids, the two ref forms a user realistically picks (backend id and
+    /// "peer:" prefix stay type-in-able). Peers merge `status.peers` +
+    /// `lanPeers` so hosts seen only by subnet scan still appear.
+    var knownHostRefs: [SchemaSuggestion] {
+        var seen = Set<String>()
+        var refs: [SchemaSuggestion] = []
+        for backend in status?.backends.filter(\.local) ?? [] {
+            let url = backend.baseURL
+            guard !url.isEmpty, seen.insert(url).inserted else { continue }
+            refs.append(SchemaSuggestion(url, label: "\(backend.provider) · \(url)"))
+        }
+        let peers = (status?.peers ?? []) + lanPeers
+        for peer in peers {
+            guard !peer.agentId.isEmpty, seen.insert(peer.agentId).inserted else { continue }
+            let label = peer.hostname.isEmpty
+                ? peer.agentId
+                : "\(peer.hostname) (\(peer.agentId))"
+            refs.append(SchemaSuggestion(peer.agentId, label: label))
+        }
+        return refs
+    }
+
+    /// Candidate model IDs for a pool's `models` list — union of every
+    /// backend's served models, deduped, sorted case-insensitively.
+    var knownModelIDs: [SchemaSuggestion] {
+        var seen = Set<String>()
+        var ids: [String] = []
+        for backend in status?.backends ?? [] {
+            for model in backend.models where seen.insert(model).inserted {
+                ids.append(model)
+            }
+        }
+        return ids
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            .map { SchemaSuggestion($0) }
     }
 
     init(runtime: PythonRuntime, configPath: URL = AppConfig.defaultConfigPath()) {
@@ -540,7 +585,8 @@ final class SettingsViewModel {
         document.discovery.stringArray("providers").contains(id)
     }
 
-    func addModelPool() {
+    @discardableResult
+    func addModelPool() -> String {
         var pools = document.routing.model_pools
         var name = "pool"
         var suffix = 1
@@ -551,6 +597,105 @@ final class SettingsViewModel {
         pools[name] = .object(["enabled": .bool(true), "hosts": .strings([]), "models": .strings([])])
         document.routing.model_pools = pools
         bumpUI()
+        return name
+    }
+
+    // MARK: - Model pools (Models tab inline editing — docs/models-ux-plan.md B3)
+    // All mutations write document.routing.model_pools — the same draft
+    // dict the Routing tab's editor binds to, so there is no second
+    // source of truth to sync; saving still goes through toolbar Save.
+
+    struct ModelPoolSummary: Identifiable {
+        var name: String
+        var enabled: Bool
+        var hosts: [String]
+        var models: [String]
+        var id: String { name }
+    }
+
+    var modelPoolSummaries: [ModelPoolSummary] {
+        document.routing.model_pools.keys.sorted().compactMap { name in
+            guard let entry = document.routing.model_pools[name]?.objectValue else { return nil }
+            return ModelPoolSummary(
+                name: name,
+                enabled: entry["enabled"]?.boolValue ?? true,
+                hosts: entry["hosts"]?.arrayValue?.compactMap(\.stringValue) ?? [],
+                models: entry["models"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            )
+        }
+    }
+
+    func pools(containing model: String) -> [ModelPoolSummary] {
+        modelPoolSummaries.filter { $0.models.contains(model) }
+    }
+
+    func pools(notContaining model: String) -> [ModelPoolSummary] {
+        modelPoolSummaries.filter { !$0.models.contains(model) }
+    }
+
+    func addModel(_ model: String, toPool name: String) {
+        guard var entry = document.routing.model_pools[name]?.objectValue else { return }
+        var models = entry["models"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        guard !models.contains(model) else { return }
+        models.append(model)
+        entry["models"] = .strings(models)
+        document.routing.model_pools[name] = .object(entry)
+        setSuccess("Added \(model) to pool \(name) — Save to persist.")
+    }
+
+    func removeModel(_ model: String, fromPool name: String) {
+        guard var entry = document.routing.model_pools[name]?.objectValue else { return }
+        var models = entry["models"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        models.removeAll { $0 == model }
+        entry["models"] = .strings(models)
+        document.routing.model_pools[name] = .object(entry)
+        setSuccess("Removed \(model) from pool \(name) — Save to persist.")
+    }
+
+    /// "New pool…" from a model row: create via the same `pool`/`pool-2`
+    /// naming as the Routing tab's Add button, seed it with the model.
+    /// Naming/host setup continues on the Routing tab — no modal here.
+    func addModelToNewPool(_ model: String) {
+        let name = addModelPool()
+        addModel(model, toPool: name)
+        setSuccess("Created pool \(name) with \(model) — set its hosts on the Routing tab, then Save.")
+    }
+
+    /// Client-side pool effectiveness (docs/models-ux-plan.md B3): a pool
+    /// is "active" iff ≥1 of its host refs resolves to an online backend
+    /// that serves ≥1 pool model — all derivable from /netllm/v1/status.
+    /// Returns nil reason when active; a human-readable reason otherwise.
+    func poolInactiveReason(_ pool: ModelPoolSummary) -> String? {
+        guard pool.enabled else { return "pool disabled" }
+        guard let backends = status?.backends else { return "agent not running" }
+        if pool.hosts.isEmpty { return "no hosts configured" }
+        if pool.models.isEmpty { return "no models configured" }
+        let matched = backends.filter { backend in
+            pool.hosts.contains { Self.backendMatchesHostRef(backend, ref: $0) }
+        }
+        let matchedOnline = matched.filter { $0.health == "online" }
+        if matchedOnline.isEmpty { return "host offline" }
+        let servesPoolModel = matchedOnline.contains { backend in
+            backend.models.contains { pool.models.contains($0) }
+        }
+        return servesPoolModel ? nil : "no pool model served"
+    }
+
+    /// Swift mirror of BackendPool._backend_matches_host_ref (pool.py):
+    /// ref forms are backend id, "peer:<agent-id>", bare agent_id, or
+    /// base_url — keep in sync with the Python side.
+    static func backendMatchesHostRef(_ backend: BackendStatus, ref: String) -> Bool {
+        let target = ref.trimmingCharacters(in: .whitespaces)
+        guard !target.isEmpty else { return false }
+        if !backend.backendId.isEmpty {
+            if backend.backendId == target { return true }
+            if backend.backendId == "peer:\(target)" { return true }
+        }
+        if !backend.agentId.isEmpty, backend.agentId == target { return true }
+        func trimSlash(_ s: String) -> String {
+            s.hasSuffix("/") ? String(s.dropLast()) : s
+        }
+        return trimSlash(backend.baseURL) == trimSlash(target)
     }
 
     func addBackendOverride() {

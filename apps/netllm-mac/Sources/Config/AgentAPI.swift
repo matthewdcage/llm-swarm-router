@@ -160,7 +160,9 @@ enum AgentAPI {
             health: health["status"] as? String ?? "unknown",
             modelCount: modelCount,
             models: models,
-            inFlight: parseInt(dict["in_flight"])
+            inFlight: parseInt(dict["in_flight"]),
+            backendId: dict["id"] as? String ?? "",
+            agentId: dict["agent_id"] as? String ?? ""
         )
     }
 

@@ -156,6 +156,12 @@ struct BackendStatus: Identifiable, Sendable {
     var modelCount: Int
     var models: [String]
     var inFlight: Int
+    /// Server-side Backend.id ("omlx@http://…", "peer:<agent-id>", …) —
+    /// one of the ref forms a model pool's `hosts` list accepts.
+    var backendId: String = ""
+    /// Owning agent — groups peer backends by machine and matches the
+    /// bare-agent-id pool host ref. Empty on agents older than this field.
+    var agentId: String = ""
 }
 
 struct PeerStatus: Identifiable, Sendable {

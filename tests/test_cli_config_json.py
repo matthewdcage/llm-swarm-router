@@ -41,7 +41,9 @@ def test_config_schema_accepts_the_config_flag_cli_runner_always_appends(
     error — this is exactly what shipped and was caught by inspection,
     not by this test suite, hence adding this test now."""
     cfg_path = _cfg_path(tmp_path)
-    result = runner.invoke(cli_main.app, ["config", "schema", "--config", str(cfg_path)])
+    result = runner.invoke(
+        cli_main.app, ["config", "schema", "--config", str(cfg_path)]
+    )
     assert result.exit_code == 0, result.output
     assert json.loads(result.output) == config_schema_document()
 

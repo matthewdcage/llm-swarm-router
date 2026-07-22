@@ -1,6 +1,8 @@
 # Models & pools UX plan — pickers, grouping, search, pool visibility
 
-Status: **proposed** (not started). Follow-up to
+Status: **phases A + B1–B3 delivered** (macOS app, 2026-07-22); B4
+(backend-level activity) and C (per-model metrics) deferred pending
+server-side work; D (dashboard parity) not started. Follow-up to
 [config-schema-rewrite-plan.md](config-schema-rewrite-plan.md) (which
 built the generic pool *editor*) driven by first real user testing of
 the macOS app (2026-07-22). Scope: macOS Settings first; web-dashboard
