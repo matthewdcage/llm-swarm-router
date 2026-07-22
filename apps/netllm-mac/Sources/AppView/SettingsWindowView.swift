@@ -452,6 +452,15 @@ struct SettingsWindowView: View {
                 .filter({ ["require_token_for_inference", "peer_stale_after_s", "rediscover_interval_s"].contains($0.name) })
             {
                 SchemaFormView(fields: newSwarmFields, draft: $model.document.swarm)
+            } else {
+                // Visible rather than silently missing rows — a real
+                // failure here (e.g. `netllm config schema` rejecting a
+                // CLI flag CLIRunner always sends) was previously
+                // invisible: fields just didn't render, with no
+                // indication anything was wrong.
+                Text("Some swarm settings unavailable — config schema failed to load.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Toggle("Require cluster token", isOn: $model.requireClusterToken)
             Text("Default: open trusted home LAN. Enable to require pairing on untrusted networks.")
@@ -546,7 +555,7 @@ struct SettingsWindowView: View {
             set: { model.document.routing.model_pools[name] = .object($0) }
         )
         let poolFields = model.configSchema?.sections["routing"]?.fields
-            .first(where: { $0.name == "model_pools" })?.itemSchema ?? []
+            .first(where: { $0.name == "model_pools" })?.itemSchema
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(name.isEmpty ? "(unnamed pool)" : name).font(.caption.weight(.medium))
@@ -558,7 +567,14 @@ struct SettingsWindowView: View {
                 }
                 .buttonStyle(.borderless)
             }
-            SchemaFormView(fields: poolFields, draft: entryBinding)
+            if poolFields == nil {
+                // Visible rather than a silently field-less row — see the
+                // matching note on the swarm tab's new-fields fallback.
+                Text("Pool fields unavailable — config schema failed to load.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            SchemaFormView(fields: poolFields ?? [], draft: entryBinding)
         }
         .padding(8)
         .background(Color.gray.opacity(0.08))

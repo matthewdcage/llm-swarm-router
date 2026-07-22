@@ -1655,18 +1655,26 @@ def config_export(
 
 
 @config_app.command("schema")
-def config_schema_cmd() -> None:
+def config_schema_cmd(
+    config: Path | None = typer.Option(None, "--config"),
+) -> None:
     """Write the config form schema as JSON to stdout (macOS Settings UI).
 
     Same document as GET /netllm/v1/config/schema, reachable here without
     a running agent — the macOS app edits config.toml via this CLI even
     when the agent process is stopped. See
     docs/config-schema-rewrite-plan.md.
+
+    `--config` is accepted (and ignored — the schema describes shape, not
+    a specific file's values) only because CLIRunner.run() unconditionally
+    appends `--config <path>` to every CLI invocation it makes; omitting
+    the option here makes Typer reject the call.
     """
     import json
 
     from netllm_core.config_schema import config_schema_document
 
+    del config
     sys.stdout.write(json.dumps(config_schema_document()))
 
 
