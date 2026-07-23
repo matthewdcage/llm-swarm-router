@@ -32,6 +32,11 @@ from netllm_core.models import (
     NetllmConfig,
     SourceConfig,
 )
+from netllm_core.openai_responses_bridge import (
+    chat_to_responses_response,
+    responses_to_chat_request,
+    translate_chat_stream_to_responses,
+)
 from netllm_core.pool import RouterPool, is_capacity_error
 from netllm_core.routing_policy import ResolvedRouting, resolve_routing
 from netllm_core.scenarios import Scenario, classify_scenario
@@ -1083,6 +1088,37 @@ class AgentService:
         if last_error:
             raise last_error
         raise self._model_not_found_error(requested_model)
+
+    async def proxy_responses(
+        self,
+        payload: dict[str, Any],
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Codex CLI wiring (docs/cli-source-routing-plan.md): Codex
+        requires wire_api = "responses" for every custom provider --
+        Chat Completions support was fully removed from Codex in Feb
+        2026. Translation happens only at this edge; everything else
+        (source identity, per-source routing, scenario classification,
+        capacity, failover) is the same proxy_chat_completion path every
+        other OpenAI-compatible client already uses.
+        """
+        chat_payload = responses_to_chat_request(payload)
+        result = await self.proxy_chat_completion(chat_payload, headers=headers)
+        return chat_to_responses_response(result, model=payload.get("model", ""))
+
+    async def proxy_responses_stream(
+        self,
+        payload: dict[str, Any],
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> AsyncIterator[str]:
+        chat_payload = responses_to_chat_request(payload)
+        stream = self.proxy_chat_completion_stream(chat_payload, headers=headers)
+        async for event in translate_chat_stream_to_responses(
+            stream, model=payload.get("model", "")
+        ):
+            yield event
 
     async def proxy_embeddings(
         self,

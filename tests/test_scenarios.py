@@ -10,8 +10,12 @@ from netllm_core.scenarios import classify_scenario
 
 
 def test_default_scenario_for_plain_request() -> None:
-    assert classify_scenario({"messages": [{"role": "user", "content": "hi"}]},
-                              api_format="openai") == "default"
+    assert (
+        classify_scenario(
+            {"messages": [{"role": "user", "content": "hi"}]}, api_format="openai"
+        )
+        == "default"
+    )
 
 
 def test_long_context_from_estimated_token_count() -> None:
@@ -24,9 +28,7 @@ def test_long_context_threshold_is_configurable() -> None:
     text = "x" * (4 * 100)  # ~100 tokens
     payload = {"messages": [{"role": "user", "content": text}]}
     assert (
-        classify_scenario(
-            payload, api_format="openai", long_context_token_threshold=50
-        )
+        classify_scenario(payload, api_format="openai", long_context_token_threshold=50)
         == "long_context"
     )
     assert (

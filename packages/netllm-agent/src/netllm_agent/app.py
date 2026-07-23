@@ -102,6 +102,7 @@ def create_app(
                 "health": f"{base}/health",
                 "models": f"{base}/v1/models",
                 "chat": f"{base}/v1/chat/completions",
+                "responses": f"{base}/v1/responses",
                 "embeddings": f"{base}/v1/embeddings",
                 "messages": f"{base}/v1/messages",
                 "status": f"{base}/netllm/v1/status",
@@ -325,6 +326,31 @@ def create_app(
                     media_type="text/event-stream",
                 )
             return await service.proxy_chat_completion(payload, headers=request.headers)
+        except SourceCapacityExceeded as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+        except OpenAIUpstreamError as exc:
+            raise HTTPException(
+                status_code=exc.status_code if exc.status_code in (400, 404) else 502,
+                detail=str(exc),
+            ) from exc
+
+    @app.post("/v1/responses")
+    async def openai_responses(request: Request) -> Any:
+        """Codex CLI surface: Codex requires wire_api = "responses" for
+        every custom provider (Chat Completions removed Feb 2026) — see
+        docs/cli-source-routing-plan.md and
+        netllm_core.openai_responses_bridge."""
+        require_inference_access(request)
+        payload = await request.json()
+        stream = bool(payload.get("stream"))
+
+        try:
+            if stream:
+                return StreamingResponse(
+                    service.proxy_responses_stream(payload, headers=request.headers),
+                    media_type="text/event-stream",
+                )
+            return await service.proxy_responses(payload, headers=request.headers)
         except SourceCapacityExceeded as exc:
             raise HTTPException(status_code=429, detail=str(exc)) from exc
         except OpenAIUpstreamError as exc:
