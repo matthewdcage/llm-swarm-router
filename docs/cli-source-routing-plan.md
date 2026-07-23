@@ -269,18 +269,73 @@ documented event shapes) — needs the real binary.
   `x-netllm-source: my-harness` or a minted key + optional `secret_env`;
   example snippet for arbitrary OpenAI/Anthropic SDK clients beyond the
   four named references).
-- Still open: Dashboard `/ui/` Sources tab (list, live counters,
-  enable/disable) — see Phase 4a; macOS Settings parity — see Phase 4b.
-- Still open: `.agents/skills/netllm-connect-editor` update +
-  `scripts/sync-agent-skills.sh`, AGENTS.md command table entry for
-  `netllm sources`.
+- ~~Dashboard `/ui/` Sources tab (`renderSourcesTab`, `dashboard.js`) — see
+  Phase 4a, done.~~ macOS Settings parity still open — see Phase 4b.
+- Still open: `netllm sources`/`netllm connect <tool>` CLI,
+  `.agents/skills/netllm-connect-editor` update +
+  `scripts/sync-agent-skills.sh`, AGENTS.md command table entry.
+- Still open: custom harness path documented generically (send
+  `x-netllm-source: my-harness` or a minted key + optional `secret_env`;
+  example snippet for arbitrary OpenAI/Anthropic SDK clients beyond the
+  four named references).
 - Still open: document Option B chaining (LiteLLM/Bifrost as a
   `[[routing.backends]]` row) as the long-tail-cloud escape hatch.
 
-**Tests:** CLI tests alongside existing cloud-CLI tests; dashboard schema test
-extension (`tests/test_dashboard_config_schema.py`); skill sync check.
+**Tests:** CLI tests alongside existing cloud-CLI tests; skill sync check.
 **Gate:** `ci.sh` green; `/netllm-connect` flow in Claude Code produces a
 working per-source wiring end-to-end.
+
+## Phase 4a — Dashboard Sources tab (done 23/07/2026)
+
+`routing.sources` needed no new server-side plumbing — the schema/admin
+work landed in Phase 1. What was missing was purely the JS view, plus two
+generic widget gaps the schema-driven engine had never needed before:
+
+- ~~New nav item + tab panel (`index.html`) and `renderSourcesTab`
+  (`dashboard.js`), mirroring `renderRoutingTab`'s pattern for
+  `routing.policies`/`routing.backends` — reuses the same
+  `renderSchemaField`/`schemaFieldsCard` engine and the existing
+  write-only `secret` handling (blank-means-keep, same convention as
+  `swarm.cluster_token`/cloud provider `api_key`), so `buildConfigPatch`
+  needed zero changes.~~
+- ~~Found while building it: `model_rewrites` (`dict[str, str]`) would have
+  silently rendered as an empty, uneditable sub-form if routed through the
+  existing dict-of-BaseModel widget (`schemaDictOfObjectsRow` assumes
+  every value is an object with its own `item_schema`; a bare string has
+  none). Added a real `dict_strings` widget
+  (`config_schema.py` + `schemaDictStringsRow` in `dashboard.js`) instead
+  of hiding the field — genuinely reusable for any future plain
+  string-keyed/string-valued config field, not a one-off patch.~~
+- ~~Found while building it: `SourceConfig.match: SourceMatch` is the
+  schema's first field whose value is one fixed nested model (not a list
+  or dict of them) — `config_schema.py` had no branch for that at all, so
+  it fell through to a bare text-input fallback that would have corrupted
+  the object on any edit. Added a general `object` widget
+  (`schemaNestedObjectRow`) rather than special-casing `match`.~~
+- Deferred, documented rather than silently shipped imperfect: the
+  `scenarios` field (dict-of-`ScenarioRule`, reusing the pre-existing
+  `schemaDictOfObjectsRow`) renders and round-trips correctly but has no
+  inline label in the Sources item form — `schemaDictOfObjectsRow` itself
+  wasn't touched to avoid any risk to the already-shipped Model Pools tab,
+  which derives its label from the surrounding tab code rather than the
+  widget. A user can still use it; it's just unlabeled between "Model
+  Rewrites" and "Match".
+
+**Verified live** (not just unit tests): started a throwaway agent
+instance on a scratch config/port (the real menubar-app instance stayed
+untouched), added a `buzz` source through the actual browser UI, clicked
+Save, confirmed `config.toml` on disk gained a correct
+`[[routing.sources]]` block with `model_rewrites`/`scenarios`/`match` as
+proper nested TOML tables (not corrupted), then sent a live
+`curl -H "Authorization: Bearer netllm-buzz"` request and confirmed
+`GET /netllm/v1/status` showed `source_requests: {"buzz": 1}` and
+`scenario_requests: {"buzz:default": 1}` — full round trip, dashboard
+through to live routing attribution.
+**Tests (passing):** 5 new `tests/test_config_schema.py` cases covering
+`sources` item schema shape, `secret` write-only, the new `dict_strings`
+and `object` widgets.
+**Gate met:** `./scripts/ci.sh` (lint + 520 tests) green; `basedpyright`
+clean; live dashboard verification above.
 
 ## Phase 5 — Real-world validation and hardening (not yet implemented)
 

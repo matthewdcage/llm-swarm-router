@@ -101,6 +101,14 @@ def _field_spec(name: str, field: FieldInfo) -> dict[str, Any]:
     elif annotation is str:
         spec["type"] = "string"
         spec["widget"] = extra.get("widget", "text")
+    elif isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        # A field whose value is itself one nested model (not a list/dict
+        # of them) -- e.g. SourceConfig.match: SourceMatch. Distinct from
+        # the list-of-BaseModel/dict-of-BaseModel branches below: there's
+        # exactly one fixed sub-object here, no add/remove collection.
+        spec["type"] = "object"
+        spec["widget"] = "object"
+        spec["item_schema"] = _model_field_specs(annotation)
     elif origin is list and get_args(annotation):
         item_type = get_args(annotation)[0]
         if isinstance(item_type, type) and issubclass(item_type, BaseModel):
@@ -120,6 +128,9 @@ def _field_spec(name: str, field: FieldInfo) -> dict[str, Any]:
         elif value_origin is list:
             spec["type"] = "object"
             spec["widget"] = extra.get("widget", "dict_list_strings")
+        elif value_type is str:
+            spec["type"] = "object"
+            spec["widget"] = extra.get("widget", "dict_strings")
         else:
             spec["type"] = "object"
             spec["widget"] = extra.get("widget", "dict")

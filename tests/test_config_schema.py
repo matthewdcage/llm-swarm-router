@@ -107,6 +107,78 @@ def test_model_pools_dict_of_object_carries_item_schema():
     assert item_names == {"enabled", "hosts", "models"}
 
 
+def test_sources_list_of_object_carries_item_schema() -> None:
+    doc = config_schema_document()
+    routing_fields = {f["name"]: f for f in doc["sections"]["routing"]["fields"]}
+    assert routing_fields["sources"]["widget"] == "list"
+    item_names = {f["name"] for f in routing_fields["sources"]["item_schema"]}
+    assert item_names == {
+        "id",
+        "enabled",
+        "description",
+        "secret",
+        "secret_env",
+        "strategy",
+        "local_only",
+        "allow_cloud",
+        "prefer_provider",
+        "cloud_providers",
+        "max_concurrency",
+        "model_rewrites",
+        "scenarios",
+        "match",
+    }
+
+
+def test_source_secret_is_write_only_in_schema() -> None:
+    doc = config_schema_document()
+    routing_fields = {f["name"]: f for f in doc["sections"]["routing"]["fields"]}
+    source_item_schema = {
+        f["name"]: f for f in routing_fields["sources"]["item_schema"]
+    }
+    assert source_item_schema["secret"]["write_only"] is True
+
+
+def test_source_model_rewrites_gets_dict_strings_widget() -> None:
+    """A plain dict[str, str] field (not dict[str, BaseModel] or
+    dict[str, list[str]]) must get its own widget -- reusing the
+    dict-of-objects widget would render each string value as an
+    empty, uneditable sub-form (docs/cli-source-routing-plan.md Phase 4a)."""
+    doc = config_schema_document()
+    routing_fields = {f["name"]: f for f in doc["sections"]["routing"]["fields"]}
+    source_item_schema = {
+        f["name"]: f for f in routing_fields["sources"]["item_schema"]
+    }
+    assert source_item_schema["model_rewrites"]["widget"] == "dict_strings"
+    assert "item_schema" not in source_item_schema["model_rewrites"]
+
+
+def test_source_scenarios_is_dict_of_scenario_rule_objects() -> None:
+    doc = config_schema_document()
+    routing_fields = {f["name"]: f for f in doc["sections"]["routing"]["fields"]}
+    source_item_schema = {
+        f["name"]: f for f in routing_fields["sources"]["item_schema"]
+    }
+    assert source_item_schema["scenarios"]["widget"] == "dict"
+    scenario_rule_fields = {
+        f["name"] for f in source_item_schema["scenarios"]["item_schema"]
+    }
+    assert scenario_rule_fields == {"model", "strategy", "local_only", "allow_cloud"}
+
+
+def test_source_match_gets_nested_object_widget() -> None:
+    """SourceConfig.match: SourceMatch is a bare nested BaseModel field
+    (not a list/dict of them) -- the first of its kind in the schema."""
+    doc = config_schema_document()
+    routing_fields = {f["name"]: f for f in doc["sections"]["routing"]["fields"]}
+    source_item_schema = {
+        f["name"]: f for f in routing_fields["sources"]["item_schema"]
+    }
+    assert source_item_schema["match"]["widget"] == "object"
+    match_fields = {f["name"] for f in source_item_schema["match"]["item_schema"]}
+    assert match_fields == {"user_agent_contains"}
+
+
 def test_schema_endpoint_uses_require_admin_access(monkeypatch) -> None:
     # Admin-gating itself is covered by test_agent.py's
     # test_admin_config_rejects_remote_client against require_admin_access

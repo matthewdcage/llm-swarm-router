@@ -1170,6 +1170,64 @@ function schemaListOfObjectsRow(field, draft, onDirty, overrides) {
   return wrap;
 }
 
+// dict[str, str] with arbitrary user-typed keys AND a plain string value
+// (routing.sources[].model_rewrites: requested model name -> concrete
+// model name). Distinct from schemaDictOfObjectsRow below — that widget's
+// value is an object rendered via field.item_schema, which a bare string
+// value doesn't have, so reusing it here would silently drop every value
+// (key input only, no visible way to edit or preserve the string).
+function schemaDictStringsRow(field, draft, onDirty, overrides) {
+  const wrap = el("div", "card");
+  wrap.appendChild(textEl("label", "", schemaFieldLabel(field, overrides)));
+  if (!draft[field.name]) draft[field.name] = {};
+  const dict = draft[field.name];
+  const list = el("div", "string-list");
+
+  function addRow(key, value) {
+    const item = el("div", "string-list-item schema-list-item");
+    const keyInput = document.createElement("input");
+    keyInput.type = "text";
+    keyInput.value = key;
+    keyInput.placeholder = overrides?.keyPlaceholder || "key";
+    const valueInput = document.createElement("input");
+    valueInput.type = "text";
+    valueInput.value = value;
+    valueInput.placeholder = overrides?.valuePlaceholder || "value";
+    keyInput.oninput = () => {
+      const newKey = keyInput.value.trim();
+      if (!newKey || newKey === key) return;
+      delete dict[key];
+      dict[newKey] = valueInput.value;
+      key = newKey;
+      onDirty();
+    };
+    valueInput.oninput = () => {
+      dict[key] = valueInput.value;
+      onDirty();
+    };
+    item.append(keyInput, valueInput);
+    const rm = textEl("button", "secondary", "−");
+    rm.onclick = () => {
+      delete dict[key];
+      item.remove();
+      onDirty();
+    };
+    item.appendChild(rm);
+    list.appendChild(item);
+  }
+
+  Object.entries(dict).forEach(([key, value]) => addRow(key, value));
+  wrap.appendChild(list);
+  const add = textEl("button", "secondary", `+ Add ${overrides?.itemLabel || "mapping"}`);
+  add.onclick = () => {
+    dict[""] = "";
+    addRow("", "");
+    onDirty();
+  };
+  wrap.appendChild(add);
+  return wrap;
+}
+
 // dict[str, BaseModel] with arbitrary user-typed keys (routing.model_pools:
 // pool name -> ModelPool). Cloud's dict[str, CloudProviderConfig] is NOT
 // rendered with this widget — its keys are a fixed, server-known registry
@@ -1236,11 +1294,26 @@ function renderSchemaField(field, draft, onDirty, overrides) {
   if (field.widget === "secret") return schemaSecretRow(field, draft, onDirty, overrides);
   if (field.widget === "list_strings") return schemaListStringsRow(field, draft, onDirty, overrides);
   if (field.widget === "dict_list_strings") return schemaDictListStringsRow(field, draft, onDirty, overrides);
+  if (field.widget === "dict_strings") return schemaDictStringsRow(field, draft, onDirty, overrides);
   if (field.widget === "list") return schemaListOfObjectsRow(field, draft, onDirty, overrides);
   if (field.widget === "dict") return schemaDictOfObjectsRow(field, draft, onDirty, overrides);
+  if (field.widget === "object") return schemaNestedObjectRow(field, draft, onDirty, overrides);
   // "text" and any unrecognized widget render as a plain text input
   // rather than silently omitting the field.
   return schemaFieldRow(field, draft, onDirty, overrides, "text");
+}
+
+// A field whose value is one fixed nested model (SourceConfig.match:
+// SourceMatch), not a collection of them — no add/remove/key, just the
+// sub-object's own fields rendered inline against its own draft slot.
+function schemaNestedObjectRow(field, draft, onDirty, overrides) {
+  if (!draft[field.name]) draft[field.name] = {};
+  const wrap = el("div", "card");
+  wrap.appendChild(textEl("label", "", schemaFieldLabel(field, overrides)));
+  wrap.appendChild(
+    schemaFieldsCard(field.item_schema || [], draft[field.name], onDirty, overrides?.itemOverrides)
+  );
+  return wrap;
 }
 
 /**
@@ -1565,6 +1638,43 @@ function knownModelIDs() {
 }
 
 const CLOUD_FALLBACK_MODES = ["cloud", "local", "none"];
+
+// Known CLI/harness sources (docs/cli-source-routing-plan.md) — a request
+// is attributed to a source by header, virtual key ("netllm-<id>"), or a
+// User-Agent match; each can carry its own routing overrides. Lives on the
+// routing schema section (routing.sources), same as policies/backends
+// above, so this tab reuses state.configDraft.routing as its draft.
+function renderSourcesTab() {
+  const root = document.getElementById("tab-sources");
+  root.replaceChildren();
+  root.appendChild(textEl("h1", "page-title", "Sources"));
+  root.appendChild(
+    textEl(
+      "p",
+      "empty",
+      "Known CLI/harness identities with their own routing. Attributive by " +
+        "default: an id/key with no secret just labels traffic in Status " +
+        "and metrics. Set a secret once this agent is reachable beyond " +
+        "loopback if the source grants cloud access, a cloud_providers " +
+        "allowlist, or an above-default max_concurrency."
+    )
+  );
+
+  const fields = state.configSchema?.sections?.routing?.fields || [];
+  const byName = Object.fromEntries(fields.map((f) => [f.name, f]));
+  const draft = state.configDraft.routing;
+
+  if (byName.sources) {
+    root.appendChild(
+      renderSchemaField(byName.sources, draft, markDirty, {
+        itemLabel: "source",
+        itemOverrides: {
+          strategy: { optionLabels: { "": "default strategy" } },
+        },
+      })
+    );
+  }
+}
 
 function renderCloudTab() {
   const root = document.getElementById("tab-cloud");
@@ -1979,6 +2089,7 @@ const TAB_RENDERERS = {
   discovery: renderDiscoveryTab,
   swarm: renderSwarmTab,
   routing: renderRoutingTab,
+  sources: renderSourcesTab,
   cloud: renderCloudTab,
   ui: renderUiTab,
   logs: renderLogsTab,
