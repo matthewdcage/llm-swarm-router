@@ -210,24 +210,72 @@ one, observed via status counters) needs a real Claude Code session against
 a configured source and is deferred to Phase 5, which has access to actual
 CLI traffic.
 
-## Phase 4 — Registration UX and docs (not yet implemented)
+## Phase 3.5 — Codex Responses API bridge (done 23/07/2026)
 
-- CLI: `netllm sources list|add|remove|set <id> key value` (Typer, mirrors
-  `netllm cloud` command shape) writing `[[sources]]` via the same config
-  path; `netllm connect <tool>` upgraded to mint/print the per-source key and
-  the exact env/config wiring per tool (replaces manual steps; never edits
-  editor settings without consent, per repo rules).
-- Custom harness path documented: send `x-netllm-source: my-harness` (or use a
-  minted key) + optional `secret_env`; example snippet for OpenAI and
-  Anthropic SDKs.
-- Dashboard `/ui/`: Sources tab (list, live counters, enable/disable) using
-  the existing config-schema-driven form machinery; macOS Settings parity can
-  trail one release.
-- Docs: update [editor-integration.md](editor-integration.md),
-  `config.example.toml`, AGENTS.md command table,
-  `.agents/skills/netllm-connect-editor` (then `scripts/sync-agent-skills.sh`).
-- Document Option B chaining (LiteLLM/Bifrost as a `[[routing.backends]]`
-  row) as the long-tail-cloud escape hatch.
+Discovered while wiring up the four requested reference harnesses (Codex,
+Claude Code, Pi Agent, Gemini CLI/Antigravity): Codex removed
+`wire_api = "chat"` support entirely as of February 2026
+([openai/codex discussion #7782](https://github.com/openai/codex/discussions/7782)).
+Every provider in `~/.codex/config.toml`, including a custom
+`[model_providers.<id>]`, must speak the Responses API. netllm only ever
+served Chat Completions — a real protocol gap, not a config tweak.
+
+- ~~`netllm_core/openai_responses_bridge.py`: translates Responses API
+  requests/responses to/from Chat Completions at the edge only (mirrors
+  `anthropic_bridge.py`'s role for the Anthropic surface).
+  `POST /v1/responses` delegates straight to the existing
+  `proxy_chat_completion(_stream)` path, so source identity, per-source
+  routing, scenario classification, and capacity control are inherited for
+  free — Codex is just another attributable source.~~
+- ~~Covers plain text and function-calling turns, multi-turn conversations
+  replayed via `input` (Codex resends its own history each call rather than
+  using `previous_response_id`).~~
+
+**Explicitly not implemented** (would need real traffic to validate against
+rather than guessing): encrypted reasoning items, image/file input blocks,
+the `store`/background-response lifecycle.
+
+**Tests (passing):** `tests/test_codex_responses_bridge.py` (15 tests) —
+request translation (string/array `input`, `instructions`, content blocks,
+`function_call`/`function_call_output` replay, tool shape conversion,
+`max_output_tokens`/`reasoning.effort`), response translation (text,
+function calls, `length` → `incomplete`), streaming event sequencing, and
+an end-to-end route test confirming the existing chat pipeline sees a
+normal Chat Completions payload.
+**Gate met:** `./scripts/ci.sh` (lint + 515 tests) green; `basedpyright`
+clean.
+**Deferred to Phase 5:** the streaming half is unverified against a live
+Codex session (verified only via synthetic SSE fixtures matching the
+documented event shapes) — needs the real binary.
+
+## Phase 4 — Registration UX and docs (partially done 23/07/2026)
+
+- ~~Docs: [editor-integration.md](editor-integration.md) and
+  `config.example.toml` updated with concrete, verified wiring for all four
+  reference harnesses — Claude Code (native, `ANTHROPIC_BASE_URL`), Codex
+  (new named provider + `wire_api = "responses"`, see Phase 3.5), Pi Agent
+  (native `~/.pi/agent/models.json`, `api: "openai-completions"`), and
+  Gemini CLI/Antigravity (Gemini CLI's native-protocol custom-endpoint
+  support is an unresolved upstream feature request — documented as
+  **not** reliably wireable today — with Antigravity's built-in "OpenAI
+  Compatible" custom-model slot recommended instead).~~
+- Still open: CLI: `netllm sources list|add|remove|set <id> key value`
+  (Typer, mirrors `netllm cloud` command shape) writing `[[sources]]` via
+  the same config path; `netllm connect <tool>` upgraded to mint/print the
+  per-source key and the exact env/config wiring per tool (replaces manual
+  doc-following; never edits editor settings without consent, per repo
+  rules).
+- Still open: custom harness path documented generically (send
+  `x-netllm-source: my-harness` or a minted key + optional `secret_env`;
+  example snippet for arbitrary OpenAI/Anthropic SDK clients beyond the
+  four named references).
+- Still open: Dashboard `/ui/` Sources tab (list, live counters,
+  enable/disable) — see Phase 4a; macOS Settings parity — see Phase 4b.
+- Still open: `.agents/skills/netllm-connect-editor` update +
+  `scripts/sync-agent-skills.sh`, AGENTS.md command table entry for
+  `netllm sources`.
+- Still open: document Option B chaining (LiteLLM/Bifrost as a
+  `[[routing.backends]]` row) as the long-tail-cloud escape hatch.
 
 **Tests:** CLI tests alongside existing cloud-CLI tests; dashboard schema test
 extension (`tests/test_dashboard_config_schema.py`); skill sync check.

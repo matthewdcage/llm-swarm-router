@@ -132,6 +132,38 @@ max_backend_failures = 3
 # # model_rewrites = { "claude-sonnet-5" = "qwen3:32b" }
 # # match = { user_agent_contains = ["buzz-agent"] }
 
+# Reference harnesses (docs/cli-source-routing-plan.md, docs/editor-integration.md).
+# Each is opt-in: uncomment, then set the tool's API key env var to
+# "netllm-<id>" instead of "netllm-local" (base URL wiring unchanged).
+#
+# Claude Code -- native Anthropic Messages support, no plugin needed.
+# [[routing.sources]]
+# id = "claude-code"
+# description = "Claude Code CLI"
+# match = { user_agent_contains = ["claude-cli"] }
+#
+# Codex -- requires a [model_providers.<id>] block in ~/.codex/config.toml
+# with wire_api = "responses" (Codex removed wire_api = "chat" support in
+# Feb 2026); netllm serves this at POST /v1/responses
+# (netllm_core.openai_responses_bridge). See docs/editor-integration.md.
+# [[routing.sources]]
+# id = "codex"
+# description = "OpenAI Codex CLI"
+#
+# Pi Agent (earendil-works/pi) -- native OpenAI-compatible provider
+# (api = "openai-completions" in ~/.pi/agent/models.json), no plugin needed.
+# [[routing.sources]]
+# id = "pi-agent"
+# description = "Pi coding agent"
+#
+# Antigravity -- use its Settings "OpenAI Compatible" custom model slot
+# pointed at this agent's /v1; recommended over Gemini CLI's native
+# protocol, which has no confirmed stable OpenAI-compatible custom-endpoint
+# mode upstream as of this writing (see docs/editor-integration.md).
+# [[routing.sources]]
+# id = "antigravity"
+# description = "Google Antigravity (OpenAI-compatible custom model)"
+
 # Optional routing policies (first match wins). Cloud paths require allow_cloud = true.
 # [[routing.policies]]
 # name = "local-openai"

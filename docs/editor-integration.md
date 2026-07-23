@@ -68,11 +68,89 @@ Model ID must match `./netllm models` exactly. Verify: `./netllm test --api anth
 
 For cloud Anthropic failover, set a real `ANTHROPIC_API_KEY` and add an `[[routing.backends]]` with `provider = "anthropic"` in config (see [config.example.toml](../config.example.toml)).
 
+**Known source** (optional): set `ANTHROPIC_API_KEY=netllm-claude-code` instead of `netllm-local` and add the `claude-code` block from [config.example.toml](../config.example.toml)'s `[[routing.sources]]` section — no other change. Attributes Claude Code's traffic separately in `GET /netllm/v1/status` and metrics; see [cli-source-routing-plan.md](cli-source-routing-plan.md).
+
 ## Codex
 
 - Reads [AGENTS.md](../AGENTS.md) from repo root automatically
 - Skills in `.agents/skills/` for setup and troubleshoot workflows
-- Same `OPENAI_BASE_URL` / `OPENAI_API_KEY` exports as above
+- **No plain env-var wiring.** Codex ignores `OPENAI_BASE_URL` for its
+  built-in `openai` provider (confirmed against [openai/codex#11698](https://github.com/openai/codex/issues/11698)),
+  and — as of February 2026 — every provider, including custom ones, must
+  use `wire_api = "responses"`; `wire_api = "chat"` was removed entirely.
+  netllm serves the Responses API at `POST /v1/responses`
+  (`netllm_core.openai_responses_bridge`) specifically so Codex can reach
+  it; plain Chat Completions will not work for Codex regardless of config.
+- Add a **new** named provider to `~/.codex/config.toml` (the `openai` id
+  is reserved and can't be redirected):
+
+  ```toml
+  model_provider = "netllm"
+  model = "<model id from ./netllm models>"
+
+  [model_providers.netllm]
+  base_url = "http://127.0.0.1:11400/v1"
+  env_key = "NETLLM_API_KEY"
+  wire_api = "responses"
+  ```
+
+  ```bash
+  export NETLLM_API_KEY=netllm-local   # or netllm-codex, see below
+  ```
+- **Known source** (optional): use `NETLLM_API_KEY=netllm-codex` and the
+  `codex` block from [config.example.toml](../config.example.toml).
+- Verify: `curl -s http://127.0.0.1:11400/v1/responses -H "Authorization: Bearer netllm-local" -H "Content-Type: application/json" -d '{"model":"<id>","input":"hi"}'`
+  before pointing the real CLI at it.
+- The streaming half of the Responses bridge is implemented but not yet
+  validated against a live Codex session — if Codex's TUI misbehaves,
+  check `./netllm doctor` and the agent log first; see
+  [cli-source-routing-plan.md](cli-source-routing-plan.md) Phase 5.
+
+## Pi Agent ([earendil-works/pi](https://github.com/earendil-works/pi))
+
+Native OpenAI-compatible provider support, no plugin needed. Edit
+`~/.pi/agent/models.json`:
+
+```json
+{
+  "providers": {
+    "netllm": {
+      "baseUrl": "http://127.0.0.1:11400/v1",
+      "api": "openai-completions",
+      "apiKey": "netllm-local",
+      "models": ["<model id from ./netllm models>"]
+    }
+  }
+}
+```
+
+**Known source** (optional): use `apiKey: "netllm-pi-agent"` and the
+`pi-agent` block from [config.example.toml](../config.example.toml).
+
+## Gemini CLI / Google Antigravity
+
+**Gemini CLI** (`google-gemini/gemini-cli`) speaks Google's native Gemini
+protocol, not an OpenAI- or Anthropic-compatible one. Custom-endpoint
+support is tracked upstream but unresolved as of this writing
+([google-gemini/gemini-cli#1679](https://github.com/google-gemini/gemini-cli/issues/1679),
+[#16504](https://github.com/google-gemini/gemini-cli/issues/16504)) — there
+is no confirmed, stable way to point it at netllm's OpenAI/Anthropic
+surfaces today. Don't wire it up on the strength of a blog post claiming
+otherwise; re-check those issues before trying.
+
+**Antigravity** is the practical path instead: its Settings has a
+built-in **OpenAI Compatible** custom-model option.
+
+1. Antigravity Settings → Models → add a custom **OpenAI Compatible** model
+2. Base URL: `http://127.0.0.1:11400/v1`
+3. API key: `netllm-local` (or `netllm-antigravity`, see below)
+4. Model: exact ID from `./netllm models`
+
+**Known source** (optional): use API key `netllm-antigravity` and the
+`antigravity` block from [config.example.toml](../config.example.toml).
+Community reports note Antigravity's custom-provider support is still
+maturing — verify with `./netllm test --model <id>` and a real prompt
+before relying on it.
 
 ## VS Code + GitHub Copilot
 
