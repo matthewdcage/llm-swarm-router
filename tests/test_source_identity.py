@@ -348,3 +348,30 @@ def test_config_summary_exposes_existing_sources_with_secret_blanked() -> None:
     assert sources[0]["id"] == "buzz"
     assert sources[0]["description"] == "buzz fleet"
     assert sources[0]["secret"] == ""
+
+
+def test_virtual_source_keys_are_never_forwarded_as_cloud_credentials() -> None:
+    """Regression: found during Phase 5 live smoke testing. Any bearer
+    token other than the exact string "netllm-local" was treated as a
+    real upstream credential and forwarded to the cloud provider on
+    injection -- including a caller's virtual `netllm-<source>` key
+    (e.g. "netllm-codex"), which would then get sent to OpenAI/Anthropic
+    as a bogus API key instead of falling back to the configured
+    OPENAI_API_KEY/ANTHROPIC_API_KEY. See
+    docs/cli-source-routing-plan.md Phase 5."""
+    from netllm_agent.service import AgentService
+
+    assert AgentService._openai_api_key({"authorization": "Bearer netllm-codex"}) == ""
+    assert (
+        AgentService._openai_api_key({"authorization": "Bearer netllm-buzz.s3cret"})
+        == ""
+    )
+    assert AgentService._anthropic_api_key({"x-api-key": "netllm-claude-code"}) == ""
+    # A real-looking credential still passes through unchanged.
+    assert (
+        AgentService._openai_api_key({"authorization": "Bearer sk-real-key-123"})
+        == "sk-real-key-123"
+    )
+    assert AgentService._anthropic_api_key({"x-api-key": "sk-ant-real-key"}) == (
+        "sk-ant-real-key"
+    )

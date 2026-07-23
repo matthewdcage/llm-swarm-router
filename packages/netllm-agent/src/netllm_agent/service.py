@@ -40,7 +40,11 @@ from netllm_core.openai_responses_bridge import (
 from netllm_core.pool import RouterPool, is_capacity_error
 from netllm_core.routing_policy import ResolvedRouting, resolve_routing
 from netllm_core.scenarios import Scenario, classify_scenario
-from netllm_core.source_identity import ResolvedSource, resolve_source
+from netllm_core.source_identity import (
+    ResolvedSource,
+    is_netllm_placeholder_key,
+    resolve_source,
+)
 from netllm_core.version import get_version
 from netllm_discovery.local import (
     find_omlx_admin_url,
@@ -1232,17 +1236,20 @@ class AgentService:
 
     @staticmethod
     def _anthropic_api_key(headers: Mapping[str, str]) -> str:
-        return headers.get("x-api-key") or os.environ.get("ANTHROPIC_API_KEY", "")
+        key = headers.get("x-api-key", "")
+        if key and not is_netllm_placeholder_key(key):
+            return key
+        return os.environ.get("ANTHROPIC_API_KEY", "")
 
     @staticmethod
     def _openai_api_key(headers: Mapping[str, str]) -> str:
         auth = headers.get("authorization", "")
         if auth.lower().startswith("bearer "):
             token = auth[7:].strip()
-            if token and token != "netllm-local":
+            if token and not is_netllm_placeholder_key(token):
                 return token
         env_key = os.environ.get("OPENAI_API_KEY", "")
-        if env_key and env_key != "netllm-local":
+        if env_key and not is_netllm_placeholder_key(env_key):
             return env_key
         return ""
 

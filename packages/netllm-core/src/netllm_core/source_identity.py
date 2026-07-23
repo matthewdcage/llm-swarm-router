@@ -17,6 +17,20 @@ _KEY_PREFIX = "netllm-"
 _LOCAL_KEY = "netllm-local"
 
 
+def is_netllm_placeholder_key(key: str) -> bool:
+    """True for the "netllm-local" sentinel or any "netllm-<id>"
+    (optionally ".<secret>") virtual source key.
+
+    Callers that might forward a caller-supplied key upstream as a real
+    cloud API key (service._openai_api_key / _anthropic_api_key) must
+    treat any of these the same way they already treated the bare
+    "netllm-local" placeholder: never forward it. Every real Anthropic
+    or OpenAI key uses that vendor's own prefix ("sk-ant-", "sk-"), never
+    "netllm-", so this check can't collide with a genuine credential.
+    """
+    return bool(key) and key.startswith(_KEY_PREFIX)
+
+
 @dataclass(frozen=True)
 class ResolvedSource:
     id: str
