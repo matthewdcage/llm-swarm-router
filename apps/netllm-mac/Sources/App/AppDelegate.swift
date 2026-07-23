@@ -56,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
                 openLogFolder: { [weak self] in self?.openLogFolder() }
             )
         )
+        MenubarController.shared.start(model: MenubarAppModel.shared)
         AppLogger.log("menubar created")
         ShellEnvWriter.ensureCLIShim(bundleCLI: runtime.bundleCLIPath)
 

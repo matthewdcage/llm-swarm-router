@@ -21,6 +21,8 @@ def test_design_tokens_json_has_required_modes() -> None:
     assert "shared" in data
     assert data["shared"]["radius"] == "10px"
     assert data["light"]["accent"] == "#007aff"
+    assert data["shared"]["ppColor"] == "#0a84ff"
+    assert data["shared"]["tgColor"] == "#34c759"
 
 
 def test_dashboard_tokens_css_is_generated_and_current() -> None:

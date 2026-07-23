@@ -83,6 +83,15 @@ def test_netllm_status(client: TestClient) -> None:
     assert "routing_strategy" in data
 
 
+def test_netllm_telemetry(client: TestClient) -> None:
+    resp = client.get("/netllm/v1/telemetry?watch=0")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["schema_version"] == 1
+    assert "router" in data
+    assert len(data["history"]["router_rps"]) <= 60
+
+
 @patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
 def test_models_list_empty(mock_scan: AsyncMock, client: TestClient) -> None:
     mock_scan.return_value = []

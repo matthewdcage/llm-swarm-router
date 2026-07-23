@@ -36,6 +36,8 @@ const state = {
   lanPeers: [],
   healthy: false,
   pollTimer: null,
+  telemetryPollTimer: null,
+  telemetry: null,
   updatePollTimer: null,
   logsPollTimer: null,
   logs: null,
@@ -128,6 +130,74 @@ function updateOmlxAdminLink() {
   btn.href = omlxAdminURLFromStatus(state.status);
 }
 
+async function loadTelemetry(watch = true) {
+  const q = watch ? "?watch=1" : "?watch=0";
+  state.telemetry = await api(`/netllm/v1/telemetry${q}`);
+}
+
+function formatCompactCount(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 1e12) return `${(n / 1e12).toFixed(1)}T`;
+  if (abs >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return String(Math.round(n));
+}
+
+function formatTps(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return `${n.toFixed(1)} tok/s`;
+}
+
+function sparklineSvg(values, color, width = 220, height = 36) {
+  const svg = el("svg", "sparkline");
+  svg.setAttribute("width", String(width));
+  svg.setAttribute("height", String(height));
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  const data = (values || []).slice(-60);
+  if (data.length < 2) return svg;
+  const max = Math.max(...data, 0.001);
+  const step = width / Math.max(data.length - 1, 1);
+  const points = data
+    .map((v, i) => `${i * step},${height - (v / max) * (height - 4) - 2}`)
+    .join(" ");
+  const poly = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+  poly.setAttribute("fill", "none");
+  poly.setAttribute("stroke", color);
+  poly.setAttribute("stroke-width", "1.5");
+  poly.setAttribute("points", points);
+  svg.appendChild(poly);
+  return svg;
+}
+
+function servingScopeBlock(title, scope) {
+  const card = el("div", "card");
+  card.appendChild(textEl("h3", "", title));
+  if (!scope) {
+    card.appendChild(textEl("p", "muted-sm", "No data"));
+    return card;
+  }
+  const grid = el("div", "metrics");
+  const rows = [
+    ["Total tokens", formatCompactCount(scope.total_tokens ?? scope.prompt_tokens + scope.completion_tokens)],
+    ["Cached tokens", formatCompactCount(scope.total_cached_tokens)],
+    ["Cache efficiency", scope.cache_efficiency_pct != null ? `${scope.cache_efficiency_pct}%` : "—"],
+    ["Avg PP speed", formatTps(scope.avg_prefill_tps)],
+    ["Avg TG speed", formatTps(scope.avg_generation_tps)],
+  ];
+  if (scope.total_requests != null) rows.push(["Total requests", formatCompactCount(scope.total_requests)]);
+  rows.forEach(([label, value]) => {
+    const m = el("div", "metric-card");
+    m.append(textEl("div", "label", label), textEl("div", "value", value));
+    grid.appendChild(m);
+  });
+  card.appendChild(grid);
+  return card;
+}
+
 async function loadCore() {
   const status = await api("/netllm/v1/status");
   state.status = status;
@@ -148,6 +218,11 @@ async function loadCore() {
     warnAdminLimited(
       "Doctor unavailable (admin API). Use http://127.0.0.1:11400/ui/ on this Mac or set a cluster token."
     );
+  }
+  try {
+    state.telemetry = await api("/netllm/v1/telemetry?watch=0");
+  } catch {
+    state.telemetry = null;
   }
   try {
     const config = await api("/netllm/v1/config");
@@ -221,6 +296,13 @@ function emptyConfigDraft() {
       auto_start_on_launch: true,
       log_dir: "",
       check_for_updates_automatically: true,
+      model_favorites: [],
+      menubar_show_cpu: false,
+      menubar_show_gpu: false,
+      menubar_show_mem: false,
+      menubar_show_live: false,
+      menubar_merge_gauges: false,
+      menubar_models_favorites_only: false,
     }),
     cloud: schemaSectionDefaults(state.configSchema, "cloud", {
       enabled: true,
@@ -395,6 +477,45 @@ function renderStatusTab() {
   });
   root.appendChild(metrics);
 
+  const routed = state.status?.routed_requests || {};
+  const routedKeys = Object.keys(routed);
+  if (routedKeys.length) {
+    root.appendChild(textEl("div", "section-label", "Routed requests"));
+    const routedCard = el("div", "card");
+    routedKeys.slice(0, 12).forEach((key) => {
+      appendInfoRow(routedCard, key, String(routed[key]));
+    });
+    root.appendChild(routedCard);
+  }
+
+  const capacity = state.status?.capacity_rejections || {};
+  const capKeys = Object.keys(capacity);
+  if (capKeys.length) {
+    root.appendChild(textEl("div", "section-label", "Capacity rejections"));
+    const capCard = el("div", "card");
+    capKeys.forEach((key) => appendInfoRow(capCard, key, String(capacity[key])));
+    root.appendChild(capCard);
+  }
+
+  if ((state.status?.peer_warnings || []).length) {
+    root.appendChild(textEl("div", "section-label", "Peer warnings"));
+    const warnCard = el("div", "card");
+    (state.status.peer_warnings || []).forEach((line) => {
+      warnCard.appendChild(textEl("p", "muted-sm", line));
+    });
+    root.appendChild(warnCard);
+  }
+
+  const inflightBackends = (state.status?.backends || []).filter((b) => (b.in_flight || 0) > 0);
+  if (inflightBackends.length) {
+    root.appendChild(textEl("div", "section-label", "In-flight"));
+    const flyCard = el("div", "card");
+    inflightBackends.forEach((b) => {
+      appendInfoRow(flyCard, `${b.provider} · ${b.base_url}`, String(b.in_flight));
+    });
+    root.appendChild(flyCard);
+  }
+
   root.appendChild(textEl("div", "section-label", "Active now"));
   root.appendChild(Object.assign(el("div", "card"), { textContent: activeSummary() }));
 
@@ -422,6 +543,19 @@ function renderStatusTab() {
   appendInfoRow(sys, "Role", state.status?.role);
   appendInfoRow(sys, "Strategy", state.status?.routing_strategy);
   appendInfoRow(sys, "Listen", state.status?.listen_url);
+  if (state.telemetry?.host) {
+    appendInfoRow(sys, "Host CPU", `${state.telemetry.host.cpu_percent}%`);
+    appendInfoRow(
+      sys,
+      "Host memory",
+      `${state.telemetry.host.memory_used_gb} / ${state.telemetry.host.memory_total_gb} GB`,
+    );
+  } else {
+    const hostNote = el("p", "muted-sm");
+    hostNote.textContent =
+      "Detailed CPU/GPU/memory panels are in the macOS menubar System Stats menu.";
+    sys.appendChild(hostNote);
+  }
   root.appendChild(sys);
 
   root.appendChild(textEl("div", "section-label", "Updates"));
@@ -442,6 +576,72 @@ function renderStatusTab() {
   const hint = el("div", "card");
   hint.appendChild(textEl("p", "empty", "After changing listen address or port, restart the agent: netllm restart (packaged install) or menubar Settings → Restart Agent."));
   root.appendChild(hint);
+}
+
+function renderServingTab() {
+  const root = document.getElementById("tab-serving");
+  root.replaceChildren();
+  root.appendChild(textEl("h1", "page-title", "Serving stats"));
+
+  const tel = state.telemetry;
+  if (!tel) {
+    root.appendChild(textEl("p", "muted-sm", "Loading telemetry…"));
+    return;
+  }
+
+  const omlx = tel.omlx || {};
+  const router = tel.router || {};
+  const history = tel.history || {};
+  const live = omlx.live || {};
+
+  if (omlx.available) {
+    root.appendChild(textEl("div", "section-label", "Live throughput"));
+    const liveCard = el("div", "card");
+    const liveMetrics = el("div", "metrics");
+    [
+      ["PP", formatTps(live.prefill_tps), "var(--pp-color)"],
+      ["TG", formatTps(live.generation_tps), "var(--tg-color)"],
+    ].forEach(([label, value]) => {
+      const m = el("div", "metric-card");
+      m.append(textEl("div", "label", label), textEl("div", "value", value));
+      liveMetrics.appendChild(m);
+    });
+    liveCard.append(liveMetrics);
+    const sparkRow = el("div", "sparkline-row");
+    sparkRow.append(
+      sparklineSvg(history.omlx_pp_tps, "var(--pp-color)"),
+      sparklineSvg(history.omlx_tg_tps, "var(--tg-color)"),
+    );
+    liveCard.appendChild(sparkRow);
+    root.appendChild(liveCard);
+
+    root.appendChild(textEl("div", "section-label", "oMLX session"));
+    root.appendChild(servingScopeBlock("Session", omlx.session));
+    root.appendChild(textEl("div", "section-label", "oMLX all-time"));
+    root.appendChild(servingScopeBlock("All-time", omlx.alltime));
+  } else {
+    root.appendChild(textEl("div", "section-label", "Router session"));
+    root.appendChild(servingScopeBlock("Session", router.session));
+    root.appendChild(textEl("div", "section-label", "Router all-time"));
+    root.appendChild(servingScopeBlock("All-time", router.alltime));
+  }
+
+  root.appendChild(textEl("div", "section-label", "Router"));
+  const routerCard = el("div", "card");
+  appendInfoRow(routerCard, "In-flight total", String(router.in_flight_total ?? 0));
+  appendInfoRow(routerCard, "Shardless fallbacks", String(router.shardless_fallbacks ?? 0));
+  root.appendChild(routerCard);
+
+  root.appendChild(textEl("div", "section-label", "System"));
+  const sys = el("div", "card");
+  sys.appendChild(
+    textEl(
+      "p",
+      "muted-sm",
+      "Full CPU/GPU/memory panels are available in the macOS menubar System Stats menu.",
+    ),
+  );
+  root.appendChild(sys);
 }
 
 function renderUpdateCard() {
@@ -866,6 +1066,17 @@ function renderModelsTab() {
       "Pool edits write routing.model_pools — press Save in the toolbar to persist. Full LAN model merge: netllm models --lan in terminal."
     )
   );
+}
+
+function toggleFavoriteModel(modelId) {
+  if (!state.configDraft) state.configDraft = emptyConfigDraft();
+  const list = state.configDraft.ui.model_favorites || [];
+  const idx = list.indexOf(modelId);
+  if (idx >= 0) list.splice(idx, 1);
+  else list.push(modelId);
+  state.configDraft.ui.model_favorites = list;
+  markDirty(true);
+  renderModelsTab();
 }
 
 function renderPeerRow(p) {
@@ -2082,6 +2293,7 @@ function renderStringListEditor(path, placeholder) {
 
 const TAB_RENDERERS = {
   status: renderStatusTab,
+  serving: renderServingTab,
   backends: renderBackendsTab,
   models: renderModelsTab,
   peers: renderPeersTab,
@@ -2114,6 +2326,11 @@ function switchTab(tab) {
     startLogsPolling();
   } else {
     stopLogsPolling();
+  }
+  if (tab === "serving") {
+    startTelemetryPolling();
+  } else {
+    stopTelemetryPolling();
   }
   render();
 }
@@ -2325,6 +2542,25 @@ function startPolling() {
 function stopPolling() {
   if (state.pollTimer) clearInterval(state.pollTimer);
   state.pollTimer = null;
+}
+
+function startTelemetryPolling() {
+  stopTelemetryPolling();
+  const poll = () => {
+    if (document.visibilityState !== "visible" || state.tab !== "serving") return;
+    loadTelemetry(true)
+      .then(() => {
+        if (state.tab === "serving") renderServingTab();
+      })
+      .catch(() => {});
+  };
+  poll();
+  state.telemetryPollTimer = setInterval(poll, 5000);
+}
+
+function stopTelemetryPolling() {
+  if (state.telemetryPollTimer) clearInterval(state.telemetryPollTimer);
+  state.telemetryPollTimer = null;
 }
 
 function startLogsPolling() {

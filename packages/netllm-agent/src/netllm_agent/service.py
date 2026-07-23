@@ -59,6 +59,8 @@ from netllm_sdk_openai.client import OpenAIUpstream, OpenAIUpstreamError
 from netllm_agent.metrics import (
     BACKEND_HEALTH,
     BACKEND_IN_FLIGHT,
+    COMPLETION_TOKENS_TOTAL,
+    PROMPT_TOKENS_TOTAL,
     REQUEST_LATENCY,
     REQUESTS_TOTAL,
     SCENARIO_REQUESTS_TOTAL,
@@ -70,6 +72,7 @@ from netllm_agent.shard import (
     backend_for_url,
     extract_shard_context,
 )
+from netllm_agent.telemetry import TelemetryService
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +149,45 @@ class AgentService:
         # constructing an SDK client (and its httpx pools) per attempt
         # wasted a TCP+TLS setup on every request.
         self._upstream_cache: dict[tuple, OpenAIUpstream] = {}
+        self.telemetry = TelemetryService()
+
+    @staticmethod
+    def _usage_from_response(result: Any) -> tuple[int, int]:
+        if not isinstance(result, dict):
+            return 0, 0
+        usage = result.get("usage")
+        if not isinstance(usage, dict):
+            return 0, 0
+        prompt = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+        completion = int(
+            usage.get("completion_tokens") or usage.get("output_tokens") or 0
+        )
+        return max(0, prompt), max(0, completion)
+
+    def _record_success_telemetry(
+        self,
+        *,
+        backend: Backend,
+        model: str,
+        result: Any,
+        latency_s: float,
+    ) -> None:
+        prompt, completion = self._usage_from_response(result)
+        if prompt or completion:
+            PROMPT_TOKENS_TOTAL.labels(backend=backend.base_url, model=model).inc(
+                prompt
+            )
+            COMPLETION_TOKENS_TOTAL.labels(backend=backend.base_url, model=model).inc(
+                completion
+            )
+        prefill_dur = latency_s * 0.3 if prompt else 0.0
+        gen_dur = latency_s * 0.7 if completion else max(latency_s, 0.0)
+        self.telemetry.record_usage(
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            prefill_duration=prefill_dur,
+            generation_duration=gen_dur if completion else 0.0,
+        )
 
     async def refresh_local_backends(
         self,
@@ -959,6 +1001,12 @@ class AgentService:
                     backend=backend.base_url, model=model, status="ok"
                 ).inc()
                 REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency)
+                self._record_success_telemetry(
+                    backend=backend,
+                    model=model,
+                    result=result,
+                    latency_s=latency,
+                )
                 self._request_count += 1
                 self._mark_shard_success(shard)
                 return result
@@ -1207,6 +1255,12 @@ class AgentService:
                     backend=backend.base_url, model=model, status="ok"
                 ).inc()
                 REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency)
+                self._record_success_telemetry(
+                    backend=backend,
+                    model=model,
+                    result=result,
+                    latency_s=latency,
+                )
                 self._request_count += 1
                 return result
             except OpenAIUpstreamError as exc:
@@ -1543,6 +1597,12 @@ class AgentService:
                 backend=backend.base_url, model=model, status="ok"
             ).inc()
             REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency)
+            self._record_success_telemetry(
+                backend=backend,
+                model=model,
+                result=result,
+                latency_s=latency,
+            )
             self._request_count += 1
             return result
         except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
@@ -1877,6 +1937,7 @@ class AgentService:
                 backend=backend.base_url, model=model, status="ok"
             ).inc()
             REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency)
+            self.telemetry.record_request()
             self._mark_shard_success(shard)
         except OpenAIUpstreamError as exc:
             self._mark_backend_failure(backend, exc)

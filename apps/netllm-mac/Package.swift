@@ -9,5 +9,10 @@ let package = Package(
             name: "NetllmMac",
             path: "Sources"
         ),
+        .testTarget(
+            name: "NetllmMacTests",
+            dependencies: ["NetllmMac"],
+            path: "Tests/NetllmMacTests"
+        ),
     ]
 )

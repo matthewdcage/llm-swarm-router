@@ -15,6 +15,8 @@ def test_export_import_roundtrip(tmp_path: Path) -> None:
     original.swarm.cluster_token = "secret"
     original.routing.default_strategy = "failover"
     original.ui.auto_start_on_launch = False
+    original.ui.model_favorites = ["qwen3-4b"]
+    original.ui.menubar_show_cpu = True
 
     from netllm_core.models import save_config
 
@@ -23,6 +25,8 @@ def test_export_import_roundtrip(tmp_path: Path) -> None:
     exported = export_config(path)
     assert exported["agent"]["listen"] == "127.0.0.1:11401"
     assert exported["swarm"]["cluster_token"] == "secret"
+    assert exported["ui"]["model_favorites"] == ["qwen3-4b"]
+    assert exported["ui"]["menubar_show_cpu"] is True
 
     exported["discovery"]["custom_endpoints"] = ["http://127.0.0.1:9999/v1"]
     import_config(exported, path)

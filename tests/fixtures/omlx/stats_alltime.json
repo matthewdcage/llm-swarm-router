@@ -1,0 +1,9 @@
+{
+  "total_prompt_tokens": 147800000,
+  "total_completion_tokens": 52000000,
+  "total_cached_tokens": 121600000,
+  "total_requests": 25600,
+  "cache_efficiency": 82.3,
+  "avg_prefill_tps": 105.2,
+  "avg_generation_tps": 44.8
+}

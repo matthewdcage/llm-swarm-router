@@ -361,6 +361,13 @@ class UiConfig(BaseModel):
     auto_start_on_launch: bool = True
     log_dir: str = ""
     check_for_updates_automatically: bool = True
+    model_favorites: list[str] = Field(default_factory=list)
+    menubar_show_cpu: bool = False
+    menubar_show_gpu: bool = False
+    menubar_show_mem: bool = False
+    menubar_show_live: bool = False
+    menubar_merge_gauges: bool = False
+    menubar_models_favorites_only: bool = False
 
 
 CloudFallbackMode = Literal["cloud", "local", "none"]

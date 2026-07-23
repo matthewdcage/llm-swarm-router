@@ -13,6 +13,10 @@
   --ok: #34c759;
   --warn: #ff9500;
   --danger: #ff3b30;
+  --pp-color: #0a84ff;
+  --tg-color: #34c759;
+  --ecore-color: #ff9500;
+  --pcore-color: #0a84ff;
   --code-bg: rgba(0, 0, 0, 0.06);
   --input-bg: #ffffff;
   --sidebar-w: 210px;
@@ -34,6 +38,10 @@
   --ok: #34c759;
   --warn: #ff9500;
   --danger: #ff3b30;
+  --pp-color: #0a84ff;
+  --tg-color: #34c759;
+  --ecore-color: #ff9500;
+  --pcore-color: #0a84ff;
   --code-bg: rgba(255, 255, 255, 0.1);
   --input-bg: #2c2c2e;
   --sidebar-w: 210px;

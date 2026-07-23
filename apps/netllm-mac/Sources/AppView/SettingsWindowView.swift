@@ -688,7 +688,28 @@ struct SettingsWindowView: View {
                     .foregroundStyle(.secondary)
             }
             gridRow("Config file", AppConfig.defaultConfigPath().path)
+
+            sectionHeader("Menubar appearance")
+            Toggle("Show CPU gauge", isOn: $model.document.ui.bool("menubar_show_cpu"))
+            Toggle("Show GPU gauge", isOn: $model.document.ui.bool("menubar_show_gpu"))
+            Toggle("Show memory gauge", isOn: $model.document.ui.bool("menubar_show_mem"))
+            Toggle("Show live throughput (LIV)", isOn: $model.document.ui.bool("menubar_show_live"))
+            Toggle(
+                "Models menu: favorites only",
+                isOn: $model.document.ui.bool("menubar_models_favorites_only")
+            )
+            Text("Save settings to apply menubar gauges.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
+        .onChange(of: model.document.ui.bool("menubar_show_cpu")) { _, _ in pushUiSettings() }
+        .onChange(of: model.document.ui.bool("menubar_show_gpu")) { _, _ in pushUiSettings() }
+        .onChange(of: model.document.ui.bool("menubar_show_mem")) { _, _ in pushUiSettings() }
+        .onChange(of: model.document.ui.bool("menubar_show_live")) { _, _ in pushUiSettings() }
+    }
+
+    private func pushUiSettings() {
+        MenubarAppModel.shared.updateUiSettings(model.document.ui)
     }
 
     private var logsTab: some View {

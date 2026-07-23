@@ -95,6 +95,36 @@ struct NetllmConfigDocument: Codable, Sendable {
         var providers: [String: CloudProviderConfig] = [:]
     }
 
+    /// Menubar projection of schema `ui` keys — `document.ui` stays dynamic.
+    struct UiSection: Codable, Sendable {
+        var auto_start_on_launch: Bool = true
+        var log_dir: String = ""
+        var check_for_updates_automatically: Bool = true
+        var model_favorites: [String] = []
+        var menubar_show_cpu: Bool = false
+        var menubar_show_gpu: Bool = false
+        var menubar_show_mem: Bool = false
+        var menubar_show_live: Bool = false
+        var menubar_merge_gauges: Bool = false
+        var menubar_models_favorites_only: Bool = false
+
+        init(ui: [String: JSONValue] = [:]) {
+            auto_start_on_launch = ui.bool("auto_start_on_launch", default: true)
+            log_dir = ui.string("log_dir")
+            check_for_updates_automatically = ui.bool(
+                "check_for_updates_automatically",
+                default: true
+            )
+            model_favorites = ui.stringArray("model_favorites")
+            menubar_show_cpu = ui.bool("menubar_show_cpu")
+            menubar_show_gpu = ui.bool("menubar_show_gpu")
+            menubar_show_mem = ui.bool("menubar_show_mem")
+            menubar_show_live = ui.bool("menubar_show_live")
+            menubar_merge_gauges = ui.bool("menubar_merge_gauges")
+            menubar_models_favorites_only = ui.bool("menubar_models_favorites_only")
+        }
+    }
+
     var bindHost: String {
         listenParts.host
     }

@@ -463,3 +463,148 @@ async def probe_omlx_admin_for_backends(
 
     async with httpx.AsyncClient() as probe_client:
         return await probe_omlx_admin(base, probe_client)
+
+
+def _float_or_zero(value: Any) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _int_or_zero(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _normalize_omlx_stats_scope(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalize oMLX /admin/api/stats payload for one scope."""
+    prompt = _int_or_zero(data.get("total_prompt_tokens"))
+    completion = _int_or_zero(data.get("total_completion_tokens"))
+    cached = _int_or_zero(data.get("total_cached_tokens"))
+    requests = _int_or_zero(data.get("total_requests"))
+    cache_efficiency = _float_or_zero(data.get("cache_efficiency"))
+    if cache_efficiency <= 0 and prompt > 0 and cached > 0:
+        cache_efficiency = cached / prompt * 100.0
+    return {
+        "total_prompt_tokens": prompt,
+        "total_completion_tokens": completion,
+        "total_tokens": prompt + completion,
+        "total_cached_tokens": cached,
+        "cache_efficiency_pct": round(cache_efficiency, 2),
+        "total_requests": requests,
+        "avg_prefill_tps": round(_float_or_zero(data.get("avg_prefill_tps")), 2),
+        "avg_generation_tps": round(_float_or_zero(data.get("avg_generation_tps")), 2),
+    }
+
+
+def _normalize_omlx_stats_payload(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalize oMLX /admin/api/stats response."""
+    primary = data.get("primary_model") or data.get("current_model")
+    if isinstance(primary, dict):
+        primary = primary.get("id") or primary.get("name")
+    active = data.get("active_models") or {}
+    model_memory_used = 0
+    if isinstance(active, dict):
+        model_memory_used = _int_or_zero(active.get("model_memory_used"))
+    return {
+        "total_prompt_tokens": _int_or_zero(data.get("total_prompt_tokens")),
+        "total_completion_tokens": _int_or_zero(data.get("total_completion_tokens")),
+        "total_cached_tokens": _int_or_zero(data.get("total_cached_tokens")),
+        "total_requests": _int_or_zero(data.get("total_requests")),
+        "cache_efficiency_pct": round(_float_or_zero(data.get("cache_efficiency")), 2),
+        "avg_prefill_tps": round(_float_or_zero(data.get("avg_prefill_tps")), 2),
+        "avg_generation_tps": round(_float_or_zero(data.get("avg_generation_tps")), 2),
+        "primary_model": str(primary) if primary else None,
+        "model_memory_used": model_memory_used,
+        "total_active_requests": _int_or_zero(data.get("total_active_requests")),
+        "total_waiting_requests": _int_or_zero(data.get("total_waiting_requests")),
+    }
+
+
+def _normalize_omlx_activity_payload(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalize oMLX /admin/api/activity live throughput."""
+    return {
+        "prefill_tps": round(
+            _float_or_zero(
+                data.get("prefill_tps")
+                or data.get("avg_prefill_tps")
+                or data.get("live_prefill_tps")
+            ),
+            2,
+        ),
+        "generation_tps": round(
+            _float_or_zero(
+                data.get("generation_tps")
+                or data.get("avg_generation_tps")
+                or data.get("live_generation_tps")
+            ),
+            2,
+        ),
+        "active_requests": _int_or_zero(data.get("active_requests")),
+        "waiting_requests": _int_or_zero(data.get("waiting_requests")),
+    }
+
+
+async def probe_omlx_telemetry(
+    backends: list[Any],
+    client: Any,
+) -> dict[str, Any] | None:
+    """Probe oMLX admin for serving stats + live activity (best-effort)."""
+    base = _best_omlx_base_url(backends)
+    if base is None:
+        return None
+    service_base = _omlx_service_base(base)
+    admin_url = f"{service_base}/admin"
+    loaded = await probe_omlx_admin(base, client)
+    session: dict[str, Any] | None = None
+    alltime: dict[str, Any] | None = None
+    live: dict[str, Any] | None = None
+    try:
+        resp = await client.get(
+            f"{service_base}/admin/api/stats",
+            params={"scope": "session"},
+            timeout=2.0,
+        )
+        if resp.status_code == 200 and isinstance(resp.json(), dict):
+            session = _normalize_omlx_stats_scope(resp.json())
+    except Exception:
+        pass
+    try:
+        resp = await client.get(
+            f"{service_base}/admin/api/stats",
+            params={"scope": "alltime"},
+            timeout=2.0,
+        )
+        if resp.status_code == 200 and isinstance(resp.json(), dict):
+            alltime = _normalize_omlx_stats_scope(resp.json())
+    except Exception:
+        pass
+    try:
+        resp = await client.get(f"{service_base}/admin/api/activity", timeout=2.0)
+        if resp.status_code == 200 and isinstance(resp.json(), dict):
+            live = _normalize_omlx_activity_payload(resp.json())
+    except Exception:
+        pass
+    if not any((session, alltime, live, loaded)):
+        return {"available": False, "admin_url": admin_url}
+    primary_model = None
+    model_memory_used = 0
+    loaded_models: list[str] = []
+    if loaded:
+        loaded_models = loaded.get("loaded_models", [])
+        primary_model = loaded.get("primary_loaded_model")
+    if session:
+        primary_model = primary_model or None
+    return {
+        "available": True,
+        "admin_url": admin_url,
+        "session": session,
+        "alltime": alltime,
+        "live": live or {"prefill_tps": 0.0, "generation_tps": 0.0},
+        "primary_model": primary_model,
+        "loaded_models": loaded_models,
+        "model_memory_used": model_memory_used,
+    }

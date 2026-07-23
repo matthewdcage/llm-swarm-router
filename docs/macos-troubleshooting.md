@@ -182,6 +182,25 @@ DMG/menubar installs: `netllm doctor` does not require a global CLI on PATH.
 
 ---
 
+## Menubar stats or Serving tab empty
+
+**Serving Stats / web Serving tab:** Router metrics always appear (`routed_requests`, token totals). oMLX PP/TG, cache efficiency, and live rates require a local **oMLX 0.5.2+** backend with admin API reachable (default `:8080/admin/api/stats`).
+
+**System Stats fly-out:** CPU/GPU/memory sparklines come from native macOS sampling in the menubar app. The web dashboard **Serving** tab shows router + oMLX panels; detailed host charts are menubar-only unless `psutil` is installed on the agent host (Linux optional host block in telemetry).
+
+**Appearance gauges:** Settings → Appearance toggles optional CPU/GPU/MEM/LIV items in the menu bar (`ui.menubar_show_*` in config). They poll telemetry only while the menu is open.
+
+**Verify:**
+
+```bash
+curl -sf 'http://127.0.0.1:11400/netllm/v1/telemetry?watch=0' | python3 -m json.tool
+curl -sf 'http://127.0.0.1:11400/netllm/v1/telemetry?watch=1' | python3 -m json.tool   # oMLX probe when backend present
+```
+
+Schema reference: [telemetry-api.md](telemetry-api.md).
+
+---
+
 ## Still stuck?
 
 ```bash

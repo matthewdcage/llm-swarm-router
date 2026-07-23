@@ -16,7 +16,7 @@
 # llm-swarm-router
 
 <p align="center">
-  <a href="https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.4.0"><img src="https://img.shields.io/badge/version-0.4.0-orange?style=for-the-badge" alt="Version 0.4.0"></a>
+  <a href="https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.4.5.0"><img src="https://img.shields.io/badge/version-0.4.5.0-orange?style=for-the-badge" alt="Version 0.4.5.0"></a>
   <a href="docs/macos-install.md"><img src="https://img.shields.io/badge/macOS-Menubar%20app-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS app"></a>
   <a href="docs/linux-install.md"><img src="https://img.shields.io/badge/Linux-deb%2Frpm%20alpha-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux alpha"></a>
   <a href="docs/windows-install.md"><img src="https://img.shields.io/badge/Windows-zip%20alpha-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows alpha"></a>
@@ -98,7 +98,7 @@ Both machines now share one model catalog, authenticate with the generated clust
 
 Overview: [docs/platform-matrix.md](docs/platform-matrix.md) · Full doc index: [docs/README.md](docs/README.md)
 
-**Latest release:** [v0.4.0](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.4.0): guided swarm setup (init --swarm / join), local_spillover load spreading, model aliases, loop-guarded agent hops; [v0.3.0.4](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.3.0.4): agent-hop swarm routing. [All releases](https://github.com/matthewdcage/llm-swarm-router/releases).
+**Latest release:** [v0.4.5.0](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.4.5.0): unified telemetry API, web Serving tab, macOS System/Serving Stats menus; [v0.4.1.0](https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.4.1.0): embeddings endpoint and capability-aware routing. [All releases](https://github.com/matthewdcage/llm-swarm-router/releases).
 
 ---
 
@@ -108,7 +108,7 @@ Overview: [docs/platform-matrix.md](docs/platform-matrix.md) · Full doc index: 
 
 ```bash
 git clone https://github.com/matthewdcage/llm-swarm-router.git
-cd llm-swarm-router && git checkout v0.4.0
+cd llm-swarm-router && git checkout v0.4.5.0
 uv sync && uv pip install venvstacks
 apps/netllm-mac/Scripts/build.sh release
 packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app
