@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import uuid
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -415,6 +415,25 @@ class CloudConfig(BaseModel):
         default=False, json_schema_extra={"read_only": True}
     )
     providers: dict[str, CloudProviderConfig] = Field(default_factory=dict)
+
+    @field_validator("providers", mode="before")
+    @classmethod
+    def _drop_unknown_provider_ids(cls, v: Any) -> Any:
+        """`cloud.providers` keys are always one of the five code-owned
+        CLOUD_PROVIDERS ids (enforced everywhere a key is created: `netllm
+        cloud enable/set-key` validate against the registry, the dashboard
+        and macOS app only ever render/save those five rows) -- there is
+        no supported way to add an arbitrary provider id. A stray key
+        (hand-edited config.toml, a future registry removal) would
+        otherwise be unremovable through the normal save/merge path (see
+        docs/config-guards-audit.md), so drop it here instead of trying to
+        make the merge layer support deleting it.
+        """
+        if not isinstance(v, dict):
+            return v
+        from netllm_core.cloud_providers import CLOUD_PROVIDERS
+
+        return {k: val for k, val in v.items() if k in CLOUD_PROVIDERS}
 
     def provider(self, provider_id: CloudProviderId) -> CloudProviderConfig:
         return self.providers.get(provider_id, CloudProviderConfig())

@@ -68,6 +68,35 @@ def test_default_cloud_config_preserves_current_behavior() -> None:
     assert cfg.cloud.providers == {}
 
 
+def test_unknown_provider_id_is_dropped_on_validate() -> None:
+    """Regression test for docs/config-guards-audit.md: cloud.providers
+    keys are always one of the five code-owned registry ids (netllm cloud
+    enable/set-key already reject anything else); a stray key -- e.g. from
+    a hand-edited config.toml -- has no supported way to be removed
+    through the normal save/merge path, so it must never be able to enter
+    a validated config in the first place."""
+    cfg = NetllmConfig.model_validate(
+        {
+            "cloud": {
+                "providers": {
+                    "moonshot": {"enabled": True},
+                    "bogus-provider": {"enabled": True, "api_key": "leaked"},
+                }
+            }
+        }
+    )
+    assert set(cfg.cloud.providers) == {"moonshot"}
+
+
+def test_unknown_provider_id_dropped_on_toml_round_trip(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    save_config(NetllmConfig(), path)
+    with path.open("a") as f:
+        f.write("\n[cloud.providers.bogus-provider]\nenabled = true\n")
+    loaded = load_config(path)
+    assert "bogus-provider" not in loaded.cloud.providers
+
+
 def test_cloud_config_round_trip(tmp_path: Path) -> None:
     cfg = NetllmConfig()
     cfg.cloud.enabled = True
