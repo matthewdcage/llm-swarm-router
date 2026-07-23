@@ -104,6 +104,34 @@ max_backend_failures = 3
 # hosts = ["mac-studio"]
 # models = ["qwen2.5:72b-instruct", "llama3.1:70b"]
 
+# Known CLI/harness sources with durable per-caller routing (Phase 1 of
+# docs/cli-source-routing-plan.md). A request is attributed to a source by,
+# in order: the x-netllm-source header naming its id, a virtual API key
+# "netllm-<id>" (or "netllm-<id>.<secret>" once a secret is set), or a
+# User-Agent substring in match.user_agent_contains. Unmatched callers
+# (including the plain "netllm-local" placeholder) route exactly as before,
+# attributed to "default".
+#
+# Attributive by default: without a secret, any of the above simply labels
+# traffic for /netllm/v1/status and metrics -- it grants nothing on its own.
+# Once `secret`/`secret_env` is set, no signal grants that identity except
+# a key carrying the matching secret. Any source with allow_cloud = true,
+# a non-empty cloud_providers list, or a max_concurrency above
+# routing.max_in_flight_per_backend MUST set secret/secret_env once
+# agent.listen accepts non-loopback connections -- the agent refuses to
+# save such a config otherwise.
+#
+# [[routing.sources]]
+# id = "buzz"
+# description = "buzz-agent fleet (agent-buzz-slack)"
+# strategy = "local_spillover"
+# max_concurrency = 4
+# # secret = "..."              # required only if this source is elevated
+# # allow_cloud = true
+# # cloud_providers = ["openrouter"]
+# # model_rewrites = { "claude-sonnet-5" = "qwen3:32b" }
+# # match = { user_agent_contains = ["buzz-agent"] }
+
 # Optional routing policies (first match wins). Cloud paths require allow_cloud = true.
 # [[routing.policies]]
 # name = "local-openai"

@@ -348,6 +348,42 @@ def apply_config_patch(cfg: NetllmConfig, patch: dict[str, Any]) -> NetllmConfig
                     }
                 )
             current["routing"]["policies"] = merged_policies
+        if "sources" in routing_patch:
+            merged_sources: list[dict[str, Any]] = []
+            existing_by_id = {s.id: s for s in cfg.routing.sources}
+            for entry in routing_patch["sources"] or []:
+                if not isinstance(entry, dict):
+                    continue
+                source_id = str(entry.get("id", "")).strip()
+                if not source_id:
+                    continue
+                prior = existing_by_id.get(source_id)
+                merged_source: dict[str, Any] = (
+                    prior.model_dump(mode="json") if prior else {}
+                )
+                merged_source["id"] = source_id
+                for field in (
+                    "enabled",
+                    "description",
+                    "secret_env",
+                    "strategy",
+                    "local_only",
+                    "allow_cloud",
+                    "cloud_providers",
+                    "max_concurrency",
+                    "model_rewrites",
+                    "match",
+                ):
+                    if field in entry:
+                        merged_source[field] = entry[field]
+                # secret is write-only: an empty/omitted value keeps the
+                # previously stored secret instead of blanking it out.
+                if entry.get("secret"):
+                    merged_source["secret"] = str(entry["secret"])
+                elif prior is not None:
+                    merged_source["secret"] = prior.secret
+                merged_sources.append(merged_source)
+            current["routing"]["sources"] = merged_sources
 
     if "cloud" in patch and isinstance(patch["cloud"], dict):
         cloud_patch = patch["cloud"]
@@ -387,6 +423,7 @@ def apply_config_patch(cfg: NetllmConfig, patch: dict[str, Any]) -> NetllmConfig
     kept, rejected = _filter_own_swarm_peers(updated)
     if rejected:
         updated.swarm.peers = kept
+    _validate_elevated_sources(updated)
     return updated
 
 
@@ -394,6 +431,34 @@ def _filter_own_swarm_peers(cfg: NetllmConfig) -> tuple[list[str], list[str]]:
     from netllm_discovery.lan import filter_own_peer_urls
 
     return filter_own_peer_urls(list(cfg.swarm.peers), cfg.agent.listen)
+
+
+def _validate_elevated_sources(cfg: NetllmConfig) -> None:
+    """A source granting cloud access or an above-default concurrency cap
+    must be secret-backed once the agent is reachable beyond loopback.
+
+    Bounds identity spoofing (attributive-by-default; see SourceConfig
+    docstring) to "cheaper local routing" — never cloud-key or budget
+    exposure — without requiring every source to carry a secret.
+    """
+    if not is_lan_listen(cfg.agent.listen):
+        return
+    default_cap = cfg.routing.max_in_flight_per_backend
+    for source in cfg.routing.sources:
+        if not source.is_elevated(default_max_concurrency=default_cap):
+            continue
+        if source.resolve_secret():
+            continue
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"routing.sources '{source.id}' grants elevated capability "
+                "(allow_cloud, cloud_providers, or a max_concurrency above "
+                "routing.max_in_flight_per_backend) and must set secret or "
+                "secret_env while agent.listen accepts non-loopback "
+                "connections"
+            ),
+        )
 
 
 def save_config_patch(

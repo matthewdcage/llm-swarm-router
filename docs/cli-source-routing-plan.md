@@ -66,42 +66,54 @@ and key env vars the tools already set.
 
 **Gate:** schema + precedence reviewed by Matthew; `ci.sh` green.
 
-## Phase 1 — Source identity core (not yet implemented)
+## Phase 1 — Source identity core (done 23/07/2026)
 
-- `netllm-core`: add `SourceConfig` + `SourcesConfig` to `models.py`; extend
-  `config_schema.py` so the dashboard form renders sources; add
-  `resolve_source(headers, api_key, api_format, user_agent, sources)` in a new
-  `netllm_core/source_identity.py`.
-- `netllm-agent`: resolve source at the top of each proxy route (`app.py`
-  chat/embeddings/messages handlers) and pass it into
-  `service._resolved_routing`; expose per-source counters in `/metrics` and
-  `GET /netllm/v1/status` (requests, in_flight, last_seen, resolved_via).
-- Virtual-key parsing: accept `netllm-<source>` keys everywhere the
-  `netllm-local` sentinel is currently special-cased (cloud passthrough
-  extraction in `service.py` must not treat `netllm-<source>` as a real
-  upstream key).
-- Seed registry of built-in source ids with UA heuristics: `claude-code`,
-  `codex`, `gemini-cli`, `cursor`, `honcho`, `buzz`, `custom`. `buzz` is the
-  reference custom harness ([cli-routing-research.md](cli-routing-research.md)
-  §Buzz): `buzz-agent` needs no code changes — key `netllm-buzz` on either
-  surface identifies it (its OpenAI `Auto` mode already sends Chat Completions
-  to non-openai.com hosts).
-
-- Enforcement gate: `apply_config`/`save_config_patch` reject a `[[sources]]`
-  entry with `allow_cloud=true`, a non-empty `cloud_providers` allowlist, or
+- ~~`netllm-core`: add `SourceConfig` (+ `SourceMatch`) to `models.py`, nested
+  as `routing.sources: list[SourceConfig]` (not a new top-level section —
+  reuses the generic list-of-BaseModel walk in `config_schema.py` that
+  already covers `routing.policies`/`routing.backends`, so no schema-document
+  code changes were needed); add `resolve_source(headers, sources)` in new
+  `netllm_core/source_identity.py`.~~
+- ~~`netllm-agent`: resolve + count source once per proxy entry point via
+  `AgentService._attribute_source` (chat, chat-stream, embeddings, messages,
+  messages-stream — all five call sites); expose counts via
+  `SOURCE_REQUESTS_TOTAL{source,resolved_via}` in `/metrics` and
+  `source_requests` in `GET /netllm/v1/status`.~~ (`in_flight`/`last_seen` per
+  source deferred to Phase 2, where per-source concurrency caps need them.)
+- ~~Virtual-key parsing: `netllm-<source>` (or `netllm-<source>.<secret>`)
+  recognized on both the `Authorization: Bearer` and `x-api-key` header
+  forms; the `netllm-local` sentinel always resolves to `default`.~~
+- ~~Security tightening beyond the original bullet: a source's `secret` gates
+  **every** attribution path (header, key, User-Agent), not only the key —
+  otherwise a bare `x-netllm-source: <elevated-id>` header would have won an
+  elevated identity with no proof at all. See `SourceConfig` docstring and
+  `source_identity.resolve_source`.~~
+- ~~Enforcement gate: `admin._validate_elevated_sources`, called from
+  `apply_config_patch`, rejects saving a `routing.sources` entry with
+  `allow_cloud=true`, a non-empty `cloud_providers` allowlist, or
   `max_concurrency` above `routing.max_in_flight_per_backend` unless
-  `secret`/`secret_env` is set **and** `agent.listen` is not loopback-only;
-  same rule re-checked whenever the bind address changes.
+  `secret`/`secret_env` is set **and** `agent.listen` is LAN-reachable.~~
+- ~~`secret` is write-only on the admin patch path (same convention as
+  `swarm.cluster_token` / cloud provider `api_key`): omitting it on a later
+  patch keeps the stored value instead of blanking it.~~
+- Deferred to Phase 4: seed registry of built-in source ids with UA
+  heuristics (`claude-code`, `codex`, `gemini-cli`, `cursor`, `honcho`,
+  `buzz`, `custom`) — Phase 1 ships the mechanism only; no sources are
+  pre-configured, so an upgraded agent's behavior is unchanged until the user
+  (or `netllm connect`) adds one. `buzz` is the reference custom harness
+  ([cli-routing-research.md](cli-routing-research.md) §Buzz): `buzz-agent`
+  needs no code changes — key `netllm-buzz` on either surface identifies it.
 
-**Tests (must pass):** new `tests/test_source_identity.py` — header wins over
-key wins over UA; `netllm-local` → `default`; secret mismatch rejected only
-when a secret is configured; elevated-capability source without a secret is
-rejected on a LAN-bound agent but accepted on loopback; both surfaces
-attribute identically; hot-apply of a new `[[sources]]` entry takes effect
-without restart (pattern from
-`tests/test_routing_hardening.py::test_apply_config_hot_syncs_pool`).
-**Gate:** `./scripts/ci.sh` green; `./netllm status` shows per-source rows on a
-live agent with two differently-keyed curl clients.
+**Tests (passing):** `tests/test_source_identity.py` (15 tests) — header wins
+over key wins over UA for unprotected sources; `netllm-local` → `default`;
+disabled sources never match; a secret gates all three paths, not just the
+key; wrong/missing secret falls back to `default` rather than a 401;
+elevated-capability source without a secret is rejected on a LAN-bound agent
+but accepted on loopback; `secret` write-only round-trip; both surfaces
+attribute identically; hot-apply of a new `routing.sources` entry via
+`AgentService.apply_config` takes effect without restart.
+**Gate met:** `./scripts/ci.sh` (lint + 460 tests) green; `basedpyright` clean
+on all touched files.
 
 ## Phase 2 — Per-source routing overrides (not yet implemented)
 

@@ -29,6 +29,12 @@ BACKEND_IN_FLIGHT = Gauge(
     ["backend"],
 )
 
+SOURCE_REQUESTS_TOTAL = Counter(
+    "netllm_source_requests_total",
+    "Total proxied requests attributed to a known CLI/harness source",
+    ["source", "resolved_via"],
+)
+
 
 def metrics_bytes() -> bytes:
     return generate_latest()

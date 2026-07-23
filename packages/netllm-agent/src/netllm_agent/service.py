@@ -33,6 +33,7 @@ from netllm_core.models import (
 )
 from netllm_core.pool import RouterPool, is_capacity_error
 from netllm_core.routing_policy import ResolvedRouting, resolve_routing
+from netllm_core.source_identity import ResolvedSource, resolve_source
 from netllm_core.version import get_version
 from netllm_discovery.local import (
     find_omlx_admin_url,
@@ -49,6 +50,7 @@ from netllm_agent.metrics import (
     BACKEND_IN_FLIGHT,
     REQUEST_LATENCY,
     REQUESTS_TOTAL,
+    SOURCE_REQUESTS_TOTAL,
 )
 from netllm_agent.shard import (
     BatchRequestLedger,
@@ -86,6 +88,11 @@ class AgentService:
         # fell back to round_robin — surfaced in /status so a degenerate
         # strategy choice is visible, not just a log whisper.
         self._shardless_fallbacks = 0
+        # Per-source request counters (docs/cli-source-routing-plan.md
+        # Phase 1) -- id -> count, surfaced in status_payload() and as
+        # SOURCE_REQUESTS_TOTAL. Unregistered/anonymous callers count
+        # under DEFAULT_SOURCE_ID, same as before this feature existed.
+        self._source_counts: dict[str, int] = {}
         self.startup_warnings: list[str] = []
         # Runtime-only (never persisted to config.toml): set via
         # POST /netllm/v1/admin/drain ahead of a planned restart/shutdown.
@@ -247,6 +254,7 @@ class AgentService:
             "routing_strategy": self.config.routing.default_strategy,
             "routed_requests": dict(self.pool.routed_counts),
             "capacity_rejections": dict(self.pool.capacity_rejections),
+            "source_requests": dict(self._source_counts),
             "shardless_fallbacks": self._shardless_fallbacks,
             "cluster_token_set": bool(self.config.swarm.cluster_token),
             "version": get_version(),
@@ -611,6 +619,21 @@ class AgentService:
             cloud=self.config.cloud,
         )
 
+    def _attribute_source(self, headers: Mapping[str, str] | None) -> ResolvedSource:
+        """Resolve and count the caller's source for this request.
+
+        Called once per proxy entry point, alongside _resolved_routing.
+        Counting here (rather than per-strategy-attempt) means retries
+        against a second backend don't inflate a source's request count.
+        """
+        hdrs = self._normalize_headers(headers)
+        resolved = resolve_source(headers=hdrs, sources=self.config.routing.sources)
+        self._source_counts[resolved.id] = self._source_counts.get(resolved.id, 0) + 1
+        SOURCE_REQUESTS_TOTAL.labels(
+            source=resolved.id, resolved_via=resolved.resolved_via
+        ).inc()
+        return resolved
+
     def _select_backend_for_request(
         self,
         model: str,
@@ -758,6 +781,7 @@ class AgentService:
         model = payload.get("model", "")
         self._reject_non_chat_model(model)
         routing = self._resolved_routing(model, api_format="openai", headers=hdrs)
+        self._attribute_source(hdrs)
         shard = extract_shard_context(payload, hdrs)
 
         await self.refresh_local_backends()
@@ -842,6 +866,7 @@ class AgentService:
         model = payload.get("model", "")
         self._reject_non_chat_model(model)
         routing = self._resolved_routing(model, api_format="openai", headers=hdrs)
+        self._attribute_source(hdrs)
         shard = extract_shard_context(payload, hdrs)
 
         await self.refresh_local_backends()
@@ -934,6 +959,7 @@ class AgentService:
         hdrs = self._normalize_headers(headers)
         model = payload.get("model", "")
         routing = self._resolved_routing(model, api_format="openai", headers=hdrs)
+        self._attribute_source(hdrs)
 
         await self.refresh_local_backends()
         if routing.allow_cloud_inject:
@@ -1333,6 +1359,7 @@ class AgentService:
         self._reject_non_chat_messages_model(model)
         api_key = self._anthropic_api_key(hdrs)
         routing = self._resolved_routing(model, api_format="anthropic", headers=hdrs)
+        self._attribute_source(hdrs)
 
         await self.refresh_local_backends()
         if routing.allow_cloud_inject:
@@ -1402,6 +1429,7 @@ class AgentService:
         self._reject_non_chat_messages_model(model)
         api_key = self._anthropic_api_key(hdrs)
         routing = self._resolved_routing(model, api_format="anthropic", headers=hdrs)
+        self._attribute_source(hdrs)
 
         await self.refresh_local_backends()
         if routing.allow_cloud_inject:

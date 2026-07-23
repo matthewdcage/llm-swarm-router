@@ -49,6 +49,10 @@ BACKEND_PIN_HEADER = "x-netllm-backend"
 # peer ignores or strips the local-only header.
 HOPS_HEADER = "x-netllm-hops"
 MAX_FORWARD_HOPS = 2
+# Explicit caller identity (docs/cli-source-routing-plan.md). Optional;
+# only honored when it names a configured, enabled routing.sources entry.
+SOURCE_HEADER = "x-netllm-source"
+DEFAULT_SOURCE_ID = "default"
 
 
 def infer_api_format(provider: ProviderId) -> ApiFormat:
@@ -130,6 +134,75 @@ class RoutingPolicy(BaseModel):
     enabled: bool = True
 
 
+class SourceMatch(BaseModel):
+    """Fallback identification when no header/key match is presented.
+
+    Never grants elevated access on its own -- see SourceConfig.is_elevated.
+    """
+
+    user_agent_contains: list[str] = Field(default_factory=list)
+
+
+class SourceConfig(BaseModel):
+    """[[routing.sources]] -- a known CLI or harness with durable routing.
+
+    Identity resolution (netllm_core.source_identity.resolve_source), first
+    match wins: x-netllm-source header naming this id -> virtual API key
+    "netllm-<id>" -> User-Agent substring in match.user_agent_contains ->
+    "default". Attributive by default: an unrecognized key/header/UA falls
+    back to "default" rather than a 401 -- the real access boundary stays
+    agent.listen / swarm.cluster_token.
+
+    Setting `secret`/`secret_env` changes that for THIS source only: once
+    a secret is configured, no signal grants this identity except a
+    virtual key carrying it ("netllm-<id>.<secret>") -- a bare header or
+    key naming this id is no longer enough. A source that grants elevated
+    capability (see is_elevated) must set one once the agent binds beyond
+    loopback; enforced at config-apply time (admin._validate_elevated_sources).
+    """
+
+    id: str
+    enabled: bool = True
+    description: str = ""
+    secret: str = Field(
+        default="", json_schema_extra={"widget": "secret", "write_only": True}
+    )
+    secret_env: str = ""
+    strategy: RoutingStrategy | None = None
+    local_only: bool = False
+    allow_cloud: bool = False
+    cloud_providers: list[str] = Field(default_factory=list)
+    # Per-source concurrency ceiling (0 = defer to
+    # routing.max_in_flight_per_backend). A value above that global cap
+    # counts as elevated (see is_elevated).
+    max_concurrency: int = Field(default=0, ge=0)
+    # Requested model name -> concrete model name, applied for this
+    # source only, before model_aliases/model_pools resolution.
+    model_rewrites: dict[str, str] = Field(default_factory=dict)
+    match: SourceMatch = Field(default_factory=SourceMatch)
+
+    def resolve_secret(self) -> str:
+        if self.secret:
+            return self.secret
+        if self.secret_env:
+            return os.environ.get(self.secret_env, "")
+        return ""
+
+    def is_elevated(self, *, default_max_concurrency: int) -> bool:
+        """True when this source's config grants more than plain attribution.
+
+        Elevated sources must be secret-backed once agent.listen is
+        LAN-reachable (see admin._validate_elevated_sources) -- a spoofed
+        source name can then win only default-tier local routing, never
+        cloud access or an above-default concurrency allowance.
+        """
+        if self.allow_cloud or self.cloud_providers:
+            return True
+        if self.max_concurrency and self.max_concurrency > default_max_concurrency:
+            return True
+        return False
+
+
 class ModelPool(BaseModel):
     """[routing.model_pools.<name>] — a host-scoped catch-all pool.
 
@@ -202,6 +275,9 @@ class RoutingConfig(BaseModel):
         default_factory=list,
         json_schema_extra={"default_factory": "local_openai_policy"},
     )
+    # Known CLI/harness sources with durable per-caller routing overrides.
+    # See SourceConfig and netllm_core.source_identity.resolve_source.
+    sources: list[SourceConfig] = Field(default_factory=list)
 
 
 class AgentConfig(BaseModel):
