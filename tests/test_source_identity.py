@@ -332,3 +332,23 @@ def test_source_scenarios_and_prefer_provider_persist_on_save() -> None:
             assert source.prefer_provider == "ollama"
             assert source.scenarios["background"].model == "qwen3:4b"
             assert source.description == "updated"
+
+
+def test_config_summary_exposes_existing_sources_with_secret_blanked() -> None:
+    """Regression: GET /netllm/v1/config (config_summary) never included
+    routing.sources at all -- a previously-saved source would be
+    invisible in the dashboard/Swift draft after a reload, even though
+    it round-tripped correctly through save. See
+    docs/cli-source-routing-plan.md Phase 4b."""
+    from netllm_agent.admin import config_summary
+
+    cfg = NetllmConfig()
+    cfg.routing.sources = [
+        SourceConfig(id="buzz", secret="s3cret", description="buzz fleet")
+    ]
+    summary = config_summary(cfg)
+    assert summary["routing"]["source_count"] == 1
+    sources = summary["routing"]["sources"]
+    assert sources[0]["id"] == "buzz"
+    assert sources[0]["description"] == "buzz fleet"
+    assert sources[0]["secret"] == ""

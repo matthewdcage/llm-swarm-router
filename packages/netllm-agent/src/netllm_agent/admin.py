@@ -144,6 +144,22 @@ def _backend_override_export(cfg: NetllmConfig) -> list[dict[str, Any]]:
     ]
 
 
+def _source_export(cfg: NetllmConfig) -> list[dict[str, Any]]:
+    """Full editable shape of each routing.sources entry, secret blanked.
+
+    Without this, GET /netllm/v1/config (config_summary) never surfaced
+    `sources` at all -- an existing, previously-saved source would be
+    invisible in the dashboard/Swift draft after a reload even though it
+    was correctly persisted (docs/cli-source-routing-plan.md Phase 4b).
+    """
+    out = []
+    for s in cfg.routing.sources:
+        dumped = s.model_dump(mode="json")
+        dumped["secret"] = ""
+        out.append(dumped)
+    return out
+
+
 def _cloud_provider_export(cfg: NetllmConfig) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for provider_id, spec in CLOUD_PROVIDERS.items():
@@ -242,6 +258,8 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
             "backend_count": len(cfg.routing.backends),
             "policies": [p.model_dump(mode="json") for p in cfg.routing.policies],
             "policy_count": len(cfg.routing.policies),
+            "sources": _source_export(cfg),
+            "source_count": len(cfg.routing.sources),
         },
         "ui": {
             "auto_start_on_launch": cfg.ui.auto_start_on_launch,
