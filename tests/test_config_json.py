@@ -43,3 +43,28 @@ def test_import_applies_lan_mesh_defaults(tmp_path: Path) -> None:
     exported = export_config(path)
     assert exported["routing"]["default_strategy"] == "local_spillover"
     assert exported["swarm"]["subnet_scan"] is True
+
+
+def test_import_deletes_a_model_pool_entry_the_app_removed(tmp_path: Path) -> None:
+    """Regression test: the macOS app's Settings UI always round-trips the
+    complete routing.model_pools dict on Save; a pool removed there must
+    actually disappear from config.toml, not silently survive a plain
+    dict-merge (docs/config-guards-audit.md)."""
+    path = tmp_path / "config.toml"
+    from netllm_core.models import ModelPool, save_config
+
+    original = NetllmConfig()
+    original.routing.model_pools = {
+        "keep": ModelPool(hosts=["h1"], models=["m1"]),
+        "drop": ModelPool(hosts=["h2"], models=["m2"]),
+    }
+    save_config(original, path)
+
+    exported = export_config(path)
+    assert set(exported["routing"]["model_pools"]) == {"keep", "drop"}
+
+    del exported["routing"]["model_pools"]["drop"]
+    import_config(exported, path)
+
+    reloaded = export_config(path)
+    assert set(reloaded["routing"]["model_pools"]) == {"keep"}

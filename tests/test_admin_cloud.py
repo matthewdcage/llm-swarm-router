@@ -103,6 +103,43 @@ def test_admin_config_save_preserves_key_when_omitted() -> None:
             assert reloaded.cloud.providers["moonshot"].region == "cn"
 
 
+def test_admin_config_save_deletes_a_model_pool_entry_omitted_from_patch() -> None:
+    """Regression test for docs/config-guards-audit.md: the dashboard's
+    save endpoint must let a routing.model_pools entry actually be
+    deleted, not just added/edited."""
+    from netllm_core.models import ModelPool
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg_path = Path(tmp) / "config.toml"
+        cfg = NetllmConfig()
+        cfg.swarm.mdns = False
+        cfg.agent.advertise = False
+        cfg.routing.model_pools = {
+            "keep": ModelPool(hosts=["h1"], models=["m1"]),
+            "drop": ModelPool(hosts=["h2"], models=["m2"]),
+        }
+        save_config(cfg, cfg_path)
+        app = create_app(cfg, config_path=cfg_path)
+        with TestClient(app) as client:
+            resp = client.post(
+                "/netllm/v1/admin/config",
+                json={
+                    "routing": {
+                        "model_pools": {
+                            "keep": {
+                                "enabled": True,
+                                "hosts": ["h1"],
+                                "models": ["m1"],
+                            }
+                        }
+                    }
+                },
+            )
+            assert resp.status_code == 200, resp.text
+            reloaded = load_config(cfg_path)
+            assert set(reloaded.routing.model_pools) == {"keep"}
+
+
 def test_doctor_flags_enabled_provider_without_key() -> None:
     cfg = NetllmConfig()
     cfg.cloud.providers["moonshot"] = CloudProviderConfig(enabled=True)
