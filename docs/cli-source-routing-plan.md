@@ -259,6 +259,10 @@ documented event shapes) — needs the real binary.
   support is an unresolved upstream feature request — documented as
   **not** reliably wireable today — with Antigravity's built-in "OpenAI
   Compatible" custom-model slot recommended instead).~~
+- ~~Dashboard `/ui/` Sources tab (`renderSourcesTab`, `dashboard.js`) — see
+  Phase 4a, done.~~
+- ~~macOS Settings Sources parity (`sourceEditor`, `SchemaFormView`'s new
+  `secret` widget) — see Phase 4b, done.~~
 - Still open: CLI: `netllm sources list|add|remove|set <id> key value`
   (Typer, mirrors `netllm cloud` command shape) writing `[[sources]]` via
   the same config path; `netllm connect <tool>` upgraded to mint/print the
@@ -269,15 +273,9 @@ documented event shapes) — needs the real binary.
   `x-netllm-source: my-harness` or a minted key + optional `secret_env`;
   example snippet for arbitrary OpenAI/Anthropic SDK clients beyond the
   four named references).
-- ~~Dashboard `/ui/` Sources tab (`renderSourcesTab`, `dashboard.js`) — see
-  Phase 4a, done.~~ macOS Settings parity still open — see Phase 4b.
-- Still open: `netllm sources`/`netllm connect <tool>` CLI,
-  `.agents/skills/netllm-connect-editor` update +
-  `scripts/sync-agent-skills.sh`, AGENTS.md command table entry.
-- Still open: custom harness path documented generically (send
-  `x-netllm-source: my-harness` or a minted key + optional `secret_env`;
-  example snippet for arbitrary OpenAI/Anthropic SDK clients beyond the
-  four named references).
+- Still open: `.agents/skills/netllm-connect-editor` update +
+  `scripts/sync-agent-skills.sh`, AGENTS.md command table entry for
+  `netllm sources`.
 - Still open: document Option B chaining (LiteLLM/Bifrost as a
   `[[routing.backends]]` row) as the long-tail-cloud escape hatch.
 
@@ -336,6 +334,62 @@ through to live routing attribution.
 and `object` widgets.
 **Gate met:** `./scripts/ci.sh` (lint + 520 tests) green; `basedpyright`
 clean; live dashboard verification above.
+
+## Phase 4b — macOS Settings Sources parity (done 23/07/2026)
+
+Per the Explore report ahead of this phase: `routing.sources` had **no**
+Swift model or UI at all (unlike the dashboard, where the server side was
+already complete and only the JS view was missing) — this was genuinely
+new work, not a template-follow.
+
+- ~~`RoutingSection.sources: [JSONValue] = []` added to
+  `NetllmConfigDocument.swift` — the same dynamic-JSONValue pattern
+  `model_pools` already established (no typed `SourceConfig` Swift struct;
+  rendered generically via the schema document), rather than hand-typing
+  yet another one-off struct.~~
+- ~~`sourceEditor(index:)` in `SettingsWindowView.swift`, index-based
+  (routing.sources is a list, not a dict like model_pools) with the same
+  bounds-safe `Binding` pattern already used for
+  `routingPolicyEditor`/`backendOverrideEditor` (`.indices.contains`
+  guards on both get and set, since SwiftUI can re-evaluate stale
+  `ForEach` children after the array shrinks).~~
+- ~~Added a `secret` widget case to `SchemaFormView.swift` (`SecureField`,
+  same write-only "blank stays blank, non-empty overwrites" convention as
+  the dashboard's `schemaSecretRow` and the server's `_source_export`/
+  `apply_config_patch` handling) — the first widget added to `SchemaFormView`
+  since its original migration phase.~~
+- Deliberately **not** rendered (would corrupt data, not just look
+  incomplete): `model_rewrites`, `scenarios`, `match` are excluded from the
+  fields passed to `SchemaFormView` for each source item. `SchemaFormView`'s
+  fallback for any widget it doesn't recognize is a plain text field bound
+  to `.stringValue`, which is `nil` for a dict/object value — rendering
+  would show an empty box, and typing into it would silently overwrite the
+  structured value with a plain string. Excluding them only skips
+  rendering; their existing values in the underlying `JSONValue` are left
+  untouched by every other field's Binding (each writes only its own key).
+  A caption in the item card tells the user to edit those three via the
+  dashboard or config.toml for now.
+
+**Found while starting this phase, fixed as standalone commits before the
+Swift work** (both affect the dashboard too, not just Swift):
+1. `apply_config_patch`'s sources merge never copied `scenarios` or
+   `prefer_provider` from the incoming patch — editing either via the
+   dashboard's new Sources tab looked like it worked in the browser draft
+   but was silently dropped on save.
+2. `config_summary()` (`GET /netllm/v1/config`, which hydrates both the
+   dashboard's draft and would hydrate Swift's) never included
+   `routing.sources` at all — a previously-saved source was invisible in
+   the UI after any reload, even though it round-tripped correctly through
+   save. Added `_source_export` (secret always blanked, mirroring
+   `_backend_override_export`).
+
+**Verified:** `swift build` (debug) and `scripts/verify-before-pr.sh`
+(lint + 522 Python tests + Swift **release** build) both clean, no new
+warnings. **Not verified:** no automated Swift test target exists for this
+app (matches the rest of the codebase — verification here is
+build-clean + manual use), and no tool in this environment can drive the
+macOS Settings window's UI, so the editor's actual on-screen behavior
+needs a manual look the next time Settings is opened.
 
 ## Phase 5 — Real-world validation and hardening (not yet implemented)
 

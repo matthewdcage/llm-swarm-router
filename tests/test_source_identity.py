@@ -301,9 +301,7 @@ def test_source_scenarios_and_prefer_provider_persist_on_save() -> None:
                             {
                                 "id": "buzz",
                                 "prefer_provider": "ollama",
-                                "scenarios": {
-                                    "background": {"model": "qwen3:4b"}
-                                },
+                                "scenarios": {"background": {"model": "qwen3:4b"}},
                             }
                         ]
                     }
@@ -321,9 +319,7 @@ def test_source_scenarios_and_prefer_provider_persist_on_save() -> None:
             resp = client.post(
                 "/netllm/v1/admin/config",
                 json={
-                    "routing": {
-                        "sources": [{"id": "buzz", "description": "updated"}]
-                    }
+                    "routing": {"sources": [{"id": "buzz", "description": "updated"}]}
                 },
             )
             assert resp.status_code == 200

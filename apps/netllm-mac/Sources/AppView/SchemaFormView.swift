@@ -47,11 +47,11 @@ struct SchemaFieldOverride {
 /// section against a `[String: JSONValue]` draft — the Swift twin of
 /// dashboard.js's `renderSchemaForm`/`schemaFieldsCard`
 /// (docs/config-schema-rewrite-plan.md §5 phase 4). Covers
-/// toggle/select/number/text/list_strings; dict_list_strings and
+/// toggle/select/number/text/list_strings/secret; dict_list_strings and
 /// list/dict-of-object widgets stay hand-tuned per call site (see
-/// discoveryTab's provider_urls and routingTab's model_pools editor in
-/// SettingsWindowView) rather than fully generic, matching how far this
-/// phase's risk-scoped migration goes — see the plan doc for why.
+/// discoveryTab's provider_urls and routingTab's model_pools/sources
+/// editors in SettingsWindowView) rather than fully generic, matching how
+/// far this phase's risk-scoped migration goes — see the plan doc for why.
 struct SchemaFormView: View {
     let fields: [ConfigSchemaField]
     @Binding var draft: [String: JSONValue]
@@ -111,6 +111,23 @@ private struct SchemaFieldRow: View {
                         set: { setValue(.number($0)) }
                     ),
                     format: .number
+                )
+            }
+        case "secret":
+            // Write-only, same convention as dashboard.js's
+            // schemaSecretRow: config_summary always returns "" for this
+            // field (see admin._source_export), and the server-side
+            // merge only overwrites a stored secret when the incoming
+            // value is non-empty (falsy "" preserves it) — so leaving
+            // this blank and saving is always safe.
+            HStack {
+                Text(label)
+                SecureField(
+                    override?.placeholder ?? "Leave blank to keep existing",
+                    text: Binding(
+                        get: { currentValue.stringValue ?? "" },
+                        set: { setValue(.string($0)) }
+                    )
                 )
             }
         case "list_strings":

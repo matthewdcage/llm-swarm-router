@@ -529,6 +529,20 @@ struct SettingsWindowView: View {
             ForEach(Array(model.document.routing.model_pools.keys.sorted()), id: \.self) { name in
                 modelPoolEditor(name: name)
             }
+            sectionHeader("Sources")
+            Text(
+                "Known CLI/harness identities with their own routing. Attributive by default: an id/key with no secret just labels traffic in Status and metrics."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            actionButtons {
+                Button("Add source") {
+                    model.document.routing.sources.append(.object(["id": .string(""), "enabled": .bool(true)]))
+                }
+            }
+            ForEach(model.document.routing.sources.indices, id: \.self) { index in
+                sourceEditor(index: index)
+            }
         }
     }
 
@@ -571,6 +585,61 @@ struct SettingsWindowView: View {
                     "models": SchemaFieldOverride(suggestions: model.knownModelIDs),
                 ]
             )
+        }
+        .padding(8)
+        .background(Color.gray.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    /// routing.sources is dynamic (docs/cli-source-routing-plan.md
+    /// Phase 4b) — no typed SourceConfig struct exists in Swift; rendered
+    /// generically per entry via SchemaFormView, the same dynamic-JSONValue
+    /// pattern modelPoolEditor established above (index-based rather than
+    /// dict-keyed, since routing.sources is a list). model_rewrites/
+    /// scenarios/match are excluded from the rendered field list —
+    /// SchemaFormView has no dict_strings/object/dict-of-object widget yet
+    /// (see its header comment), and routing an unhandled dict/object
+    /// field through the generic text fallback would silently corrupt it
+    /// (the fallback binds a TextField to `.stringValue`, which is nil for
+    /// those, and typing would overwrite the object with a plain string).
+    /// Those three stay editable via the dashboard (/ui/) or config.toml
+    /// for now; excluding them here only skips rendering them — their
+    /// existing values in the underlying JSONValue are left untouched.
+    @ViewBuilder
+    private func sourceEditor(index: Int) -> some View {
+        let binding = safeSourceBinding(index)
+        let sourceFields = model.configSchema?.sections["routing"]?.fields
+            .first(where: { $0.name == "sources" })?.itemSchema
+        let renderedFields = (sourceFields ?? []).filter {
+            !["model_rewrites", "scenarios", "match"].contains($0.name)
+        }
+        let sourceId = binding.wrappedValue["id"]?.stringValue ?? ""
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(sourceId.isEmpty ? "(unnamed source)" : sourceId)
+                    .font(.caption.weight(.medium))
+                Spacer()
+                Button(role: .destructive) {
+                    guard model.document.routing.sources.indices.contains(index) else { return }
+                    model.document.routing.sources.remove(at: index)
+                } label: {
+                    Image(systemName: "minus.circle")
+                }
+                .buttonStyle(.borderless)
+            }
+            if sourceFields == nil {
+                // Visible rather than a silently field-less row — see the
+                // matching note on the swarm tab's new-fields fallback.
+                Text("Source fields unavailable — config schema failed to load.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            SchemaFormView(fields: renderedFields, draft: binding)
+            Text(
+                "Model rewrites, per-scenario overrides, and User-Agent match: edit via the web dashboard (/ui/) or config.toml for now."
+            )
+            .font(.caption2)
+            .foregroundStyle(.secondary)
         }
         .padding(8)
         .background(Color.gray.opacity(0.08))
@@ -738,6 +807,19 @@ struct SettingsWindowView: View {
                 guard model.document.routing.policies.indices.contains(index)
                 else { return }
                 model.document.routing.policies[index] = newValue
+            }
+        )
+    }
+
+    private func safeSourceBinding(_ index: Int) -> Binding<[String: JSONValue]> {
+        Binding(
+            get: {
+                let rows = model.document.routing.sources
+                return rows.indices.contains(index) ? (rows[index].objectValue ?? [:]) : [:]
+            },
+            set: { newValue in
+                guard model.document.routing.sources.indices.contains(index) else { return }
+                model.document.routing.sources[index] = .object(newValue)
             }
         )
     }

@@ -57,6 +57,11 @@ struct NetllmConfigDocument: Codable, Sendable {
         /// so exposing it generically here is pure addition, not a
         /// regression risk to an existing hand-tuned editor.
         var model_pools: [String: JSONValue] = [:]
+        /// Dynamic list[SourceConfig] (docs/cli-source-routing-plan.md
+        /// Phase 4b) — known CLI/harness sources with their own routing.
+        /// No prior Swift UI existed for this at all; rendered generically
+        /// via SchemaFormView per entry, same as model_pools above.
+        var sources: [JSONValue] = []
     }
 
     struct BackendOverride: Codable, Sendable, Identifiable {
