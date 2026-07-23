@@ -230,10 +230,34 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
   save a source with `allow_cloud`, `cloud_providers`, or an above-default
   `max_concurrency` unless a secret is set while `agent.listen` is
   LAN-reachable. Counts surface in `GET /netllm/v1/status` `source_requests`
-  and `netllm_source_requests_total{source,resolved_via}`. No sources are
-  pre-configured yet (Phase 4 adds `netllm sources`/`netllm connect` UX;
-  per-source routing overrides land in phase 2; scenario routing in phase 3)
-  — see [docs/cli-source-routing-plan.md](docs/cli-source-routing-plan.md).
+  and `netllm_source_requests_total{source,resolved_via}`.
+- **CLI source routing (phases 2-4b, 23/07/2026):** per-source routing
+  overrides (`strategy`/`local_only`/`allow_cloud`/`prefer_provider`/
+  `cloud_providers` allowlist/`max_concurrency` admission control/
+  `model_rewrites`) rank above `routing.policies` in precedence (a source
+  can reopen or restrict cloud access a matching policy would otherwise
+  decide); scenario routing (`netllm_core.scenarios.classify_scenario`:
+  `long_context`/`web_search`/`think`/`background`/`default`) lets a
+  source map traffic shape to a different model/strategy via
+  `SourceConfig.scenarios`. Codex CLI removed `wire_api = "chat"` support
+  entirely (Feb 2026) — `POST /v1/responses`
+  (`netllm_core.openai_responses_bridge`) translates at the edge only and
+  delegates into the same `proxy_chat_completion` path, so Codex is just
+  another attributable source. Sources are fully editable in both UIs:
+  web dashboard `/ui/` Sources tab and macOS Settings (`sourceEditor`,
+  `SchemaFormView`'s new `secret` widget) — `model_rewrites`/`scenarios`/
+  `match` render in the dashboard but are dashboard/config-only for now in
+  Swift (documented, not silently broken). Reference wiring for Claude
+  Code, Codex, Pi Agent (`earendil-works/pi`), and Antigravity (Gemini
+  CLI's native-protocol custom-endpoint support is an unresolved upstream
+  feature request — not reliably wireable) in
+  [docs/editor-integration.md](docs/editor-integration.md) and
+  `config.example.toml`. Any bearer/x-api-key value starting with
+  `netllm-` (the sentinel or a virtual source key) is never forwarded as
+  a real cloud credential (`is_netllm_placeholder_key`) — found via live
+  smoke testing that `netllm-<source>` keys were leaking upstream before
+  this fix. `netllm sources`/`netllm connect` CLI still not built — see
+  [docs/cli-source-routing-plan.md](docs/cli-source-routing-plan.md).
 - **Routing hardening (phase 1):** `/v1/messages` honors all routing strategies (not just local_first/spillover); per-request `x-netllm-strategy`, `x-netllm-backend`, `x-netllm-hops` headers on proxy routes; one-shot LAN defaults (`routing.lan_defaults_applied` — explicit `local_first` no longer rewritten); peer row prune + `swarm.rediscover_interval_s` background loop; config hot-apply via admin API + merge-safe `netllm config import`; audit + remaining phases in [docs/routing-hardening-plan.md](docs/routing-hardening-plan.md)
 - **Routing hardening (phase 6, mesh fairness):** auth-gated (401/403) empty-catalog backends are never blind routing candidates; load-aware strategies keep balancing on retries (no local-first failover collapse); routine provider scans never run the 1-token inference diagnose (`scan_local_providers(diagnose=True)` is CLI-`discover`-only — routine diagnose forced chat-model loads under memory pressure); `prune_local_provider_rows` drops rows for de-configured providers; `routing.follow_gateway` (default true) makes peer-role agents adopt the gateway's strategy from heartbeats; macOS Settings index-binding crash fixed (bounds-safe Bindings in policy/override editors) and Settings shows the resolved LAN address — [docs/routing-hardening-plan.md](docs/routing-hardening-plan.md)
 - **Routing hardening (phase 5, mesh utilization):** `default_strategy = "auto"` (shard context → batch_shard, else least_load — recommended for interactive traffic); capacity errors (409/429/503/507, `prefill_memory_exceeded`, wrapped peer 502s) exclude a backend per-request without tripping it offline (`capacity_rejections` in status); `routing.max_in_flight_per_backend` back-pressure cap applies to every strategy; peer rows in status hydrate real health from the pool cache (no more perpetual `unknown/0`); heartbeats carry `routing_strategy` + `version` → drift warnings in status (`peer_warnings`) and doctor notes; `shardless_fallbacks` counter replaces per-request log spam; `plan_batch_shard`/`BatchShardPlan` removed (`require_same_model_for_shard` is a kept-for-compat no-op) — [docs/routing-hardening-plan.md](docs/routing-hardening-plan.md)
@@ -268,4 +292,4 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 
 Coordinator/outreach DOX (`.cursor/coordinator/`, `.cursor/agents/`, `.cursor/outreach/`) is local maintainer-only and is **not** listed here — it must not ship on the remote repo.
 
-Updated: 2026-07-23 (CLI source routing phase 1: routing.sources identity core)
+Updated: 2026-07-23 (CLI source routing phases 1-5: identity, per-source routing, scenarios, Codex Responses bridge, dashboard + Swift UI parity)

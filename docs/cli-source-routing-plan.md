@@ -391,32 +391,61 @@ build-clean + manual use), and no tool in this environment can drive the
 macOS Settings window's UI, so the editor's actual on-screen behavior
 needs a manual look the next time Settings is opened.
 
-## Phase 5 — Real-world validation and hardening (not yet implemented)
+## Phase 5 — Real-world validation and hardening (feasible subset done 23/07/2026)
 
-Runbook on the actual fleet (two-machine mesh minimum):
+What this session could actually validate, without the real CLI binaries
+or a second machine: a single throwaway agent instance (scratch
+config/port — the real menubar-app instance was never touched), fed
+mixed traffic via curl shaped like each of the four reference harnesses,
+inspecting `GET /netllm/v1/status` after each round.
 
-1. Wire Claude Code (Anthropic surface, `netllm-claude-code` key), Codex
-   (OpenAI surface), Cursor, and **Buzz** (`buzz-agent` fleet with
-   `netllm-buzz` key) simultaneously; run mixed traffic.
+- ~~Simultaneous multi-source traffic: `claude-code` (Anthropic surface,
+  `x-api-key: netllm-claude-code`, small `max_tokens` + haiku model),
+  `codex` (`POST /v1/responses`, `Authorization: Bearer netllm-codex`),
+  `buzz` (OpenAI surface, `netllm-buzz`), and an unattributed
+  `netllm-local` call — all four attributed correctly and simultaneously
+  in `source_requests`/`scenario_requests` in one run.~~
+- ~~Confirmed the Codex Responses bridge (Phase 3.5) composes correctly
+  with source identity: a `/v1/responses` call is attributed to `codex`
+  exactly like a native `/v1/chat/completions` call would be, since it
+  delegates straight into `proxy_chat_completion`.~~
+- **Found a real bug this way, not by inspection:** a `codex`-attributed
+  request for an unconfigured model triggered cloud injection, and the
+  virtual key `netllm-codex` got forwarded to OpenAI as a literal (bogus)
+  API key — OpenAI correctly 401'd it, revealing that
+  `_openai_api_key`/`_anthropic_api_key` only ever special-cased the
+  exact string `"netllm-local"`, not the whole `netllm-` virtual-key
+  namespace Phase 1 introduced. Fixed (`is_netllm_placeholder_key`,
+  separate commit) and re-verified live: the same call now cleanly 404s
+  ("model not found") instead of leaking a fake credential upstream.
+- ~~`./netllm doctor` / `GET /netllm/v1/doctor` clean against the
+  mixed-source instance (no elevated-source-without-secret warnings, as
+  expected for the test config).~~
+
+**Still open, needs the user's real fleet/CLIs/hardware** (cannot be
+fabricated in this environment):
+1. The actual Claude Code, Codex, and Cursor binaries pointed at a real
+   netllm agent, plus a real Buzz (`buzz-agent`) fleet.
 2. Buzz fleet soak: N parallel `buzz-agent` sessions (its 8-session
-   concurrency is the stressor) under a `buzz` source configured with
-   `strategy = "local_spillover"` and a `max_concurrency` cap — verify
-   spillover spreads across peers, the cap 429s cleanly above it, and
-   attribution stays `buzz` on hop-forwarded requests.
-3. Verify per-source attribution across agent-hop forwards (source must be
-   preserved on `_peer_forward_headers`, not re-heuristicked on the peer).
-4. `./netllm test --source <id>` smoke added to the diagnose path;
-   `./netllm doctor` warns on: unknown-source traffic volume, an
-   elevated-capability source missing a required secret on a LAN-bound agent,
-   scenario rules referencing models absent from the catalog.
-5. Soak: strategy correctness under `local_spillover` with per-source caps;
-   confirm no throughput regression vs. baseline (`netllm test` latency
-   before/after within noise).
-6. `scripts/verify-before-pr.sh` before each phase merge; release notes entry.
+   concurrency is the stressor) under `strategy = "local_spillover"` +
+   `max_concurrency` — verify spillover spreads across peers, the cap
+   429s cleanly above it.
+3. Per-source attribution across agent-hop forwards on a real two-machine
+   mesh (source must be preserved on `_peer_forward_headers`, not
+   re-heuristicked on the peer) — untestable with one instance.
+4. `./netllm test --source <id>` smoke added to the diagnose path (CLI
+   surface, not yet built — see Phase 4).
+5. `./netllm doctor` warning on unknown-source traffic volume and
+   scenario rules referencing models absent from the catalog (only the
+   elevated-secret-missing warning exists today, from Phase 1).
+6. Soak: strategy correctness under sustained `local_spillover` load with
+   per-source caps; throughput regression check against baseline.
 
-**Gate:** all four clients attributed correctly in status during a mixed run;
-doctor clean; soak shows no regression. Then update AGENTS.md Learned
-Workspace Facts with the shipped surface.
+**Gate (partial):** multi-source attribution and Codex-bridge composition
+confirmed live, one real bug found and fixed as a direct result. Full gate
+(real fleet, multi-machine hop preservation, soak) awaits the user's
+hardware — this is not something a single sandboxed session can complete
+honestly.
 
 ## Explicitly out of scope
 
