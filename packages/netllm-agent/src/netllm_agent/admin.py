@@ -369,9 +369,11 @@ def apply_config_patch(cfg: NetllmConfig, patch: dict[str, Any]) -> NetllmConfig
                     "strategy",
                     "local_only",
                     "allow_cloud",
+                    "prefer_provider",
                     "cloud_providers",
                     "max_concurrency",
                     "model_rewrites",
+                    "scenarios",
                     "match",
                 ):
                     if field in entry:

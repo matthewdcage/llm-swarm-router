@@ -279,3 +279,56 @@ def test_source_secret_is_write_only_on_patch_round_trip() -> None:
             reloaded = load_config(cfg_path)
             assert reloaded.routing.sources[0].secret == "s3cret"
             assert reloaded.routing.sources[0].description == "buzz-agent fleet"
+
+
+def test_source_scenarios_and_prefer_provider_persist_on_save() -> None:
+    """Regression: the per-field copy-over list in apply_config_patch's
+    sources merge silently dropped `scenarios` and `prefer_provider` --
+    editing either via the dashboard would appear to work in the browser
+    draft but never actually persist. See docs/cli-source-routing-plan.md
+    Phase 4b."""
+    with tempfile.TemporaryDirectory() as tmp:
+        cfg_path = Path(tmp) / "config.toml"
+        cfg = NetllmConfig()
+        save_config(cfg, cfg_path)
+        app = create_app(cfg, config_path=cfg_path)
+        with TestClient(app) as client:
+            resp = client.post(
+                "/netllm/v1/admin/config",
+                json={
+                    "routing": {
+                        "sources": [
+                            {
+                                "id": "buzz",
+                                "prefer_provider": "ollama",
+                                "scenarios": {
+                                    "background": {"model": "qwen3:4b"}
+                                },
+                            }
+                        ]
+                    }
+                },
+            )
+            assert resp.status_code == 200
+            from netllm_core.models import load_config
+
+            reloaded = load_config(cfg_path)
+            source = reloaded.routing.sources[0]
+            assert source.prefer_provider == "ollama"
+            assert source.scenarios["background"].model == "qwen3:4b"
+
+            # A second, unrelated save must not drop either.
+            resp = client.post(
+                "/netllm/v1/admin/config",
+                json={
+                    "routing": {
+                        "sources": [{"id": "buzz", "description": "updated"}]
+                    }
+                },
+            )
+            assert resp.status_code == 200
+            reloaded = load_config(cfg_path)
+            source = reloaded.routing.sources[0]
+            assert source.prefer_provider == "ollama"
+            assert source.scenarios["background"].model == "qwen3:4b"
+            assert source.description == "updated"
