@@ -128,6 +128,10 @@ class RoutingPolicy(BaseModel):
     name: str = ""
     model_prefix: str = ""
     api_format: ApiFormat | None = None
+    # Scope this policy to one routing.sources id (e.g. "buzz"). Empty
+    # (default) matches any source, including "default" -- unchanged
+    # behavior for configs written before source identity existed.
+    source: str = ""
     strategy: RoutingStrategy | None = None
     prefer_provider: ProviderId | None = None
     allow_cloud: bool = False
@@ -171,6 +175,12 @@ class SourceConfig(BaseModel):
     strategy: RoutingStrategy | None = None
     local_only: bool = False
     allow_cloud: bool = False
+    prefer_provider: ProviderId | None = None
+    # Cloud provider ids (e.g. "openrouter", "anthropic") this source may
+    # reach when allow_cloud is true. Empty = no restriction beyond the
+    # cloud master switch / global fallback policy. A non-empty list
+    # counts as elevated (see is_elevated) and only ever narrows which
+    # cloud backends are reachable -- it never excludes local/peer rows.
     cloud_providers: list[str] = Field(default_factory=list)
     # Per-source concurrency ceiling (0 = defer to
     # routing.max_in_flight_per_backend). A value above that global cap

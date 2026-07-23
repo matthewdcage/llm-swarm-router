@@ -91,6 +91,7 @@ def test_list_of_object_fields_carry_item_schema():
         "name",
         "model_prefix",
         "api_format",
+        "source",
         "strategy",
         "prefer_provider",
         "allow_cloud",

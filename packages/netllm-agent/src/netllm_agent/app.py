@@ -30,7 +30,7 @@ from netllm_agent.admin import (
     save_config_patch,
 )
 from netllm_agent.metrics import metrics_bytes
-from netllm_agent.service import AgentService
+from netllm_agent.service import AgentService, SourceCapacityExceeded
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -325,6 +325,8 @@ def create_app(
                     media_type="text/event-stream",
                 )
             return await service.proxy_chat_completion(payload, headers=request.headers)
+        except SourceCapacityExceeded as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
         except OpenAIUpstreamError as exc:
             raise HTTPException(
                 status_code=exc.status_code if exc.status_code in (400, 404) else 502,
@@ -337,6 +339,8 @@ def create_app(
         payload = await request.json()
         try:
             return await service.proxy_embeddings(payload, headers=request.headers)
+        except SourceCapacityExceeded as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
         except OpenAIUpstreamError as exc:
             raise HTTPException(
                 status_code=exc.status_code if exc.status_code in (400, 404) else 502,
@@ -358,6 +362,8 @@ def create_app(
                     media_type="text/event-stream",
                 )
             return await service.proxy_messages(payload, headers=hdrs)
+        except SourceCapacityExceeded as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
         except AnthropicUpstreamError as exc:
             status = exc.status_code or 502
             raise HTTPException(status_code=status, detail=str(exc)) from exc

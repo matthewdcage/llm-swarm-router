@@ -30,6 +30,7 @@ from netllm_core.models import (
     Backend,
     BackendHealth,
     NetllmConfig,
+    SourceConfig,
 )
 from netllm_core.pool import RouterPool, is_capacity_error
 from netllm_core.routing_policy import ResolvedRouting, resolve_routing
@@ -60,6 +61,21 @@ from netllm_agent.shard import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class SourceCapacityExceeded(Exception):
+    """Raised when a routing.sources entry is at its max_concurrency cap.
+
+    Caught in app.py and translated to a 429 -- a fast, explicit
+    rejection instead of silently queuing or oversubscribing the mesh.
+    """
+
+    def __init__(self, source_id: str, limit: int) -> None:
+        self.source_id = source_id
+        self.limit = limit
+        super().__init__(
+            f"source {source_id!r} is at its configured max_concurrency ({limit})"
+        )
 
 
 class AgentService:
@@ -93,6 +109,10 @@ class AgentService:
         # SOURCE_REQUESTS_TOTAL. Unregistered/anonymous callers count
         # under DEFAULT_SOURCE_ID, same as before this feature existed.
         self._source_counts: dict[str, int] = {}
+        # Per-source concurrency (SourceConfig.max_concurrency, Phase 2)
+        # -- id -> requests currently in flight for that source, across
+        # all its attempts/retries combined.
+        self._source_in_flight: dict[str, int] = {}
         self.startup_warnings: list[str] = []
         # Runtime-only (never persisted to config.toml): set via
         # POST /netllm/v1/admin/drain ahead of a planned restart/shutdown.
@@ -607,6 +627,7 @@ class AgentService:
         *,
         api_format: str,
         headers: Mapping[str, str] | None,
+        source: SourceConfig | None = None,
     ) -> ResolvedRouting:
         hdrs = self._normalize_headers(headers)
         return resolve_routing(
@@ -617,6 +638,7 @@ class AgentService:
             header_strategy=hdrs.get(STRATEGY_HEADER),
             header_backend=hdrs.get(BACKEND_PIN_HEADER),
             cloud=self.config.cloud,
+            source=source,
         )
 
     def _attribute_source(self, headers: Mapping[str, str] | None) -> ResolvedSource:
@@ -634,6 +656,38 @@ class AgentService:
         ).inc()
         return resolved
 
+    def _source_config(self, source_id: str) -> SourceConfig | None:
+        for s in self.config.routing.sources:
+            if s.id == source_id:
+                return s
+        return None
+
+    @staticmethod
+    def _apply_source_model_rewrite(source: SourceConfig | None, model: str) -> str:
+        if source is None or not source.model_rewrites:
+            return model
+        return source.model_rewrites.get(model, model)
+
+    def _check_source_capacity(
+        self, source_id: str, source: SourceConfig | None
+    ) -> None:
+        """Per-source admission control (Phase 2). Raises rather than
+        queuing: a source at its configured max_concurrency gets a fast,
+        clear rejection instead of silently piling onto the mesh."""
+        cap = source.max_concurrency if source is not None else 0
+        if cap <= 0:
+            return
+        if self._source_in_flight.get(source_id, 0) >= cap:
+            raise SourceCapacityExceeded(source_id, cap)
+
+    def _source_acquire(self, source_id: str) -> None:
+        self._source_in_flight[source_id] = self._source_in_flight.get(source_id, 0) + 1
+
+    def _source_release(self, source_id: str) -> None:
+        self._source_in_flight[source_id] = max(
+            0, self._source_in_flight.get(source_id, 0) - 1
+        )
+
     def _select_backend_for_request(
         self,
         model: str,
@@ -646,6 +700,7 @@ class AgentService:
         prefer_cloud: bool = False,
         exclude_ids: set[str] | None = None,
         pinned: str | None = None,
+        cloud_provider_allowlist: frozenset[str] | None = None,
     ) -> Backend | None:
         if pinned:
             backend = self.pool.backend_by_id(pinned)
@@ -700,6 +755,7 @@ class AgentService:
                     prefer_provider=prefer_provider,
                     prefer_cloud=prefer_cloud,
                     exclude_ids=exclude_ids,
+                    cloud_provider_allowlist=cloud_provider_allowlist,
                 )
 
             if attempt == 1:
@@ -722,6 +778,7 @@ class AgentService:
                     prefer_provider=prefer_provider,
                     prefer_cloud=prefer_cloud,
                     exclude_ids=exclude_ids,
+                    cloud_provider_allowlist=cloud_provider_allowlist,
                 )
             return self.pool.select_backend(
                 model,
@@ -731,6 +788,7 @@ class AgentService:
                 prefer_provider=prefer_provider,
                 prefer_cloud=prefer_cloud,
                 exclude_ids=exclude_ids,
+                cloud_provider_allowlist=cloud_provider_allowlist,
             )
 
         # Load-aware strategies keep balancing on retries — exclude_ids
@@ -757,6 +815,7 @@ class AgentService:
             prefer_provider=prefer_provider,
             prefer_cloud=prefer_cloud,
             exclude_ids=exclude_ids,
+            cloud_provider_allowlist=cloud_provider_allowlist,
         )
 
     def _mark_shard_success(self, shard: ShardContext | None) -> None:
@@ -778,10 +837,15 @@ class AgentService:
         headers: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         hdrs = self._normalize_headers(headers)
-        model = payload.get("model", "")
+        requested_model = payload.get("model", "")
+        resolved_source = self._attribute_source(hdrs)
+        source_cfg = self._source_config(resolved_source.id)
+        model = self._apply_source_model_rewrite(source_cfg, requested_model)
         self._reject_non_chat_model(model)
-        routing = self._resolved_routing(model, api_format="openai", headers=hdrs)
-        self._attribute_source(hdrs)
+        routing = self._resolved_routing(
+            model, api_format="openai", headers=hdrs, source=source_cfg
+        )
+        self._check_source_capacity(resolved_source.id, source_cfg)
         shard = extract_shard_context(payload, hdrs)
 
         await self.refresh_local_backends()
@@ -806,10 +870,12 @@ class AgentService:
                 prefer_cloud=routing.cloud_leads,
                 exclude_ids=tried,
                 pinned=routing.pinned_backend,
+                cloud_provider_allowlist=routing.cloud_provider_allowlist,
             )
             if backend is None:
                 break
             self.pool.acquire(backend)
+            self._source_acquire(resolved_source.id)
             BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
             t0 = time.monotonic()
             try:
@@ -821,8 +887,8 @@ class AgentService:
                     else payload
                 )
                 result = await client.chat_completion(upstream_payload)
-                if upstream_model != model and isinstance(result, dict):
-                    result["model"] = model
+                if upstream_model != requested_model and isinstance(result, dict):
+                    result["model"] = requested_model
                 latency = time.monotonic() - t0
                 self.pool.mark_success(backend, latency * 1000)
                 REQUESTS_TOTAL.labels(
@@ -847,6 +913,7 @@ class AgentService:
                 )
             finally:
                 self.pool.release(backend)
+                self._source_release(resolved_source.id)
                 BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(
                     backend.in_flight
                 )
@@ -854,7 +921,7 @@ class AgentService:
 
         if last_error:
             raise last_error
-        raise self._model_not_found_error(model)
+        raise self._model_not_found_error(requested_model)
 
     async def proxy_chat_completion_stream(
         self,
@@ -863,10 +930,15 @@ class AgentService:
         headers: Mapping[str, str] | None = None,
     ) -> AsyncIterator[str]:
         hdrs = self._normalize_headers(headers)
-        model = payload.get("model", "")
+        requested_model = payload.get("model", "")
+        resolved_source = self._attribute_source(hdrs)
+        source_cfg = self._source_config(resolved_source.id)
+        model = self._apply_source_model_rewrite(source_cfg, requested_model)
         self._reject_non_chat_model(model)
-        routing = self._resolved_routing(model, api_format="openai", headers=hdrs)
-        self._attribute_source(hdrs)
+        routing = self._resolved_routing(
+            model, api_format="openai", headers=hdrs, source=source_cfg
+        )
+        self._check_source_capacity(resolved_source.id, source_cfg)
         shard = extract_shard_context(payload, hdrs)
 
         await self.refresh_local_backends()
@@ -892,10 +964,12 @@ class AgentService:
                 prefer_cloud=routing.cloud_leads,
                 exclude_ids=tried,
                 pinned=routing.pinned_backend,
+                cloud_provider_allowlist=routing.cloud_provider_allowlist,
             )
             if backend is None:
                 break
             self.pool.acquire(backend)
+            self._source_acquire(resolved_source.id)
             BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
             try:
                 client = self._openai_upstream(backend, hdrs)
@@ -908,8 +982,8 @@ class AgentService:
                 stream = self._stream_with_metrics(
                     client, upstream_payload, backend, model, shard
                 )
-                if upstream_model != model:
-                    stream = self._restore_stream_model(stream, model)
+                if upstream_model != requested_model:
+                    stream = self._restore_stream_model(stream, requested_model)
                 async for chunk in stream:
                     yielded_any = True
                     yield chunk
@@ -934,6 +1008,7 @@ class AgentService:
                     return
             finally:
                 self.pool.release(backend)
+                self._source_release(resolved_source.id)
                 BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(
                     backend.in_flight
                 )
@@ -941,7 +1016,7 @@ class AgentService:
 
         if last_error:
             raise last_error
-        raise self._model_not_found_error(model)
+        raise self._model_not_found_error(requested_model)
 
     async def proxy_embeddings(
         self,
@@ -957,9 +1032,14 @@ class AgentService:
         the Anthropic Messages API has no embeddings endpoint.
         """
         hdrs = self._normalize_headers(headers)
-        model = payload.get("model", "")
-        routing = self._resolved_routing(model, api_format="openai", headers=hdrs)
-        self._attribute_source(hdrs)
+        requested_model = payload.get("model", "")
+        resolved_source = self._attribute_source(hdrs)
+        source_cfg = self._source_config(resolved_source.id)
+        model = self._apply_source_model_rewrite(source_cfg, requested_model)
+        routing = self._resolved_routing(
+            model, api_format="openai", headers=hdrs, source=source_cfg
+        )
+        self._check_source_capacity(resolved_source.id, source_cfg)
 
         await self.refresh_local_backends()
         if routing.allow_cloud_inject:
@@ -985,10 +1065,12 @@ class AgentService:
                 prefer_cloud=routing.cloud_leads,
                 exclude_ids=tried,
                 pinned=routing.pinned_backend,
+                cloud_provider_allowlist=routing.cloud_provider_allowlist,
             )
             if backend is None:
                 break
             self.pool.acquire(backend)
+            self._source_acquire(resolved_source.id)
             BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
             t0 = time.monotonic()
             try:
@@ -1000,8 +1082,8 @@ class AgentService:
                     else payload
                 )
                 result = await client.embeddings(upstream_payload)
-                if upstream_model != model and isinstance(result, dict):
-                    result["model"] = model
+                if upstream_model != requested_model and isinstance(result, dict):
+                    result["model"] = requested_model
                 latency = time.monotonic() - t0
                 self.pool.mark_success(backend, latency * 1000)
                 REQUESTS_TOTAL.labels(
@@ -1025,6 +1107,7 @@ class AgentService:
                 )
             finally:
                 self.pool.release(backend)
+                self._source_release(resolved_source.id)
                 BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(
                     backend.in_flight
                 )
@@ -1032,7 +1115,7 @@ class AgentService:
 
         if last_error:
             raise last_error
-        raise self._model_not_found_error(model, capability="embedding")
+        raise self._model_not_found_error(requested_model, capability="embedding")
 
     @staticmethod
     def _anthropic_api_key(headers: Mapping[str, str]) -> str:
@@ -1314,15 +1397,26 @@ class AgentService:
         hdrs: Mapping[str, str],
         api_key: str,
         attempt: int,
+        *,
+        source_id: str | None = None,
+        requested_model: str | None = None,
     ) -> dict[str, Any]:
         """One acquire→call→account cycle for the Messages API."""
         self.pool.acquire(backend)
+        if source_id is not None:
+            self._source_acquire(source_id)
         BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
         t0 = time.monotonic()
         try:
             result = await self._messages_on_backend(
                 backend, payload, model, hdrs, api_key
             )
+            if (
+                requested_model is not None
+                and requested_model != model
+                and isinstance(result, dict)
+            ):
+                result["model"] = requested_model
             latency = time.monotonic() - t0
             self.pool.mark_success(backend, latency * 1000)
             REQUESTS_TOTAL.labels(
@@ -1345,6 +1439,8 @@ class AgentService:
             raise
         finally:
             self.pool.release(backend)
+            if source_id is not None:
+                self._source_release(source_id)
             BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
             self._update_health_metrics()
 
@@ -1355,11 +1451,18 @@ class AgentService:
         headers: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         hdrs = self._normalize_headers(headers)
-        model = payload.get("model", "")
+        requested_model = payload.get("model", "")
+        resolved_source = self._attribute_source(hdrs)
+        source_cfg = self._source_config(resolved_source.id)
+        model = self._apply_source_model_rewrite(source_cfg, requested_model)
+        if model != requested_model:
+            payload = {**payload, "model": model}
         self._reject_non_chat_messages_model(model)
         api_key = self._anthropic_api_key(hdrs)
-        routing = self._resolved_routing(model, api_format="anthropic", headers=hdrs)
-        self._attribute_source(hdrs)
+        routing = self._resolved_routing(
+            model, api_format="anthropic", headers=hdrs, source=source_cfg
+        )
+        self._check_source_capacity(resolved_source.id, source_cfg)
 
         await self.refresh_local_backends()
         if routing.allow_cloud_inject:
@@ -1389,12 +1492,20 @@ class AgentService:
                 prefer_cloud=routing.cloud_leads,
                 exclude_ids=tried,
                 pinned=routing.pinned_backend,
+                cloud_provider_allowlist=routing.cloud_provider_allowlist,
             )
             if backend is None:
                 break
             try:
                 return await self._messages_attempt(
-                    backend, payload, model, hdrs, api_key, attempt
+                    backend,
+                    payload,
+                    model,
+                    hdrs,
+                    api_key,
+                    attempt,
+                    source_id=resolved_source.id,
+                    requested_model=requested_model,
                 )
             except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
                 last_error = exc
@@ -1404,7 +1515,14 @@ class AgentService:
             attempt += 1
             try:
                 return await self._messages_attempt(
-                    backend, payload, model, hdrs, api_key, attempt
+                    backend,
+                    payload,
+                    model,
+                    hdrs,
+                    api_key,
+                    attempt,
+                    source_id=resolved_source.id,
+                    requested_model=requested_model,
                 )
             except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
                 last_error = exc
@@ -1425,11 +1543,18 @@ class AgentService:
         headers: Mapping[str, str] | None = None,
     ) -> AsyncIterator[str]:
         hdrs = self._normalize_headers(headers)
-        model = payload.get("model", "")
+        requested_model = payload.get("model", "")
+        resolved_source = self._attribute_source(hdrs)
+        source_cfg = self._source_config(resolved_source.id)
+        model = self._apply_source_model_rewrite(source_cfg, requested_model)
+        if model != requested_model:
+            payload = {**payload, "model": model}
         self._reject_non_chat_messages_model(model)
         api_key = self._anthropic_api_key(hdrs)
-        routing = self._resolved_routing(model, api_format="anthropic", headers=hdrs)
-        self._attribute_source(hdrs)
+        routing = self._resolved_routing(
+            model, api_format="anthropic", headers=hdrs, source=source_cfg
+        )
+        self._check_source_capacity(resolved_source.id, source_cfg)
 
         await self.refresh_local_backends()
         if routing.allow_cloud_inject:
@@ -1461,6 +1586,7 @@ class AgentService:
                     prefer_cloud=routing.cloud_leads,
                     exclude_ids=tried,
                     pinned=routing.pinned_backend,
+                    cloud_provider_allowlist=routing.cloud_provider_allowlist,
                 )
                 if backend is None:
                     candidates_exhausted = True
@@ -1479,6 +1605,7 @@ class AgentService:
                     break
                 attempt += 1
             self.pool.acquire(backend)
+            self._source_acquire(resolved_source.id)
             BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
             try:
                 async for chunk in self._messages_stream_on_backend(
@@ -1516,6 +1643,7 @@ class AgentService:
                     return
             finally:
                 self.pool.release(backend)
+                self._source_release(resolved_source.id)
                 BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(
                     backend.in_flight
                 )

@@ -469,6 +469,7 @@ class RouterPool:
         prefer_provider: str | None = None,
         prefer_cloud: bool = False,
         exclude_ids: set[str] | None = None,
+        cloud_provider_allowlist: frozenset[str] | None = None,
     ) -> Backend | None:
         if local_only:
             all_candidates = self.backends_for_model(model, local_only=True)
@@ -488,6 +489,18 @@ class RouterPool:
             preferred = [b for b in all_candidates if b.provider == prefer_provider]
             if preferred:
                 all_candidates = preferred
+
+        if cloud_provider_allowlist:
+            # A source's cloud_providers allowlist only ever narrows
+            # which cloud-tagged rows are reachable -- local/peer
+            # (non-cloud) candidates are never affected.
+            all_candidates = [
+                b
+                for b in all_candidates
+                if not b.cloud_provider or b.cloud_provider in cloud_provider_allowlist
+            ]
+            if not all_candidates:
+                return None
 
         if prefer_cloud:
             # cloud.fallback = "local" (cloud-primary): steer every
