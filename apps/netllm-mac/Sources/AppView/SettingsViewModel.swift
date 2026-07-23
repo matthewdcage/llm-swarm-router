@@ -600,6 +600,21 @@ final class SettingsViewModel {
     }
 
     @discardableResult
+    func addModelAlias() -> String {
+        var aliases = document.routing.model_aliases
+        var name = "alias"
+        var suffix = 1
+        while aliases[name] != nil {
+            suffix += 1
+            name = "alias-\(suffix)"
+        }
+        aliases[name] = .strings([])
+        document.routing.model_aliases = aliases
+        bumpUI()
+        return name
+    }
+
+    @discardableResult
     func addModelPool() -> String {
         var pools = document.routing.model_pools
         var name = "pool"

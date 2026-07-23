@@ -364,6 +364,13 @@ struct SettingsWindowView: View {
                 ForEach(SettingsViewModel.roles, id: \.self) { Text($0).tag($0) }
             }
             Toggle("Advertise on LAN", isOn: $model.document.agent.advertise)
+            HStack {
+                Text("Max concurrency (this machine)")
+                TextField("0", value: $model.document.agent.max_concurrency, format: .number.grouping(.never))
+                    .frame(width: 80)
+            }
+            Text("Self-declared ceiling on this machine's own concurrent requests, broadcast to peers so least_load/local_spillover selection respects it. 0 = unlimited.")
+                .font(.caption).foregroundStyle(.secondary)
             gridRow("Agent ID", model.document.agent.agent_id)
             gridRow("Hostname", model.document.agent.hostname)
             gridRow("Listen", model.document.agent.listen)
@@ -496,6 +503,41 @@ struct SettingsWindowView: View {
             }
             Toggle("Allow remote backends", isOn: $model.document.routing.allow_remote)
             Toggle("Require same model for batch shard", isOn: $model.document.routing.require_same_model_for_shard)
+            sectionHeader("Load & health tuning")
+            HStack {
+                Text("Max in-flight per backend")
+                TextField("0", value: $model.document.routing.max_in_flight_per_backend, format: .number.grouping(.never))
+                    .frame(width: 80)
+            }
+            Text("Selection prefers backends under this many concurrent requests. 0 = off.")
+                .font(.caption).foregroundStyle(.secondary)
+            Toggle("Follow gateway strategy", isOn: $model.document.routing.follow_gateway)
+            Text("Peer-role agents adopt the gateway's advertised default strategy from heartbeats instead of running their own.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text("Spillover threshold (local in-flight)")
+                TextField("2", value: $model.document.routing.spillover_max_local_in_flight, format: .number.grouping(.never))
+                    .frame(width: 80)
+            }
+            Text("Serve locally while below this many local in-flight requests; at or above it, spill to a less-loaded LAN peer only.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text("Health TTL (s)")
+                TextField("30", value: $model.document.routing.health_ttl_s, format: .number)
+                    .frame(width: 80)
+            }
+            HStack {
+                Text("Offline retry (s)")
+                TextField("10", value: $model.document.routing.offline_retry_s, format: .number)
+                    .frame(width: 80)
+            }
+            HStack {
+                Text("Max backend failures")
+                TextField("3", value: $model.document.routing.max_backend_failures, format: .number.grouping(.never))
+                    .frame(width: 80)
+            }
+            Text("Consecutive request failures before a backend is marked offline; health TTL / offline retry control how fast it's re-probed.")
+                .font(.caption).foregroundStyle(.secondary)
             sectionHeader("Routing policies")
             Text(
                 "First matching policy applies. Cloud routing requires allow_cloud on an explicit policy row."
@@ -516,6 +558,18 @@ struct SettingsWindowView: View {
                 // No `.id(array[index]...)` here: that subscript runs with
                 // stale indices after the array shrinks and traps.
                 backendOverrideEditor(index: index)
+            }
+            sectionHeader("Model aliases")
+            Text(
+                "Canonical model name → provider-specific IDs, so mixed fleets (oMLX vs Ollama vs LM Studio naming) can serve one requested name."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            actionButtons {
+                Button("Add model alias") { model.addModelAlias() }
+            }
+            ForEach(Array(model.document.routing.model_aliases.keys.sorted()), id: \.self) { name in
+                modelAliasEditor(name: name)
             }
             sectionHeader("Model pools")
             Text(
@@ -544,6 +598,39 @@ struct SettingsWindowView: View {
                 sourceEditor(index: index)
             }
         }
+    }
+
+    /// routing.model_aliases is a same-day-added feature with no prior
+    /// Swift UI, same reasoning/shape as modelPoolEditor below — dict of
+    /// dynamic, user-typed keys — except a value here is a plain
+    /// [String] rather than a nested object, so it renders via
+    /// EditableStringList directly instead of a nested SchemaFormView.
+    @ViewBuilder
+    private func modelAliasEditor(name: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(name.isEmpty ? "(unnamed alias)" : name).font(.caption.weight(.medium))
+                Spacer()
+                Button(role: .destructive) {
+                    model.document.routing.model_aliases.removeValue(forKey: name)
+                } label: {
+                    Image(systemName: "minus.circle")
+                }
+                .buttonStyle(.borderless)
+            }
+            EditableStringList(
+                items: Binding(
+                    get: { model.document.routing.model_aliases[name]?.arrayValue?.compactMap(\.stringValue) ?? [] },
+                    set: { model.document.routing.model_aliases[name] = .strings($0) }
+                ),
+                placeholder: "llama3:8b-instruct-q4_K_M",
+                defaultNew: "",
+                suggestions: model.knownModelIDs
+            )
+        }
+        .padding(8)
+        .background(Color.gray.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     /// routing.model_pools is a same-day-added feature with no prior

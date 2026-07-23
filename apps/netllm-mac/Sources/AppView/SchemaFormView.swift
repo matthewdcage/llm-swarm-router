@@ -105,13 +105,15 @@ private struct SchemaFieldRow: View {
             HStack {
                 Text(label)
                 TextField(
-                    "",
+                    "0",
                     value: Binding(
                         get: { currentValue.doubleValue ?? 0 },
                         set: { setValue(.number($0)) }
                     ),
-                    format: .number
+                    format: .number.grouping(.never)
                 )
+                .frame(minWidth: 60, maxWidth: 100)
+                .multilineTextAlignment(.trailing)
             }
         case "secret":
             // Write-only, same convention as dashboard.js's

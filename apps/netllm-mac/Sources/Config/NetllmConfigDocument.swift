@@ -30,6 +30,7 @@ struct NetllmConfigDocument: Codable, Sendable {
         var advertise: Bool = true
         var agent_id: String = ""
         var hostname: String = ""
+        var max_concurrency: Int = 0
     }
 
     struct RoutingPolicy: Codable, Sendable, Identifiable {
@@ -47,11 +48,32 @@ struct NetllmConfigDocument: Codable, Sendable {
         var default_strategy: String = "local_first"
         var allow_remote: Bool = true
         var require_same_model_for_shard: Bool = true
+        // Back-pressure cap applied by every strategy: selection prefers
+        // backends with fewer than this many requests in flight. 0 = off.
+        var max_in_flight_per_backend: Int = 0
+        // Peer-role agents adopt the gateway's advertised default_strategy
+        // from heartbeats (runtime only, not persisted); false opts out.
+        var follow_gateway: Bool = true
+        // local_spillover: serve locally while fewer than this many
+        // requests are in flight locally; spill to a LAN peer above it.
+        var spillover_max_local_in_flight: Int = 2
+        // Health cache: how long a probe result stays fresh, and how many
+        // consecutive request failures mark a backend offline.
+        var health_ttl_s: Double = 30.0
+        // Offline backends are re-probed after this many seconds instead
+        // of waiting out the full health TTL.
+        var offline_retry_s: Double = 10.0
+        var max_backend_failures: Int = 3
         // One-shot marker: once the LAN upgrade has run, an explicit
         // user strategy choice is never silently rewritten again.
         var lan_defaults_applied: Bool = false
         var backends: [BackendOverride] = []
         var policies: [RoutingPolicy] = []
+        /// Dynamic dict[alias name -> served model IDs] (routing.model_aliases).
+        /// Same same-day-added-feature reasoning as model_pools below: no
+        /// prior Swift UI existed, so exposing it generically here is pure
+        /// addition, not a regression risk to an existing hand-tuned editor.
+        var model_aliases: [String: JSONValue] = [:]
         /// Dynamic dict[name -> ModelPool] (docs/config-schema-rewrite-plan.md
         /// §5 phase 4) — a same-day-added feature with no prior Swift UI,
         /// so exposing it generically here is pure addition, not a
