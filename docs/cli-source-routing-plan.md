@@ -115,48 +115,100 @@ attribute identically; hot-apply of a new `routing.sources` entry via
 **Gate met:** `./scripts/ci.sh` (lint + 460 tests) green; `basedpyright` clean
 on all touched files.
 
-## Phase 2 — Per-source routing overrides (not yet implemented)
+## Phase 2 — Per-source routing overrides (done 23/07/2026)
 
-- Extend `ResolvedRouting` resolution (`routing_policy.py:52-120`): apply the
-  matched source's `strategy` / `local_only` / `allow_cloud` /
-  `prefer_provider` before policy matching; add optional `source` match field
-  to `RoutingPolicy` so existing policy machinery can also scope by source.
-- `model_rewrites`: per-source requested-name → concrete-name mapping applied
-  before `model_aliases` / `model_pools` resolution, so e.g. Claude Code's
-  `claude-sonnet-5` can land on `qwen3:32b` for one source only.
-- Per-source `max_concurrency`: enforced alongside
-  `routing.max_in_flight_per_backend` in `pool.select_backend`
-  back-pressure (429 with a clear body when exceeded, mirroring capacity
-  rejection handling).
+- ~~`resolve_routing` applies a matched source's `strategy` / `local_only` /
+  `allow_cloud` / `prefer_provider` **after** the policy match (source ranks
+  above `routing.policies` in precedence) — a source can reopen cloud access
+  a matching policy would otherwise deny, or force local-only over a policy
+  that allows cloud; `RoutingPolicy` gained an optional `source` field so a
+  policy can be scoped to one caller (empty = matches any, unchanged for
+  existing configs).~~
+- ~~`source.cloud_providers`: non-empty list narrows cloud-tagged backend
+  candidates to that allowlist in `pool.select_backend`
+  (`cloud_provider_allowlist` param) — never excludes local/peer rows.~~
+- ~~`model_rewrites`: per-source requested-name → concrete-name mapping
+  applied before `model_aliases`/`model_pools` resolution on both surfaces;
+  the client-facing response always echoes the originally requested name
+  (`requested_model`), so rewriting is invisible to the caller across
+  retries/failover.~~
+- ~~Per-source `max_concurrency`: enforced as admission control
+  (`SourceCapacityExceeded` → HTTP 429), not queuing — mirrors the existing
+  per-backend back-pressure cap but tracked per source across all its
+  attempts/retries (`AgentService._source_in_flight`).~~
+- Found and fixed during implementation: `source.allow_cloud=True` initially
+  only cleared `allow_cloud_inject`, not a `local_only=True` a matching
+  policy had already set — leaving a contradictory resolved state
+  (`allow_cloud_inject=True` with `local_only=True`, which selection would
+  still treat as local-only). Fixed so `allow_cloud` also clears `local_only`
+  (caught by `test_source_allow_cloud_reverses_policy_forcing_local`).
+- Deferred: the streaming Anthropic Messages path (`proxy_messages_stream`)
+  applies `model_rewrites` to routing/selection and the upstream payload
+  correctly, but does not rewrite the model string echoed inside individual
+  SSE event bodies back to `requested_model` (the non-stream path and the
+  OpenAI stream path do). No shipped source uses `model_rewrites` yet, so
+  this has no current impact; revisit if a source configures it.
 
-**Tests:** extend `tests/test_routing_policies.py` (source-scoped policy
-matching); new `tests/test_source_routing.py` — rewrite applied per source and
-not globally; local_only source never selects peer/cloud; concurrency cap
-returns 429; header override still wins over source config.
+**Tests (passing):** `tests/test_source_routing.py` (18 tests) — strategy/
+local_only/allow_cloud/prefer_provider precedence and reversal cases; the
+header-as-absolute-ceiling case; source-scoped vs. unscoped policy matching;
+`cloud_provider_allowlist` filtering (excludes non-allowlisted cloud rows,
+never excludes local); `model_rewrites` unit coverage; capacity admission
+control (under cap / at cap raises / release frees a slot / uncapped never
+raises); cloud master switch still wins over `source.allow_cloud`.
+**Gate met:** `./scripts/ci.sh` (lint + 476 tests) green.
 **Gate:** `ci.sh` green; live check — two curl clients with different source
 keys hit different backends for the same requested model.
 
-## Phase 3 — Scenario routing (claude-code-router pattern) (not yet implemented)
+## Phase 3 — Scenario routing (claude-code-router pattern) (done 23/07/2026)
 
-- `netllm_core/scenarios.py`: classify each request into
-  `default` / `background` / `think` / `long_context` / `web_search` from
-  observable signals: estimated prompt tokens over a threshold (default 32K) →
-  `long_context`; Messages `thinking` param / OpenAI `reasoning_effort` →
-  `think`; small `max_tokens` + haiku-class requested model or Claude Code
-  sub-agent UA markers → `background`; web-search tool present in `tools` →
-  `web_search`.
-- `ScenarioRule` per source: `{model?, strategy?, local_only?, allow_cloud?}`;
-  resolved between per-request headers and source defaults per the phase-0
-  precedence.
-- Surface the chosen scenario in the response header
-  (`x-netllm-scenario`) and per-source metrics for tuning.
+- ~~`netllm_core/scenarios.py`: `classify_scenario()` maps each request into
+  `long_context` / `web_search` / `think` / `background` / `default` from
+  observable signals, checked in that priority order: estimated prompt size
+  (chars/4 heuristic, no tokenizer) over a threshold (default 32K tokens) →
+  `long_context`; a web-search-shaped tool in `tools` → `web_search`;
+  Anthropic `thinking.type == "enabled"` or an OpenAI `reasoning_effort`/
+  `reasoning` field → `think`; small `max_tokens` paired with a haiku/mini/
+  flash/nano-class requested model, or a `claude-code` User-Agent, →
+  `background`.~~
+- ~~`ScenarioRule` (`{model, strategy, local_only, allow_cloud}`) lives in
+  `SourceConfig.scenarios: dict[str, ScenarioRule]` (reuses the existing
+  dict-of-BaseModel schema/dashboard widget already used by
+  `routing.model_pools` — no new schema code needed). `resolve_routing`
+  gained a `scenario` param: the matched rule is applied after source
+  defaults and before header overrides, matching the Phase 0 precedence
+  (header > scenario rule > source defaults > policy > global).~~
+- ~~`ScenarioRule.model` is applied in `AgentService._apply_scenario_model`,
+  layered after `model_rewrites` — a scenario can pick a different concrete
+  model than the source's general rewrite (e.g. a cheaper model
+  specifically for `background`).~~
+- ~~Classified and counted once per proxy entry point
+  (`_classify_and_record_scenario`, mirroring `_attribute_source`) on both
+  surfaces; exposed as `netllm_scenario_requests_total{source,scenario}` and
+  `scenario_requests` (`"<source>:<scenario>"` → count) in
+  `GET /netllm/v1/status`.~~
+- Deferred: the `x-netllm-scenario` **response header** the original bullet
+  called for was not built. netllm sets no response headers anywhere today
+  (no precedent to follow), and wiring one through both the JSON and SSE
+  streaming response paths — with zero current consumers — wasn't worth the
+  risk under time pressure; status/metrics already give equivalent
+  visibility for tuning. Revisit if a client wants to read it directly.
+- Deferred (same gap noted in Phase 2): the streaming Anthropic Messages
+  path does not rewrite the model string inside individual SSE event bodies
+  back to the client's requested name when a scenario rule changes it.
 
-**Tests:** new `tests/test_scenarios.py` — classification unit tests per
-signal (both surfaces); scenario rule overrides source default; threshold
-configurable; no classification cost when a source defines no scenarios.
-**Gate:** `ci.sh` green; live validation with Claude Code: plan-mode traffic
-(`think`) hits the configured strong model while sub-agent background traffic
-hits the cheap one, verified via `x-netllm-scenario` + status counters.
+**Tests (passing):** `tests/test_scenarios.py` (22 tests) — classification
+per signal on both surfaces, configurable threshold, priority ordering
+(long_context > web_search > think > background), scenario rule vs. source
+default vs. header precedence, scenario-only-applies-when-matching, and the
+`AgentService` classify/count/model-override helpers.
+**Gate met:** `./scripts/ci.sh` (lint + 499 tests) green; `basedpyright`
+clean on all touched files.
+**Live validation still open:** the plan's original gate (Claude Code
+plan-mode traffic landing on a strong model, sub-agent traffic on a cheap
+one, observed via status counters) needs a real Claude Code session against
+a configured source and is deferred to Phase 5, which has access to actual
+CLI traffic.
 
 ## Phase 4 — Registration UX and docs (not yet implemented)
 

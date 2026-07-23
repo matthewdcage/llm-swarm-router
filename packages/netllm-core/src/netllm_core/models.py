@@ -147,6 +147,27 @@ class SourceMatch(BaseModel):
     user_agent_contains: list[str] = Field(default_factory=list)
 
 
+class ScenarioRule(BaseModel):
+    """[routing.sources.<id>.scenarios.<scenario>] -- per-source override
+    for one classified traffic scenario (netllm_core.scenarios.Scenario:
+    long_context, web_search, think, background, default).
+
+    Ranks between the source's own defaults and per-request headers in
+    precedence (docs/cli-source-routing-plan.md Phase 0): a scenario rule
+    overrides SourceConfig.strategy/local_only/allow_cloud for just this
+    scenario, but an explicit x-netllm-* header still wins over it.
+    """
+
+    # Concrete model to use for this scenario (e.g. a cheap local model
+    # for "background", a strong cloud model for "think"). Empty = no
+    # override; the source's model_rewrites (or the client's requested
+    # model) is used unchanged.
+    model: str = ""
+    strategy: RoutingStrategy | None = None
+    local_only: bool = False
+    allow_cloud: bool = False
+
+
 class SourceConfig(BaseModel):
     """[[routing.sources]] -- a known CLI or harness with durable routing.
 
@@ -189,6 +210,10 @@ class SourceConfig(BaseModel):
     # Requested model name -> concrete model name, applied for this
     # source only, before model_aliases/model_pools resolution.
     model_rewrites: dict[str, str] = Field(default_factory=dict)
+    # Per-scenario overrides (netllm_core.scenarios.classify_scenario),
+    # keyed by scenario name -- e.g. {"background": {"model": "..."},
+    # "think": {"strategy": "failover", "allow_cloud": true}}.
+    scenarios: dict[str, ScenarioRule] = Field(default_factory=dict)
     match: SourceMatch = Field(default_factory=SourceMatch)
 
     def resolve_secret(self) -> str:

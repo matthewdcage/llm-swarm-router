@@ -126,9 +126,7 @@ def test_source_prefer_provider() -> None:
 
 def test_source_cloud_providers_sets_allowlist() -> None:
     cfg = NetllmConfig()
-    source = SourceConfig(
-        id="buzz", allow_cloud=True, cloud_providers=["openrouter"]
-    )
+    source = SourceConfig(id="buzz", allow_cloud=True, cloud_providers=["openrouter"])
     resolved = resolve_routing(
         cfg.routing,
         model="any",
@@ -262,9 +260,7 @@ def test_cloud_provider_allowlist_never_excludes_local_backends(
 def test_apply_source_model_rewrite() -> None:
     from netllm_agent.service import AgentService
 
-    source = SourceConfig(
-        id="buzz", model_rewrites={"claude-sonnet-5": "qwen3:32b"}
-    )
+    source = SourceConfig(id="buzz", model_rewrites={"claude-sonnet-5": "qwen3:32b"})
     assert (
         AgentService._apply_source_model_rewrite(source, "claude-sonnet-5")
         == "qwen3:32b"

@@ -35,6 +35,12 @@ SOURCE_REQUESTS_TOTAL = Counter(
     ["source", "resolved_via"],
 )
 
+SCENARIO_REQUESTS_TOTAL = Counter(
+    "netllm_scenario_requests_total",
+    "Total proxied requests classified into a routing scenario, by source",
+    ["source", "scenario"],
+)
+
 
 def metrics_bytes() -> bytes:
     return generate_latest()

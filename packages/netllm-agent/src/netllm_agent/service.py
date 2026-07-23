@@ -34,6 +34,7 @@ from netllm_core.models import (
 )
 from netllm_core.pool import RouterPool, is_capacity_error
 from netllm_core.routing_policy import ResolvedRouting, resolve_routing
+from netllm_core.scenarios import Scenario, classify_scenario
 from netllm_core.source_identity import ResolvedSource, resolve_source
 from netllm_core.version import get_version
 from netllm_discovery.local import (
@@ -51,6 +52,7 @@ from netllm_agent.metrics import (
     BACKEND_IN_FLIGHT,
     REQUEST_LATENCY,
     REQUESTS_TOTAL,
+    SCENARIO_REQUESTS_TOTAL,
     SOURCE_REQUESTS_TOTAL,
 )
 from netllm_agent.shard import (
@@ -113,6 +115,9 @@ class AgentService:
         # -- id -> requests currently in flight for that source, across
         # all its attempts/retries combined.
         self._source_in_flight: dict[str, int] = {}
+        # Per (source, scenario) request counters (Phase 3) -- for
+        # tuning scenario rules, surfaced in status_payload().
+        self._scenario_counts: dict[tuple[str, str], int] = {}
         self.startup_warnings: list[str] = []
         # Runtime-only (never persisted to config.toml): set via
         # POST /netllm/v1/admin/drain ahead of a planned restart/shutdown.
@@ -275,6 +280,10 @@ class AgentService:
             "routed_requests": dict(self.pool.routed_counts),
             "capacity_rejections": dict(self.pool.capacity_rejections),
             "source_requests": dict(self._source_counts),
+            "scenario_requests": {
+                f"{source_id}:{scenario}": count
+                for (source_id, scenario), count in self._scenario_counts.items()
+            },
             "shardless_fallbacks": self._shardless_fallbacks,
             "cluster_token_set": bool(self.config.swarm.cluster_token),
             "version": get_version(),
@@ -628,6 +637,7 @@ class AgentService:
         api_format: str,
         headers: Mapping[str, str] | None,
         source: SourceConfig | None = None,
+        scenario: str | None = None,
     ) -> ResolvedRouting:
         hdrs = self._normalize_headers(headers)
         return resolve_routing(
@@ -639,6 +649,7 @@ class AgentService:
             header_backend=hdrs.get(BACKEND_PIN_HEADER),
             cloud=self.config.cloud,
             source=source,
+            scenario=scenario,
         )
 
     def _attribute_source(self, headers: Mapping[str, str] | None) -> ResolvedSource:
@@ -667,6 +678,39 @@ class AgentService:
         if source is None or not source.model_rewrites:
             return model
         return source.model_rewrites.get(model, model)
+
+    def _classify_and_record_scenario(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        api_format: str,
+        source_id: str,
+        headers: Mapping[str, str],
+    ) -> Scenario:
+        """Classify this request's scenario (Phase 3) and count it.
+
+        Called once per proxy entry point, mirroring _attribute_source --
+        counting here (not per-attempt) keeps retries from inflating a
+        scenario's request count.
+        """
+        scenario = classify_scenario(
+            payload, api_format=api_format, user_agent=headers.get("user-agent", "")
+        )
+        key = (source_id, scenario)
+        self._scenario_counts[key] = self._scenario_counts.get(key, 0) + 1
+        SCENARIO_REQUESTS_TOTAL.labels(source=source_id, scenario=scenario).inc()
+        return scenario
+
+    @staticmethod
+    def _apply_scenario_model(
+        source: SourceConfig | None, scenario: Scenario, model: str
+    ) -> str:
+        if source is None:
+            return model
+        rule = source.scenarios.get(scenario)
+        if rule is not None and rule.model:
+            return rule.model
+        return model
 
     def _check_source_capacity(
         self, source_id: str, source: SourceConfig | None
@@ -840,10 +884,21 @@ class AgentService:
         requested_model = payload.get("model", "")
         resolved_source = self._attribute_source(hdrs)
         source_cfg = self._source_config(resolved_source.id)
+        scenario = self._classify_and_record_scenario(
+            payload,
+            api_format="openai",
+            source_id=resolved_source.id,
+            headers=hdrs,
+        )
         model = self._apply_source_model_rewrite(source_cfg, requested_model)
+        model = self._apply_scenario_model(source_cfg, scenario, model)
         self._reject_non_chat_model(model)
         routing = self._resolved_routing(
-            model, api_format="openai", headers=hdrs, source=source_cfg
+            model,
+            api_format="openai",
+            headers=hdrs,
+            source=source_cfg,
+            scenario=scenario,
         )
         self._check_source_capacity(resolved_source.id, source_cfg)
         shard = extract_shard_context(payload, hdrs)
@@ -933,10 +988,21 @@ class AgentService:
         requested_model = payload.get("model", "")
         resolved_source = self._attribute_source(hdrs)
         source_cfg = self._source_config(resolved_source.id)
+        scenario = self._classify_and_record_scenario(
+            payload,
+            api_format="openai",
+            source_id=resolved_source.id,
+            headers=hdrs,
+        )
         model = self._apply_source_model_rewrite(source_cfg, requested_model)
+        model = self._apply_scenario_model(source_cfg, scenario, model)
         self._reject_non_chat_model(model)
         routing = self._resolved_routing(
-            model, api_format="openai", headers=hdrs, source=source_cfg
+            model,
+            api_format="openai",
+            headers=hdrs,
+            source=source_cfg,
+            scenario=scenario,
         )
         self._check_source_capacity(resolved_source.id, source_cfg)
         shard = extract_shard_context(payload, hdrs)
@@ -1035,9 +1101,20 @@ class AgentService:
         requested_model = payload.get("model", "")
         resolved_source = self._attribute_source(hdrs)
         source_cfg = self._source_config(resolved_source.id)
+        scenario = self._classify_and_record_scenario(
+            payload,
+            api_format="openai",
+            source_id=resolved_source.id,
+            headers=hdrs,
+        )
         model = self._apply_source_model_rewrite(source_cfg, requested_model)
+        model = self._apply_scenario_model(source_cfg, scenario, model)
         routing = self._resolved_routing(
-            model, api_format="openai", headers=hdrs, source=source_cfg
+            model,
+            api_format="openai",
+            headers=hdrs,
+            source=source_cfg,
+            scenario=scenario,
         )
         self._check_source_capacity(resolved_source.id, source_cfg)
 
@@ -1454,13 +1531,24 @@ class AgentService:
         requested_model = payload.get("model", "")
         resolved_source = self._attribute_source(hdrs)
         source_cfg = self._source_config(resolved_source.id)
+        scenario = self._classify_and_record_scenario(
+            payload,
+            api_format="anthropic",
+            source_id=resolved_source.id,
+            headers=hdrs,
+        )
         model = self._apply_source_model_rewrite(source_cfg, requested_model)
+        model = self._apply_scenario_model(source_cfg, scenario, model)
         if model != requested_model:
             payload = {**payload, "model": model}
         self._reject_non_chat_messages_model(model)
         api_key = self._anthropic_api_key(hdrs)
         routing = self._resolved_routing(
-            model, api_format="anthropic", headers=hdrs, source=source_cfg
+            model,
+            api_format="anthropic",
+            headers=hdrs,
+            source=source_cfg,
+            scenario=scenario,
         )
         self._check_source_capacity(resolved_source.id, source_cfg)
 
@@ -1546,13 +1634,24 @@ class AgentService:
         requested_model = payload.get("model", "")
         resolved_source = self._attribute_source(hdrs)
         source_cfg = self._source_config(resolved_source.id)
+        scenario = self._classify_and_record_scenario(
+            payload,
+            api_format="anthropic",
+            source_id=resolved_source.id,
+            headers=hdrs,
+        )
         model = self._apply_source_model_rewrite(source_cfg, requested_model)
+        model = self._apply_scenario_model(source_cfg, scenario, model)
         if model != requested_model:
             payload = {**payload, "model": model}
         self._reject_non_chat_messages_model(model)
         api_key = self._anthropic_api_key(hdrs)
         routing = self._resolved_routing(
-            model, api_format="anthropic", headers=hdrs, source=source_cfg
+            model,
+            api_format="anthropic",
+            headers=hdrs,
+            source=source_cfg,
+            scenario=scenario,
         )
         self._check_source_capacity(resolved_source.id, source_cfg)
 

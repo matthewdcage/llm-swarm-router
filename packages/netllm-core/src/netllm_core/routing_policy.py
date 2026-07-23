@@ -67,17 +67,22 @@ def resolve_routing(
     header_backend: str | None = None,
     cloud: CloudConfig | None = None,
     source: SourceConfig | None = None,
+    scenario: str | None = None,
 ) -> ResolvedRouting:
     """Merge default routing config, optional policy match, optional
-    per-source overrides, and per-request header overrides.
+    per-source overrides, an optional per-scenario override, and
+    per-request header overrides.
 
     Precedence, highest wins (docs/cli-source-routing-plan.md Phase 0):
-    per-request headers > source defaults > routing.policies > [routing]
-    globals. `source` (the caller's resolved routing.sources entry, if
-    any) is applied AFTER the policy match specifically so a source can
-    override what a matching policy decided -- e.g. a source with
-    allow_cloud=True can still reach cloud even if a matching policy
-    would otherwise force it local-only, and vice versa.
+    per-request headers > source scenario rule > source defaults >
+    routing.policies > [routing] globals. `source` (the caller's resolved
+    routing.sources entry, if any) is applied AFTER the policy match
+    specifically so a source can override what a matching policy decided
+    -- e.g. a source with allow_cloud=True can still reach cloud even if
+    a matching policy would otherwise force it local-only, and vice
+    versa. `scenario` (netllm_core.scenarios.classify_scenario) then
+    looks up `source.scenarios[scenario]`, if present, and applies it on
+    top of the source's own defaults for this one request only.
 
     `cloud` (default CloudConfig(), i.e. today's behavior: enabled=True,
     fallback="cloud") gates the default cloud-allowed stance:
@@ -144,6 +149,18 @@ def resolve_routing(
             allow_cloud_inject = cloud_master_on
             if source.cloud_providers:
                 cloud_provider_allowlist = frozenset(source.cloud_providers)
+
+        rule = source.scenarios.get(scenario) if scenario else None
+        if rule is not None:
+            if rule.strategy is not None:
+                strategy = rule.strategy
+            if rule.local_only:
+                local_only = True
+                allow_cloud_inject = False
+                cloud_leads = False
+            elif rule.allow_cloud:
+                local_only = False
+                allow_cloud_inject = cloud_master_on
 
     if header_strategy:
         requested = header_strategy.strip().lower()
