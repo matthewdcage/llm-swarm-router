@@ -36,6 +36,16 @@ and key env vars the tools already set.
    `NetllmConfig` (same hot-apply path as everything else via
    `POST /netllm/v1/admin/config` → `apply_config`). Optional per-source
    `secret`/`secret_env` for callers that want the key to actually authenticate.
+6. **Attributive by default; enforced where it matters.** A bare `netllm-<source>`
+   key labels traffic without being checked — matches today's trust boundary
+   (loopback bind / `swarm.cluster_token`), keeps onboarding a two-env-var
+   change, and avoids a new silent-401 failure mode. But any source config that
+   grants elevated capability (`allow_cloud = true`, a cloud provider
+   allowlist, or a `max_concurrency` above the global default) **must** carry a
+   `secret`/`secret_env` once the agent binds beyond loopback — `apply_config`
+   rejects saving such a source without one on a LAN-bound agent, and
+   `netllm doctor` flags it if the bind changes after the fact. This bounds
+   spoofing to "cheaper local routing," never cloud-key or budget exposure.
 4. **Both surfaces, always.** Every feature lands on `/v1/chat/completions`,
    `/v1/embeddings`, and `/v1/messages` in the same phase — parity is a
    standing gate (the phase-1 routing-hardening lesson).
@@ -77,10 +87,18 @@ and key env vars the tools already set.
   surface identifies it (its OpenAI `Auto` mode already sends Chat Completions
   to non-openai.com hosts).
 
+- Enforcement gate: `apply_config`/`save_config_patch` reject a `[[sources]]`
+  entry with `allow_cloud=true`, a non-empty `cloud_providers` allowlist, or
+  `max_concurrency` above `routing.max_in_flight_per_backend` unless
+  `secret`/`secret_env` is set **and** `agent.listen` is not loopback-only;
+  same rule re-checked whenever the bind address changes.
+
 **Tests (must pass):** new `tests/test_source_identity.py` — header wins over
 key wins over UA; `netllm-local` → `default`; secret mismatch rejected only
-when a secret is configured; both surfaces attribute identically; hot-apply of
-a new `[[sources]]` entry takes effect without restart (pattern from
+when a secret is configured; elevated-capability source without a secret is
+rejected on a LAN-bound agent but accepted on loopback; both surfaces
+attribute identically; hot-apply of a new `[[sources]]` entry takes effect
+without restart (pattern from
 `tests/test_routing_hardening.py::test_apply_config_hot_syncs_pool`).
 **Gate:** `./scripts/ci.sh` green; `./netllm status` shows per-source rows on a
 live agent with two differently-keyed curl clients.
@@ -164,16 +182,16 @@ Runbook on the actual fleet (two-machine mesh minimum):
    `strategy = "local_spillover"` and a `max_concurrency` cap — verify
    spillover spreads across peers, the cap 429s cleanly above it, and
    attribution stays `buzz` on hop-forwarded requests.
-2. Verify per-source attribution across agent-hop forwards (source must be
+3. Verify per-source attribution across agent-hop forwards (source must be
    preserved on `_peer_forward_headers`, not re-heuristicked on the peer).
-3. `./netllm test --source <id>` smoke added to the diagnose path;
-   `./netllm doctor` warns on: unknown-source traffic volume, a configured
-   source with a secret but callers arriving unauthenticated, scenario rules
-   referencing models absent from the catalog.
-4. Soak: strategy correctness under `local_spillover` with per-source caps;
+4. `./netllm test --source <id>` smoke added to the diagnose path;
+   `./netllm doctor` warns on: unknown-source traffic volume, an
+   elevated-capability source missing a required secret on a LAN-bound agent,
+   scenario rules referencing models absent from the catalog.
+5. Soak: strategy correctness under `local_spillover` with per-source caps;
    confirm no throughput regression vs. baseline (`netllm test` latency
    before/after within noise).
-5. `scripts/verify-before-pr.sh` before each phase merge; release notes entry.
+6. `scripts/verify-before-pr.sh` before each phase merge; release notes entry.
 
 **Gate:** all four clients attributed correctly in status during a mixed run;
 doctor clean; soak shows no regression. Then update AGENTS.md Learned
