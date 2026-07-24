@@ -49,6 +49,11 @@ const state = {
   // AgentAPI.cloudProviderModels twin (GET /netllm/v1/cloud/providers/{id}/models).
   cloudCatalogs: {},
   cloudCatalogFetching: new Set(),
+  // Known-harness registry + live PATH detection, GET /netllm/v1/harnesses
+  // (docs/cli-source-routing-plan.md Phase 4c/4d). null on an older agent
+  // that predates the endpoint (404) -- the Sources tab section simply
+  // doesn't render, same graceful-degrade pattern as configSchema.
+  harnessRegistry: null,
 };
 
 function showToast(msg) {
@@ -327,6 +332,18 @@ async function loadConfigSchema() {
     state.configSchema = await api("/netllm/v1/config/schema");
   } catch {
     state.configSchema = null;
+  }
+}
+
+async function loadHarnessRegistry() {
+  // Detection state can change mid-session (user installs a CLI), so this
+  // is fetched every refresh cycle, not once-only like the static cloud
+  // provider registry.
+  try {
+    const result = await api("/netllm/v1/harnesses");
+    state.harnessRegistry = result.harnesses || [];
+  } catch {
+    state.harnessRegistry = null;
   }
 }
 
@@ -1871,6 +1888,20 @@ function renderSourcesTab() {
     )
   );
 
+  if (state.harnessRegistry) {
+    root.appendChild(textEl("div", "section-label", "Known harnesses"));
+    root.appendChild(
+      textEl(
+        "p",
+        "empty",
+        "Toggle a known harness on to register (or re-enable) it as a " +
+          "source. A not-detected harness never auto-installs — copy the " +
+          "install command and re-open this tab once it's on PATH."
+      )
+    );
+    state.harnessRegistry.forEach((h) => root.appendChild(renderHarnessCard(h)));
+  }
+
   const fields = state.configSchema?.sections?.routing?.fields || [];
   const byName = Object.fromEntries(fields.map((f) => [f.name, f]));
   const draft = state.configDraft.routing;
@@ -1885,6 +1916,70 @@ function renderSourcesTab() {
       })
     );
   }
+}
+
+function renderHarnessCard(h) {
+  const card = el("div", "card");
+  const header = el("div", "harness-row");
+  const identity = el("div", "harness-identity");
+  if (h.icon_url) {
+    const icon = document.createElement("img");
+    icon.src = h.icon_url;
+    icon.alt = "";
+    icon.className = "harness-icon";
+    identity.appendChild(icon);
+  }
+  identity.appendChild(textEl("div", "section-label", h.display_name));
+  header.appendChild(identity);
+  header.appendChild(
+    textEl("span", `badge ${h.detected ? "ok" : "warn"}`, h.detected ? "Detected" : "Not detected")
+  );
+  card.appendChild(header);
+
+  const toggleRow = el("label", "harness-row");
+  const toggleText = el("span");
+  toggleText.textContent = h.configured
+    ? h.enabled
+      ? "Enabled"
+      : "Disabled"
+    : "Not registered";
+  toggleRow.appendChild(toggleText);
+  const toggle = document.createElement("input");
+  toggle.type = "checkbox";
+  toggle.checked = h.enabled;
+  toggle.addEventListener("change", () => toggleHarness(h.id, toggle.checked));
+  toggleRow.appendChild(toggle);
+  card.appendChild(toggleRow);
+
+  if (!h.detected && h.install_hint) {
+    card.appendChild(textEl("p", "muted-sm", `Install: ${h.install_hint}`));
+  }
+  return card;
+}
+
+function toggleHarness(knownId, enabled) {
+  if (!state.configDraft.routing.sources) state.configDraft.routing.sources = [];
+  const sources = state.configDraft.routing.sources;
+  let row = sources.find((s) => s.known_id === knownId || s.id === knownId);
+  if (!row) {
+    row = { id: knownId, enabled: true, known_id: knownId };
+    sources.push(row);
+  }
+  row.enabled = enabled;
+
+  // Mirror into the fetched registry snapshot too -- renderHarnessCard
+  // reads state.harnessRegistry (server truth + live detection), not the
+  // draft, so without this the checkbox would revert to the pre-toggle
+  // state on the immediate re-render below, only catching up after the
+  // next Save + refresh cycle.
+  const known = state.harnessRegistry?.find((h) => h.id === knownId);
+  if (known) {
+    known.configured = true;
+    known.enabled = enabled;
+  }
+
+  markDirty();
+  if (state.tab === "sources") renderSourcesTab();
 }
 
 function renderCloudTab() {
@@ -2503,6 +2598,7 @@ async function refresh() {
     loadVersionInfo(),
     loadUpdateCheck(),
     loadConfigSchema(),
+    loadHarnessRegistry(),
   ]);
   render();
 }

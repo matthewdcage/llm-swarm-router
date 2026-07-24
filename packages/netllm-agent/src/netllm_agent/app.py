@@ -24,6 +24,7 @@ from netllm_agent.admin import (
     cloud_provider_registry_payload,
     config_summary,
     doctor_payload,
+    harness_registry_payload,
     logs_payload,
     peers_scan_payload,
     require_admin_access,
@@ -217,6 +218,15 @@ def create_app(
         admin.cloud_provider_registry_payload)."""
         require_admin_access(request, cfg)
         return {"providers": cloud_provider_registry_payload()}
+
+    @app.get("/netllm/v1/harnesses")
+    async def netllm_harnesses(request: Request) -> dict[str, Any]:
+        """Known-harness registry merged with configured routing.sources
+        state and live PATH detection (see admin.harness_registry_payload).
+        Additive endpoint -- does not change /netllm/v1/config or
+        /netllm/v1/status; an older client simply never calls this."""
+        require_admin_access(request, cfg)
+        return {"harnesses": harness_registry_payload(cfg)}
 
     @app.get("/netllm/v1/cloud/providers/{provider_id}/models")
     async def netllm_cloud_provider_models(

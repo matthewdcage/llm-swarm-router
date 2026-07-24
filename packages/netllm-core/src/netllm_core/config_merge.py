@@ -118,6 +118,7 @@ def _merge_sources(cfg: NetllmConfig, entries: list[Any]) -> list[dict[str, Any]
         merged_source: dict[str, Any] = prior.model_dump(mode="json") if prior else {}
         merged_source["id"] = source_id
         for field in (
+            "known_id",
             "enabled",
             "description",
             "secret_env",

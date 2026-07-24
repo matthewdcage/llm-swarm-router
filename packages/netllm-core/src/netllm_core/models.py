@@ -187,6 +187,10 @@ class SourceConfig(BaseModel):
     """
 
     id: str
+    # Links this row back to a netllm_core.known_harnesses.KnownHarness id
+    # for detection/badge purposes only (docs/cli-source-routing-plan.md
+    # Phase 4c) -- not read by identity resolution or routing.
+    known_id: str | None = None
     enabled: bool = True
     description: str = ""
     secret: str = Field(

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -30,6 +31,18 @@ final class SettingsViewModel {
     /// until the first successful fetch, or when the agent is unreachable;
     /// `cloudProviders` below falls back to Self.cloudProvidersBootstrap.
     var cloudProviderRegistry: [CloudProviderInfo] = []
+    /// Live known-harness registry from GET /netllm/v1/harnesses (see
+    /// AgentAPI.harnesses) — unlike cloudProviderRegistry this is
+    /// refetched every refreshLiveData() cycle, not once per session:
+    /// detection reflects whether a CLI is on PATH right now, which can
+    /// change mid-session as the user installs one.
+    var harnessRegistry: [HarnessInfo] = []
+    /// Rasterized harness icons, keyed by harness id, fetched once and
+    /// cached for the process lifetime (AgentAPI.harnessIcon) — the icon
+    /// set is effectively static, unlike detection state, so this is
+    /// loaded lazily on first render rather than every refreshLiveData().
+    var harnessIcons: [String: NSImage] = [:]
+    private var harnessIconFetchesInFlight: Set<String> = []
     /// UI intent for secured swarm; synced from config on reload, applied on save.
     var requireClusterToken = false
     /// Models tab filter/collapse state (docs/models-ux-plan.md B2).
@@ -308,12 +321,36 @@ final class SettingsViewModel {
                     cloudProviderRegistry = registry
                 }
             }
+            if let harnesses = await AgentAPI.harnesses(baseURL: agentBaseURL) {
+                harnessRegistry = harnesses
+            }
         } else {
             status = nil
             agentVersion = nil
             routedModels = []
         }
         bumpUI()
+    }
+
+    /// Kicks off a fetch for `harness.iconPath` if not already cached or
+    /// in flight; safe to call from every render pass (SwiftUI `.task` /
+    /// `.onAppear`) since it no-ops once loaded. Callers read
+    /// `harnessIcons[harness.id]` and fall back to a generic glyph while
+    /// nil.
+    func loadHarnessIconIfNeeded(_ harness: HarnessInfo) {
+        guard let path = harness.iconPath,
+              harnessIcons[harness.id] == nil,
+              !harnessIconFetchesInFlight.contains(harness.id)
+        else { return }
+        harnessIconFetchesInFlight.insert(harness.id)
+        let baseURL = agentBaseURL
+        Task { @MainActor in
+            defer { harnessIconFetchesInFlight.remove(harness.id) }
+            if let image = await AgentAPI.harnessIcon(baseURL: baseURL, path: path) {
+                harnessIcons[harness.id] = image
+                bumpUI()
+            }
+        }
     }
 
     private var swarmDiscoveryEnabled: Bool {

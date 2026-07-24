@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 enum AgentAPI {
@@ -130,6 +131,50 @@ enum AgentAPI {
         )
     }
 
+    /// Known-harness registry merged with configured routing.sources state
+    /// and live PATH detection (admin.harness_registry_payload,
+    /// docs/cli-source-routing-plan.md Phase 4c/4d). `nil` on an older
+    /// agent that predates this endpoint (404) or when unreachable — the
+    /// badge/quick-add UI simply doesn't render, same graceful-degrade
+    /// pattern as cloudProviderRegistry.
+    static func harnesses(baseURL: URL) async -> [HarnessInfo]? {
+        guard let json = await fetchJSON(baseURL: baseURL, path: "/netllm/v1/harnesses")
+        else {
+            return nil
+        }
+        let rows = json["harnesses"] as? [[String: Any]] ?? []
+        return rows.compactMap { row in
+            guard let id = row["id"] as? String else { return nil }
+            return HarnessInfo(
+                id: id,
+                displayName: row["display_name"] as? String ?? id,
+                configured: row["configured"] as? Bool ?? false,
+                enabled: row["enabled"] as? Bool ?? false,
+                detected: row["detected"] as? Bool ?? false,
+                installHint: row["install_hint"] as? String ?? "",
+                docsURL: row["docs_url"] as? String,
+                iconPath: row["icon_url"] as? String
+            )
+        }
+    }
+
+    /// Fetches one harness's SVG icon (served from the static mount, see
+    /// `harnesses` above) and rasterizes it via NSImage — macOS has
+    /// supported loading SVG data directly since Catalina. Callers should
+    /// cache the result (SettingsViewModel.harnessIcon) rather than
+    /// refetching every poll cycle; the icon set is effectively static.
+    static func harnessIcon(baseURL: URL, path: String) async -> NSImage? {
+        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        request.timeoutInterval = 5
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            return NSImage(data: data)
+        } catch {
+            return nil
+        }
+    }
+
     static func isReachable(baseURL: URL) async -> Bool {
         var request = URLRequest(url: baseURL.appendingPathComponent("/health"))
         request.timeoutInterval = 2
@@ -217,4 +262,20 @@ enum AgentAPI {
             return nil
         }
     }
+}
+
+/// One row from GET /netllm/v1/harnesses — a known harness (registry
+/// metadata) merged with this agent's routing.sources configuration state
+/// and live PATH detection. See AgentAPI.harnesses.
+struct HarnessInfo: Identifiable, Hashable {
+    var id: String
+    var displayName: String
+    var configured: Bool
+    var enabled: Bool
+    var detected: Bool
+    var installHint: String
+    var docsURL: String?
+    /// Server-relative path (e.g. "/ui/icons/harnesses/codex.svg") — fetch
+    /// via AgentAPI.harnessIcon and cache; see SettingsViewModel.harnessIcon.
+    var iconPath: String?
 }

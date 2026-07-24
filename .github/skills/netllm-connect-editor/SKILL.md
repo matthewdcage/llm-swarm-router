@@ -40,12 +40,30 @@ Load detailed per-editor steps from [references/editor-settings.md](references/e
    ```bash
    curl -sf http://127.0.0.1:11400/health && echo ok
    ./netllm models
+   curl -sf http://127.0.0.1:11400/netllm/v1/harnesses
    ```
-   Pick a model ID from output; note it for the user.
+   Pick a model ID from output; note it for the user. The last call 404s on
+   an agent older than the harness-detection feature — that's fine, just
+   fall back to step 3's static instructions unchanged.
 
 2. **Ask which editor**, Cursor, Claude Code, Codex, VS Code Copilot, or Honcho. If user already named one, skip.
 
 3. **Apply editor-specific config**, follow [references/editor-settings.md](references/editor-settings.md). Never auto-edit `settings.json` without explicit user consent; show copy-paste instructions instead.
+
+   If step 1's `/netllm/v1/harnesses` call succeeded, tailor this step with
+   the matching entry (match by id: `claude-code`, `codex`, `cursor`,
+   `gemini-cli`, `honcho`; Copilot has no registry entry, use the static
+   flow):
+   - `"detected": true, "enabled": false` (or no matching entry at all) —
+     the CLI is on PATH but not registered as a source. After finishing
+     the env wiring below, mention `./netllm sources toggle <id>` as an
+     optional way to give this harness its own durable routing/policy —
+     not required for basic connectivity.
+   - `"detected": false` — surface that harness's `install_hint` as a
+     copy-paste command. Never run it yourself; the user installs it, then
+     re-runs this skill to pick up the change.
+   - `"detected": true, "enabled": true` — already registered; nothing
+     extra to say here, proceed straight to env wiring.
 
 4. **Set shell env**, pick one API surface:
 

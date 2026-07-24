@@ -10,6 +10,8 @@ from typing import Any
 from fastapi import HTTPException, Request
 from netllm_core import config_merge
 from netllm_core.cloud_providers import CLOUD_PROVIDERS, get_provider_spec
+from netllm_core.harness_detection import detect as detect_harness
+from netllm_core.known_harnesses import KNOWN_HARNESSES
 from netllm_core.models import NetllmConfig, is_lan_listen, save_config
 from netllm_core.platform import local_admin_client_hosts
 
@@ -205,6 +207,40 @@ def cloud_provider_registry_payload() -> list[dict[str, Any]]:
         }
         for provider_id, spec in CLOUD_PROVIDERS.items()
     ]
+
+
+def harness_registry_payload(cfg: NetllmConfig) -> list[dict[str, Any]]:
+    """Known-harness registry merged with configured routing.sources state
+    and live PATH detection (docs/cli-source-routing-plan.md Phase 4c).
+
+    Purely computed on request -- touches no state, mutates no config.
+    `detected` never influences `enabled`: a source can be legitimately
+    enabled here while its CLI lives only on a peer machine or a remote
+    client (netllm's swarm/local_spillover model), so detection only
+    changes display, never routing.
+
+    `icon_url` follows a fixed convention -- `/ui/icons/harnesses/<id>.svg`,
+    served from the static mount -- so every KNOWN_HARNESSES entry needs a
+    matching file (see static/icons/harnesses/README.md for provenance);
+    there is no per-entry override in the registry.
+    """
+    configured_by_known_id = {s.known_id: s for s in cfg.routing.sources if s.known_id}
+    out = []
+    for known in KNOWN_HARNESSES:
+        source = configured_by_known_id.get(known.id)
+        out.append(
+            {
+                "id": known.id,
+                "display_name": known.display_name,
+                "configured": source is not None,
+                "enabled": source.enabled if source else False,
+                "detected": detect_harness(known),
+                "install_hint": known.install_hint,
+                "docs_url": known.docs_url,
+                "icon_url": f"/ui/icons/harnesses/{known.id}.svg",
+            }
+        )
+    return out
 
 
 def config_summary(cfg: NetllmConfig) -> dict[str, Any]:

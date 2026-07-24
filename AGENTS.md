@@ -74,6 +74,8 @@ Prefer `./netllm` from the repo root, works without global PATH (`uv run` wrappe
 | `./netllm cloud fallback <cloud\|local\|none\|on\|off>` | Cloud fallback direction / toggle |
 | `./netllm cloud connect openrouter` | OAuth PKCE sign-in (the only provider with sanctioned 3rd-party OAuth) |
 | `./netllm cloud test <id>` | Probe a cloud provider's reachability + model catalog |
+| `./netllm sources list` | Known harnesses (Claude Code, Codex, Gemini CLI, Cursor, Honcho, Buzz): PATH-detected, configured, enabled |
+| `./netllm sources toggle <id>` | Register (if new) and enable a source, or flip its `enabled` state — never auto-installs the CLI |
 | `./netllm drain [on\|off]` | Stop/resume receiving new swarm work (runtime-only, resets on restart) |
 | `./netllm config-edit` | Open `config.toml` in `$EDITOR` |
 | `./scripts/ci.sh` | Lint + test (same as CI) |

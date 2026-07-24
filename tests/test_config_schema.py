@@ -114,6 +114,7 @@ def test_sources_list_of_object_carries_item_schema() -> None:
     item_names = {f["name"] for f in routing_fields["sources"]["item_schema"]}
     assert item_names == {
         "id",
+        "known_id",
         "enabled",
         "description",
         "secret",

@@ -594,6 +594,7 @@ struct SettingsWindowView: View {
                     model.document.routing.sources.append(.object(["id": .string(""), "enabled": .bool(true)]))
                 }
             }
+            unregisteredHarnessesSection
             ForEach(model.document.routing.sources.indices, id: \.self) { index in
                 sourceEditor(index: index)
             }
@@ -692,6 +693,79 @@ struct SettingsWindowView: View {
     /// Those three stay editable via the dashboard (/ui/) or config.toml
     /// for now; excluding them here only skips rendering them — their
     /// existing values in the underlying JSONValue are left untouched.
+    /// Known harnesses with no matching routing.sources row yet (matched
+    /// by known_id — see admin.harness_registry_payload), each with a
+    /// one-click "Add & enable" button that appends a minimal source row
+    /// (same shape netllm_cli.main.sources_toggle / dashboard.js's
+    /// toggleHarness create when a harness is toggled on for the first
+    /// time). Empty when GET /netllm/v1/harnesses hasn't been fetched yet
+    /// (older agent, unreachable, or first load) — no section renders.
+    @ViewBuilder
+    private var unregisteredHarnessesSection: some View {
+        let unregistered = model.harnessRegistry.filter { !$0.configured }
+        if !unregistered.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(unregistered) { harness in
+                    HStack {
+                        harnessIconView(harness)
+                        Text(harness.displayName).font(.caption)
+                        harnessDetectionBadge(detected: harness.detected)
+                        Spacer()
+                        Button("Add & enable") {
+                            model.document.routing.sources.append(
+                                .object([
+                                    "id": .string(harness.id),
+                                    "enabled": .bool(true),
+                                    "known_id": .string(harness.id),
+                                ])
+                            )
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+            .padding(8)
+            .background(Color.gray.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+    }
+
+    @ViewBuilder
+    private func harnessDetectionBadge(detected: Bool) -> some View {
+        Text(detected ? "Detected" : "Not detected")
+            .font(.caption2.weight(.medium))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(detected ? Color.green.opacity(0.15) : Color.orange.opacity(0.15))
+            .foregroundStyle(detected ? .green : .orange)
+            .clipShape(Capsule())
+    }
+
+    /// Fetched lazily via `model.loadHarnessIconIfNeeded` (SVG from the
+    /// agent's static mount, see AgentAPI.harnessIcon) and cached for the
+    /// process lifetime. A plain colored circle behind it matches the
+    /// dashboard's white-chip treatment for the same reason: simple-icons
+    /// marks render solid black with no fill override.
+    @ViewBuilder
+    private func harnessIconView(_ harness: HarnessInfo) -> some View {
+        Group {
+            if let icon = model.harnessIcons[harness.id] {
+                Image(nsImage: icon)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .padding(2)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+            } else {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.gray.opacity(0.15))
+            }
+        }
+        .frame(width: 16, height: 16)
+        .task { model.loadHarnessIconIfNeeded(harness) }
+    }
+
     @ViewBuilder
     private func sourceEditor(index: Int) -> some View {
         let binding = safeSourceBinding(index)
@@ -701,10 +775,18 @@ struct SettingsWindowView: View {
             !["model_rewrites", "scenarios", "match"].contains($0.name)
         }
         let sourceId = binding.wrappedValue["id"]?.stringValue ?? ""
+        let knownId = binding.wrappedValue["known_id"]?.stringValue
+        let harness = knownId.flatMap { id in model.harnessRegistry.first { $0.id == id } }
         VStack(alignment: .leading, spacing: 6) {
             HStack {
+                if let harness {
+                    harnessIconView(harness)
+                }
                 Text(sourceId.isEmpty ? "(unnamed source)" : sourceId)
                     .font(.caption.weight(.medium))
+                if let harness {
+                    harnessDetectionBadge(detected: harness.detected)
+                }
                 Spacer()
                 Button(role: .destructive) {
                     guard model.document.routing.sources.indices.contains(index) else { return }

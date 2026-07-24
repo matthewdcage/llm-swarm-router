@@ -74,6 +74,24 @@ def test_source_secret_preserved_when_patch_omits_it() -> None:
     assert updated.routing.sources[0].enabled is False
 
 
+def test_source_known_id_set_on_new_row() -> None:
+    cfg = NetllmConfig()
+    patch = {
+        "routing": {"sources": [{"id": "codex", "enabled": True, "known_id": "codex"}]}
+    }
+    updated = apply_config_patch(cfg, patch)
+    assert updated.routing.sources[0].known_id == "codex"
+
+
+def test_source_known_id_preserved_when_patch_omits_it() -> None:
+    cfg = NetllmConfig()
+    cfg.routing.sources = [SourceConfig(id="codex", known_id="codex")]
+    patch = {"routing": {"sources": [{"id": "codex", "enabled": False}]}}
+    updated = apply_config_patch(cfg, patch)
+    assert updated.routing.sources[0].known_id == "codex"
+    assert updated.routing.sources[0].enabled is False
+
+
 def test_source_omitted_from_patch_is_deleted() -> None:
     cfg = NetllmConfig()
     cfg.routing.sources = [

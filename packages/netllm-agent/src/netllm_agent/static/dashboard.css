@@ -473,6 +473,33 @@ code {
   gap: 0.5rem;
 }
 
+.harness-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.harness-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.harness-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  padding: 3px;
+  border-radius: 5px;
+  /* simple-icons SVGs render solid black with no fill override; an <img>
+     can't be recolored via CSS currentColor like an inline SVG can, so a
+     fixed light chip keeps every mark visible against the dark theme. */
+  background: #ffffff;
+  box-sizing: content-box;
+}
+
 .banner {
   padding: 0.55rem 0.75rem;
   border-radius: 8px;
