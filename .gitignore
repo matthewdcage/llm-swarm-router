@@ -50,7 +50,12 @@ tests/test_coordinator_engagement_monitor.py
 .cursor/skills/coordinator-platform/
 .github/skills/coordinator-platform/
 .cursor/rules/pr-coordinator.mdc
-.cursor/hooks/
 .cursor/hooks.json
 .cursor/mcp.json
 .cursor/rules/graphify.mdc
+
+# Honcho hook per-machine session state (regenerated locally) — the hook
+# script itself (.cursor/hooks/honcho-init.py) IS shipped; only its state
+# subdir is per-machine.
+.cursor/hooks/state/*.json
+!.cursor/hooks/state/.gitkeep
