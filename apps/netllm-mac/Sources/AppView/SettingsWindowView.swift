@@ -42,7 +42,6 @@ struct SettingsWindowView: View {
                     feedbackBanner
                 }
                 .padding(20)
-                .id(model.uiRevision)
             }
             .frame(minWidth: 640, minHeight: 520)
             .toolbar {
@@ -339,7 +338,6 @@ struct SettingsWindowView: View {
                 placeholder: "http://10.0.0.32:11400",
                 defaultNew: "http://127.0.0.1:11400"
             )
-            .id("peers-tab-\(model.uiRevision)")
         }
     }
 
@@ -413,14 +411,12 @@ struct SettingsWindowView: View {
                     )
                 }
             }
-            .id("provider-urls-\(model.uiRevision)")
             sectionHeader("Custom endpoints")
             EditableStringList(
                 items: $model.document.discovery.stringArray("custom_endpoints"),
                 placeholder: "http://127.0.0.1:8080/v1",
                 defaultNew: "http://127.0.0.1:8080/v1"
             )
-            .id("endpoints-\(model.uiRevision)")
         }
     }
 
@@ -484,14 +480,12 @@ struct SettingsWindowView: View {
                 placeholder: "10.0.0.0/24",
                 defaultNew: "10.0.0.0/24"
             )
-            .id("cidrs-\(model.uiRevision)")
             sectionHeader("Static peers")
             EditableStringList(
                 items: $model.document.swarm.stringArray("peers"),
                 placeholder: "http://10.0.0.32:11400",
                 defaultNew: "http://127.0.0.1:11400"
             )
-            .id("swarm-peers-\(model.uiRevision)")
         }
     }
 

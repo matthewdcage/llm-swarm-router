@@ -14,7 +14,7 @@ struct ModelsTabView: View {
     @Bindable var model: SettingsViewModel
 
     // Filter/collapse state lives on the view model (not @State): the
-    // Settings detail view is keyed by `.id(uiRevision)`, which would
+    // Settings detail view used to be keyed by `.id(uiRevision)`, which would
     // reset view-local state on every 2-second live poll.
     private var searchText: String { model.modelsSearchText }
 

@@ -46,23 +46,37 @@ final class SettingsViewModel {
     /// UI intent for secured swarm; synced from config on reload, applied on save.
     var requireClusterToken = false
     /// Models tab filter/collapse state (docs/models-ux-plan.md B2).
-    /// Lives here, not in @State: the Settings detail view is keyed by
-    /// `.id(uiRevision)`, so view-local state would reset on every
-    /// 2-second live poll.
+    /// Lives here rather than in @State. This originally worked around the
+    /// detail view being keyed by `.id(uiRevision)` (removed — see the
+    /// uiRevision doc comment); it stays because a reload replaces
+    /// `document` wholesale and view-local state would still be surprising
+    /// to lose.
     var modelsSearchText = ""
     var modelsCollapsedGroups: Set<String> = []
-    /// Cloud tab per-provider drafts, keyed by provider id. Same
-    /// `.id(uiRevision)` constraint as above — these were @State in
-    /// CloudProviderCard, which the 2s live poll wiped mid-typing (the
-    /// "API key disappears" bug). Keychain is read once per provider per
-    /// session (nil draft = not loaded yet), also avoiding a Keychain
-    /// prompt per poll under ad-hoc signing.
+    /// Cloud tab per-provider drafts, keyed by provider id. These were
+    /// @State in CloudProviderCard, which the 2s live poll wiped mid-typing
+    /// (the "API key disappears" bug) back when the detail view was keyed by
+    /// `.id(uiRevision)`. Keychain is read once per provider per session
+    /// (nil draft = not loaded yet), which also avoids a Keychain prompt per
+    /// poll under ad-hoc signing — so this stays regardless.
     var cloudKeyDrafts: [String: String] = [:]
     var cloudKeyFeedback: [String: String] = [:]
     /// Fetched provider catalogs (AgentAPI.cloudProviderModels) and the
     /// in-flight marker for the fetch button.
     var cloudCatalogs: [String: CloudModelCatalog] = [:]
     var cloudCatalogFetching: Set<String> = []
+    /// Monotonic counter bumped on every live-data refresh.
+    ///
+    /// **Never key a view on this with `.id(uiRevision)`.** Changing a view's
+    /// identity makes SwiftUI discard and rebuild that subtree, which drops
+    /// first responder — so with the 2-second live poll, any TextField the
+    /// user had clicked into deselected itself within two seconds and the
+    /// Settings window was effectively uneditable. This type is `@Observable`,
+    /// so views already re-render when the properties they read change; the
+    /// identity key was redundant as well as harmful.
+    ///
+    /// Kept because callers still bump it as an explicit "something changed"
+    /// signal, and because the drafts below exist to survive it.
     private(set) var uiRevision = 0
 
     private var livePollTask: Task<Void, Never>?
