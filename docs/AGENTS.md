@@ -16,6 +16,7 @@ User-facing install, troubleshoot, editor wiring, platform matrix, CI/release, a
 | Learnings | `solutions/` |
 | SDK maintenance | `sdk-versions.md` |
 | Routing audit & hardening | `routing-hardening-plan.md` |
+| Architecture & audit | `architecture/` (diagrams, dependency map, findings register) |
 
 Parent rail: [../AGENTS.md](../AGENTS.md).
 
@@ -48,6 +49,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 
 | Path | Contract |
 |------|----------|
+| [`architecture/`](architecture/AGENTS.md) | Architecture reference + point-in-time audit; every claim carries `file:line` evidence |
 | [`release-notes/`](release-notes/) | Versioned release notes (no AGENTS.md — filenames are the index) |
 | [`solutions/`](solutions/) | Durable QA and workflow learnings |
 
