@@ -4,6 +4,28 @@ Plan drafted: 23/07/2026. Research grounding: [cli-routing-research.md](cli-rout
 Decision: build source identity natively in netllm (research Option A); document
 external-gateway chaining (Option B) as an escape hatch only.
 
+Status: **phases 0–5 delivered** (23–24/07/2026; each section below carries its own
+completion marker and struck-through bullets). Status line added 2026-07-29 after an
+architecture audit — see
+[architecture/08-feature-integration-status.md](architecture/08-feature-integration-status.md).
+
+**Still open, all recorded in the phase sections below:**
+
+| Gap | Where it was deferred |
+|-----|----------------------|
+| `x-netllm-scenario` **response header** — never built; no response-header precedent in the codebase and no consumer asked for it | Phase 3 |
+| **Live validation of scenario routing** — the original gate (Claude Code plan-mode traffic on a strong model, sub-agent traffic on a cheap one, observed via status counters) still needs a real session | Phase 3 → deferred to Phase 5, not closed |
+| Streaming **Anthropic Messages** path does not rewrite the model string inside SSE event bodies back to the requested name when a scenario rule changes it | Phases 2 and 3 |
+| macOS Settings excludes `model_rewrites` / `scenarios` / `match` (rendering them through `SchemaFormView`'s text fallback would overwrite structured values with strings) — users are directed to the dashboard or `config.toml` | Phase 4b, deliberate |
+
+**Audit note (2026-07-29).** The web dashboard *does* render all three excluded fields, because
+`renderSourcesTab()` feeds `routing.sources` through the generic schema renderer and
+`schemaListOfObjectsRow` descends into every field of the `SourceConfig` item schema
+(`dashboard.js:1361-1400`). So the Phase 4b caption pointing macOS users at the dashboard is
+accurate. What no surface shows is the **`scenario_requests` / `source_requests` counters** —
+they exist in `GET /netllm/v1/status` and in Prometheus, but nothing displays them, which is
+why Phase 3's validation gate is still hard to close.
+
 ## Problem statement
 
 Every CLI and harness pointed at netllm today is anonymous. The agent reads only

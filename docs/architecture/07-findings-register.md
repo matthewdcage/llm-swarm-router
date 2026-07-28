@@ -467,19 +467,27 @@ floors should encode what is *supported*, not what once worked.
 
 # S3 — maintenance, clarity, latent risk
 
-## F-17 · `require_same_model_for_shard` is dead, and the docs say otherwise
+## F-17 · `require_same_model_for_shard` is a dead field still shown in two UIs
 
 `RoutingConfig.require_same_model_for_shard` is documented in-code as *"Deprecated: only
 consumed by the removed batch planner"* (`models.py:272-273`) — yet it is still exported by
 `config_summary()` (`admin.py:277`), rendered in `dashboard.js`, modelled in
-`NetllmConfigDocument.swift`, and shown in `SettingsWindowView.swift`. Meanwhile
-`docs/routing-hardening-plan.md` claims it "is now actually wired into `plan_batch_shard`
-(was a fully-plumbed no-op toggle)" — the opposite of the truth after `plan_batch_shard` was
-deleted in Phase 2.
+`NetllmConfigDocument.swift`, and shown in `SettingsWindowView.swift`. A user can toggle a
+control that does nothing.
 
-**Fix.** Remove the field from all four surfaces (keep it accepted-and-ignored in the model
-for one release so old configs still load), and correct the plan doc so it stops asserting a
-removed behaviour.
+`docs/routing-hardening-plan.md` was **internally contradictory**, not simply wrong: the Phase 1
+"Implemented" bullet asserted the field "is now actually wired into `plan_batch_shard`", while
+the Phase 5 "Dead code removed" entry correctly recorded that `plan_batch_shard` was deleted and
+the field "is therefore a no-op again". The Phase 1 bullet was never struck through when Phase 5
+landed. `config.example.toml:53-54` and `packages/netllm-core/AGENTS.md` both already said
+deprecated.
+
+**Status.** The plan doc was corrected on 2026-07-29 (Phase 1 bullet struck through, pointing at
+the Phase 5 removal). The code-side removal is still open.
+
+**Fix (remaining).** Drop the field from `config_summary`, `dashboard.js`, and both Swift
+surfaces — keep it accepted-and-ignored in the pydantic model for one release so existing
+configs still load, then remove.
 
 ---
 

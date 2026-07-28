@@ -135,19 +135,19 @@ procedure — this is a credentials and release-process task, not engineering wo
 |------|--------------|------------------|
 | `routing-hardening-plan.md` Phases 1–3, 5 | done | ✅ genuinely implemented |
 | `routing-hardening-plan.md` Phase 4 — `model_groups` | "still future work" | ✅ accurate; `model_pools` shipped as the simpler half |
-| `routing-hardening-plan.md` — `require_same_model_for_shard` "now actually wired in" | claimed done | ❌ **stale**: the batch planner was deleted in Phase 2; the field is dead (F-17) |
+| `routing-hardening-plan.md` — `require_same_model_for_shard` | Phase 1 says "now actually wired in"; Phase 5 says the planner was deleted and the field "is a no-op again" | ⚠️ **self-contradictory** — the Phase 1 bullet was never struck through. `config.example.toml` and `packages/netllm-core/AGENTS.md` both correctly say deprecated. Fixed 2026-07-29 (F-17) |
 | `config-schema-rewrite-plan.md` Phases 1–5 | "done, with two scope limits" | ✅ accurate; the limits are real and still cost (F-21) |
 | `models-ux-plan.md` A + B1–B3 | delivered (macOS) | ✅ |
 | `models-ux-plan.md` B4, C | deferred | ✅ accurate |
 | `models-ux-plan.md` D — dashboard parity | not started | ✅ accurate |
-| `cloud-providers-plan.md` | "proposed" | ❌ **stale**: the feature is fully implemented across CLI, dashboard, and macOS app; the doc still says proposed |
-| `cli-source-routing-plan.md` Phases 0–4 | — | Engine complete; Phase 3 (scenarios) has **no UI on any surface** |
+| `cloud-providers-plan.md` | "proposed" | ❌ **stale**: all 7 phases are implemented across CLI, dashboard, and macOS app. Fixed 2026-07-29 |
+| `cli-source-routing-plan.md` Phases 0–5 | per-phase "(done)" markers, no top-level status | ✅ accurate per phase, including the Phase 4b macOS exclusion rationale. Two deferrals it records are still open: the `x-netllm-scenario` response header, and Phase 3's live-validation gate. Top-level status line added 2026-07-29 |
 
 ## Suggested product decisions
 
 | # | Decision needed | Why now |
 |---|-----------------|---------|
-| 1 | **Ship a UI for scenario routing and `model_rewrites`, or document them as advanced config-file features** | The most differentiated capability in the product is currently invisible. Either state is fine; the current silence is not. |
+| 1 | **Close the scenario-routing feedback loop** | Rules are configurable in the dashboard, but `scenario_requests` / `source_requests` are displayed nowhere, so nobody can tell whether a rule fires. Phase 3's own validation gate is still open. A counters panel is small work with high payoff on the product's most differentiated capability. |
 | 2 | **Decide whether the LAN swarm default is "open" or "secured"** | `--secure` does not secure inference (F-14). Pick one and make the flag mean it. |
 | 3 | **Retire the caller-key cloud inject** | It is a cross-tenant credential path (F-04) and a duplicate of the registry mechanism. |
 | 4 | **Surface drain in the dashboard and menubar** | Both offer "Restart Agent"; drain is the safe pre-restart step and only the CLI has it. |
