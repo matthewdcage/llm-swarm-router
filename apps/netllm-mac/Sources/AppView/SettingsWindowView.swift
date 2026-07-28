@@ -502,7 +502,6 @@ struct SettingsWindowView: View {
                 ForEach(SettingsViewModel.strategies, id: \.self) { Text($0).tag($0) }
             }
             Toggle("Allow remote backends", isOn: $model.document.routing.allow_remote)
-            Toggle("Require same model for batch shard", isOn: $model.document.routing.require_same_model_for_shard)
             sectionHeader("Load & health tuning")
             HStack {
                 Text("Max in-flight per backend")

@@ -253,7 +253,7 @@ class SwarmRegistry:
             return {"Authorization": f"Bearer {token}"}
         return {}
 
-    def all_peer_urls(self) -> list[dict[str, str]]:
+    def all_peer_urls(self) -> list[dict[str, Any]]:
         return [
             {
                 "agent_id": p.agent_id,

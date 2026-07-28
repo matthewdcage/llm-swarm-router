@@ -47,7 +47,6 @@ struct NetllmConfigDocument: Codable, Sendable {
     struct RoutingSection: Codable, Sendable {
         var default_strategy: String = "local_first"
         var allow_remote: Bool = true
-        var require_same_model_for_shard: Bool = true
         // Back-pressure cap applied by every strategy: selection prefers
         // backends with fewer than this many requests in flight. 0 = off.
         var max_in_flight_per_backend: Int = 0

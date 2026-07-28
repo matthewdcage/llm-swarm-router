@@ -17,8 +17,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 STATE_FILE = ".cursor/hooks/state/honcho-state.json"
 # Direct Honcho REST API (not the MCP proxy at :8787)
@@ -33,7 +32,7 @@ def main() -> None:
         pass
 
     today = datetime.now().strftime("%Y-%m-%d")
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     state = load_state(today, now_iso)
     user_peer: str = state["workspace"]["userPeerId"]
@@ -89,10 +88,11 @@ def main() -> None:
 
     lines += [
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        f"STARTUP CHECKLIST (honcho_rules.mdc):",
+        "STARTUP CHECKLIST (honcho_rules.mdc):",
         f"  [{'x' if not context_needed else ' '}] Peer context loaded for today",
-        f"  [ ] call get_peer_context(peer_id='Assistant', target_peer_id='{user_peer}') if load_context=True",
-        f"  [ ] call add_messages_to_session after each exchange",
+        "  [ ] call get_peer_context(peer_id='Assistant', "
+        f"target_peer_id='{user_peer}') if load_context=True",
+        "  [ ] call add_messages_to_session after each exchange",
         f"  [ ] schedule_dream when turns_to_dream reaches {threshold}",
     ]
 
@@ -101,16 +101,23 @@ def main() -> None:
     #   Cursor sessionStart  → reads "additional_context" (snake_case)
     #   Claude Code SessionStart → reads "additionalContext" (camelCase)
     # Unknown fields are ignored by each platform, so this is safe cross-platform.
-    print(json.dumps({
-        "additional_context": context_text,   # Cursor
-        "additionalContext": context_text,    # Claude Code
-    }))
+    print(
+        json.dumps(
+            {
+                "additional_context": context_text,  # Cursor
+                "additionalContext": context_text,  # Claude Code
+            }
+        )
+    )
 
 
 def load_state(today: str, now_iso: str) -> dict:
     default: dict = {
         "version": 1,
-        "_comment": "Honcho MCP agent state — managed by honcho_rules.mdc and .cursor/hooks/honcho-init.py.",
+        "_comment": (
+            "Honcho MCP agent state — managed by honcho_rules.mdc "
+            "and .cursor/hooks/honcho-init.py."
+        ),
         "workspace": {
             "id": WORKSPACE_ID,
             "baseUrl": "http://127.0.0.1:8787",
@@ -153,7 +160,7 @@ def load_state(today: str, now_iso: str) -> dict:
 
 def create_session_with_peers(
     session_id: str, user_peer: str, assistant_peer: str
-) -> Optional[str]:
+) -> str | None:
     """Create a Honcho session and add both peers.
 
     Returns None on success, an error string if the API is unreachable.
@@ -162,13 +169,21 @@ def create_session_with_peers(
     try:
         r = subprocess.run(
             [
-                "curl", "-sf", "-X", "POST",
+                "curl",
+                "-sf",
+                "-X",
+                "POST",
                 f"{HONCHO_API}/v3/workspaces/{WORKSPACE_ID}/sessions",
-                "-H", "Content-Type: application/json",
-                "-H", "Authorization: Bearer local-dev",
-                "-d", json.dumps({"id": session_id}),
-                "--connect-timeout", "3",
-                "--max-time", "5",
+                "-H",
+                "Content-Type: application/json",
+                "-H",
+                "Authorization: Bearer local-dev",
+                "-d",
+                json.dumps({"id": session_id}),
+                "--connect-timeout",
+                "3",
+                "--max-time",
+                "5",
             ],
             capture_output=True,
             text=True,
@@ -180,13 +195,21 @@ def create_session_with_peers(
         peers_body = {user_peer: {}, assistant_peer: {}}
         subprocess.run(
             [
-                "curl", "-s", "-X", "POST",
+                "curl",
+                "-s",
+                "-X",
+                "POST",
                 f"{HONCHO_API}/v3/workspaces/{WORKSPACE_ID}/sessions/{session_id}/peers",
-                "-H", "Content-Type: application/json",
-                "-H", "Authorization: Bearer local-dev",
-                "-d", json.dumps(peers_body),
-                "--connect-timeout", "3",
-                "--max-time", "5",
+                "-H",
+                "Content-Type: application/json",
+                "-H",
+                "Authorization: Bearer local-dev",
+                "-d",
+                json.dumps(peers_body),
+                "--connect-timeout",
+                "3",
+                "--max-time",
+                "5",
             ],
             capture_output=True,
             text=True,

@@ -12,10 +12,12 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "prometheus-client>=0.21",
     "httpx>=0.28",
+    # Host CPU/memory block in GET /netllm/v1/telemetry. Was imported
+    # behind try/except but never declared, so the block was null on every
+    # shipped install (audit F-10).
+    "psutil>=6.0",
 ]
 
-[project.optional-dependencies]
-mdns = []
 
 [build-system]
 requires = ["hatchling"]

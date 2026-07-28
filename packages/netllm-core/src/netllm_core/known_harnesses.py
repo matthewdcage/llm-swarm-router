@@ -13,10 +13,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-CUSTOM_SENTINEL_ID = "custom"
-"""Not a KNOWN_HARNESSES entry -- header/virtual-key wiring only, no
-detection. See SourceConfig / source_identity.resolve_source."""
-
 
 @dataclass(frozen=True)
 class KnownHarness:

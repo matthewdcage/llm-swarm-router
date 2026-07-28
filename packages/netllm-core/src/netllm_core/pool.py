@@ -237,9 +237,7 @@ class RouterPool:
         *,
         capacity: bool = False,
         status_code: int | None = None,
-        message: str | None = None,
     ) -> None:
-        _ = message
         if capacity:
             # Backend is healthy but full (busy reload, rate limit,
             # memory guard): steer this request elsewhere via the

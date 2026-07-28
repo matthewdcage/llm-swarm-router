@@ -50,7 +50,9 @@ rediscover_interval_s = 60.0
 # local_spillover: serve locally while idle, spill to least-loaded peer when busy.
 default_strategy = "local_first"
 allow_remote = true
-# Deprecated (kept for config compatibility; see routing-hardening-plan.md).
+# Deprecated and inert — its only consumer was removed as dead code. Kept so
+# existing configs still load; no longer shown in the dashboard or macOS
+# Settings. See routing-hardening-plan.md Phase 5.
 require_same_model_for_shard = true
 # Back-pressure cap applied by every strategy: selection prefers backends
 # with fewer than this many requests in flight. 0 disables. Applies
@@ -74,6 +76,10 @@ spillover_max_local_in_flight = 2
 health_ttl_s = 30.0
 offline_retry_s = 10.0
 max_backend_failures = 3
+# Upstream HTTP timeouts (seconds). The read timeout bounds one generation:
+# raise it if a large local model on slow hardware gets cut off mid-response.
+upstream_connect_timeout_s = 5.0
+upstream_read_timeout_s = 120.0
 
 # Per-request overrides (any client, no config change needed):
 #   x-netllm-strategy: round_robin        # one-off strategy override

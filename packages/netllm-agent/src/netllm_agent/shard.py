@@ -31,6 +31,10 @@ class BatchRequestLedger:
     """
 
     assignments: dict[tuple[str, int], str] = field(default_factory=dict)
+    # Shards this ledger has seen succeed. Read by `reassign_failed` so a
+    # shard that already completed is never moved to another backend —
+    # previously written by mark_done and never read anywhere, which made a
+    # succeeded shard indistinguishable from an unattempted one (audit F-18).
     completed: set[tuple[str, int]] = field(default_factory=set)
 
     def _evict_if_full(self) -> None:
@@ -61,6 +65,10 @@ class BatchRequestLedger:
         *,
         current_url: str,
     ) -> str | None:
+        if (batch_id, index) in self.completed:
+            # Already succeeded on some backend — a later failure in the same
+            # batch must not re-dispatch this shard's work elsewhere.
+            return None
         urls = [b.base_url for b in backends if b.enabled]
         if not urls:
             return None

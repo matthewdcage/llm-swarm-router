@@ -204,3 +204,15 @@ async def test_close_flushes_pending_alltime_stats(tmp_path: Path) -> None:
 
     persisted = json.loads(stats.read_text())
     assert persisted["requests"] == 6
+
+
+# --- F-10: psutil is a declared dependency, so the host block is real ------
+
+
+def test_host_block_is_populated() -> None:
+    """_host_block imported psutil behind try/except but nothing declared it,
+    so GET /netllm/v1/telemetry returned host: null on every shipped install
+    — the web dashboard on Linux/Windows silently lost the feature."""
+    block = TelemetryService._host_block()
+    assert block is not None, "psutil must be a declared dependency of netllm-agent"
+    assert set(block) >= {"cpu_percent", "memory_used_gb", "memory_total_gb"}

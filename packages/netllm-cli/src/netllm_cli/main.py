@@ -999,7 +999,9 @@ def serve(
                 if stop_netllm_on_port(conflict.port):
                     port_cleared = check_listen_port(cfg) is None
                     if not port_cleared:
-                        conflict = check_listen_port(cfg)
+                        still = check_listen_port(cfg)
+                        if still is not None:
+                            conflict = still
                         print_error(
                             "Could not free port",
                             format_port_conflict_message(conflict),
@@ -1359,11 +1361,8 @@ async def _test_anthropic_agent(cfg: NetllmConfig, *, model: str | None) -> None
             )
             raise typer.Exit(1)
     except httpx.HTTPError as exc:
-        print_error(
-            "Agent unreachable",
-            str(exc),
-            hints=[agent_unreachable_message(base)],
-        )
+        msg, hints = agent_unreachable_message(base, exc)
+        print_error("Agent unreachable", msg, hints=hints)
         raise typer.Exit(1) from exc
 
 

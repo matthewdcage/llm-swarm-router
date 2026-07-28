@@ -296,7 +296,6 @@ function emptyConfigDraft() {
     routing: schemaSectionDefaults(state.configSchema, "routing", {
       default_strategy: "local_first",
       allow_remote: true,
-      require_same_model_for_shard: true,
       backends: [],
       policies: [],
     }),
@@ -1768,7 +1767,6 @@ function renderRoutingTab() {
   [
     "default_strategy",
     "allow_remote",
-    "require_same_model_for_shard",
     "max_in_flight_per_backend",
     "follow_gateway",
     "spillover_max_local_in_flight",

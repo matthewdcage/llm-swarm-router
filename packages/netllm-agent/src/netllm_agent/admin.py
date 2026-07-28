@@ -300,7 +300,6 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
         "routing": {
             "default_strategy": cfg.routing.default_strategy,
             "allow_remote": cfg.routing.allow_remote,
-            "require_same_model_for_shard": cfg.routing.require_same_model_for_shard,
             "spillover_max_local_in_flight": (
                 cfg.routing.spillover_max_local_in_flight
             ),

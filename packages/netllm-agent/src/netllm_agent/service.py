@@ -506,7 +506,6 @@ class AgentService:
             backend,
             capacity=is_capacity_error(getattr(exc, "status_code", None), str(exc)),
             status_code=getattr(exc, "status_code", None),
-            message=str(exc),
         )
 
     @staticmethod
@@ -693,6 +692,8 @@ class AgentService:
                 backend.base_url,
                 api_key=api_key,
                 default_headers=fwd,
+                connect_timeout=self.config.routing.upstream_connect_timeout_s,
+                read_timeout=self.config.routing.upstream_read_timeout_s,
             )
         cache_key = (
             backend.base_url,
@@ -707,6 +708,8 @@ class AgentService:
                 backend.base_url,
                 api_key=api_key,
                 default_headers=fwd,
+                connect_timeout=self.config.routing.upstream_connect_timeout_s,
+                read_timeout=self.config.routing.upstream_read_timeout_s,
             )
             self._upstream_cache[cache_key] = client
         return client
@@ -1969,6 +1972,8 @@ class AgentService:
                 base_url=backend.base_url,
                 default_headers=self._anthropic_default_headers(headers),
                 auth_mode=backend.auth_mode,
+                connect_timeout=self.config.routing.upstream_connect_timeout_s,
+                read_timeout=self.config.routing.upstream_read_timeout_s,
             )
             return await client.messages_create(payload)
         oai_payload = anthropic_to_openai_request(payload)
@@ -1996,6 +2001,8 @@ class AgentService:
                 base_url=backend.base_url,
                 default_headers=self._anthropic_default_headers(headers),
                 auth_mode=backend.auth_mode,
+                connect_timeout=self.config.routing.upstream_connect_timeout_s,
+                read_timeout=self.config.routing.upstream_read_timeout_s,
             )
             async for chunk in client.messages_stream(payload):
                 yield chunk

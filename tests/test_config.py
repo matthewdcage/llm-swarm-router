@@ -58,3 +58,16 @@ def test_lan_mesh_defaults_do_not_re_enable_subnet_scan_after_first_apply() -> N
     cfg.swarm.subnet_scan = False
     assert ensure_lan_mesh_defaults(cfg) is False
     assert cfg.swarm.subnet_scan is False, "explicit user choice must stick"
+
+
+def test_upstream_timeouts_are_configurable() -> None:
+    """The 120 s read timeout was hardcoded in both SDK adapters, so a long
+    generation on slow hardware was cut off with no way to raise it (F-20)."""
+    cfg = NetllmConfig()
+    assert cfg.routing.upstream_connect_timeout_s == 5.0
+    assert cfg.routing.upstream_read_timeout_s == 120.0
+
+    loaded = NetllmConfig.model_validate(
+        {"routing": {"upstream_read_timeout_s": 600.0}}
+    )
+    assert loaded.routing.upstream_read_timeout_s == 600.0

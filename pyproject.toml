@@ -11,9 +11,6 @@ dependencies = [
 [project.scripts]
 netllm = "netllm_cli.main:app"
 
-[project.optional-dependencies]
-# Deprecated alias — zeroconf ships with netllm-discovery by default.
-mdns = []
 
 [build-system]
 requires = ["hatchling"]
@@ -80,3 +77,16 @@ select = ["E", "F", "I", "UP"]
 [tool.basedpyright]
 pythonVersion = "3.11"
 typeCheckingMode = "standard"
+# Scope to first-party source. Without this it also walks .venv and
+# packaging/_export (which contains a vendored CPython stdlib), producing
+# ~26k findings that say nothing about this codebase.
+include = ["packages", "tests", "scripts", "src"]
+exclude = [
+    "**/.venv",
+    "**/node_modules",
+    "**/__pycache__",
+    "packaging/_build",
+    "packaging/_export",
+    "apps/netllm-mac/.build",
+    "apps/netllm-mac/build",
+]

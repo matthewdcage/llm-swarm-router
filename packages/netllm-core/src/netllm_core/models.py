@@ -268,8 +268,12 @@ class RoutingConfig(BaseModel):
     # else balances by live in-flight load (least_load).
     default_strategy: RoutingStrategy = "local_first"
     allow_remote: bool = True
-    # Deprecated: only consumed by the removed batch planner. Kept so
-    # existing configs load; slated for the model_groups feature.
+    # Deprecated and inert. Its only consumer, plan_batch_shard, was deleted
+    # as dead code (routing-hardening-plan.md Phase 5); the semantics move to
+    # the planned model_groups feature. Kept ONLY so existing config.toml
+    # files still load — removed from config_summary, the dashboard and macOS
+    # Settings in 0.4.6 so nobody can toggle something that does nothing
+    # (audit F-17). Drop the field entirely one release after that.
     require_same_model_for_shard: bool = True
     # Back-pressure cap applied by every strategy: selection prefers
     # backends with fewer than this many requests in flight. 0 = off.
@@ -289,6 +293,12 @@ class RoutingConfig(BaseModel):
     # waiting out the full health TTL (faster recovery from blips).
     offline_retry_s: float = Field(default=10.0, gt=0.0)
     max_backend_failures: int = Field(default=3, ge=1)
+    # Upstream HTTP timeouts, in seconds. The read timeout bounds a single
+    # generation: a large local model on slow hardware can exceed the old
+    # hardcoded 120 s, and there was no way to raise it without editing
+    # source (audit F-20).
+    upstream_connect_timeout_s: float = Field(default=5.0, gt=0.0)
+    upstream_read_timeout_s: float = Field(default=120.0, gt=0.0)
     # Set once ensure_lan_mesh_defaults() has upgraded a LAN-bound
     # config; prevents re-overriding an explicit user strategy choice.
     lan_defaults_applied: bool = Field(
