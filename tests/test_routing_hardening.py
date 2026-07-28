@@ -118,9 +118,9 @@ def test_offline_backend_reprobes_after_retry_window(mock_probe: object) -> None
     assert mock_probe.call_count == 1
 
 
-@patch("netllm_core.pool.probe_openai_compat_sync")
+@patch("netllm_core.pool.probe_agent_health_sync")
 def test_failed_probe_keeps_last_known_models(mock_probe: object) -> None:
-    mock_probe.return_value = {"status": "offline", "models": [], "model_count": 0}
+    mock_probe.return_value = {"status": "offline", "detail": "Connection refused"}
     pool = RouterPool()
     b = _peer("remote")
     pool.set_backends([b])

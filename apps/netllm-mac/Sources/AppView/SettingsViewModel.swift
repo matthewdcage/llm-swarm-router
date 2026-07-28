@@ -308,7 +308,8 @@ final class SettingsViewModel {
             async let statusTask = AgentAPI.status(
                 baseURL: agentBaseURL,
                 forceScan: forceStatusRefresh,
-                forceProbe: forceStatusRefresh
+                forceProbe: forceStatusRefresh,
+                forceProbePeers: forceStatusRefresh
             )
             async let versionTask = AgentAPI.version(baseURL: agentBaseURL)
             async let modelsTask = AgentAPI.models(baseURL: agentBaseURL)

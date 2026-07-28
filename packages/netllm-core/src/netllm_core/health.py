@@ -81,6 +81,41 @@ async def probe_openai_compat(
         return status_from_exception(exc, timeout_s)
 
 
+def agent_root_from_base_url(listen_or_v1_base: str) -> str:
+    """Peer pool rows use ``{listen}/v1``; agent liveness is ``{listen}/health``."""
+    url = listen_or_v1_base.rstrip("/")
+    if url.endswith("/v1"):
+        return url[:-3]
+    return url
+
+
+def probe_agent_health_sync(
+    listen_or_v1_base: str,
+    *,
+    timeout_s: float = DEFAULT_TIMEOUT,
+) -> dict[str, Any]:
+    """GET ``/health`` on a netllm agent — reachability only (no model catalog)."""
+    health_url = agent_root_from_base_url(listen_or_v1_base).rstrip("/") + "/health"
+    try:
+        resp = _shared_sync_client().get(health_url, timeout=timeout_s)
+        if resp.status_code == 200:
+            return {
+                "status": "online",
+                "http_status": resp.status_code,
+                "model_count": 0,
+                "models": [],
+            }
+        return {
+            "status": "error",
+            "http_status": resp.status_code,
+            "detail": resp.text[:200],
+            "model_count": 0,
+            "models": [],
+        }
+    except Exception as exc:
+        return status_from_exception(exc, timeout_s)
+
+
 def probe_openai_compat_sync(
     base_url: str,
     *,

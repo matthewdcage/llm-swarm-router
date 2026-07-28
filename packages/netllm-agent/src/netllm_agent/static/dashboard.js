@@ -203,8 +203,11 @@ function servingScopeBlock(title, scope) {
   return card;
 }
 
-async function loadCore() {
-  const status = await api("/netllm/v1/status");
+async function loadCore(deepStatus = false) {
+  const statusPath = deepStatus
+    ? "/netllm/v1/status?probe=1&probe_peers=1&scan=1"
+    : "/netllm/v1/status";
+  const status = await api(statusPath);
   state.status = status;
   updateOmlxAdminLink();
   const [models, env] = await Promise.all([
@@ -2594,7 +2597,7 @@ async function runPeersScan(save) {
 async function refresh() {
   await loadHealth();
   await Promise.all([
-    loadCore(),
+    loadCore(true),
     loadVersionInfo(),
     loadUpdateCheck(),
     loadConfigSchema(),

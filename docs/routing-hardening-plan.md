@@ -330,3 +330,31 @@ pressure by "nothing". Causes found:
    `round_robin` to spread, or keep `local_spillover` for busy-only spill.
 5. Sleep/wake the second machine: it should reappear within
    `rediscover_interval_s` (60 s default) without restarting anything.
+
+## Phase 7 — peer reachability and hop failure accounting (2026-07-29)
+
+Field diagnosis (Mac mini gateway + Linux Ollama peer): merged catalogs
+showed Linux Ollama models while `peer:<id>` stayed **offline** with
+null `http_status`/`detail` — the signature of `mark_failure` offline
+trips, not refused TCP probes. Pinned `x-netllm-backend: peer:<id>`
+still worked because pins bypass `is_healthy`.
+
+Implemented:
+
+- **Lightweight peer probes** (`health.probe_agent_health_sync`):
+  `peer:` rows use `GET {listen}/health`; heartbeat catalogs are
+  preserved (no aggregated `/v1/models` on the peer agent during
+  reachability checks).
+- **Safer hop accounting**: `mark_failure` ignores 400/404 on `peer:`
+  rows; capacity classification unchanged.
+- **Explicit recovery**: `GET /netllm/v1/status?probe_peers=1`,
+  doctor payload, macOS Settings Refresh, and dashboard **Refresh**
+  force peer reachability probes; default status polls stay cache-fast
+  (PR #34).
+- **Metrics**: `_update_health_metrics` uses `cached_peer_online` for
+  peer rows (no probe on every request completion).
+
+Verify: trip a peer offline via hard failures, confirm
+`?probe_peers=1` recovers; confirm unpinned routing resumes without
+restart when heartbeats are fresh and `curl http://<peer>:11400/health`
+succeeds from the gateway.
