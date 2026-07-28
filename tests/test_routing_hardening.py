@@ -495,3 +495,51 @@ def test_follow_gateway_adopts_strategy() -> None:
     service3 = AgentService(cfg3)
     service3._maybe_follow_gateway({"role": "gateway", "routing_strategy": "auto"})
     assert service3.config.routing.default_strategy == "least_load"
+
+
+# --- F-03: observers must never trigger a synchronous probe -----------------
+
+
+def test_update_health_metrics_never_probes() -> None:
+    """_update_health_metrics runs from refresh_local_backends (i.e. on every
+    proxied request) and again in the finally of every attempt. Calling
+    is_healthy() there issued blocking sync HTTP probes on the event loop
+    whenever a cache entry was stale, stalling every concurrent request — and
+    refreshed the cache as a side effect, so any_health_stale() was almost
+    always False by the time selection ran and _offload_if_probing never
+    fired."""
+    from netllm_agent.service import AgentService
+
+    cfg = NetllmConfig()
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    service = AgentService(cfg)
+    service.pool.set_backends([_local(), _peer()])
+
+    with patch("netllm_core.pool.probe_openai_compat_sync") as probe_oai:
+        with patch("netllm_core.pool.probe_agent_health_sync") as probe_peer:
+            with patch("netllm_core.pool.probe_anthropic_compat_sync") as probe_ant:
+                service._update_health_metrics()
+
+    probe_oai.assert_not_called()
+    probe_peer.assert_not_called()
+    probe_ant.assert_not_called()
+
+
+def test_cached_online_defaults_to_optimistic_for_unprobed_backend() -> None:
+    """An unprobed row must not be reported down before anything has tried
+    it — the same optimistic default is_healthy() starts from."""
+    pool = RouterPool()
+    backend = _local()
+    pool.set_backends([backend])
+    assert pool.cached_online(backend) is True
+
+
+def test_cached_online_reports_the_pools_current_belief() -> None:
+    pool = RouterPool(max_failures=1)
+    backend = _local()
+    pool.set_backends([backend])
+    pool.mark_failure(backend)
+    assert pool.cached_online(backend) is False
+    pool.mark_success(backend)
+    assert pool.cached_online(backend) is True

@@ -198,7 +198,10 @@ def create_app(
     async def netllm_doctor(request: Request) -> dict[str, Any]:
         require_admin_access(request, cfg)
         await service.refresh_local_backends()
-        return doctor_payload(cfg, service)
+        # doctor_payload force-probes every local backend and all peers, so
+        # it must not run on the event loop — same treatment netllm_status
+        # gives its probe pass.
+        return await asyncio.to_thread(doctor_payload, cfg, service)
 
     @app.get("/netllm/v1/version")
     async def netllm_version(request: Request) -> dict[str, Any]:

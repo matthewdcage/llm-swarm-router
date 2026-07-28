@@ -167,3 +167,40 @@ async def test_probe_omlx_telemetry_parses_admin() -> None:
     assert stats["session"]["total_requests"] == 12
     assert stats["alltime"]["total_requests"] == 25600
     assert stats["live"]["generation_tps"] == 45.2
+
+
+# --- F-09: all-time counters must not hit the disk on every request --------
+
+
+def test_alltime_stats_write_is_debounced(tmp_path: Path) -> None:
+    """record_usage used to mkdir + json.dumps + write_text on the event loop
+    once per proxied request."""
+    stats = tmp_path / "stats.json"
+    service = TelemetryService(stats_path=stats)
+
+    service.record_usage(prompt_tokens=1, completion_tokens=1)
+    assert stats.is_file(), "the first record should persist immediately"
+    first = stats.stat().st_mtime_ns
+
+    for _ in range(50):
+        service.record_usage(prompt_tokens=1, completion_tokens=1)
+
+    assert stats.stat().st_mtime_ns == first, (
+        "subsequent records within the debounce window must not rewrite the file"
+    )
+    # In-memory counters still advance for the live telemetry payload.
+    assert service._alltime.requests == 51
+
+
+async def test_close_flushes_pending_alltime_stats(tmp_path: Path) -> None:
+    """A clean shutdown must not lose whatever the debounce is holding."""
+    stats = tmp_path / "stats.json"
+    service = TelemetryService(stats_path=stats)
+    service.record_usage(prompt_tokens=1)
+    for _ in range(5):
+        service.record_usage(prompt_tokens=1)
+
+    await service.close()
+
+    persisted = json.loads(stats.read_text())
+    assert persisted["requests"] == 6
