@@ -542,23 +542,28 @@ def is_lan_listen(listen: str) -> bool:
 def ensure_lan_mesh_defaults(cfg: NetllmConfig) -> bool:
     """Apply mesh routing/discovery defaults for LAN bind; never mints tokens.
 
-    The strategy upgrade is one-shot (tracked via
-    routing.lan_defaults_applied): after the first upgrade, an explicit
-    user choice of local_first is respected instead of being silently
-    rewritten on every load/save.
+    The whole upgrade is one-shot (tracked via
+    routing.lan_defaults_applied): after the first application, an explicit
+    user choice of local_first — or of subnet_scan = false — is respected
+    instead of being silently rewritten on every load/save.
+
+    subnet_scan used to be re-forced on *every* call, outside the one-shot
+    gate. Because this runs on the CLI/macOS save path, turning subnet_scan
+    off in macOS Settings on a LAN-bound agent was undone by the very save
+    that turned it off. Both defaults now sit behind the same flag, which is
+    also what makes it safe to run this on every write path
+    (netllm_core.config_guards.apply_config_guards).
     """
     if not is_lan_listen(cfg.agent.listen):
         return False
-    changed = False
-    if not cfg.routing.lan_defaults_applied:
-        if cfg.routing.default_strategy == "local_first":
-            cfg.routing.default_strategy = "local_spillover"
-        cfg.routing.lan_defaults_applied = True
-        changed = True
+    if cfg.routing.lan_defaults_applied:
+        return False
+    if cfg.routing.default_strategy == "local_first":
+        cfg.routing.default_strategy = "local_spillover"
     if not cfg.swarm.subnet_scan:
         cfg.swarm.subnet_scan = True
-        changed = True
-    return changed
+    cfg.routing.lan_defaults_applied = True
+    return True
 
 
 def load_config(path: Path | None = None) -> NetllmConfig:

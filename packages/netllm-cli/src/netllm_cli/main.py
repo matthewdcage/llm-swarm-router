@@ -1683,7 +1683,18 @@ def config_import_cmd(
     config: Path | None = typer.Option(None, "--config"),
 ) -> None:
     """Read JSON from stdin and save to config.toml."""
-    read_import(_config_path_option(config))
+    from netllm_core.config_guards import ConfigGuardError
+
+    try:
+        read_import(_config_path_option(config))
+    except ConfigGuardError as exc:
+        # stdout is the machine-readable channel here (the macOS Settings
+        # app parses {"path": ...} from it), so a rejected save must report
+        # on stderr and exit non-zero -- that is what CLIRunner surfaces as
+        # the user-visible error in the app, and it mirrors the dashboard's
+        # HTTP 400 for the same config.
+        print(f"config import rejected: {exc}", file=sys.stderr)
+        raise typer.Exit(1) from exc
 
 
 cloud_app = typer.Typer(help="Manage pre-configured cloud providers.")

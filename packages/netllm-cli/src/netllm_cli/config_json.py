@@ -7,8 +7,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from netllm_core.config_guards import apply_config_guards
 from netllm_core.config_merge import apply_config_patch
-from netllm_core.models import ensure_lan_mesh_defaults, load_config, save_config
+from netllm_core.models import load_config, save_config
 
 
 def export_config(path: Path | None = None) -> dict[str, Any]:
@@ -21,10 +22,15 @@ def import_config(data: dict[str, Any], path: Path | None = None) -> Path:
     # settings UI round-trips only the fields its Swift structs model,
     # so a straight replace would silently drop everything else. Merge
     # mechanics (what "omitted from the patch" means per field) live in
-    # netllm_core.config_merge, shared with the dashboard's save path --
-    # see docs/config-guards-audit.md.
+    # netllm_core.config_merge, and the post-merge guards in
+    # netllm_core.config_guards -- both shared with the dashboard's save
+    # path so the two writers cannot diverge on what they enforce. See
+    # docs/config-guards-audit.md and docs/architecture/07-findings-register.md
+    # F-02 (this path previously skipped the guards entirely).
+    from netllm_discovery.lan import own_agent_urls
+
     cfg = apply_config_patch(load_config(path), data)
-    ensure_lan_mesh_defaults(cfg)
+    apply_config_guards(cfg, own_agent_urls=own_agent_urls(cfg.agent.listen))
     return save_config(cfg, path)
 
 

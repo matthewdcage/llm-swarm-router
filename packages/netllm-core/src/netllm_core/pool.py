@@ -138,6 +138,11 @@ class RouterPool:
                 existing.local = b.local
                 existing.agent_id = b.agent_id
                 existing.health = b.health
+                # Config-sourced knobs must land on the live row too, or a
+                # hot-applied edit silently waits for a restart while the
+                # dashboard reports the save succeeded.
+                existing.max_concurrency = b.max_concurrency
+                existing.cloud_provider = b.cloud_provider
                 continue
             by_url[b.base_url] = b
         self._backends = list(by_url.values())

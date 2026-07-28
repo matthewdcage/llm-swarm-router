@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException, Request
-from netllm_core import config_merge
+from netllm_core import config_guards, config_merge
 from netllm_core.cloud_providers import CLOUD_PROVIDERS, get_provider_spec
 from netllm_core.harness_detection import detect as detect_harness
 from netllm_core.known_harnesses import KNOWN_HARNESSES
@@ -315,52 +315,25 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
 
 
 def apply_config_patch(cfg: NetllmConfig, patch: dict[str, Any]) -> NetllmConfig:
-    """Merge dashboard-editable config sections, apply dashboard-specific
-    post-merge checks (own-peer filtering, elevated-source secret
-    enforcement), and validate. Merge mechanics themselves live in
-    netllm_core.config_merge, shared with the CLI/macOS save path -- see
-    docs/config-guards-audit.md.
+    """Merge dashboard-editable config sections, apply the shared write-path
+    guards, and validate.
+
+    Merge mechanics live in netllm_core.config_merge and the guards in
+    netllm_core.config_guards -- both shared with the CLI/macOS save path
+    (netllm_cli.config_json.import_config) so the two writers can no longer
+    diverge on what they enforce. See docs/config-guards-audit.md and
+    docs/architecture/07-findings-register.md F-02.
     """
+    from netllm_discovery.lan import own_agent_urls
+
     updated = config_merge.apply_config_patch(cfg, patch)
-    kept, rejected = _filter_own_swarm_peers(updated)
-    if rejected:
-        updated.swarm.peers = kept
-    _validate_elevated_sources(updated)
-    return updated
-
-
-def _filter_own_swarm_peers(cfg: NetllmConfig) -> tuple[list[str], list[str]]:
-    from netllm_discovery.lan import filter_own_peer_urls
-
-    return filter_own_peer_urls(list(cfg.swarm.peers), cfg.agent.listen)
-
-
-def _validate_elevated_sources(cfg: NetllmConfig) -> None:
-    """A source granting cloud access or an above-default concurrency cap
-    must be secret-backed once the agent is reachable beyond loopback.
-
-    Bounds identity spoofing (attributive-by-default; see SourceConfig
-    docstring) to "cheaper local routing" — never cloud-key or budget
-    exposure — without requiring every source to carry a secret.
-    """
-    if not is_lan_listen(cfg.agent.listen):
-        return
-    default_cap = cfg.routing.max_in_flight_per_backend
-    for source in cfg.routing.sources:
-        if not source.is_elevated(default_max_concurrency=default_cap):
-            continue
-        if source.resolve_secret():
-            continue
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"routing.sources '{source.id}' grants elevated capability "
-                "(allow_cloud, cloud_providers, or a max_concurrency above "
-                "routing.max_in_flight_per_backend) and must set secret or "
-                "secret_env while agent.listen accepts non-loopback "
-                "connections"
-            ),
+    try:
+        config_guards.apply_config_guards(
+            updated, own_agent_urls=own_agent_urls(updated.agent.listen)
         )
+    except config_guards.ConfigGuardError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return updated
 
 
 def save_config_patch(

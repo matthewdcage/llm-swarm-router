@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from netllm_core.models import NetllmConfig
+from netllm_core.models import BackendOverride, NetllmConfig, RoutingPolicy
 
 _CONFIG_SECTIONS = frozenset({"agent", "discovery", "swarm", "routing", "ui", "cloud"})
 
@@ -57,9 +57,32 @@ def deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+# Fields the client must never set directly on a [[routing.backends]] row.
+# `api_key` is write-only (handled separately: empty keeps the stored value);
+# `cloud_provider` is server-materialized from [cloud.providers.<id>] and is
+# marked read_only in the schema document, so a patch echoing it back must
+# not be able to retag a hand-authored row.
+_BACKEND_CLIENT_SET_EXCLUDED = frozenset({"api_key", "cloud_provider"})
+# api_key_env has no editor on any surface today; it is preserved from the
+# prior row rather than accepted from a patch (unchanged behavior).
+_BACKEND_PRESERVE_ONLY = frozenset({"api_key_env"})
+
+
 def _merge_backends(cfg: NetllmConfig, entries: list[Any]) -> list[dict[str, Any]]:
+    """Rebuild [[routing.backends]] from a patch, preserving stored secrets.
+
+    Built by starting from the prior row's full dump (or the model's own
+    defaults for a new row) and copying the patch's values over it, rather
+    than hand-listing the fields to carry forward. A field added to
+    `BackendOverride` is therefore preserved by default instead of being
+    silently reset on every save -- the failure mode that dropped
+    `max_concurrency` and `cloud_provider` (see
+    docs/architecture/07-findings-register.md F-01). `tests/test_config_merge.py`
+    asserts the merged dict still covers every model field.
+    """
     merged_backends: list[dict[str, Any]] = []
     existing_by_url = {b.base_url: b for b in cfg.routing.backends}
+    known_fields = set(BackendOverride.model_fields)
     for entry in entries or []:
         if not isinstance(entry, dict):
             continue
@@ -67,16 +90,21 @@ def _merge_backends(cfg: NetllmConfig, entries: list[Any]) -> list[dict[str, Any
         if not base_url:
             continue
         prior = existing_by_url.get(base_url)
-        default_provider = prior.provider if prior else "custom"
-        merged: dict[str, Any] = {
-            "base_url": base_url,
-            "provider": entry.get("provider", default_provider),
-            "api_format": entry.get("api_format", prior.api_format if prior else None),
-            "api_key": prior.api_key if prior else "",
-            "api_key_env": prior.api_key_env if prior else "",
-            "enabled": entry.get("enabled", prior.enabled if prior else True),
-            "local": entry.get("local", prior.local if prior else True),
-        }
+        merged: dict[str, Any] = (
+            prior.model_dump(mode="json")
+            if prior is not None
+            else BackendOverride(base_url=base_url).model_dump(mode="json")
+        )
+        merged["base_url"] = base_url
+        for field, value in entry.items():
+            if field not in known_fields:
+                continue
+            if field in _BACKEND_CLIENT_SET_EXCLUDED:
+                continue
+            if field in _BACKEND_PRESERVE_ONLY:
+                continue
+            merged[field] = value
+        # Write-only: an empty/omitted key keeps the previously stored one.
         if entry.get("api_key"):
             merged["api_key"] = str(entry["api_key"])
         merged_backends.append(merged)
@@ -84,24 +112,30 @@ def _merge_backends(cfg: NetllmConfig, entries: list[Any]) -> list[dict[str, Any
 
 
 def _merge_policies(entries: list[Any]) -> list[dict[str, Any]]:
+    """Rebuild [[routing.policies]] from a patch.
+
+    Policies have no stable identity key (they are positional and matched in
+    order), so there is no prior row to merge onto -- each entry is rebuilt
+    from the model's defaults plus whatever the patch sends. Copying by
+    `model_fields` rather than a hand-listed tuple is what keeps a new field
+    from being dropped; `RoutingPolicy.source` was lost that way, silently
+    widening a source-scoped policy to every caller (F-01).
+    """
     merged_policies: list[dict[str, Any]] = []
+    known_fields = set(RoutingPolicy.model_fields)
     for entry in entries or []:
         if not isinstance(entry, dict):
             continue
         name = str(entry.get("name", "")).strip()
         if not name and not entry.get("model_prefix") and not entry.get("api_format"):
             continue
-        merged_policies.append(
-            {
-                "name": name,
-                "model_prefix": str(entry.get("model_prefix", "")),
-                "api_format": entry.get("api_format"),
-                "strategy": entry.get("strategy"),
-                "prefer_provider": entry.get("prefer_provider"),
-                "allow_cloud": bool(entry.get("allow_cloud", False)),
-                "enabled": entry.get("enabled", True),
-            }
-        )
+        merged: dict[str, Any] = RoutingPolicy().model_dump(mode="json")
+        for field, value in entry.items():
+            if field not in known_fields:
+                continue
+            merged[field] = value
+        merged["name"] = name
+        merged_policies.append(merged)
     return merged_policies
 
 
