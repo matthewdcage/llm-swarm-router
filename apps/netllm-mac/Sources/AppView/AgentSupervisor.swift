@@ -46,9 +46,9 @@ final class AgentSupervisor {
             if case .failed = server.state {
                 await server.reconcileListeningPort(adoptOrphan: true)
                 if server.isRunning { return }
-                try? await server.forceRestart()
+                _ = try? await server.forceRestart()
             } else {
-                try? server.start()
+                _ = try? server.start()
             }
         }
     }
