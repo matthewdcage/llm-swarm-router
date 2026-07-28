@@ -46,8 +46,9 @@ def own_agent_urls(listen: str) -> set[str]:
     urls.add(primary)
     if listen.startswith("http"):
         return urls
-    port = listen.rpartition(":")[2] if ":" in listen else str(DEFAULT_AGENT_PORT)
-    port = port or str(DEFAULT_AGENT_PORT)
+    from netllm_core.models import split_listen
+
+    port = str(split_listen(listen)[1])
     urls.add(f"http://127.0.0.1:{port}")
     lan = local_lan_ip()
     if lan:
@@ -83,10 +84,14 @@ def agent_url_from_listen(listen: str, *, lan_ip: str | None = None) -> str:
     """Turn agent.listen into a URL clients on the LAN can use."""
     if listen.startswith("http"):
         return listen.rstrip("/")
-    host, _, port = listen.partition(":")
-    port = port or str(DEFAULT_AGENT_PORT)
-    if not host or host in ("0.0.0.0", ""):
+    from netllm_core.models import split_listen
+
+    host, port = split_listen(listen)
+    if not host or host in ("0.0.0.0", "::"):
+        # Wildcard bind: advertise a concrete address peers can dial.
         host = lan_ip or local_lan_ip() or "127.0.0.1"
+    if ":" in host:  # bare IPv6 needs brackets inside a URL authority
+        host = f"[{host}]"
     return f"http://{host}:{port}"
 
 

@@ -59,6 +59,18 @@ def create_app(
     app.state.service = service
     app.state.config = cfg
 
+    def _is_local_client(request: Request) -> bool:
+        from netllm_core.platform import local_admin_client_hosts
+
+        client_host = (request.client.host if request.client else "").lower()
+        return client_host in local_admin_client_hosts()
+
+    def _presents_cluster_token(request: Request, token: str) -> bool:
+        auth = request.headers.get("Authorization", "")
+        if secrets.compare_digest(auth, f"Bearer {token}"):
+            return True
+        return secrets.compare_digest(request.headers.get("x-api-key", ""), token)
+
     def require_inference_access(request: Request) -> None:
         """Opt-in gate (swarm.require_token_for_inference): non-local
         clients must present the cluster token on /v1/* routes. Peer
@@ -66,21 +78,40 @@ def create_app(
         token = (cfg.swarm.cluster_token or "").strip()
         if not cfg.swarm.require_token_for_inference or not token:
             return
-        from netllm_core.platform import local_admin_client_hosts
-
-        client_host = (request.client.host if request.client else "").lower()
-        if client_host in local_admin_client_hosts():
-            return
-        auth = request.headers.get("Authorization", "")
-        if secrets.compare_digest(auth, f"Bearer {token}"):
-            return
-        if secrets.compare_digest(request.headers.get("x-api-key", ""), token):
+        if _is_local_client(request) or _presents_cluster_token(request, token):
             return
         raise HTTPException(
             status_code=401,
             detail=(
                 "This netllm agent requires the swarm cluster token for "
                 "inference. Send Authorization: Bearer <token>."
+            ),
+        )
+
+    def require_read_access(request: Request) -> None:
+        """Gate the read-only swarm endpoints once a cluster token exists.
+
+        /netllm/v1/status returns every backend URL, the full model catalog,
+        hostnames, agent ids, the peer list with versions, per-backend routed
+        counts and token totals — complete fleet reconnaissance for anyone on
+        the LAN (docs/architecture/07-findings-register.md F-13). It has to
+        stay reachable for peer discovery, and it is: SwarmRegistry.fetch_peer
+        and lan.fetch_agent_status already send the cluster token whenever one
+        is configured.
+
+        With no token configured this is a no-op, so the zero-config
+        single-machine and open-trusted-LAN setups behave exactly as before.
+        """
+        token = (cfg.swarm.cluster_token or "").strip()
+        if not token:
+            return
+        if _is_local_client(request) or _presents_cluster_token(request, token):
+            return
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "This netllm agent requires the swarm cluster token. "
+                "Send Authorization: Bearer <token>."
             ),
         )
 
@@ -136,6 +167,7 @@ def create_app(
     # --- Swarm API ---
     @app.get("/netllm/v1/status")
     async def netllm_status(
+        request: Request,
         scan: bool = False,
         probe: bool = False,
         probe_peers: bool = False,
@@ -149,6 +181,7 @@ def create_app(
         macOS Settings and the dashboard poll without these flags; explicit
         Refresh / doctor flows may pass them.
         """
+        require_read_access(request)
         await service.refresh_local_backends(force_scan=scan)
 
         if probe or probe_peers:
@@ -166,10 +199,12 @@ def create_app(
 
     @app.get("/netllm/v1/telemetry")
     async def netllm_telemetry(
+        request: Request,
         scopes: str = "router,omlx",
         history: int = 60,
         watch: bool = True,
     ) -> dict[str, Any]:
+        require_read_access(request)
         scope_set = {s.strip() for s in scopes.split(",") if s.strip()}
         if watch:
             service.telemetry.subscribe()
@@ -186,11 +221,13 @@ def create_app(
                 service.telemetry.unsubscribe()
 
     @app.get("/netllm/v1/peers")
-    async def netllm_peers() -> dict[str, Any]:
+    async def netllm_peers(request: Request) -> dict[str, Any]:
+        require_read_access(request)
         return {"peers": service.swarm.all_peer_urls()}
 
     @app.get("/netllm/v1/backends")
-    async def netllm_backends() -> dict[str, Any]:
+    async def netllm_backends(request: Request) -> dict[str, Any]:
+        require_read_access(request)
         await service.refresh_local_backends()
         return {"backends": [b.model_dump(mode="json") for b in service.pool.backends]}
 

@@ -12,7 +12,12 @@ from netllm_core import config_guards, config_merge
 from netllm_core.cloud_providers import CLOUD_PROVIDERS, get_provider_spec
 from netllm_core.harness_detection import detect as detect_harness
 from netllm_core.known_harnesses import KNOWN_HARNESSES
-from netllm_core.models import NetllmConfig, is_lan_listen, save_config
+from netllm_core.models import (
+    NetllmConfig,
+    is_lan_listen,
+    listen_port,
+    save_config,
+)
 from netllm_core.platform import local_admin_client_hosts
 
 from netllm_agent.service import AgentService
@@ -43,6 +48,23 @@ def doctor_payload(cfg: NetllmConfig, service: AgentService) -> dict[str, Any]:
         notes.append(
             "LAN swarm is open (no cluster token). Enable Require cluster token "
             "in Settings on untrusted networks."
+        )
+
+    if (
+        is_lan_listen(cfg.agent.listen)
+        and cfg.swarm.cluster_token
+        and not cfg.swarm.require_token_for_inference
+    ):
+        # The token secures gossip and remote admin, but /v1/* stays open to
+        # the LAN until this second flag is set — an easy and consequential
+        # thing to get wrong (F-14). New `init --swarm --secure` runs set it;
+        # configs written before that need telling rather than rewriting.
+        issues.append(
+            {
+                "title": "Cluster token is set but inference is open to the LAN",
+                "fix": "Set swarm.require_token_for_inference = true (Settings → "
+                "Require cluster token) so /v1/* needs the token too",
+            }
         )
 
     if cfg.agent.role == "gateway" and not cfg.agent.advertise:
@@ -397,15 +419,7 @@ async def peers_scan_payload(
         return {"ok": True, "peers": [], "warnings": ["No subnet CIDRs to scan"]}
 
     token = (cfg.swarm.cluster_token or "").strip()
-    _, port_str = (
-        cfg.agent.listen.rsplit(":", 1)
-        if ":" in cfg.agent.listen
-        else ("127.0.0.1", "11400")
-    )
-    try:
-        port = int(port_str)
-    except ValueError:
-        port = 11400
+    port = listen_port(cfg.agent.listen)
 
     found = await subnet_scan_agents(
         cidrs,

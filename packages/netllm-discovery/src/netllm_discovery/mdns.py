@@ -53,8 +53,10 @@ def parse_listen_host_port(listen: str) -> tuple[str, int]:
         host = parsed.hostname or "127.0.0.1"
         port = parsed.port or 11400
         return host, port
-    host, _, port_str = listen.partition(":")
-    return host or "127.0.0.1", int(port_str or "11400")
+    from netllm_core.models import split_listen
+
+    host, port = split_listen(listen)
+    return host or "127.0.0.1", port
 
 
 def _advertise_address(listen: str) -> tuple[str, bytes]:

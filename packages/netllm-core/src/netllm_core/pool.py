@@ -314,7 +314,15 @@ class RouterPool:
         if backend.id.startswith("peer:"):
             status = probe_agent_health_sync(backend.base_url)
         elif backend.api_format == "anthropic":
-            status = probe_anthropic_compat_sync(backend.base_url, api_key=probe_key)
+            # Prefer a model this backend is known to serve, so the Messages
+            # fallback (only reached when the provider has no /v1/models) does
+            # not depend on a hardcoded Anthropic model id being valid there.
+            served = backend.health.models
+            status = probe_anthropic_compat_sync(
+                backend.base_url,
+                api_key=probe_key,
+                fallback_model=served[0] if served else None,
+            )
         else:
             status = probe_openai_compat_sync(backend.base_url, api_key=probe_key)
         online = is_online(status)

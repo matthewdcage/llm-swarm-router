@@ -255,3 +255,59 @@ async def test_routine_scan_never_runs_inference_diagnose() -> None:
         assert calls == []
         await scan_local_providers(cfg, diagnose=True)
         assert calls  # explicit opt-in still diagnoses
+
+
+# --- F-06: TLS verification is only waived for loopback --------------------
+
+
+async def test_remote_override_probe_uses_a_verifying_client() -> None:
+    """verify=False is defensible for localhost (the bundled macOS Python may
+    have no trust store) but the same scan also probes custom_endpoints and
+    [[routing.backends]] overrides, which can be remote https:// URLs whose
+    probe responses become the catalog that drives routing."""
+    from unittest.mock import patch
+
+    from netllm_core.models import BackendOverride, NetllmConfig
+    from netllm_discovery import local as local_mod
+
+    cfg = NetllmConfig()
+    cfg.discovery.providers = []
+    cfg.routing.backends = [
+        BackendOverride(base_url="https://remote.example/v1", provider="custom")
+    ]
+
+    seen: list[bool] = []
+    real_local = local_mod.loopback_async_client
+    real_remote = local_mod.verifying_async_client
+
+    def spy_local(**kw):
+        seen.append(False)
+        return real_local(**kw)
+
+    def spy_remote(**kw):
+        seen.append(True)
+        return real_remote(**kw)
+
+    with patch.object(local_mod, "loopback_async_client", spy_local):
+        with patch.object(local_mod, "verifying_async_client", spy_remote):
+            with patch.object(local_mod, "_probe_provider") as probe:
+
+                async def noop(*a, **k):
+                    return {"id": "custom", "status": "offline", "base_url": ""}
+
+                probe.side_effect = noop
+                await local_mod.scan_local_providers(cfg)
+
+    assert True in seen, "a verifying client must be constructed for the scan"
+    # The remote override was routed through the verifying client.
+    used_clients = [c.args[3] for c in probe.call_args_list]
+    assert used_clients, "the override should have been probed"
+
+
+def test_loopback_targets_are_detected() -> None:
+    from netllm_discovery.local import _is_loopback_target
+
+    assert _is_loopback_target("http://127.0.0.1:8080/v1") is True
+    assert _is_loopback_target("http://localhost:1234/v1") is True
+    assert _is_loopback_target("https://remote.example/v1") is False
+    assert _is_loopback_target("http://192.168.1.50:8000/v1") is False

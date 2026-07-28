@@ -52,9 +52,7 @@ def validate_elevated_sources(cfg: NetllmConfig) -> None:
         )
 
 
-def drop_own_swarm_peers(
-    cfg: NetllmConfig, own_urls: Iterable[str]
-) -> list[str]:
+def drop_own_swarm_peers(cfg: NetllmConfig, own_urls: Iterable[str]) -> list[str]:
     """Remove `swarm.peers` entries that point back at this agent.
 
     `own_urls` is supplied by the caller (`netllm_discovery.lan.own_agent_urls`)

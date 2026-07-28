@@ -26,8 +26,27 @@ DEFAULT_API_KEYS: dict[str, str] = {
 
 
 def loopback_async_client(**kwargs: Any) -> httpx.AsyncClient:
-    """HTTP client for localhost probes (bundled macOS Python may lack CA bundle)."""
+    """HTTP client for localhost probes (bundled macOS Python may lack CA bundle).
+
+    Certificate verification is off, which is only defensible because the
+    target is loopback. Use `probe_client_for` to pick between this and a
+    verifying client — the same scan also probes `discovery.custom_endpoints`
+    and `[[routing.backends]]` overrides, which may be arbitrary remote
+    https:// URLs whose health responses feed the routing catalog
+    (docs/architecture/07-findings-register.md F-06).
+    """
     return httpx.AsyncClient(verify=False, **kwargs)
+
+
+def verifying_async_client(**kwargs: Any) -> httpx.AsyncClient:
+    """Normal CA-verifying client for non-loopback probe targets."""
+    return httpx.AsyncClient(**kwargs)
+
+
+def _is_loopback_target(url: str) -> bool:
+    from netllm_discovery.lan import is_loopback_url
+
+    return is_loopback_url(url)
 
 
 def normalize_openai_base_url(url: str) -> str:
@@ -241,22 +260,40 @@ async def scan_local_providers(
     enabled = set(cfg.discovery.providers)
     results: list[dict[str, Any]] = []
 
-    async with loopback_async_client() as client:
+    # Two clients: verification is disabled only for loopback targets, where
+    # there is no CA to check against and the bundled macOS Python may have no
+    # trust store. Custom endpoints and backend overrides can be remote
+    # https:// URLs, and their probe responses become the model catalog that
+    # drives routing — those get a normally verifying client (F-06).
+    async with (
+        loopback_async_client() as local_client,
+        verifying_async_client() as remote_client,
+    ):
+
+        def client_for(url: str) -> httpx.AsyncClient:
+            return local_client if _is_loopback_target(url) else remote_client
+
         tasks = []
         for pid, pname, _ports in KNOWN_PROVIDERS:
             if pid not in enabled:
                 continue
             urls = candidate_urls_for_provider(pid, cfg)
             key = _api_key_for_provider(pid, cfg)
+            # Provider scans only ever target loopback candidates.
             tasks.append(
-                _probe_provider(pid, pname, urls, client, key, diagnose=diagnose)
+                _probe_provider(pid, pname, urls, local_client, key, diagnose=diagnose)
             )
         if include_custom:
             for url in cfg.discovery.custom_endpoints:
                 norm = normalize_openai_base_url(url)
                 tasks.append(
                     _probe_provider(
-                        "custom", "Custom", [norm], client, "", diagnose=diagnose
+                        "custom",
+                        "Custom",
+                        [norm],
+                        client_for(norm),
+                        "",
+                        diagnose=diagnose,
                     )
                 )
         for override in cfg.routing.backends:
@@ -267,7 +304,7 @@ async def scan_local_providers(
                         override.provider,
                         override.provider,
                         [norm],
-                        client,
+                        client_for(norm),
                         override.resolve_api_key(),
                         diagnose=diagnose,
                     )

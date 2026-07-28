@@ -87,3 +87,112 @@ def test_doctor_endpoint_open_lan_note(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "LAN exposure without cluster token" not in titles
     assert data["ok"] is True
     assert any("open" in note.lower() for note in data.get("notes", []))
+
+
+# --- F-13 / F-14: what a cluster token actually protects -------------------
+
+
+def test_token_set_but_inference_open_is_a_doctor_issue() -> None:
+    """A cluster token secures gossip and remote admin but leaves /v1/* open
+    to the LAN until require_token_for_inference is also set — which is not
+    what anyone reads "--secure" to mean. Existing configs get told rather
+    than silently rewritten."""
+    from netllm_agent.admin import doctor_payload
+    from netllm_agent.service import AgentService
+
+    cfg = NetllmConfig()
+    cfg.agent.listen = "0.0.0.0:11400"
+    cfg.swarm.cluster_token = "tok"
+    cfg.swarm.require_token_for_inference = False
+
+    payload = doctor_payload(cfg, AgentService(cfg))
+    titles = [i["title"] for i in payload["issues"]]
+    assert any("inference is open" in t for t in titles)
+
+
+def test_no_inference_issue_once_the_flag_is_set() -> None:
+    from netllm_agent.admin import doctor_payload
+    from netllm_agent.service import AgentService
+
+    cfg = NetllmConfig()
+    cfg.agent.listen = "0.0.0.0:11400"
+    cfg.swarm.cluster_token = "tok"
+    cfg.swarm.require_token_for_inference = True
+
+    payload = doctor_payload(cfg, AgentService(cfg))
+    titles = [i["title"] for i in payload["issues"]]
+    assert not any("inference is open" in t for t in titles)
+
+
+def test_secure_swarm_init_requires_token_for_inference() -> None:
+    """`init --swarm --secure` must mean what it says."""
+    import netllm_cli.main as cli_main
+
+    cfg = NetllmConfig()
+    cli_main._apply_secured_swarm_mode(cfg)
+    assert cfg.swarm.cluster_token
+    assert cfg.swarm.require_token_for_inference is True
+
+
+def test_open_swarm_init_does_not_require_token_for_inference() -> None:
+    """The open trusted-LAN path is unchanged — no token, no gate."""
+    import netllm_cli.main as cli_main
+
+    cfg = NetllmConfig()
+    cli_main._apply_open_swarm_mode(cfg)
+    assert not cfg.swarm.cluster_token
+    assert cfg.swarm.require_token_for_inference is False
+
+
+# --- F-13: read endpoints leak the whole fleet to the LAN ------------------
+
+
+def _token_cfg() -> NetllmConfig:
+    cfg = NetllmConfig()
+    cfg.swarm.mdns = False
+    cfg.agent.advertise = False
+    cfg.agent.listen = "0.0.0.0:11400"
+    cfg.swarm.cluster_token = "cluster-tok"
+    return cfg
+
+
+_READ_ROUTES = (
+    "/netllm/v1/status",
+    "/netllm/v1/peers",
+    "/netllm/v1/backends",
+    "/netllm/v1/telemetry",
+)
+
+
+@pytest.mark.parametrize("route", _READ_ROUTES)
+def test_read_routes_require_token_from_remote_client(route: str) -> None:
+    """/netllm/v1/status returns every backend URL, the full model catalog,
+    hostnames, agent ids, the peer list, routed counts and token totals —
+    complete fleet reconnaissance for anyone on the LAN."""
+    with TestClient(create_app(_token_cfg()), client=("10.9.9.9", 5555)) as client:
+        assert client.get(route).status_code == 401
+
+
+@pytest.mark.parametrize("route", _READ_ROUTES)
+def test_read_routes_accept_the_cluster_token(route: str) -> None:
+    """Peer discovery keeps working: fetch_peer and fetch_agent_status
+    already send the token whenever one is configured."""
+    with TestClient(create_app(_token_cfg()), client=("10.9.9.9", 5555)) as client:
+        resp = client.get(route, headers={"Authorization": "Bearer cluster-tok"})
+        assert resp.status_code == 200
+
+
+@pytest.mark.parametrize("route", _READ_ROUTES)
+def test_read_routes_open_when_no_token_configured(route: str) -> None:
+    """Zero-config single-machine and open trusted-LAN setups are unchanged."""
+    cfg = _token_cfg()
+    cfg.swarm.cluster_token = ""
+    with TestClient(create_app(cfg), client=("10.9.9.9", 5555)) as client:
+        assert client.get(route).status_code == 200
+
+
+@pytest.mark.parametrize("route", _READ_ROUTES)
+def test_read_routes_open_for_local_clients_even_with_a_token(route: str) -> None:
+    """The dashboard on the machine itself must not need the token."""
+    with TestClient(create_app(_token_cfg())) as client:
+        assert client.get(route).status_code == 200

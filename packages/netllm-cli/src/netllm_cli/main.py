@@ -21,7 +21,12 @@ from netllm_core.config import (
     load_config,
     save_config,
 )
-from netllm_core.models import NetllmConfig
+from netllm_core.models import (
+    NetllmConfig,
+    format_listen,
+    listen_port,
+    split_listen,
+)
 from netllm_core.version import get_version
 from netllm_discovery.lan import (
     discover_lan_agents,
@@ -148,14 +153,8 @@ def _resolve_init_swarm_mode(*, swarm: bool, single: bool) -> bool:
 
 
 def _listen_port_of(listen: str) -> str:
-    """Port from a host:port listen string (last-colon split, IPv6-safe)."""
-    if "]" in listen:  # bracketed IPv6: [::1]:11400
-        port = listen.rpartition("]:")[2]
-    elif listen.count(":") == 1:  # host:port
-        port = listen.rpartition(":")[2]
-    else:  # bare host or bare IPv6 — no port present
-        port = ""
-    return port if port.isdigit() else "11400"
+    """Port from a host:port listen string (IPv6-safe)."""
+    return str(listen_port(listen))
 
 
 def _apply_open_swarm_mode(cfg: NetllmConfig) -> None:
@@ -169,6 +168,11 @@ def _apply_secured_swarm_mode(cfg: NetllmConfig) -> None:
     _apply_open_swarm_mode(cfg)
     if not cfg.swarm.cluster_token:
         cfg.swarm.cluster_token = secrets.token_urlsafe(24)
+    # A cluster token on its own secures gossip and remote admin but leaves
+    # POST /v1/chat/completions open to the whole LAN — which is not what
+    # anyone reads "--secure" to mean (F-14). Only new --secure runs are
+    # affected; an existing config is never rewritten by this.
+    cfg.swarm.require_token_for_inference = True
 
 
 def _join_command_for(cfg: NetllmConfig) -> str:
@@ -971,9 +975,8 @@ def serve(
         save_config(cfg, cfg_path)
 
     if host or port:
-        h = host or cfg.agent.listen.split(":")[0]
-        p = port or int(cfg.agent.listen.split(":")[-1])
-        cfg.agent.listen = f"{h}:{p}"
+        current_host, current_port = split_listen(cfg.agent.listen)
+        cfg.agent.listen = format_listen(host or current_host, port or current_port)
 
     conflict = check_listen_port(cfg)
     port_cleared = False
@@ -1128,6 +1131,7 @@ def serve(
         print_warnings(warnings)
 
     import logging
+    import logging.handlers
 
     import uvicorn
     from netllm_agent.app import create_app
@@ -1135,7 +1139,15 @@ def serve(
     log_dir = cfg.resolved_log_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "agent.log"
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    # Rotate: this is the file every troubleshooting doc points users at and
+    # the one GET /netllm/v1/logs tails. A plain FileHandler grew it without
+    # bound for the life of the agent (F-15).
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_file,
+        maxBytes=10 * 1024 * 1024,
+        backupCount=3,
+        encoding="utf-8",
+    )
     file_handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     )
@@ -1143,11 +1155,11 @@ def serve(
         logging.getLogger(logger_name).addHandler(file_handler)
 
     fastapi_app = create_app(cfg, config_path=cfg_path)
-    host_part, _, port_part = cfg.agent.listen.partition(":")
+    host_part, port_part = split_listen(cfg.agent.listen)
     uvicorn.run(
         fastapi_app,
         host=host_part or "127.0.0.1",
-        port=int(port_part or 11400),
+        port=port_part,
         log_level="info",
     )
 

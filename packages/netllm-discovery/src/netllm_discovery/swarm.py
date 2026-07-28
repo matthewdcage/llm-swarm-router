@@ -177,10 +177,38 @@ class SwarmRegistry:
             return False
 
     async def refresh_static_peers(self) -> None:
-        for peer_url in self.config.swarm.peers:
-            record = await self.fetch_peer(peer_url)
-            if record:
+        """Re-fetch every configured static peer concurrently.
+
+        Sequential awaits here (and in the heartbeat fan-out below) meant one
+        unreachable peer added its full 5 s timeout to the cycle: with a
+        10 s interval and three dead peers the effective period passed the
+        45 s stale window, so healthy peers were pruned because a *different*
+        peer was down (docs/architecture/07-findings-register.md F-12).
+        """
+        peers = list(self.config.swarm.peers)
+        if not peers:
+            return
+        records = await self._gather_bounded(
+            [self.fetch_peer(peer_url) for peer_url in peers]
+        )
+        for record in records:
+            if isinstance(record, PeerRecord):
                 self.register_peer(record)
+
+    @staticmethod
+    async def _gather_bounded(coros: list[Any], *, concurrency: int = 32) -> list[Any]:
+        """gather() with a ceiling, mirroring lan.subnet_scan_agents.
+
+        Exceptions are returned rather than raised: one unreachable peer must
+        never abort the rest of the cycle.
+        """
+        sem = asyncio.Semaphore(concurrency)
+
+        async def run(coro: Any) -> Any:
+            async with sem:
+                return await coro
+
+        return await asyncio.gather(*(run(c) for c in coros), return_exceptions=True)
 
     async def gossip_loop(
         self,
@@ -194,10 +222,15 @@ class SwarmRegistry:
                 await self.refresh_static_peers()
                 self.prune_stale()
                 payload = status_provider()
-                for peer in list(self.peers.values()):
-                    if peer.agent_id == self.config.agent.agent_id:
-                        continue
-                    await self.send_heartbeat(payload, peer.listen_url)
+                targets = [
+                    peer.listen_url
+                    for peer in list(self.peers.values())
+                    if peer.agent_id != self.config.agent.agent_id
+                ]
+                if targets:
+                    await self._gather_bounded(
+                        [self.send_heartbeat(payload, url) for url in targets]
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:

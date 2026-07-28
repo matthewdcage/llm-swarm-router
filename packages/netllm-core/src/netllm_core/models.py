@@ -522,6 +522,59 @@ class Backend(BaseModel):
         return defaults.get(self.provider, "")
 
 
+DEFAULT_AGENT_PORT = 11400
+
+
+def split_listen(listen: str) -> tuple[str, int]:
+    """Split an ``agent.listen`` value into (host, port), IPv6-aware.
+
+    ``AgentConfig._validate_listen`` accepts bracketed IPv6 (``[::]:11400``),
+    but callers used to parse with ``listen.partition(":")``, which yields
+    host ``"["`` and port ``":]:11400"`` — so ``netllm serve`` died on
+    ``int()`` for a listen value the config layer had just declared valid
+    (docs/architecture/07-findings-register.md F-11). Every caller should use
+    this instead of splitting by hand.
+
+    The brackets are stripped from the returned host: that is what socket
+    servers and ``urlparse``-built URLs want. Use ``format_listen`` to go back.
+    """
+    raw = listen.strip()
+    if raw.startswith("http"):
+        from urllib.parse import urlparse
+
+        parsed = urlparse(raw)
+        return (parsed.hostname or "127.0.0.1"), (parsed.port or DEFAULT_AGENT_PORT)
+    if raw.startswith("["):
+        host, sep, port = raw.partition("]:")
+        if sep:
+            return host[1:], int(port) if port.isdigit() else DEFAULT_AGENT_PORT
+        return raw.strip("[]"), DEFAULT_AGENT_PORT
+    if raw.count(":") > 1:
+        # Unbracketed and multi-colon: a bare IPv6 address carrying no port.
+        # Splitting on the last colon here would read "::1" as host ":" and
+        # port "1".
+        return raw, DEFAULT_AGENT_PORT
+    host, sep, port = raw.rpartition(":")
+    if not sep:
+        return raw, DEFAULT_AGENT_PORT
+    return host, int(port) if port.isdigit() else DEFAULT_AGENT_PORT
+
+
+def format_listen(host: str, port: int) -> str:
+    """Inverse of `split_listen` — re-brackets a bare IPv6 host."""
+    if ":" in host and not host.startswith("["):
+        return f"[{host}]:{port}"
+    return f"{host}:{port}"
+
+
+def listen_port(listen: str) -> int:
+    return split_listen(listen)[1]
+
+
+def listen_host(listen: str) -> str:
+    return split_listen(listen)[0]
+
+
 def default_config_path() -> Path:
     xdg = os.environ.get("XDG_CONFIG_HOME")
     if xdg:
