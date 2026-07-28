@@ -33,6 +33,7 @@ Overview: [platform-matrix.md](platform-matrix.md)
 
 | Topic | Doc |
 |-------|-----|
+| **Architecture, dependencies & audit** | [architecture/](architecture/README.md) — system + component diagrams, request lifecycle, swarm behaviour, dependency map, findings register, feature integration status |
 | CI, macOS build, release | [ci-and-release.md](ci-and-release.md) |
 | macOS Developer ID + notarization | [macos-code-signing.md](macos-code-signing.md) |
 | Pre-push verification | `scripts/verify-before-pr.sh` from repo root |
