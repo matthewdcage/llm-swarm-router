@@ -458,7 +458,7 @@ final class UpdateController {
             "--log-file", installLogURL.path,
         ]
         if let logHandle = try? FileHandle(forWritingTo: installLogURL) {
-            try? logHandle.seekToEnd()
+            _ = try? logHandle.seekToEnd()
             let header = "\n--- install v\(release.version) \(ISO8601DateFormatter().string(from: Date())) ---\n"
             if let data = header.data(using: .utf8) {
                 try? logHandle.write(contentsOf: data)
