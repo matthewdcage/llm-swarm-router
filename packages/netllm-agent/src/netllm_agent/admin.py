@@ -54,6 +54,10 @@ def doctor_payload(cfg: NetllmConfig, service: AgentService) -> dict[str, Any]:
         )
 
     enabled = [b for b in service.pool.backends if b.enabled]
+    service.pool.refresh_peer_health(force=True)
+    for b in enabled:
+        if b.local:
+            service.pool.is_healthy(b, force_refresh=True)
     healthy = [b for b in enabled if service.pool.is_healthy(b)]
     if not healthy:
         issues.append(

@@ -83,6 +83,52 @@ def test_netllm_status(client: TestClient) -> None:
     assert "routing_strategy" in data
 
 
+_MOCK_PEER_HEALTH = {"status": "online", "http_status": 200}
+
+
+@patch("netllm_core.pool.probe_agent_health_sync", return_value=_MOCK_PEER_HEALTH)
+@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+def test_status_reprobes_stale_peer_health(
+    mock_scan: AsyncMock, mock_probe: object, client: TestClient
+) -> None:
+    """Explicit probe_peers=1 must recover offline peer cache without routed traffic."""
+    mock_scan.return_value = []
+    service = client.app.state.service
+    local_row = Backend(
+        id="local-remote",
+        base_url="http://127.0.0.1:59999/v1",
+        provider="custom",
+        local=True,
+        agent_id="remote",
+        health=BackendHealth(status="online", models=["shared-model"], model_count=1),
+    )
+    from netllm_discovery.swarm import PeerRecord
+
+    service.swarm.register_peer(
+        PeerRecord(
+            agent_id="remote",
+            listen_url="http://10.0.0.99:11400",
+            backends=[local_row.model_dump(mode="json")],
+        )
+    )
+    service.pool.merge_backends(service.swarm.peer_agent_backends())
+    peer = service.pool.backend_by_id("peer:remote")
+    assert peer is not None
+    for _ in range(service.pool.max_failures):
+        service.pool.mark_failure(peer)
+    assert peer.health.status == "offline"
+
+    fast = client.get("/netllm/v1/status")
+    row = next(b for b in fast.json()["backends"] if b["id"] == "peer:remote")
+    assert row["health"]["status"] == "offline"
+
+    resp = client.get("/netllm/v1/status?probe_peers=1")
+    assert resp.status_code == 200
+    row = next(b for b in resp.json()["backends"] if b["id"] == "peer:remote")
+    assert row["health"]["status"] == "online"
+    assert mock_probe.call_count >= 1
+
+
 def test_netllm_telemetry(client: TestClient) -> None:
     resp = client.get("/netllm/v1/telemetry?watch=0")
     assert resp.status_code == 200
@@ -472,11 +518,13 @@ def test_status_includes_omlx_admin_url(client: TestClient) -> None:
 
 
 @patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_core.pool.probe_agent_health_sync")
 @patch("netllm_core.pool.probe_openai_compat_sync")
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
 def test_round_robin_routes_to_peer_agent_url(
     mock_openai_cls: object,
     mock_probe: object,
+    mock_peer_probe: object,
     mock_scan: AsyncMock,
 ) -> None:
     from unittest.mock import MagicMock
@@ -501,6 +549,7 @@ def test_round_robin_routes_to_peer_agent_url(
         "models": ["shared-model"],
         "model_count": 1,
     }
+    mock_peer_probe.return_value = _MOCK_PEER_HEALTH
 
     called_base_urls: list[str] = []
 
@@ -577,11 +626,13 @@ def test_wants_local_only_header() -> None:
 
 
 @patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_core.pool.probe_agent_health_sync")
 @patch("netllm_core.pool.probe_openai_compat_sync")
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
 def test_messages_api_round_robin_reaches_peer(
     mock_openai_cls: object,
     mock_probe: object,
+    mock_peer_probe: object,
     mock_scan: AsyncMock,
 ) -> None:
     """The Anthropic Messages path honors the routing strategy (it used
@@ -608,6 +659,7 @@ def test_messages_api_round_robin_reaches_peer(
         "models": ["shared-model"],
         "model_count": 1,
     }
+    mock_peer_probe.return_value = _MOCK_PEER_HEALTH
 
     called_base_urls: list[str] = []
     mock_client = MagicMock()
