@@ -118,6 +118,27 @@ curl -s http://<peer-LAN-IP>:11400/metrics | rg netllm_requests_total
 
 Both counters should increase when `round_robin` alternates across machines with the same model, or when `local_spillover` spills under parallel load. If machines name the same weights differently (oMLX vs Ollama vs LM Studio), map them once with `[routing.model_aliases]` in config so the catalog merges.
 
+## Embeddings (Honcho reconciler / RAG)
+
+`POST /v1/embeddings` uses the **same** backend selection and failover as chat, including **agent-hop** to every swarm peer that lists the model in `GET /v1/models` (`capability: "embedding"`).
+
+Honcho should point `[embedding.model_config]` at the **gateway only** (`http://<gateway>:11400/v1`). Do not add per-peer URLs in Honcho.
+
+On the **gateway** `config.toml`:
+
+```toml
+[routing]
+default_strategy = "auto"   # least_load for embedding bursts; not local_first
+allow_remote = true
+follow_gateway = true
+```
+
+- **`auto` / `least_load` / `round_robin`**: spread `bge-m3-mlx-fp16` (and aliases) across local + all peers that serve it.
+- **`local_first` / tight `local_spillover`**: keeps light or sequential embed traffic on the gateway—avoid for large backfills.
+- **Do not** use a single-host `[routing.model_pools.*]` for BGE unless you intend to pin one machine.
+
+Verify with repeated embeds and `netllm_requests_total{model="bge-*"}` on the gateway **and** each peer. Honcho fork doc: `Honcho/docs/guides/netllm-embedding-swarm-linux.md` + `netllm-gateway-embedding-routing.toml.example`.
+
 ## Parity checklist
 
 Before removing Honcho's embedded `endpoint_pool`:
