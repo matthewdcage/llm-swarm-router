@@ -135,17 +135,29 @@ def create_app(
 
     # --- Swarm API ---
     @app.get("/netllm/v1/status")
-    async def netllm_status() -> dict[str, Any]:
-        await service.refresh_local_backends(force_scan=True)
+    async def netllm_status(
+        scan: bool = False,
+        probe: bool = False,
+    ) -> dict[str, Any]:
+        """Swarm status snapshot. Default is cache-fast for UI polling.
 
-        def _probe_local() -> None:
-            for backend in service.pool.backends:
-                # Local rows only — probing peer agents from a status
-                # handler recurses when the peer probes us back.
-                if backend.enabled and backend.local:
-                    service.pool.is_healthy(backend, force_refresh=True)
+        ``scan=1`` reruns the local provider port scan (TTL-cached otherwise).
+        ``probe=1`` force-refreshes health on local backends only (never peers).
+        macOS Settings and the dashboard poll without these flags; explicit
+        Refresh / doctor flows may pass them.
+        """
+        await service.refresh_local_backends(force_scan=scan)
 
-        await asyncio.to_thread(_probe_local)
+        if probe:
+
+            def _probe_local() -> None:
+                for backend in service.pool.backends:
+                    # Local rows only — probing peer agents from a status
+                    # handler recurses when the peer probes us back.
+                    if backend.enabled and backend.local:
+                        service.pool.is_healthy(backend, force_refresh=True)
+
+            await asyncio.to_thread(_probe_local)
         return await service.status_payload_enriched()
 
     @app.get("/netllm/v1/telemetry")
