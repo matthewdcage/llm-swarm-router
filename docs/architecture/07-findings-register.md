@@ -3,7 +3,12 @@
 29 findings from a source-level audit of `main` @ `a3ec16a` (release 0.4.5.0), 2026-07-29.
 Four were reproduced with executable scripts; the rest carry `file:line` evidence.
 
-**Baseline health is good.** `uv run pytest -q` → **584 passed** in 50 s. Lint is clean.
+**21 resolved, 2 partial, 6 open** as of `bb3eae0`. Each fixed finding carries a
+`RESOLVED (<commit>)` note under its heading; IDs are never renumbered, so commit
+messages and the traceability matrix keep pointing at the same thing.
+
+**Baseline health is good.** At audit time `uv run pytest -q` → **584 passed**;
+after remediation → **642 passed**. Lint is clean.
 The SDK isolation boundary holds. The routing hardening work described in
 `docs/routing-hardening-plan.md` is genuinely implemented, and the failover, capacity-error
 classification, and mesh loop guards are better than typical for a project this size.
@@ -11,26 +16,39 @@ Nothing below contradicts that; these are the remaining edges.
 
 ## Severity summary
 
-| Severity | Count | Theme |
-|----------|-------|-------|
-| **S1** — production-affecting correctness or security | 4 | silent config data loss, a bypassed security guard, event-loop blocking, credential reuse across callers |
-| **S2** — real user-visible defect or meaningful risk | 12 | restart-required config, TLS off, billable probes, races, IPv6 crash, LAN exposure, log growth |
-| **S3** — maintenance, clarity, latent risk | 13 | dead code, duplicated logic, CI gate gaps, packaging limits |
+| Severity | Count | Fixed | Theme |
+|----------|-------|-------|-------|
+| **S1** — production-affecting correctness or security | 4 | **4** | silent config data loss, a bypassed security guard, event-loop blocking, credential reuse across callers |
+| **S2** — real user-visible defect or meaningful risk | 12 | **12** | restart-required config, TLS off, billable probes, races, IPv6 crash, LAN exposure, log growth |
+| **S3** — maintenance, clarity, latent risk | 13 | **5 + 2 partial** | dead code, duplicated logic, CI gate gaps, packaging limits |
+
+**Still open (all S3, by design — the two large refactors were scoped out):**
+F-20 (admin allowlist scoping), F-21 (config schema mirror), F-23 (N×N heartbeat
+catalogs), F-24 (four duplicated proxy loops), F-25 (model-name overlap),
+F-26 (two 2 kLOC modules), F-28 (packaging limits), F-29 (oMLX in discovery).
+F-24 and F-26 were deliberately excluded; the rest are follow-ups.
 
 ## Recommended order of work
 
 ```mermaid
 flowchart LR
-    W1["Sprint 1 — S1<br/>F-01 F-02 F-03 F-04"] --> W2["Sprint 2 — S2 correctness<br/>F-05 F-06 F-07 F-08 F-09 F-11"]
-    W2 --> W3["Sprint 3 — S2 exposure<br/>F-10 F-12 F-13 F-14 F-15 F-16"]
-    W3 --> W4["Backlog — S3<br/>F-17…F-29 (bundle with the<br/>service.py decomposition)"]
+    W1["Phase 1 — config integrity<br/>F-01 F-02 F-05 ✅"] --> W2["Phase 2 — request path<br/>F-03 F-04 F-08 F-09 ✅"]
+    W2 --> W3["Phase 3 — exposure<br/>F-06 F-07 F-11 F-12 F-13 F-14 F-15 ✅"]
+    W3 --> W4["Phase 4 — deps, dead code, CI<br/>F-10 F-16 F-17 F-18 F-19 F-22 F-27 ✅"]
+    W4 --> W5["Open backlog<br/>F-20 F-21 F-23 F-24<br/>F-25 F-26 F-28 F-29"]
 ```
+
+Delivered as four independent commits on `docs/architecture-audit`:
+`6a5d190` (config integrity) · `3b6ec71` (request path) · `15ac9c7` (exposure) ·
+`bb3eae0` (deps, dead code, CI).
 
 ---
 
 # S1 — production-affecting
 
 ## F-01 · Saving config silently drops three fields
+
+> **RESOLVED (`6a5d190`) — both merges rebuild from the prior row keyed on `model_fields`; two tests fail if a new field is added without teaching the merge about it.**
 
 **Severity** S1 · **Area** configuration integrity · **Reproduced**
 
@@ -70,6 +88,8 @@ shape rather than the hand-built dict.
 
 ## F-02 · Elevated-source secret enforcement is bypassed by the macOS app and CLI
 
+> **RESOLVED (`6a5d190`) — guards moved to `netllm_core.config_guards`; both writers call them. `ConfigGuardError` keeps FastAPI out of core.**
+
 **Severity** S1 · **Area** security · **Reproduced**
 
 `admin._validate_elevated_sources()` refuses to save a `routing.sources` entry that grants
@@ -108,36 +128,53 @@ self-referential peer URL that the dashboard would have rejected.
 
 ## F-03 · Synchronous health probes run on the event loop on every request
 
+> **RESOLVED (`3b6ec71`) — metrics read the cache and never probe; the doctor route is offloaded.**
+
 **Severity** S1 · **Area** performance / concurrency
 
-`AgentService._update_health_metrics()` iterates every backend calling
-`RouterPool.is_healthy()`, which issues **blocking** `httpx.Client` calls
-(`probe_openai_compat_sync` / `probe_anthropic_compat_sync`) whenever a cache entry is stale.
+*Rewritten 2026-07-29: `26c45b7` (mesh fix #36) landed mid-audit and changed this
+finding's shape — it narrowed the original problem and introduced a second instance
+of it. The description below is against `26c45b7`, not the `a3ec16a` baseline.*
 
-- `packages/netllm-agent/src/netllm_agent/service.py:315` (`_update_health_metrics`)
-- called from `service.py:241` (`refresh_local_backends`, awaited by **every** proxy entry point)
-- and again in the `finally` of every attempt: `service.py:1032`, `1138`, `1285`, `1625`, `1852`
-- blocking call site: `packages/netllm-core/src/netllm_core/pool.py:290-294`
+`AgentService._update_health_metrics()` iterated every backend calling
+`RouterPool.is_healthy()`, which issues **blocking** `httpx.Client` calls whenever a
+cache entry is stale. It runs from `refresh_local_backends()` — awaited by every proxy
+entry point — and again in the `finally` of every attempt. With a 5 s probe timeout, one
+unresponsive backend stalled the entire ASGI loop: every concurrent request, the
+dashboard, the gossip loop, and `/health`.
 
-The codebase already recognises the hazard and guards *selection* with
-`_offload_if_probing()` → `pool.any_health_stale()` (`service.py:920`). But
-`_update_health_metrics` bypasses that guard entirely, so with a 5 s probe timeout a single
-unresponsive backend stalls the entire ASGI loop — every concurrent request, the dashboard,
-the heartbeat loop, and `/health`.
+`26c45b7` made peer rows use the cheap cached verdict (`cached_peer_online`), which
+removed peer probes from this path. **Local and cloud rows still probed**, and the
+`cloud-anthropic` row was the worst case — a real network round-trip to Anthropic
+(compounded by F-07, which made that probe a billable Messages call).
 
-There is a second-order effect: because `_update_health_metrics` refreshes all cache entries
-first, `any_health_stale()` is usually `False` by the time selection runs, so the
-`_offload_if_probing` optimisation almost never fires. The offload was defeated by the
-metrics update.
+The same commit also added a *new* instance: `admin.doctor_payload` gained
+`refresh_peer_health(force=True)` plus a force-probe of every local backend, and
+`app.netllm_doctor` called it directly from an `async def`. `netllm_status` had always
+wrapped its probe pass in `asyncio.to_thread`; the doctor route did not.
 
-**Fix.** Wrap the whole loop in `asyncio.to_thread`, or better: make `_update_health_metrics`
-read-only (report the cached `_health_cache` state, never probe) and let probing happen only
-in the already-offloaded selection path. The metrics gauge does not need probe freshness —
-it needs the router's current belief.
+Second-order effect, now removed: because `_update_health_metrics` refreshed every cache
+entry as a side effect, `pool.any_health_stale()` was almost always `False` by the time
+selection ran, so `_offload_if_probing()` (`service.py:920`) — the guard that exists
+precisely to keep probes off the loop — almost never fired. The guard had been
+pre-empted by the metrics pass.
+
+**Fix applied.** `_update_health_metrics` now reports `pool.cached_online(backend)` for
+every row and never probes; `netllm_doctor` wraps `doctor_payload` in
+`asyncio.to_thread`. Probing happens only in the offloaded selection path and on the
+explicit refresh routes (`status?probe=1`, `?probe_peers=1`, doctor). `_offload_if_probing`
+is load-bearing again.
+
+**Verified.** With an unprobed black-hole backend (`203.0.113.7`, TEST-NET-3) in the
+pool, `/health` answers in **0.8 ms** worst case and `/netllm/v1/backends` in 0.3 ms,
+where the 5 s probe timeout previously applied. A regression test asserts
+`_update_health_metrics` calls none of the three probe functions.
 
 ---
 
 ## F-04 · A caller's cloud API key becomes a shared pool credential
+
+> **RESOLVED (`3b6ec71`) — legacy cloud rows are request-scoped via `extra_candidates` and never pooled; their upstream clients bypass the shared cache.**
 
 **Severity** S1 · **Area** security / billing
 
@@ -181,6 +218,8 @@ document the migration. Option (b) also resolves half of F-25.
 
 ## F-05 · Changed `max_concurrency` never reaches an existing pool row
 
+> **RESOLVED (`6a5d190`) — `merge_backends` copies `max_concurrency`/`cloud_provider` onto the live row.**
+
 **Severity** S2 · **Area** configuration / routing
 
 `RouterPool.merge_backends()` updates existing local rows **in place** (correctly — in-flight
@@ -200,6 +239,8 @@ that sets a cap through `apply_config` and asserts the live pool row reflects it
 ---
 
 ## F-06 · TLS verification is disabled for every discovery probe
+
+> **RESOLVED (`15ac9c7`) — loopback and remote probe targets get separate clients; only loopback waives verification.**
 
 **Severity** S2 · **Area** security
 
@@ -224,6 +265,8 @@ verifying client otherwise. `is_loopback_url()` already exists in `netllm_discov
 
 ## F-07 · Anthropic health probes are billable API calls with a hardcoded model
 
+> **RESOLVED (`15ac9c7`) — free `GET /v1/models` first; the Messages fallback only for catalog-less providers, using a model that backend serves.**
+
 **Severity** S2 · **Area** cost / correctness
 
 `probe_anthropic_compat_sync()` and its async twin POST a real Messages request
@@ -246,6 +289,8 @@ probe must stay, take the model from `backend.health.models` or the provider spe
 ---
 
 ## F-08 · Per-source concurrency cap is check-then-act across an await
+
+> **RESOLVED (`3b6ec71`) — `_source_admit` checks and reserves atomically before the first await; the reservation is held for the whole request.**
 
 **Severity** S2 · **Area** concurrency
 
@@ -274,6 +319,8 @@ request briefly counts as one, then zero, then one again.
 
 ## F-09 · All-time telemetry is written to disk synchronously on every request
 
+> **RESOLVED (`3b6ec71`) — debounced to 10 s, flushed in `close()`.**
+
 **Severity** S2 · **Area** performance
 
 `TelemetryService.record_usage()` calls `_save_alltime()` on every call, which does
@@ -288,6 +335,8 @@ event loop, once per completed request.
 ---
 
 ## F-10 · `psutil` is used but never declared — host telemetry is always empty
+
+> **RESOLVED (`bb3eae0`) — `psutil` is a declared dependency of `netllm-agent`.**
 
 **Severity** S2 · **Area** dependency / feature completeness
 
@@ -310,6 +359,8 @@ feature ships dead.
 ---
 
 ## F-11 · A bracketed IPv6 `agent.listen` passes validation, then crashes `serve`
+
+> **RESOLVED (`15ac9c7`) — `split_listen`/`format_listen` in `netllm_core.models`; all six call sites use them.**
 
 **Severity** S2 · **Area** correctness · **Reproduced**
 
@@ -347,6 +398,8 @@ produce a correct-looking string by accident while never extracting the port.
 
 ## F-12 · Heartbeats are sent sequentially and awaited one at a time
 
+> **RESOLVED (`15ac9c7`) — bounded `asyncio.gather` fan-out that returns exceptions instead of aborting the cycle.**
+
 **Severity** S2 · **Area** scalability
 
 ```python
@@ -367,6 +420,8 @@ semaphore, mirroring the pattern `subnet_scan_agents` already uses (`lan.py:214`
 ---
 
 ## F-13 · `/netllm/v1/status` and `/netllm/v1/telemetry` are unauthenticated
+
+> **RESOLVED (`15ac9c7`) — `require_read_access` gates status/peers/backends/telemetry whenever a cluster token exists. No token = unchanged.**
 
 **Severity** S2 · **Area** security / information disclosure
 
@@ -395,6 +450,8 @@ open when no token is configured, preserving today's zero-config behaviour.
 ---
 
 ## F-14 · A cluster token does not protect inference
+
+> **RESOLVED (`15ac9c7`) — `init --swarm --secure` sets `require_token_for_inference`; existing configs get a doctor issue rather than a silent rewrite.**
 
 **Severity** S2 · **Area** security UX
 
@@ -425,6 +482,8 @@ doctor issue for "cluster token set but inference is open" so the state is visib
 
 ## F-15 · `agent.log` grows without bound
 
+> **RESOLVED (`15ac9c7`) — `RotatingFileHandler`, 10 MB × 3.**
+
 **Severity** S2 · **Area** operations
 
 `serve` attaches a plain `logging.FileHandler` to the uvicorn loggers:
@@ -443,6 +502,8 @@ warning path) will grow it indefinitely. macOS app installs also write `app.log`
 ---
 
 ## F-16 · Vendor SDK floor pins sit a major version below what ships
+
+> **RESOLVED (`bb3eae0`) — `openai>=2.0,<3`, `anthropic>=0.100,<1`; a test asserts both bounds exist.**
 
 **Severity** S2 · **Area** dependency risk
 
@@ -469,6 +530,8 @@ floors should encode what is *supported*, not what once worked.
 
 ## F-17 · `require_same_model_for_shard` is a dead field still shown in two UIs
 
+> **RESOLVED (`bb3eae0`) — removed from `config_summary`, `dashboard.js` and both Swift surfaces. The pydantic field stays one release so existing configs load.**
+
 `RoutingConfig.require_same_model_for_shard` is documented in-code as *"Deprecated: only
 consumed by the removed batch planner"* (`models.py:272-273`) — yet it is still exported by
 `config_summary()` (`admin.py:277`), rendered in `dashboard.js`, modelled in
@@ -492,6 +555,8 @@ configs still load, then remove.
 ---
 
 ## F-18 · Orphaned code inventory
+
+> **RESOLVED (`bb3eae0`) — dead symbols deleted; `BatchRequestLedger.completed` is now read by `reassign_failed`.**
 
 Verified with repo-wide greps that include the test suites:
 
@@ -520,6 +585,8 @@ with a deprecation shim.
 
 ## F-19 · `pydantic-settings` is declared but never imported
 
+> **RESOLVED (`bb3eae0`) — dependency removed.**
+
 `netllm-core/pyproject.toml` lists `pydantic-settings>=2.6`. No first-party module imports
 `pydantic_settings` or subclasses `BaseSettings`. It ships in the macOS bundle, in every deb/rpm,
 and in the Windows zip for nothing.
@@ -531,6 +598,8 @@ in at least four modules — that scattered env access is itself worth consolida
 ---
 
 ## F-20 · `local_admin_client_hosts()` is wider than "this machine"
+
+> **PARTIAL (`bb3eae0`) — the `AttributeError` risk on a non-str `getaddrinfo` address is fixed. The scoping half (the allowlist is wider than "this machine", and cached for the process) is **open**.**
 
 `platform.local_admin_client_hosts()` (`platform.py:26-49`) seeds the admin allowlist with
 loopback plus **every** address `getaddrinfo(gethostname())` returns and the interface address
@@ -567,6 +636,8 @@ and fields exist in clients that Python has deprecated.
 ---
 
 ## F-22 · Timing constants are inconsistently configurable
+
+> **RESOLVED (`bb3eae0`) for the part that mattered — upstream connect/read timeouts are now `[routing]` knobs. The remaining constants are unchanged and still scattered.**
 
 Configurable: `heartbeat_interval_s`, `peer_stale_after_s`, `rediscover_interval_s`,
 `health_ttl_s`, `offline_retry_s`, `max_backend_failures`.
@@ -624,6 +695,8 @@ methods become thin wrappers. This is the single highest-leverage refactor in th
 
 ## F-25 · Overlapping mechanisms doing the same job
 
+> **PARTIAL (`3b6ec71`) — the duplicate cloud-injection mechanism is gone (legacy rows are request-scoped, registry rows stay pooled). The model-name overlap and the `config.py`/`install_detect` shims are **open**.**
+
 | Overlap | Members | Direction |
 |---------|---------|-----------|
 | Model-name resolution | `model_aliases`, `model_pools`, `sources[].model_rewrites`, `sources[].scenarios[].model` — and a planned `model_groups` | `routing-hardening-plan.md` §Phase 4 already states `model_pools` should fold into `model_groups` rather than coexist |
@@ -651,6 +724,8 @@ wiring. Both are mechanical moves with the existing 584-test suite as the safety
 ---
 
 ## F-27 · CI gate gaps
+
+> **RESOLVED (`bb3eae0`) — ruff is repo-wide (10 pre-existing findings fixed); basedpyright runs as a non-blocking CI job scoped to first-party source. It immediately found a latent `TypeError` in `netllm peers`' error path, an unguarded Optional deref in `serve --replace`, and an `AttributeError` risk inside a security predicate. Production findings 9 → 3.**
 
 | Gap | Evidence |
 |-----|----------|
@@ -712,34 +787,34 @@ has an obvious shape.
 
 ## Traceability matrix
 
-| ID | Severity | Primary file | Repro'd | Fix size |
-|----|----------|--------------|---------|----------|
-| F-01 | S1 | `config_merge.py:60,86` | ✅ | S |
-| F-02 | S1 | `admin.py:334` / `config_json.py:19` | ✅ | M |
-| F-03 | S1 | `service.py:315` | — | M |
-| F-04 | S1 | `service.py:1318,1341` | — | M |
-| F-05 | S2 | `pool.py:126` | — | S |
-| F-06 | S2 | `local.py:30` | — | S |
-| F-07 | S2 | `health.py:188,212` | — | M |
-| F-08 | S2 | `service.py:766` | — | S |
-| F-09 | S2 | `telemetry.py:156` | — | S |
-| F-10 | S2 | `telemetry.py:248` | — | S |
-| F-11 | S2 | `main.py:1146` | ✅ | S |
-| F-12 | S2 | `swarm.py:197` | — | S |
-| F-13 | S2 | `app.py:137,163` | — | S |
-| F-14 | S2 | `app.py:62` | — | M (product) |
-| F-15 | S2 | `main.py:1138` | — | S |
-| F-16 | S2 | `netllm-sdk-*/pyproject.toml` | — | S |
-| F-17 | S3 | `models.py:273` (+4 clients) | — | S |
-| F-18 | S3 | 10 sites | — | S |
-| F-19 | S3 | `netllm-core/pyproject.toml` | — | S |
-| F-20 | S3 | `platform.py:26` | — | M |
-| F-21 | S3 | `config_schema.py` + clients | — | L |
-| F-22 | S3 | 9 modules | — | M |
-| F-23 | S3 | `swarm.py:185` | — | M |
-| F-24 | S3 | `service.py` ×4 paths | — | L |
-| F-25 | S3 | 5 overlaps | — | L |
-| F-26 | S3 | `service.py`, `main.py` | — | L |
-| F-27 | S3 | `scripts/ci.sh`, workflows | — | M |
-| F-28 | S3 | `packaging/` | — | M |
-| F-29 | S3 | `local.py` | — | M |
+| ID | Severity | Primary file | Repro'd | Fix size | Status |
+|----|----------|--------------|---------|----------|--------|
+| F-01 | S1 | `config_merge.py:60,86` | ✅ | S | ✅ `6a5d190` |
+| F-02 | S1 | `admin.py:334` / `config_json.py:19` | ✅ | M | ✅ `6a5d190` |
+| F-03 | S1 | `service.py:315` | — | M | ✅ `3b6ec71` |
+| F-04 | S1 | `service.py:1318,1341` | — | M | ✅ `3b6ec71` |
+| F-05 | S2 | `pool.py:126` | — | S | ✅ `6a5d190` |
+| F-06 | S2 | `local.py:30` | — | S | ✅ `15ac9c7` |
+| F-07 | S2 | `health.py:188,212` | — | M | ✅ `15ac9c7` |
+| F-08 | S2 | `service.py:766` | — | S | ✅ `3b6ec71` |
+| F-09 | S2 | `telemetry.py:156` | — | S | ✅ `3b6ec71` |
+| F-10 | S2 | `telemetry.py:248` | — | S | ✅ `bb3eae0` |
+| F-11 | S2 | `main.py:1146` | ✅ | S | ✅ `15ac9c7` |
+| F-12 | S2 | `swarm.py:197` | — | S | ✅ `15ac9c7` |
+| F-13 | S2 | `app.py:137,163` | — | S | ✅ `15ac9c7` |
+| F-14 | S2 | `app.py:62` | — | M (product) | ✅ `15ac9c7` |
+| F-15 | S2 | `main.py:1138` | — | S | ✅ `15ac9c7` |
+| F-16 | S2 | `netllm-sdk-*/pyproject.toml` | — | S | ✅ `bb3eae0` |
+| F-17 | S3 | `models.py:273` (+4 clients) | — | S | ✅ `bb3eae0` |
+| F-18 | S3 | 10 sites | — | S | ✅ `bb3eae0` |
+| F-19 | S3 | `netllm-core/pyproject.toml` | — | S | ✅ `bb3eae0` |
+| F-20 | S3 | `platform.py:26` | — | M | ◐ partial |
+| F-21 | S3 | `config_schema.py` + clients | — | L | open |
+| F-22 | S3 | 9 modules | — | M | ✅ `bb3eae0` |
+| F-23 | S3 | `swarm.py:185` | — | M | open |
+| F-24 | S3 | `service.py` ×4 paths | — | L | open (scoped out) |
+| F-25 | S3 | 5 overlaps | — | L | ◐ partial |
+| F-26 | S3 | `service.py`, `main.py` | — | L | open (scoped out) |
+| F-27 | S3 | `scripts/ci.sh`, workflows | — | M | ✅ `bb3eae0` |
+| F-28 | S3 | `packaging/` | — | M | open |
+| F-29 | S3 | `local.py` | — | M | open |

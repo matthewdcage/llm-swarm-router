@@ -140,11 +140,11 @@ may. This is enforced by a test (`tests/test_sdk_isolation.py`) and a dedicated 
 | Build backend | hatchling (all 6 packages) | — |
 | HTTP server | FastAPI + uvicorn[standard] | 0.115 / 0.32 |
 | HTTP client | httpx (async + sync) | 0.28 |
-| Config models | pydantic v2 (+ pydantic-settings, tomli-w) | 2.10 |
+| Config models | pydantic v2 (+ tomli-w) | 2.10 |
 | CLI | Typer + Rich | 0.15 / 13.9 |
 | Metrics | prometheus-client | 0.21 |
 | Service discovery | zeroconf | 0.132 |
-| Vendor SDKs | `openai`, `anthropic` (isolated) | 1.60 / 0.45 |
+| Vendor SDKs | `openai`, `anthropic` (isolated) | ≥2.0,<3 / ≥0.100,<1 |
 | macOS app | Swift 5.9 tools, SwiftUI, macOS 14+ target | — |
 | macOS Python embedding | venvstacks | 0.5 |
 | Dashboard | vanilla HTML/CSS/JS, no build step, no framework | — |
@@ -168,7 +168,7 @@ container runtime requirement. All state is either in-process or a single TOML f
 | Session telemetry | `TelemetryService._session` | Process |
 | All-time telemetry | `~/.config/netllm/stats.json` | Durable |
 | Prometheus counters | prometheus-client registry | Process |
-| Agent log | `<log_dir>/agent.log` | Durable, **unrotated** (see F-19) |
+| Agent log | `<log_dir>/agent.log` | Durable, rotated at 10 MB × 3 |
 
 ## Surfaces exposed on port 11400
 
@@ -183,30 +183,33 @@ container runtime requirement. All state is either in-process or a single TOML f
 | `POST /v1/embeddings` | optional cluster token | OpenAI embeddings |
 | `POST /v1/messages` | optional cluster token | Anthropic Messages, streaming or not |
 | `GET /v1/models` | optional cluster token | Aggregated catalog |
-| `GET /netllm/v1/status` | none | Swarm status snapshot **(see F-13)** |
-| `GET /netllm/v1/peers`, `/backends` | none | Read-only debug |
+| `GET /netllm/v1/status` | cluster token if set | Swarm status snapshot. `?scan=1` rescans providers, `?probe=1` re-probes local backends, `?probe_peers=1` re-probes peer reachability |
+| `GET /netllm/v1/peers`, `/backends` | cluster token if set | Read-only debug |
 | `POST /netllm/v1/heartbeat` | cluster token if set | Peer gossip ingress |
-| `GET /netllm/v1/telemetry` | none | Dashboard/menubar telemetry |
+| `GET /netllm/v1/telemetry` | cluster token if set | Dashboard/menubar telemetry |
 | `GET /netllm/v1/{doctor,version,config,config/schema,logs,harnesses}` | local **or** cluster token | Admin reads |
 | `GET /netllm/v1/cloud/providers[/{id}/models]` | local or token | Cloud registry + live catalog probe |
 | `GET /netllm/v1/update/check` | local or token | GitHub release check |
 | `GET /netllm/v1/client-env` | none | Env-var snippet for editor wiring |
 | `POST /netllm/v1/admin/{config,discover,peers-scan,drain}` | local or token | Admin writes |
 
-"Optional cluster token" = enforced only when `swarm.require_token_for_inference = true`
-**and** a `swarm.cluster_token` is set; loopback clients are always exempt.
+"Optional cluster token" on `/v1/*` = enforced only when
+`swarm.require_token_for_inference = true` **and** a `swarm.cluster_token` is set.
+"cluster token if set" on the `/netllm/v1/*` read routes = enforced whenever a token
+exists, no second flag needed. Loopback clients are always exempt from both, and with no
+token configured nothing is gated — the zero-config path is unchanged.
 
 ## Codebase size
 
 | Area | Files | Lines |
 |------|-------|-------|
-| `packages/` Python (6 packages) | 51 | 13,288 |
-| ↳ largest: `netllm_agent/service.py` | 1 | 2,149 |
-| ↳ second: `netllm_cli/main.py` | 1 | 2,119 |
+| `packages/` Python (6 packages) | 52 | 13,924 |
+| ↳ largest: `netllm_agent/service.py` | 1 | 2,246 |
+| ↳ second: `netllm_cli/main.py` | 1 | 2,141 |
 | `apps/netllm-mac/Sources` Swift | 45 | ~7,500 |
 | ↳ largest: `SettingsWindowView.swift` | 1 | 1,244 |
 | Bundled dashboard (JS/CSS/HTML) | 3 | 3,457 |
-| Tests (`tests/` + SDK package tests) | 63 | — |
+| Tests (`tests/` + SDK package tests) | 63 | 642 passing |
 
 Two 2 kLOC modules (`service.py`, `main.py`) carry most of the complexity and most of the
 findings in [07](07-findings-register.md); both are flagged for decomposition (F-24).

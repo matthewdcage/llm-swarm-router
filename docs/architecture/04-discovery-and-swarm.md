@@ -69,6 +69,7 @@ stateDiagram-v2
     Pruned --> [*]: url forgotten only on process exit
     Routable --> Offline: max_backend_failures (3) hard failures
     Offline --> Routable: re-probe after offline_retry_s (10 s)
+    Offline --> Routable: explicit status?probe_peers=1 / doctor / UI Refresh
 ```
 
 `known_peer_urls` is append-only for the process lifetime — this is what makes recovery from
@@ -84,23 +85,25 @@ sequenceDiagram
     participant B as Peer B
 
     loop every swarm.heartbeat_interval_s (10 s)
-        A->>CFG: refresh_static_peers() — GET /netllm/v1/status on each
+        A->>CFG: refresh_static_peers() — concurrent GET /netllm/v1/status
         A->>A: prune_stale() — drop peers older than peer_stale_after_s
         A->>A: payload = status_payload()
-        loop each known peer
+        par bounded fan-out (32 at a time)
             A->>B: POST /netllm/v1/heartbeat (Bearer cluster_token if set)
             B->>B: register_peer, then _maybe_follow_gateway, then refresh_local_backends
         end
     end
 ```
 
-**Heartbeats are sent sequentially and awaited one at a time.** With N peers and a 5 s
-per-peer timeout, one unreachable peer delays every peer behind it in the list, and the
-effective heartbeat interval becomes `interval + Σ timeouts`. See F-10.
+Both the static-peer refresh and the heartbeat fan-out run concurrently through a bounded
+`asyncio.gather` that returns exceptions rather than aborting the cycle. They used to be
+sequential awaits with a 5 s per-peer timeout, so three dead peers pushed the effective
+interval past the 45 s stale window and healthy peers were pruned because a *different*
+peer was down (F-12, fixed in `15ac9c7`).
 
-The heartbeat payload is the **full** `status_payload()` — every backend row with its model
-catalog. On a fleet with large catalogs this is a non-trivial payload sent N×N times per
-interval; there is no delta encoding or catalog hash (F-21).
+The heartbeat payload is still the **full** `status_payload()` — every backend row with its
+model catalog. On a fleet with large catalogs this is a non-trivial payload sent N×N times
+per interval; there is no delta encoding or catalog hash (**F-23, open**).
 
 ## Discovery triggers at startup
 
@@ -151,14 +154,16 @@ flowchart LR
         O2["no swarm.cluster_token"]
         O3["POST /v1/* — unauthenticated from anywhere on the LAN"]
         O4["POST /netllm/v1/heartbeat — unauthenticated"]
-        O5["admin routes — loopback only (LAN gets 403)"]
+        O5["status / peers / backends / telemetry — unauthenticated"]
+        O6["admin routes — loopback only (LAN gets 403)"]
     end
     subgraph secured["Secured (netllm init --swarm --secure)"]
         direction TB
         S1["swarm.cluster_token generated"]
         S2["heartbeat requires Bearer token"]
         S3["admin routes accept Bearer token from LAN"]
-        S4["/v1/* still open unless<br/>swarm.require_token_for_inference = true"]
+        S4["status / peers / backends / telemetry<br/>require the token from LAN clients"]
+        S5["/v1/* requires the token —<br/>--secure sets require_token_for_inference"]
     end
     open -->|"netllm swarm-token --create"| secured
 ```
@@ -168,19 +173,22 @@ Three distinct gates, and they are **not** the same gate:
 | Gate | Function | Default |
 |------|----------|---------|
 | `local_admin_client_hosts()` | admin routes: loopback + this host's own addresses | always on |
-| `swarm.cluster_token` | heartbeat ingress + remote admin auth | unset |
-| `swarm.require_token_for_inference` | `/v1/*` auth for non-local clients | `false` |
+| `swarm.cluster_token` | heartbeat ingress, remote admin auth, **and the read routes** | unset |
+| `swarm.require_token_for_inference` | `/v1/*` auth for non-local clients | `false`, set by `--secure` |
 
-Consequence worth stating plainly to the PM: **setting a cluster token does not by itself
-protect inference.** A LAN-bound agent with a token still serves `/v1/chat/completions` to any
-host on the network until `require_token_for_inference` is also enabled. The CLI warns about
-the open case at `serve`, and doctor notes it — but the two-flag design is easy to get wrong
-(F-14).
+**A cluster token now gates everything it should.** Since `15ac9c7`:
 
-Additionally, `/netllm/v1/status` is unauthenticated and returns every backend URL, model
-catalog, hostname, agent id, peer list and version — full fleet reconnaissance for any host
-on the LAN (F-13). It has to stay reachable for peer discovery, so the fix is
-token-gating it when a token is configured rather than removing it.
+- `status`, `peers`, `backends` and `telemetry` require the token from non-local clients
+  whenever one is configured (F-13). They previously returned every backend URL, model
+  catalog, hostname, agent id, peer list, routed counts and token totals to anyone on the
+  LAN. Peer discovery is unaffected — `fetch_peer` and `fetch_agent_status` already send it.
+- `netllm init --swarm --secure` sets `require_token_for_inference`, so the flag means what
+  it reads as (F-14). It previously secured gossip and remote admin while leaving
+  `/v1/chat/completions` open to the whole LAN.
+
+Existing configs are never rewritten: a token-set-but-inference-open agent gets a doctor
+issue telling it to set the flag. **With no token configured nothing is gated at all** — the
+zero-config single-machine and open trusted-LAN paths behave exactly as before.
 
 ## Timing constants
 

@@ -1,6 +1,13 @@
 # Architecture & audit documentation
 
-Reviewed release: **0.4.5.0** · Audit date: **2026-07-29** · Branch: `main` @ `a3ec16a`
+Reviewed release: **0.4.5.0** · Audit date: **2026-07-29** ·
+Branch: `docs/architecture-audit` @ `bb3eae0`
+
+> **Remediation landed.** 20 of 29 findings are fixed (all S1 and S2, plus the
+> low-risk S3 cleanups) across four commits on this branch — see the status
+> column in [07-findings-register.md](07-findings-register.md). The original
+> audit was taken at `a3ec16a`; `26c45b7` (mesh fix #36) landed mid-audit and
+> is accounted for. Suite: **642 passing**.
 
 This set documents **llm-swarm-router** (`netllm`) as built: every component, every
 dependency, the routing and control-plane logic, and a severity-ranked register of
@@ -32,7 +39,7 @@ carries a `file:line` reference and, where practical, a reproduction that was ac
 | 04 | [Discovery & swarm](04-discovery-and-swarm.md) | Local scan, mDNS, subnet scan, heartbeat gossip, peer state machine |
 | 05 | [Configuration & control plane](05-configuration-and-control-plane.md) | Config model, the three write paths, admin API, schema-driven UI |
 | 06 | [Dependencies](06-dependencies.md) | Internal graph, external packages, platform/build/CI dependencies |
-| 07 | [Findings register](07-findings-register.md) | 29 verified findings: correctness, security, performance, simplification |
+| 07 | [Findings register](07-findings-register.md) | 29 verified findings with fix status: correctness, security, performance, simplification |
 | 08 | [Feature integration status](08-feature-integration-status.md) | Shipped / partial / orphaned matrix for planning |
 
 ## Scope and method
@@ -43,12 +50,16 @@ Swift menubar app (~7.5k LOC), the bundled web dashboard (~3.4k LOC of HTML/CSS/
 
 **Verification performed during this audit:**
 
-- Full test suite: `uv run pytest -q` → **584 passed** in 50 s (clean).
-- Reproduced 4 defects with executable scripts (see findings F-01, F-02, F-06, F-11).
+- Full test suite at audit time: **584 passed**; after remediation: **642 passed**.
+- Reproduced 4 defects with executable scripts before fixing (F-01, F-02, F-04, F-11).
 - Cross-checked every "orphan" claim with a repo-wide symbol grep including tests.
+- Re-verified all four S1 findings against `26c45b7` before starting work — none
+  were resolved by it, and F-03 was narrowed in one place and amplified in another.
 
-**Not in scope:** the local-maintainer coordinator/outreach trees under `.cursor/`
-(gitignored, never on the remote), and third-party upstream inference servers.
+**Not in scope:** the gitignored local-maintainer coordinator/outreach trees under
+`.cursor/` (`plans/`, `outreach/`, `agents/`, `coordinator/`), and third-party upstream
+inference servers. Note that `.cursor/hooks/` and `.cursor/rules/` *are* tracked and are
+now covered by the repo-wide lint gate.
 
 ## Conventions used
 
