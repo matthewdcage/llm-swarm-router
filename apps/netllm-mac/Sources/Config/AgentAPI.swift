@@ -19,14 +19,16 @@ enum AgentAPI {
     static func status(
         baseURL: URL,
         forceScan: Bool = false,
-        forceProbe: Bool = false
+        forceProbe: Bool = false,
+        forceProbePeers: Bool = false
     ) async -> AgentStatusPayload? {
         var path = "/netllm/v1/status"
         var query: [String] = []
         if forceScan { query.append("scan=1") }
         if forceProbe { query.append("probe=1") }
+        if forceProbePeers { query.append("probe_peers=1") }
         if !query.isEmpty { path += "?" + query.joined(separator: "&") }
-        let timeout: TimeInterval = (forceScan || forceProbe) ? 120 : 15
+        let timeout: TimeInterval = (forceScan || forceProbe || forceProbePeers) ? 120 : 15
         guard let json = await fetchJSON(baseURL: baseURL, path: path, timeout: timeout)
         else { return nil }
         let backends = (json["backends"] as? [[String: Any]] ?? []).map(parseBackend)

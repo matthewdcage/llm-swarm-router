@@ -4,10 +4,26 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
 from netllm_core.models import Backend, BackendHealth
 from netllm_core.pool import RouterPool, shard_index
 
 _MOCK_ONLINE = {"status": "online", "models": ["m"], "model_count": 1}
+_MOCK_PEER_REACHABLE = {
+    "status": "online",
+    "http_status": 200,
+    "models": [],
+    "model_count": 0,
+}
+
+
+@pytest.fixture(autouse=True)
+def _peer_health_probe_online() -> object:
+    with patch(
+        "netllm_core.pool.probe_agent_health_sync",
+        return_value=_MOCK_PEER_REACHABLE,
+    ):
+        yield
 
 
 def test_backend_resolve_api_key_defaults_omlx() -> None:
@@ -112,6 +128,38 @@ def test_capacity_failure_does_not_trip_offline(_mock: object) -> None:
     # A hard failure still trips at max_failures=1.
     pool.mark_failure(backend)
     assert pool.is_healthy(backend) is False
+
+
+@patch("netllm_core.pool.probe_agent_health_sync", return_value=_MOCK_ONLINE)
+def test_peer_is_healthy_uses_agent_health_endpoint(mock_probe: object) -> None:
+    peer = Backend(
+        id="peer:remote",
+        base_url="http://10.0.0.5:11400/v1",
+        provider="custom",
+        health=BackendHealth(models=["m"], model_count=1),
+    )
+    pool = RouterPool()
+    pool.set_backends([peer])
+    assert pool.is_healthy(peer) is True
+    mock_probe.assert_called_once_with("http://10.0.0.5:11400/v1")
+    assert peer.health.models == ["m"]
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_peer_mark_failure_ignores_client_errors(_mock: object) -> None:
+    pool = RouterPool(max_failures=2)
+    peer = Backend(
+        id="peer:remote",
+        base_url="http://10.0.0.5:11400/v1",
+        provider="custom",
+        health=BackendHealth(models=["m"], status="online"),
+    )
+    pool.set_backends([peer])
+    pool.mark_success(peer)
+    for _ in range(5):
+        pool.mark_failure(peer, status_code=404)
+        pool.mark_failure(peer, status_code=400)
+    assert pool.is_healthy(peer) is True
 
 
 @patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)

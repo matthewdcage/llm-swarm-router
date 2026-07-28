@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from netllm_core.capabilities import model_capability
 from netllm_core.health import (
     is_online,
+    probe_agent_health_sync,
     probe_anthropic_compat_sync,
     probe_openai_compat_sync,
 )
@@ -117,6 +118,11 @@ class RouterPool:
                 if cached is not None and cached.last_check > 0:
                     b.health.status = "online" if cached.online else "offline"
                     b.health.last_check = cached.last_check
+                if existing is not None and cached is not None and not cached.online:
+                    if existing.health.detail:
+                        b.health.detail = existing.health.detail
+                    if existing.health.http_status is not None:
+                        b.health.http_status = existing.health.http_status
                 by_url[b.base_url] = b
                 continue
             if existing is not None and not existing.id.startswith("peer:"):
@@ -220,7 +226,15 @@ class RouterPool:
             hops = self._own_peer_hops
             hops[backend.base_url] = max(0, hops.get(backend.base_url, 0) - 1)
 
-    def mark_failure(self, backend: Backend, *, capacity: bool = False) -> None:
+    def mark_failure(
+        self,
+        backend: Backend,
+        *,
+        capacity: bool = False,
+        status_code: int | None = None,
+        message: str | None = None,
+    ) -> None:
+        _ = message
         if capacity:
             # Backend is healthy but full (busy reload, rate limit,
             # memory guard): steer this request elsewhere via the
@@ -229,6 +243,10 @@ class RouterPool:
             self.capacity_rejections[backend.id] = (
                 self.capacity_rejections.get(backend.id, 0) + 1
             )
+            return
+        # Agent-hop failures that reflect client/model mismatch on the
+        # peer's local providers must not bench the whole peer row.
+        if backend.id.startswith("peer:") and status_code in (400, 404):
             return
         key = backend.cache_key()
         entry = self._health_cache.setdefault(key, _HealthEntry())
@@ -288,7 +306,9 @@ class RouterPool:
         ):
             return cached.online
         probe_key = backend.resolve_api_key() or None
-        if backend.api_format == "anthropic":
+        if backend.id.startswith("peer:"):
+            status = probe_agent_health_sync(backend.base_url)
+        elif backend.api_format == "anthropic":
             status = probe_anthropic_compat_sync(backend.base_url, api_key=probe_key)
         else:
             status = probe_openai_compat_sync(backend.base_url, api_key=probe_key)
@@ -300,7 +320,12 @@ class RouterPool:
         backend.health.http_status = status.get("http_status")
         backend.health.detail = status.get("detail")
         probed_models = status.get("models") or []
-        if probed_models or online:
+        if backend.id.startswith("peer:"):
+            # Catalog comes from heartbeats; reachability probe is /health only.
+            if probed_models:
+                backend.health.models = probed_models
+                backend.health.model_count = status.get("model_count", 0)
+        elif probed_models or online:
             # A failed probe keeps the last known catalog (heartbeat- or
             # probe-sourced) instead of wiping it to [] and breaking
             # model matching until the next heartbeat.
@@ -308,6 +333,30 @@ class RouterPool:
             backend.health.model_count = status.get("model_count", 0)
         backend.health.last_check = now
         return online
+
+    def refresh_peer_health(self, *, force: bool = False) -> None:
+        """Re-probe peer-agent rows via GET /health (never /v1/models)."""
+        for b in self._backends:
+            if not b.enabled or not b.id.startswith("peer:"):
+                continue
+            if force:
+                self.is_healthy(b, force_refresh=True)
+                continue
+            cached = self._health_cache.get(b.cache_key())
+            now = time.monotonic()
+            if cached is None or not cached.online:
+                self.is_healthy(b)
+            elif now - cached.last_check >= self._freshness_s(cached):
+                self.is_healthy(b)
+
+    def cached_peer_online(self, backend: Backend) -> bool:
+        """Metrics-only: peer verdict from cache without issuing a probe."""
+        if not backend.id.startswith("peer:"):
+            return self.is_healthy(backend)
+        cached = self._health_cache.get(backend.cache_key())
+        if cached is None:
+            return True
+        return cached.online
 
     def model_names_for(self, model: str) -> list[str]:
         """Requested name plus configured aliases, request name first.

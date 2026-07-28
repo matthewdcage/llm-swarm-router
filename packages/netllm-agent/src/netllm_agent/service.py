@@ -314,7 +314,10 @@ class AgentService:
 
     def _update_health_metrics(self) -> None:
         for b in self.pool.backends:
-            healthy = 1 if self.pool.is_healthy(b) else 0
+            if b.id.startswith("peer:"):
+                healthy = 1 if self.pool.cached_peer_online(b) else 0
+            else:
+                healthy = 1 if self.pool.is_healthy(b) else 0
             BACKEND_HEALTH.labels(backend=b.base_url, provider=b.provider).set(healthy)
             BACKEND_IN_FLIGHT.labels(backend=b.base_url).set(b.in_flight)
 
@@ -486,6 +489,8 @@ class AgentService:
         self.pool.mark_failure(
             backend,
             capacity=is_capacity_error(getattr(exc, "status_code", None), str(exc)),
+            status_code=getattr(exc, "status_code", None),
+            message=str(exc),
         )
 
     @staticmethod
