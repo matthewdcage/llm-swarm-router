@@ -14,6 +14,9 @@ from netllm_core.models import default_config_path
 from netllm_discovery.local import probe_omlx_telemetry
 
 _HISTORY_LEN = 60
+# All-time counters are flushed at most this often instead of once per
+# request; close() flushes any pending write on clean shutdown.
+_ALLTIME_SAVE_INTERVAL_S = 10.0
 _STATS_FILE = default_config_path().parent / "stats.json"
 
 
@@ -103,6 +106,8 @@ class TelemetryService:
         self._last_router_rps_at = 0.0
         self._requests_since_sample = 0
         self._http_client: Any | None = None
+        self._alltime_dirty = False
+        self._last_alltime_save = 0.0
 
     def _load_alltime(self) -> None:
         if not self._stats_path.is_file():
@@ -123,6 +128,23 @@ class TelemetryService:
             )
         except OSError:
             return
+        self._alltime_dirty = False
+        self._last_alltime_save = time.monotonic()
+
+    def _save_alltime_debounced(self) -> None:
+        """Persist all-time counters at most every _ALLTIME_SAVE_INTERVAL_S.
+
+        This used to run on every recorded request: a mkdir + json.dumps +
+        write_text on the event loop per proxied request
+        (docs/architecture/07-findings-register.md F-09). The counters are a
+        convenience total, not an audit log — losing at most one interval's
+        worth on a hard kill is an acceptable trade for keeping the request
+        path off the disk. A clean shutdown flushes via close().
+        """
+        self._alltime_dirty = True
+        if time.monotonic() - self._last_alltime_save < _ALLTIME_SAVE_INTERVAL_S:
+            return
+        self._save_alltime()
 
     def subscribe(self) -> None:
         self._subscribers += 1
@@ -135,6 +157,10 @@ class TelemetryService:
         return self._subscribers > 0
 
     async def close(self) -> None:
+        # Flush whatever the debounce is still holding so a clean shutdown
+        # never loses counters.
+        if self._alltime_dirty:
+            self._save_alltime()
         if self._http_client is not None:
             await self._http_client.aclose()
             self._http_client = None
@@ -153,7 +179,7 @@ class TelemetryService:
             counter.completion_tokens += max(0, completion_tokens)
             counter.total_prefill_duration += max(0.0, prefill_duration)
             counter.total_generation_duration += max(0.0, generation_duration)
-        self._save_alltime()
+        self._save_alltime_debounced()
         self._requests_since_sample += 1
         now = time.time()
         if now - self._last_router_rps_at >= 1.0:

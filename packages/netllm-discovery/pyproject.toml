@@ -9,9 +9,6 @@ dependencies = [
     "zeroconf>=0.132",
 ]
 
-[project.optional-dependencies]
-# Kept for backwards compatibility; zeroconf is now a core dependency.
-mdns = []
 
 [build-system]
 requires = ["hatchling"]

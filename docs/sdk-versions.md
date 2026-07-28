@@ -8,10 +8,19 @@ Vendor SDKs live only in `packages/netllm-sdk-openai` and `packages/netllm-sdk-a
 
 | SDK | Package | Floor pin (`pyproject.toml`) | Resolved (`uv.lock`) | Last validated |
 |-----|---------|------------------------------|----------------------|----------------|
-| OpenAI | `netllm-sdk-openai` | `openai>=1.60` | 2.41.0 | 2026-06-08 |
-| Anthropic | `netllm-sdk-anthropic` | `anthropic>=0.45` | 0.106.0 | 2026-06-08 |
+| OpenAI | `netllm-sdk-openai` | `openai>=2.0,<3` | 2.41.0 | 2026-07-29 |
+| Anthropic | `netllm-sdk-anthropic` | `anthropic>=0.100,<1` | 0.106.0 | 2026-07-29 |
 
 Update the **Resolved** and **Last validated** columns whenever you bump a floor pin or commit an updated `uv.lock`.
+
+Floors track the tested major and carry an upper bound. They previously sat a
+full major below what actually resolved (`openai>=1.60` resolving to 2.41.0),
+which the lock hid for this repo but not for anyone installing
+`netllm-sdk-openai` from an index or re-resolving downstream — they could land
+on an SDK generation the adapter has never been tested against
+(docs/architecture/07-findings-register.md F-16). The ceiling makes a silent
+major bump a resolution failure instead of a runtime surprise; `sdk-canary.yml`
+remains the deliberate early-warning path for upstream drift.
 
 ## Upstream changelogs
 

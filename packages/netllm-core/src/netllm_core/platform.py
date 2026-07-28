@@ -31,7 +31,9 @@ def local_admin_client_hosts() -> frozenset[str]:
     hosts: set[str] = {"127.0.0.1", "::1", "localhost", "testclient"}
     try:
         for info in socket.getaddrinfo(socket.gethostname(), None):
-            hosts.add(info[4][0].lower())
+            addr = info[4][0]
+            if isinstance(addr, str):
+                hosts.add(addr.lower())
     except OSError:
         pass
     try:

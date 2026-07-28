@@ -10,6 +10,10 @@ import httpx
 from netllm_core.capabilities import model_capability
 
 DEFAULT_TIMEOUT = 5.0
+# Last-resort model for the Messages reachability probe, used only when a
+# backend offers no GET /v1/models catalog. Callers should pass a model the
+# backend actually serves via `fallback_model` where one is known.
+_ANTHROPIC_PROBE_MODEL = "claude-3-5-haiku-20241022"
 INFERENCE_TIMEOUT = 10.0
 SLOW_THRESHOLD_MS = 5000
 
@@ -238,13 +242,31 @@ def probe_anthropic_compat_sync(
     *,
     api_key: str | None = None,
     timeout_s: float = DEFAULT_TIMEOUT,
+    fallback_model: str | None = None,
 ) -> dict[str, Any]:
+    """Reachability for an Anthropic Messages backend.
+
+    Tries ``GET /v1/models`` first: it is free, returns the real catalog, and
+    both Anthropic and OpenRouter support it. Only providers with no catalog
+    endpoint fall back to a 1-token Messages call.
+
+    That fallback used to be the *only* path, with a hardcoded model id, so
+    every health refresh of a cloud Anthropic backend was a billable API call
+    — roughly one every `routing.health_ttl_s` for the life of the agent — and
+    it hard-depended on one model id existing on every Anthropic-compatible
+    provider (Moonshot's and Z.ai's Anthropic endpoints do not serve it). See
+    docs/architecture/07-findings-register.md F-07.
+    """
+    catalog = _anthropic_models_probe_sync(base_url, api_key, timeout_s)
+    if catalog is not None:
+        return catalog
+
     messages_url = _anthropic_messages_url(base_url)
     headers: dict[str, str] = {"content-type": "application/json"}
     if api_key:
         headers["x-api-key"] = api_key
     payload = {
-        "model": "claude-3-5-haiku-20241022",
+        "model": fallback_model or _ANTHROPIC_PROBE_MODEL,
         "max_tokens": 1,
         "messages": [{"role": "user", "content": "hi"}],
     }
@@ -255,6 +277,45 @@ def probe_anthropic_compat_sync(
         return _anthropic_probe_status(resp)
     except Exception as exc:
         return status_from_exception(exc, timeout_s)
+
+
+def _anthropic_models_probe_sync(
+    base_url: str,
+    api_key: str | None,
+    timeout_s: float,
+) -> dict[str, Any] | None:
+    """GET /v1/models on an Anthropic-format backend.
+
+    Returns None when the endpoint is absent (404/405) so the caller can fall
+    back to the Messages probe; a 401/403 still counts as reachable.
+    """
+    if not api_key:
+        return None
+    root = base_url.rstrip("/")
+    models_url = root + "/models" if root.endswith("/v1") else root + "/v1/models"
+    try:
+        resp = _shared_sync_client().get(
+            models_url,
+            headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+            timeout=timeout_s,
+        )
+    except Exception:
+        # Network-level failure: let the Messages probe produce the verdict so
+        # the two paths cannot disagree about what "offline" means.
+        return None
+    if resp.status_code in (404, 405):
+        return None
+    if resp.status_code == 200:
+        return status_from_response(resp)
+    if resp.status_code in (401, 403):
+        return {
+            "status": "online",
+            "http_status": resp.status_code,
+            "model_count": 0,
+            "models": [],
+            "detail": "authentication required",
+        }
+    return None
 
 
 def _anthropic_messages_url(base_url: str) -> str:

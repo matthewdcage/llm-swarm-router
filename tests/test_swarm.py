@@ -291,3 +291,65 @@ def test_peer_agent_backends_seed_in_flight_from_local_rows() -> None:
     assert len(backends) == 1
     # Sum of local rows only (2 + 1); the peer's own remote hops are not ours.
     assert backends[0].in_flight == 3
+
+
+# --- F-12: one dead peer must not stretch the whole gossip cycle -----------
+
+
+async def test_heartbeat_fan_out_is_concurrent() -> None:
+    """Sequential awaits with a 5 s per-peer timeout meant three dead peers
+    pushed the cycle past the 45 s stale window, pruning healthy peers
+    because a *different* peer was down."""
+    import asyncio as _asyncio
+
+    from netllm_core.models import NetllmConfig
+    from netllm_discovery.swarm import PeerRecord, SwarmRegistry
+
+    cfg = NetllmConfig()
+    registry = SwarmRegistry(cfg)
+    for i in range(5):
+        registry.register_peer(
+            PeerRecord(agent_id=f"p{i}", listen_url=f"http://10.0.0.{i}:11400")
+        )
+
+    started: list[float] = []
+
+    async def slow_heartbeat(payload: dict, peer_url: str) -> bool:
+        started.append(_asyncio.get_running_loop().time())
+        await _asyncio.sleep(0.2)
+        return True
+
+    registry.send_heartbeat = slow_heartbeat  # type: ignore[assignment]
+
+    loop = _asyncio.get_running_loop()
+    t0 = loop.time()
+    payload = {"agent_id": cfg.agent.agent_id}
+    targets = [p.listen_url for p in registry.peers.values()]
+    await registry._gather_bounded(
+        [registry.send_heartbeat(payload, url) for url in targets]
+    )
+    elapsed = loop.time() - t0
+
+    assert len(started) == 5
+    assert elapsed < 0.2 * 5 * 0.6, (
+        f"heartbeats ran sequentially ({elapsed:.2f}s for 5 x 0.2s)"
+    )
+
+
+async def test_gather_bounded_survives_a_failing_peer() -> None:
+    """One unreachable peer must never abort the rest of the cycle."""
+    from netllm_core.models import NetllmConfig
+    from netllm_discovery.swarm import SwarmRegistry
+
+    registry = SwarmRegistry(NetllmConfig())
+
+    async def ok() -> str:
+        return "ok"
+
+    async def boom() -> str:
+        raise RuntimeError("unreachable")
+
+    results = await registry._gather_bounded([ok(), boom(), ok()])
+    assert results[0] == "ok"
+    assert isinstance(results[1], RuntimeError)
+    assert results[2] == "ok"

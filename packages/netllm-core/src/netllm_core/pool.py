@@ -138,6 +138,11 @@ class RouterPool:
                 existing.local = b.local
                 existing.agent_id = b.agent_id
                 existing.health = b.health
+                # Config-sourced knobs must land on the live row too, or a
+                # hot-applied edit silently waits for a restart while the
+                # dashboard reports the save succeeded.
+                existing.max_concurrency = b.max_concurrency
+                existing.cloud_provider = b.cloud_provider
                 continue
             by_url[b.base_url] = b
         self._backends = list(by_url.values())
@@ -232,9 +237,7 @@ class RouterPool:
         *,
         capacity: bool = False,
         status_code: int | None = None,
-        message: str | None = None,
     ) -> None:
-        _ = message
         if capacity:
             # Backend is healthy but full (busy reload, rate limit,
             # memory guard): steer this request elsewhere via the
@@ -309,7 +312,15 @@ class RouterPool:
         if backend.id.startswith("peer:"):
             status = probe_agent_health_sync(backend.base_url)
         elif backend.api_format == "anthropic":
-            status = probe_anthropic_compat_sync(backend.base_url, api_key=probe_key)
+            # Prefer a model this backend is known to serve, so the Messages
+            # fallback (only reached when the provider has no /v1/models) does
+            # not depend on a hardcoded Anthropic model id being valid there.
+            served = backend.health.models
+            status = probe_anthropic_compat_sync(
+                backend.base_url,
+                api_key=probe_key,
+                fallback_model=served[0] if served else None,
+            )
         else:
             status = probe_openai_compat_sync(backend.base_url, api_key=probe_key)
         online = is_online(status)
@@ -349,14 +360,28 @@ class RouterPool:
             elif now - cached.last_check >= self._freshness_s(cached):
                 self.is_healthy(b)
 
-    def cached_peer_online(self, backend: Backend) -> bool:
-        """Metrics-only: peer verdict from cache without issuing a probe."""
-        if not backend.id.startswith("peer:"):
-            return self.is_healthy(backend)
+    def cached_online(self, backend: Backend) -> bool:
+        """This pool's current belief about a backend, without probing.
+
+        For observers (metrics, status display) that want the router's view
+        rather than fresh truth. `is_healthy` blocks on a synchronous HTTP
+        probe whenever the cache entry is stale, so calling it from an async
+        request path stalls the whole event loop — the reason
+        `_update_health_metrics` now reads through here for every row, not
+        just peers (docs/architecture/07-findings-register.md F-03).
+
+        An unprobed backend counts as online: the same optimistic default
+        `is_healthy` starts from, so a fresh row is not reported down before
+        anything has actually tried it.
+        """
         cached = self._health_cache.get(backend.cache_key())
         if cached is None:
             return True
         return cached.online
+
+    def cached_peer_online(self, backend: Backend) -> bool:
+        """Deprecated alias for `cached_online` — kept for one release."""
+        return self.cached_online(backend)
 
     def model_names_for(self, model: str) -> list[str]:
         """Requested name plus configured aliases, request name first.
@@ -451,13 +476,28 @@ class RouterPool:
         return list(seen)[:limit]
 
     def backends_for_model(
-        self, model: str, *, local_only: bool = False
+        self,
+        model: str,
+        *,
+        local_only: bool = False,
+        extra_candidates: list[Backend] | None = None,
     ) -> list[Backend]:
+        """Candidate backends for `model`.
+
+        `extra_candidates` are request-scoped rows that must be routable for
+        this one request without ever entering the pool — used for cloud
+        backends whose credential came from the calling request, so one
+        caller's key can never serve another's (F-04). They participate in
+        selection exactly like pooled rows; only their lifetime differs.
+        """
         names = self.model_names_for(model)
+        searchable = (
+            [*self._backends, *extra_candidates] if extra_candidates else self._backends
+        )
 
         def collect() -> list[Backend]:
             out: list[Backend] = []
-            for b in self._backends:
+            for b in searchable:
                 if not b.enabled:
                     continue
                 if not b.local and not self.allow_remote:
@@ -519,12 +559,23 @@ class RouterPool:
         prefer_cloud: bool = False,
         exclude_ids: set[str] | None = None,
         cloud_provider_allowlist: frozenset[str] | None = None,
+        extra_candidates: list[Backend] | None = None,
     ) -> Backend | None:
         if local_only:
-            all_candidates = self.backends_for_model(model, local_only=True)
+            all_candidates = self.backends_for_model(
+                model, local_only=True, extra_candidates=extra_candidates
+            )
         else:
-            local = self.backends_for_model(model, local_only=True)
-            remote = [b for b in self.backends_for_model(model) if not b.local]
+            local = self.backends_for_model(
+                model, local_only=True, extra_candidates=extra_candidates
+            )
+            remote = [
+                b
+                for b in self.backends_for_model(
+                    model, extra_candidates=extra_candidates
+                )
+                if not b.local
+            ]
             all_candidates = local + remote
         if exclude_ids:
             # Backends that already failed this request: never burn retry

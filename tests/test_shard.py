@@ -144,3 +144,27 @@ def test_agent_batch_shard_retries_on_next_backend(_mock: object) -> None:
     second = service._select_backend_for_request("m", "batch_shard", 2, shard)
     assert second is not None
     assert second.base_url == "http://b/v1"
+
+
+# --- F-18: the completed set was written and never read --------------------
+
+
+def test_completed_shard_is_not_reassigned() -> None:
+    """mark_done recorded successes that nothing consulted, so a later failure
+    in the same batch could re-dispatch work that had already succeeded."""
+    from netllm_agent.shard import BatchRequestLedger
+    from netllm_core.models import Backend
+
+    backends = [
+        Backend(id="a", base_url="http://a/v1"),
+        Backend(id="b", base_url="http://b/v1"),
+    ]
+    ledger = BatchRequestLedger()
+    first = ledger.assign("batch", 0, backends)
+    assert first is not None
+
+    # Not yet done: a failure moves it on to the next backend.
+    assert ledger.reassign_failed("batch", 0, backends, current_url=first) is not None
+
+    ledger.mark_done("batch", 0)
+    assert ledger.reassign_failed("batch", 0, backends, current_url=first) is None

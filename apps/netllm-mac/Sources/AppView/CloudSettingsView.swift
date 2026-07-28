@@ -53,7 +53,7 @@ private struct CloudProviderCard: View {
 
     // Key draft/feedback/catalog state lives on the view model, keyed by
     // provider id — @State here gets destroyed by the Settings detail
-    // view's `.id(uiRevision)` on every 2-second live poll, which is
+    // view's former `.id(uiRevision)` on every 2-second live poll, which is
     // exactly the old "typed API key disappears" bug.
 
     private var binding: Binding<NetllmConfigDocument.CloudProviderConfig> {

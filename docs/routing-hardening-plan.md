@@ -76,8 +76,12 @@ Config integrity & hot-apply
   replacing it — macOS app saves no longer wipe unmodeled fields.
 - Validation: `spillover_max_local_in_flight ≥ 1`, `heartbeat_interval_s > 0`,
   health knobs positive (pydantic `Field` constraints).
-- `require_same_model_for_shard` is now actually wired into
-  `plan_batch_shard` (was a fully-plumbed no-op toggle).
+- ~~`require_same_model_for_shard` is now actually wired into
+  `plan_batch_shard` (was a fully-plumbed no-op toggle).~~ **Superseded by
+  Phase 5** (2026-07-21), which deleted `plan_batch_shard`/`BatchShardPlan` as
+  dead code — the field is a no-op again and is kept only so existing configs
+  load. Its semantics move to the Phase 4 `model_groups` design. Canonical
+  statement: the "Dead code removed" bullet under Phase 5 below.
 
 Hardening
 

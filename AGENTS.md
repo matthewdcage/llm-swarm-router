@@ -79,8 +79,9 @@ Prefer `./netllm` from the repo root, works without global PATH (`uv run` wrappe
 | `./netllm drain [on\|off]` | Stop/resume receiving new swarm work (runtime-only, resets on restart) |
 | `./netllm config-edit` | Open `config.toml` in `$EDITOR` |
 | `./scripts/ci.sh` | Lint + test (same as CI) |
-| `./scripts/ci.sh lint` | Ruff check + format --check |
+| `./scripts/ci.sh lint` | Ruff check + format --check (repo-wide) + dashboard token drift |
 | `./scripts/ci.sh test` | Run tests |
+| `./scripts/ci.sh types` | basedpyright (non-blocking while the backlog is triaged) |
 | `./scripts/ci.sh packaging` | Build deb/rpm (Linux) or zip (Windows) smoke artifacts |
 | `scripts/verify-before-pr.sh` | Pre-push gate: lint + test + macOS `swift build -c release` |
 | `scripts/verify-before-pr.sh --full` | Above + menubar e2e when Stage `.app` exists |

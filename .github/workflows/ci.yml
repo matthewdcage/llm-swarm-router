@@ -41,6 +41,20 @@ jobs:
         run: bash scripts/ci.sh test
         shell: bash
 
+  types:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # Non-blocking: basedpyright is configured but had never run, so the
+      # backlog is being triaged before it gates merges (audit F-27).
+      - name: Type check (non-blocking)
+        run: bash scripts/ci.sh types
+        shell: bash
+
   sdk:
     needs: lint
     runs-on: ubuntu-latest

@@ -66,3 +66,77 @@ def test_diagnose_probe_skips_embedding_models() -> None:
         asyncio.run(diagnose_backend("http://x/v1", client))
     payload = client.post.call_args.kwargs["json"]
     assert payload["model"] == "gemma-4-12B-8bit"
+
+
+# --- F-07: health probes must not be billable inference calls ---------------
+
+
+def test_anthropic_probe_prefers_the_free_models_endpoint() -> None:
+    """The Messages probe was the only path, with a hardcoded model id — so
+    every health refresh of a cloud Anthropic backend was a paid API call,
+    roughly one per routing.health_ttl_s for the life of the agent."""
+    from unittest.mock import MagicMock, patch
+
+    from netllm_core.health import probe_anthropic_compat_sync
+
+    models_resp = MagicMock()
+    models_resp.status_code = 200
+    models_resp.json.return_value = {"data": [{"id": "claude-opus-4-7"}]}
+
+    client = MagicMock()
+    client.get.return_value = models_resp
+
+    with patch("netllm_core.health._shared_sync_client", return_value=client):
+        status = probe_anthropic_compat_sync(
+            "https://api.anthropic.com", api_key="sk-ant-test"
+        )
+
+    assert status["status"] == "online"
+    assert status["models"] == ["claude-opus-4-7"]
+    client.post.assert_not_called()
+    assert client.get.call_args.args[0].endswith("/v1/models")
+
+
+def test_anthropic_probe_falls_back_to_messages_without_a_catalog() -> None:
+    """Providers with no GET /v1/models (Z.ai) still need a reachability
+    signal — and it must use a model that provider actually serves, not a
+    hardcoded Anthropic id."""
+    from unittest.mock import MagicMock, patch
+
+    from netllm_core.health import probe_anthropic_compat_sync
+
+    no_catalog = MagicMock()
+    no_catalog.status_code = 404
+    messages_ok = MagicMock()
+    messages_ok.status_code = 200
+
+    client = MagicMock()
+    client.get.return_value = no_catalog
+    client.post.return_value = messages_ok
+
+    with patch("netllm_core.health._shared_sync_client", return_value=client):
+        status = probe_anthropic_compat_sync(
+            "https://api.z.ai/api/anthropic",
+            api_key="zk-test",
+            fallback_model="glm-5.2",
+        )
+
+    assert status["status"] == "online"
+    assert client.post.call_args.kwargs["json"]["model"] == "glm-5.2"
+
+
+def test_anthropic_probe_without_key_skips_the_catalog_attempt() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from netllm_core.health import probe_anthropic_compat_sync
+
+    messages_ok = MagicMock()
+    messages_ok.status_code = 401
+    client = MagicMock()
+    client.post.return_value = messages_ok
+
+    with patch("netllm_core.health._shared_sync_client", return_value=client):
+        status = probe_anthropic_compat_sync("https://api.anthropic.com")
+
+    assert status["status"] == "online"
+    client.get.assert_not_called()

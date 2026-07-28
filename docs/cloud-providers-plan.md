@@ -1,9 +1,43 @@
 # Cloud Providers Plan — pre-configured cloud backends, Cloud UI, local/cloud fallback
 
-Status: **proposed** (research complete 2026-07-22, all provider facts from official docs as of that date).
+Status: **delivered** — all phases 0–6 shipped in **v0.4.3.0**
+([release notes](release-notes/v0.4.3.0.md)). Plan drafted and research completed
+2026-07-22; all provider facts below are from official docs as of that date and are
+**not** re-verified on every read — treat model ids and endpoint URLs as dated.
+Status line corrected 2026-07-29 (it still read "proposed" long after the feature shipped);
+see [architecture/08-feature-integration-status.md](architecture/08-feature-integration-status.md).
+
 Companion to [routing-hardening-plan.md](routing-hardening-plan.md). All phases are additive and
 non-breaking: absent config keys default to today's behavior, and every write path
 (`config import`, `POST /netllm/v1/admin/config`) already deep-merges.
+
+## Delivered state (verified against code, 2026-07-29)
+
+| Phase | Shipped as |
+|-------|-----------|
+| 0 — Contract | `netllm_core/cloud_providers.py`; `CloudConfig`/`CloudProviderConfig`; `cloud_provider` tag on `Backend`/`BackendOverride` |
+| 1 — Routing engine | `AgentService._materialize_cloud_provider_backends`, `RouterPool.prune_cloud_provider_rows`, `prefer_cloud`/`cloud_leads`, `cloud` slice in `config_summary` |
+| 2 — CLI + admin API | `netllm cloud list/enable/disable/set-key/fallback/test/connect`; `cloud` handling in `POST /netllm/v1/admin/config`; keyless-provider doctor issue |
+| 3 — Web dashboard | Cloud tab in `netllm_agent/static/` (`tests/test_dashboard_cloud_tab.py`) |
+| 4 — macOS app | `CloudSettingsView.swift`, `KeychainStore.accountForCloudProvider`, `PythonRuntime.injectCloudAPIKeys`, menubar cloud status |
+| 5 — Auth flows | OpenRouter OAuth PKCE (`netllm_cli/oauth_pkce.py`); Anthropic `plan_token` → `Backend.auth_mode = "bearer"` |
+| 6 — Docs + release | `config.example.toml` `[cloud]`; release notes v0.4.3.0; workspace version bump |
+
+Tests: `tests/test_cloud_providers.py`, `test_cloud_routing.py`, `test_admin_cloud.py`,
+`test_cli_cloud.py`, `test_dashboard_cloud_tab.py`, `test_oauth_pkce.py`,
+`test_openai_cloud_compat.py`, `test_anthropic_cloud_compat.py`.
+
+**Open follow-ups (not part of the original gate):**
+
+- The **legacy env/caller-key inject** (`_inject_openai_cloud_backend`,
+  `_inject_anthropic_cloud_backend`) was deliberately preserved for compatibility and now runs
+  in parallel with registry materialisation. It keys on backend *existence*, not on the key, so
+  the first caller's credential becomes the pool's shared credential — a cross-tenant path on
+  LAN-bound agents. Retiring it in favour of the registry path is tracked as **F-04** in
+  [architecture/07-findings-register.md](architecture/07-findings-register.md).
+- `static_models` tuples are hand-maintained code constants and will drift (F-23).
+- Phase 4's "switch key writes to the admin API to drop the restart requirement" landed as
+  Keychain storage + process-env injection; a key change still requires an agent restart.
 
 ## 0. Scope and naming correction
 

@@ -268,8 +268,12 @@ class RoutingConfig(BaseModel):
     # else balances by live in-flight load (least_load).
     default_strategy: RoutingStrategy = "local_first"
     allow_remote: bool = True
-    # Deprecated: only consumed by the removed batch planner. Kept so
-    # existing configs load; slated for the model_groups feature.
+    # Deprecated and inert. Its only consumer, plan_batch_shard, was deleted
+    # as dead code (routing-hardening-plan.md Phase 5); the semantics move to
+    # the planned model_groups feature. Kept ONLY so existing config.toml
+    # files still load — removed from config_summary, the dashboard and macOS
+    # Settings in 0.4.6 so nobody can toggle something that does nothing
+    # (audit F-17). Drop the field entirely one release after that.
     require_same_model_for_shard: bool = True
     # Back-pressure cap applied by every strategy: selection prefers
     # backends with fewer than this many requests in flight. 0 = off.
@@ -289,6 +293,12 @@ class RoutingConfig(BaseModel):
     # waiting out the full health TTL (faster recovery from blips).
     offline_retry_s: float = Field(default=10.0, gt=0.0)
     max_backend_failures: int = Field(default=3, ge=1)
+    # Upstream HTTP timeouts, in seconds. The read timeout bounds a single
+    # generation: a large local model on slow hardware can exceed the old
+    # hardcoded 120 s, and there was no way to raise it without editing
+    # source (audit F-20).
+    upstream_connect_timeout_s: float = Field(default=5.0, gt=0.0)
+    upstream_read_timeout_s: float = Field(default=120.0, gt=0.0)
     # Set once ensure_lan_mesh_defaults() has upgraded a LAN-bound
     # config; prevents re-overriding an explicit user strategy choice.
     lan_defaults_applied: bool = Field(
@@ -522,6 +532,59 @@ class Backend(BaseModel):
         return defaults.get(self.provider, "")
 
 
+DEFAULT_AGENT_PORT = 11400
+
+
+def split_listen(listen: str) -> tuple[str, int]:
+    """Split an ``agent.listen`` value into (host, port), IPv6-aware.
+
+    ``AgentConfig._validate_listen`` accepts bracketed IPv6 (``[::]:11400``),
+    but callers used to parse with ``listen.partition(":")``, which yields
+    host ``"["`` and port ``":]:11400"`` — so ``netllm serve`` died on
+    ``int()`` for a listen value the config layer had just declared valid
+    (docs/architecture/07-findings-register.md F-11). Every caller should use
+    this instead of splitting by hand.
+
+    The brackets are stripped from the returned host: that is what socket
+    servers and ``urlparse``-built URLs want. Use ``format_listen`` to go back.
+    """
+    raw = listen.strip()
+    if raw.startswith("http"):
+        from urllib.parse import urlparse
+
+        parsed = urlparse(raw)
+        return (parsed.hostname or "127.0.0.1"), (parsed.port or DEFAULT_AGENT_PORT)
+    if raw.startswith("["):
+        host, sep, port = raw.partition("]:")
+        if sep:
+            return host[1:], int(port) if port.isdigit() else DEFAULT_AGENT_PORT
+        return raw.strip("[]"), DEFAULT_AGENT_PORT
+    if raw.count(":") > 1:
+        # Unbracketed and multi-colon: a bare IPv6 address carrying no port.
+        # Splitting on the last colon here would read "::1" as host ":" and
+        # port "1".
+        return raw, DEFAULT_AGENT_PORT
+    host, sep, port = raw.rpartition(":")
+    if not sep:
+        return raw, DEFAULT_AGENT_PORT
+    return host, int(port) if port.isdigit() else DEFAULT_AGENT_PORT
+
+
+def format_listen(host: str, port: int) -> str:
+    """Inverse of `split_listen` — re-brackets a bare IPv6 host."""
+    if ":" in host and not host.startswith("["):
+        return f"[{host}]:{port}"
+    return f"{host}:{port}"
+
+
+def listen_port(listen: str) -> int:
+    return split_listen(listen)[1]
+
+
+def listen_host(listen: str) -> str:
+    return split_listen(listen)[0]
+
+
 def default_config_path() -> Path:
     xdg = os.environ.get("XDG_CONFIG_HOME")
     if xdg:
@@ -542,23 +605,28 @@ def is_lan_listen(listen: str) -> bool:
 def ensure_lan_mesh_defaults(cfg: NetllmConfig) -> bool:
     """Apply mesh routing/discovery defaults for LAN bind; never mints tokens.
 
-    The strategy upgrade is one-shot (tracked via
-    routing.lan_defaults_applied): after the first upgrade, an explicit
-    user choice of local_first is respected instead of being silently
-    rewritten on every load/save.
+    The whole upgrade is one-shot (tracked via
+    routing.lan_defaults_applied): after the first application, an explicit
+    user choice of local_first — or of subnet_scan = false — is respected
+    instead of being silently rewritten on every load/save.
+
+    subnet_scan used to be re-forced on *every* call, outside the one-shot
+    gate. Because this runs on the CLI/macOS save path, turning subnet_scan
+    off in macOS Settings on a LAN-bound agent was undone by the very save
+    that turned it off. Both defaults now sit behind the same flag, which is
+    also what makes it safe to run this on every write path
+    (netllm_core.config_guards.apply_config_guards).
     """
     if not is_lan_listen(cfg.agent.listen):
         return False
-    changed = False
-    if not cfg.routing.lan_defaults_applied:
-        if cfg.routing.default_strategy == "local_first":
-            cfg.routing.default_strategy = "local_spillover"
-        cfg.routing.lan_defaults_applied = True
-        changed = True
+    if cfg.routing.lan_defaults_applied:
+        return False
+    if cfg.routing.default_strategy == "local_first":
+        cfg.routing.default_strategy = "local_spillover"
     if not cfg.swarm.subnet_scan:
         cfg.swarm.subnet_scan = True
-        changed = True
-    return changed
+    cfg.routing.lan_defaults_applied = True
+    return True
 
 
 def load_config(path: Path | None = None) -> NetllmConfig:

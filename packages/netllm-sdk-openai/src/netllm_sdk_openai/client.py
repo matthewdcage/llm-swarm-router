@@ -47,13 +47,6 @@ class OpenAIUpstream:
         )
         self.base_url = base_url.rstrip("/")
 
-    async def list_models(self) -> list[dict[str, Any]]:
-        try:
-            page = await self._async.models.list()
-            return [{"id": m.id, "object": m.object} for m in page.data]
-        except Exception as exc:
-            raise _wrap(exc) from exc
-
     async def chat_completion(
         self,
         payload: dict[str, Any],
@@ -79,23 +72,9 @@ class OpenAIUpstream:
         except Exception as exc:
             raise _wrap(exc) from exc
 
-    def chat_completion_sync(self, payload: dict[str, Any]) -> dict[str, Any]:
-        try:
-            resp = self._sync.chat.completions.create(**payload)
-            return resp.model_dump()
-        except Exception as exc:
-            raise _wrap(exc) from exc
-
     async def embeddings(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             resp = await self._async.embeddings.create(**payload)
-            return resp.model_dump()
-        except Exception as exc:
-            raise _wrap(exc) from exc
-
-    def embeddings_sync(self, payload: dict[str, Any]) -> dict[str, Any]:
-        try:
-            resp = self._sync.embeddings.create(**payload)
             return resp.model_dump()
         except Exception as exc:
             raise _wrap(exc) from exc

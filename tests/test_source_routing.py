@@ -281,13 +281,12 @@ def test_source_capacity_admission_control() -> None:
     service = AgentService(cfg)
     source_cfg = service._source_config("buzz")
 
-    # Under the cap: no error.
-    service._check_source_capacity("buzz", source_cfg)
-    service._source_acquire("buzz")
+    # Under the cap: admitted, and the slot is reserved by the same call.
+    service._source_admit("buzz", source_cfg)
 
     # At the cap: rejected.
     try:
-        service._check_source_capacity("buzz", source_cfg)
+        service._source_admit("buzz", source_cfg)
         raise AssertionError("expected SourceCapacityExceeded")
     except SourceCapacityExceeded as exc:
         assert exc.source_id == "buzz"
@@ -295,7 +294,30 @@ def test_source_capacity_admission_control() -> None:
 
     # Released: capacity available again.
     service._source_release("buzz")
-    service._check_source_capacity("buzz", source_cfg)
+    service._source_admit("buzz", source_cfg)
+
+
+def test_source_admission_reserves_atomically() -> None:
+    """Check and increment must not be separable. They used to be, with an
+    `await refresh_local_backends()` between them, so concurrent requests for
+    the same source all passed the check before any of them incremented and
+    the cap did nothing under exactly the load it exists to bound (F-08)."""
+    from netllm_agent.service import AgentService, SourceCapacityExceeded
+
+    cfg = NetllmConfig()
+    cfg.routing.sources = [SourceConfig(id="buzz", max_concurrency=2)]
+    service = AgentService(cfg)
+    source_cfg = service._source_config("buzz")
+
+    admitted = 0
+    for _ in range(10):
+        try:
+            service._source_admit("buzz", source_cfg)
+            admitted += 1
+        except SourceCapacityExceeded:
+            pass
+    assert admitted == 2, "no second call may observe a stale in-flight count"
+    assert service._source_in_flight["buzz"] == 2
 
 
 def test_source_without_max_concurrency_is_never_capped() -> None:
@@ -306,8 +328,7 @@ def test_source_without_max_concurrency_is_never_capped() -> None:
     service = AgentService(cfg)
     source_cfg = service._source_config("buzz")
     for _ in range(50):
-        service._source_acquire("buzz")
-    service._check_source_capacity("buzz", source_cfg)  # never raises
+        service._source_admit("buzz", source_cfg)  # never raises
 
 
 def test_cloud_disabled_master_switch_still_wins_over_source_allow_cloud() -> None:

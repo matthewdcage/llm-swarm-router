@@ -9,11 +9,17 @@ must be preserved, not wiped (routing.sources, cloud.providers)."""
 
 from __future__ import annotations
 
-from netllm_core.config_merge import apply_config_patch
+from netllm_core.config_merge import (
+    _merge_backends,
+    _merge_policies,
+    apply_config_patch,
+)
 from netllm_core.models import (
+    BackendOverride,
     CloudProviderConfig,
     ModelPool,
     NetllmConfig,
+    RoutingPolicy,
     SourceConfig,
 )
 
@@ -124,3 +130,90 @@ def test_discovery_swarm_ui_catchall_keys_survive_unrelated_patch() -> None:
     updated = apply_config_patch(cfg, patch)
     assert updated.swarm.cluster_token == "existing-token"
     assert updated.agent.advertise is False
+
+
+# --- F-01: the merge must never silently drop a model field -----------------
+#
+# _merge_backends/_merge_policies rebuild each row rather than deep-merging it
+# (rows are identified by base_url / position, not by key). Before this guard
+# they hand-listed the fields to carry forward, so every field added to the
+# model afterwards was reset to its default on any save that touched the
+# section: BackendOverride.max_concurrency and .cloud_provider, and
+# RoutingPolicy.source. The last one silently widened a source-scoped policy
+# to every caller. These two tests fail the moment a new model field is added
+# without teaching the merge about it.
+
+
+def test_merged_backend_covers_every_model_field() -> None:
+    cfg = NetllmConfig()
+    merged = _merge_backends(cfg, [{"base_url": "http://x:1/v1"}])
+    assert set(merged[0]) >= set(BackendOverride.model_fields), (
+        "add the new BackendOverride field to _merge_backends (or to its "
+        "excluded/preserve-only sets) — otherwise every save resets it"
+    )
+
+
+def test_merged_policy_covers_every_model_field() -> None:
+    merged = _merge_policies([{"name": "p"}])
+    assert set(merged[0]) >= set(RoutingPolicy.model_fields), (
+        "add the new RoutingPolicy field to _merge_policies — otherwise "
+        "every save resets it"
+    )
+
+
+def test_backend_max_concurrency_and_cloud_provider_survive_unrelated_save() -> None:
+    cfg = NetllmConfig()
+    cfg.routing.backends = [
+        BackendOverride(
+            base_url="http://x:1/v1",
+            provider="vllm",
+            max_concurrency=4,
+            cloud_provider="openai",
+        )
+    ]
+    patch = {"routing": {"backends": [{"base_url": "http://x:1/v1", "enabled": True}]}}
+    updated = apply_config_patch(cfg, patch)
+    assert updated.routing.backends[0].max_concurrency == 4
+    assert updated.routing.backends[0].cloud_provider == "openai"
+
+
+def test_policy_source_scope_survives_unrelated_save() -> None:
+    """A policy scoped to one routing.sources id must not silently become a
+    global policy — dropping `source` widened 'buzz may reach cloud' into
+    'everyone may reach cloud'."""
+    cfg = NetllmConfig()
+    cfg.routing.policies = [
+        RoutingPolicy(name="p1", source="buzz", model_prefix="glm", allow_cloud=True)
+    ]
+    patch = {
+        "routing": {
+            "policies": [
+                {
+                    "name": "p1",
+                    "model_prefix": "glm",
+                    "allow_cloud": True,
+                    "source": "buzz",
+                }
+            ]
+        }
+    }
+    updated = apply_config_patch(cfg, patch)
+    assert updated.routing.policies[0].source == "buzz"
+
+
+def test_backend_cloud_provider_is_not_client_settable() -> None:
+    """cloud_provider is server-materialized (read_only in the schema): a
+    patch echoing a different value must not retag the row."""
+    cfg = NetllmConfig()
+    cfg.routing.backends = [
+        BackendOverride(base_url="http://x:1/v1", cloud_provider="openai")
+    ]
+    patch = {
+        "routing": {
+            "backends": [
+                {"base_url": "http://x:1/v1", "cloud_provider": "anthropic"},
+            ]
+        }
+    }
+    updated = apply_config_patch(cfg, patch)
+    assert updated.routing.backends[0].cloud_provider == "openai"

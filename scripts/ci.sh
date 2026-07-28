@@ -3,6 +3,7 @@
 #   lint      — ruff check + format --check (~1s)
 #   test      — pytest (~12s)
 #   sdk       — vendor SDK adapter + bridge contract tests (~5s)
+#   types     — basedpyright (non-blocking; see F-27)
 #   packaging — build deb/rpm (Linux) or windows zip (Windows); smoke only
 #   all       — lint then test (default; run before opening a PR)
 set -euo pipefail
@@ -19,9 +20,22 @@ else
 fi
 
 run_lint() {
-  uv run ruff check packages/ tests/
-  uv run ruff format --check packages/ tests/
+  # Repo-wide: [tool.ruff] extend-exclude already pins the coordinator files
+  # deterministically, which was the original reason for the narrow scope —
+  # so scripts/, packaging/ and src/ were going unlinted (audit F-27).
+  uv run ruff check .
+  uv run ruff format --check .
   python3 scripts/generate-dashboard-tokens.py --check
+}
+
+# Non-blocking for now: basedpyright is configured in pyproject.toml but has
+# never run in CI, so the existing backlog has to be sized and triaged before
+# it can gate merges. Promote to blocking (drop the `|| true`) once clean.
+run_types() {
+  uv run basedpyright || {
+    echo "basedpyright reported findings (non-blocking — see audit F-27)" >&2
+    return 0
+  }
 }
 
 run_test() {
@@ -88,12 +102,13 @@ run_packaging() {
 
 case "$mode" in
   lint) run_lint ;;
+  types) run_types ;;
   test) run_test ;;
   sdk) run_sdk ;;
   packaging) run_packaging ;;
   all) run_lint && run_test ;;
   *)
-    echo "usage: $0 [lint|test|sdk|packaging|all]" >&2
+    echo "usage: $0 [lint|test|types|sdk|packaging|all]" >&2
     exit 2
     ;;
 esac
