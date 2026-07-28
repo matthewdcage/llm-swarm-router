@@ -229,6 +229,9 @@ final class SettingsViewModel {
                 ids.append(model)
             }
         }
+        for row in routedModels where seen.insert(row.model).inserted {
+            ids.append(row.model)
+        }
         return ids
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
             .map { SchemaSuggestion($0) }
@@ -248,7 +251,7 @@ final class SettingsViewModel {
             syncRequireClusterTokenFromDocument()
             MenubarAppModel.shared.updateUiSettings(document.ui)
             updateAgentURL()
-            await refreshLiveData()
+            await refreshLiveData(forceStatusRefresh: true)
             scheduleAutoPeerScanIfNeeded()
             setSuccess("Config and live status refreshed.")
         }
@@ -297,12 +300,16 @@ final class SettingsViewModel {
         bumpUI()
     }
 
-    func refreshLiveData() async {
+    func refreshLiveData(forceStatusRefresh: Bool = false) async {
         updateAgentURL()
         let wasReachable = agentReachable
         agentReachable = await AgentAPI.isReachable(baseURL: agentBaseURL)
         if agentReachable {
-            async let statusTask = AgentAPI.status(baseURL: agentBaseURL)
+            async let statusTask = AgentAPI.status(
+                baseURL: agentBaseURL,
+                forceScan: forceStatusRefresh,
+                forceProbe: forceStatusRefresh
+            )
             async let versionTask = AgentAPI.version(baseURL: agentBaseURL)
             async let modelsTask = AgentAPI.models(baseURL: agentBaseURL)
             status = await statusTask

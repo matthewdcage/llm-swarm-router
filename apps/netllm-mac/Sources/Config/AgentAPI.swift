@@ -16,8 +16,19 @@ enum AgentAPI {
         )
     }
 
-    static func status(baseURL: URL) async -> AgentStatusPayload? {
-        guard let json = await fetchJSON(baseURL: baseURL, path: "/netllm/v1/status") else { return nil }
+    static func status(
+        baseURL: URL,
+        forceScan: Bool = false,
+        forceProbe: Bool = false
+    ) async -> AgentStatusPayload? {
+        var path = "/netllm/v1/status"
+        var query: [String] = []
+        if forceScan { query.append("scan=1") }
+        if forceProbe { query.append("probe=1") }
+        if !query.isEmpty { path += "?" + query.joined(separator: "&") }
+        let timeout: TimeInterval = (forceScan || forceProbe) ? 120 : 15
+        guard let json = await fetchJSON(baseURL: baseURL, path: path, timeout: timeout)
+        else { return nil }
         let backends = (json["backends"] as? [[String: Any]] ?? []).map(parseBackend)
         let peers = (json["peers"] as? [[String: Any]] ?? []).map(parsePeer)
         return AgentStatusPayload(
@@ -252,7 +263,8 @@ enum AgentAPI {
     private static func fetchJSON(
         baseURL: URL, path: String, timeout: TimeInterval = 5
     ) async -> [String: Any]? {
-        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        guard let url = URL(string: path, relativeTo: baseURL)?.absoluteURL else { return nil }
+        var request = URLRequest(url: url)
         request.timeoutInterval = timeout
         do {
             let (data, response) = try await URLSession.shared.data(for: request)

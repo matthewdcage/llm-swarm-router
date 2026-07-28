@@ -22,7 +22,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 ## Local Contracts
 
 - User docs stay plain and actionable; agent commands use `./netllm` from repo root
-- **Client wiring:** [editor-integration.md](editor-integration.md) **Client configuration (all tools)** is canonical (one netllm URL per client, model IDs unchanged, backends in netllm config); [honcho-integration.md](honcho-integration.md) adds Honcho-only connector sharding
+- **Client wiring:** [editor-integration.md](editor-integration.md) **Client configuration (all tools)** is canonical (one netllm URL per client, model IDs unchanged, backends in netllm config); [honcho-integration.md](honcho-integration.md) adds Honcho-only connector sharding and **Embeddings** (gateway `default_strategy = auto`, multi-peer BGE)
 - Release tag must match root `pyproject.toml` version
 - Do not commit `.cursor/plans/`, `.cursor/outreach/`, or coordinator drafts here
 - User-facing command examples use placeholders (`/path/to/llm-swarm-router`, `~/Downloads/…`); never maintainer machine paths (`/Volumes/…`, named dev hardware)
