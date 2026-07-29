@@ -129,6 +129,20 @@ def test_failed_probe_keeps_last_known_models(mock_probe: object) -> None:
     assert b.health.models == ["shared-model"]
 
 
+@patch("netllm_core.pool.probe_agent_health_sync", return_value={"status": "online"})
+@patch("netllm_core.pool.probe_openai_compat_sync")
+def test_peer_is_healthy_never_probes_openai_compat(
+    mock_openai: object, _mock_agent: object
+) -> None:
+    pool = RouterPool()
+    b = _peer("remote")
+    pool.set_backends([b])
+    for _ in range(5):
+        assert pool.is_healthy(b) is True
+    mock_openai.assert_not_called()
+    assert b.health.models == ["shared-model"]
+
+
 def test_wants_local_only_hop_backstop() -> None:
     from netllm_agent.service import AgentService
 

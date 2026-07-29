@@ -12,17 +12,47 @@ struct TelemetrySnapshot {
     }
 
     var routerSession: [String: Any] {
-        if omlxAvailable, let session = (raw["omlx"] as? [String: Any])?["session"] as? [String: Any] {
-            return session
-        }
-        return (raw["router"] as? [String: Any])?["session"] as? [String: Any] ?? [:]
+        (raw["router"] as? [String: Any])?["session"] as? [String: Any] ?? [:]
     }
 
     var routerAlltime: [String: Any] {
-        if omlxAvailable, let alltime = (raw["omlx"] as? [String: Any])?["alltime"] as? [String: Any] {
-            return alltime
+        (raw["router"] as? [String: Any])?["alltime"] as? [String: Any] ?? [:]
+    }
+
+    var omlxSession: [String: Any] {
+        (raw["omlx"] as? [String: Any])?["session"] as? [String: Any] ?? [:]
+    }
+
+    var omlxAlltime: [String: Any] {
+        (raw["omlx"] as? [String: Any])?["alltime"] as? [String: Any] ?? [:]
+    }
+
+    var routedRequests: [String: Int] {
+        let rawMap = (raw["router"] as? [String: Any])?["routed_requests"] as? [String: Any] ?? [:]
+        var out: [String: Int] = [:]
+        for (key, value) in rawMap {
+            if let n = value as? Int {
+                out[key] = n
+            } else if let n = value as? NSNumber {
+                out[key] = n.intValue
+            }
         }
-        return (raw["router"] as? [String: Any])?["alltime"] as? [String: Any] ?? [:]
+        return out
+    }
+
+    var routerInFlight: Int {
+        Int(truncating: (raw["router"] as? [String: Any])?["in_flight_total"] as? NSNumber ?? 0)
+    }
+
+    /// Legacy: oMLX session when admin is up, else router session (prefer explicit router* above).
+    var displaySessionScope: [String: Any] {
+        if omlxAvailable, !omlxSession.isEmpty { return omlxSession }
+        return routerSession
+    }
+
+    var displayAlltimeScope: [String: Any] {
+        if omlxAvailable, !omlxAlltime.isEmpty { return omlxAlltime }
+        return routerAlltime
     }
 
     var livePP: Double {
@@ -82,7 +112,8 @@ final class TelemetryPoller {
     }
 
     private func fetchJSON(path: String) async -> [String: Any]? {
-        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        guard let url = AgentHTTP.url(base: baseURL, path: path) else { return nil }
+        var request = URLRequest(url: url)
         request.timeoutInterval = 2
         do {
             let (data, response) = try await URLSession.shared.data(for: request)

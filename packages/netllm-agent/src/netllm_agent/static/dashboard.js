@@ -178,22 +178,22 @@ function sparklineSvg(values, color, width = 220, height = 36) {
   return svg;
 }
 
-function servingScopeBlock(title, scope) {
+function routerScopeBlock(title, scope) {
   const card = el("div", "card");
   card.appendChild(textEl("h3", "", title));
   if (!scope) {
-    card.appendChild(textEl("p", "muted-sm", "No data"));
+    card.appendChild(textEl("p", "muted-sm", "No data yet — routed chat/embeddings increment these counters."));
     return card;
   }
   const grid = el("div", "metrics");
   const rows = [
-    ["Total tokens", formatCompactCount(scope.total_tokens ?? scope.prompt_tokens + scope.completion_tokens)],
-    ["Cached tokens", formatCompactCount(scope.total_cached_tokens)],
-    ["Cache efficiency", scope.cache_efficiency_pct != null ? `${scope.cache_efficiency_pct}%` : "—"],
-    ["Avg PP speed", formatTps(scope.avg_prefill_tps)],
-    ["Avg TG speed", formatTps(scope.avg_generation_tps)],
+    ["Requests", formatCompactCount(scope.requests ?? 0)],
+    ["Prompt tokens", formatCompactCount(scope.prompt_tokens ?? 0)],
+    ["Completion tokens", formatCompactCount(scope.completion_tokens ?? 0)],
+    ["Total tokens", formatCompactCount(scope.total_tokens ?? (scope.prompt_tokens || 0) + (scope.completion_tokens || 0))],
+    ["Avg prefill", formatTps(scope.avg_prefill_tps)],
+    ["Avg generation", formatTps(scope.avg_generation_tps)],
   ];
-  if (scope.total_requests != null) rows.push(["Total requests", formatCompactCount(scope.total_requests)]);
   rows.forEach(([label, value]) => {
     const m = el("div", "metric-card");
     m.append(textEl("div", "label", label), textEl("div", "value", value));
@@ -201,6 +201,18 @@ function servingScopeBlock(title, scope) {
   });
   card.appendChild(grid);
   return card;
+}
+
+function appendKeyValueCard(root, sectionLabel, entries) {
+  const keys = Object.keys(entries || {});
+  if (!keys.length) return;
+  root.appendChild(textEl("div", "section-label", sectionLabel));
+  const card = el("div", "card");
+  keys
+    .sort((a, b) => Number(entries[b]) - Number(entries[a]))
+    .slice(0, 16)
+    .forEach((key) => appendInfoRow(card, key, String(entries[key])));
+  root.appendChild(card);
 }
 
 async function loadCore(deepStatus = false) {
@@ -601,6 +613,13 @@ function renderServingTab() {
   const root = document.getElementById("tab-serving");
   root.replaceChildren();
   root.appendChild(textEl("h1", "page-title", "Serving stats"));
+  root.appendChild(
+    textEl(
+      "p",
+      "muted-sm",
+      "Router counters persist in ~/.config/netllm/stats.json. Send a few chat requests to see activity.",
+    ),
+  );
 
   const tel = state.telemetry;
   if (!tel) {
@@ -613,13 +632,61 @@ function renderServingTab() {
   const history = tel.history || {};
   const live = omlx.live || {};
 
+  const activeBits = [];
+  if (omlx.primary_model) activeBits.push(`Active: ${omlx.primary_model}`);
+  if ((omlx.loaded_models || []).length) {
+    activeBits.push(`Loaded: ${(omlx.loaded_models || []).join(", ")}`);
+  }
+  if (state.status?.routing_strategy) {
+    activeBits.push(`Strategy: ${state.status.routing_strategy}`);
+  }
+  if (activeBits.length) {
+    root.appendChild(textEl("div", "section-label", "Routing now"));
+    const nowCard = el("div", "card");
+    activeBits.forEach((line) => nowCard.appendChild(textEl("p", "", line)));
+    root.appendChild(nowCard);
+  }
+
+  root.appendChild(textEl("div", "section-label", "Router session"));
+  root.appendChild(routerScopeBlock("Session", router.session));
+  root.appendChild(textEl("div", "section-label", "Router all-time"));
+  root.appendChild(routerScopeBlock("All-time", router.alltime));
+
+  if ((history.router_rps || []).length > 1) {
+    root.appendChild(textEl("div", "section-label", "Router request rate (last ~60s)"));
+    const rpsCard = el("div", "card");
+    rpsCard.appendChild(sparklineSvg(history.router_rps, "var(--accent-color, #5b8def)"));
+    root.appendChild(rpsCard);
+  }
+
+  root.appendChild(textEl("div", "section-label", "Router routing"));
+  const routerCard = el("div", "card");
+  appendInfoRow(routerCard, "In-flight total", String(router.in_flight_total ?? 0));
+  appendInfoRow(routerCard, "Shardless fallbacks", String(router.shardless_fallbacks ?? 0));
+  const backends = router.backends || [];
+  if (backends.length) {
+    backends.forEach((b) => {
+      const label = `${b.provider || "?"} · ${b.base_url || b.id || "?"}`;
+      appendInfoRow(
+        routerCard,
+        label,
+        `${b.health || "unknown"} · in-flight ${b.in_flight ?? 0}`,
+      );
+    });
+  }
+  root.appendChild(routerCard);
+
+  appendKeyValueCard(root, "Routed requests (by backend id)", router.routed_requests);
+  appendKeyValueCard(root, "Capacity rejections", router.capacity_rejections);
+  appendKeyValueCard(root, "Requests by source (harness)", state.status?.source_requests);
+
   if (omlx.available) {
-    root.appendChild(textEl("div", "section-label", "Live throughput"));
+    root.appendChild(textEl("div", "section-label", "oMLX live throughput"));
     const liveCard = el("div", "card");
     const liveMetrics = el("div", "metrics");
     [
-      ["PP", formatTps(live.prefill_tps), "var(--pp-color)"],
-      ["TG", formatTps(live.generation_tps), "var(--tg-color)"],
+      ["PP", formatTps(live.prefill_tps)],
+      ["TG", formatTps(live.generation_tps)],
     ].forEach(([label, value]) => {
       const m = el("div", "metric-card");
       m.append(textEl("div", "label", label), textEl("div", "value", value));
@@ -638,29 +705,52 @@ function renderServingTab() {
     root.appendChild(servingScopeBlock("Session", omlx.session));
     root.appendChild(textEl("div", "section-label", "oMLX all-time"));
     root.appendChild(servingScopeBlock("All-time", omlx.alltime));
-  } else {
-    root.appendChild(textEl("div", "section-label", "Router session"));
-    root.appendChild(servingScopeBlock("Session", router.session));
-    root.appendChild(textEl("div", "section-label", "Router all-time"));
-    root.appendChild(servingScopeBlock("All-time", router.alltime));
   }
-
-  root.appendChild(textEl("div", "section-label", "Router"));
-  const routerCard = el("div", "card");
-  appendInfoRow(routerCard, "In-flight total", String(router.in_flight_total ?? 0));
-  appendInfoRow(routerCard, "Shardless fallbacks", String(router.shardless_fallbacks ?? 0));
-  root.appendChild(routerCard);
 
   root.appendChild(textEl("div", "section-label", "System"));
   const sys = el("div", "card");
-  sys.appendChild(
-    textEl(
-      "p",
-      "muted-sm",
-      "Full CPU/GPU/memory panels are available in the macOS menubar System Stats menu.",
-    ),
-  );
+  if (tel.host) {
+    appendInfoRow(sys, "Host CPU", `${tel.host.cpu_percent}%`);
+    appendInfoRow(
+      sys,
+      "Host memory",
+      `${tel.host.memory_used_gb} / ${tel.host.memory_total_gb} GB`,
+    );
+  } else {
+    sys.appendChild(
+      textEl(
+        "p",
+        "muted-sm",
+        "Full CPU/GPU/memory panels are in the macOS menubar System Stats menu.",
+      ),
+    );
+  }
   root.appendChild(sys);
+}
+
+function servingScopeBlock(title, scope) {
+  const card = el("div", "card");
+  card.appendChild(textEl("h3", "", title));
+  if (!scope) {
+    card.appendChild(textEl("p", "muted-sm", "No data"));
+    return card;
+  }
+  const grid = el("div", "metrics");
+  const rows = [
+    ["Total tokens", formatCompactCount(scope.total_tokens ?? scope.prompt_tokens + scope.completion_tokens)],
+    ["Cached tokens", formatCompactCount(scope.total_cached_tokens)],
+    ["Cache efficiency", scope.cache_efficiency_pct != null ? `${scope.cache_efficiency_pct}%` : "—"],
+    ["Avg PP speed", formatTps(scope.avg_prefill_tps)],
+    ["Avg TG speed", formatTps(scope.avg_generation_tps)],
+  ];
+  if (scope.total_requests != null) rows.push(["Total requests", formatCompactCount(scope.total_requests)]);
+  rows.forEach(([label, value]) => {
+    const m = el("div", "metric-card");
+    m.append(textEl("div", "label", label), textEl("div", "value", value));
+    grid.appendChild(m);
+  });
+  card.appendChild(grid);
+  return card;
 }
 
 function renderUpdateCard() {
@@ -2645,7 +2735,12 @@ function startTelemetryPolling() {
   stopTelemetryPolling();
   const poll = () => {
     if (document.visibilityState !== "visible" || state.tab !== "serving") return;
-    loadTelemetry(true)
+    Promise.all([
+      api("/netllm/v1/status").then((s) => {
+        state.status = s;
+      }),
+      loadTelemetry(true),
+    ])
       .then(() => {
         if (state.tab === "serving") renderServingTab();
       })

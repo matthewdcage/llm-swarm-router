@@ -91,7 +91,8 @@ final class StatsPoller {
     }
 
     private func fetchJSON(path: String) async -> [String: Any]? {
-        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        guard let url = AgentHTTP.url(base: baseURL, path: path) else { return nil }
+        var request = URLRequest(url: url)
         request.timeoutInterval = 2
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
