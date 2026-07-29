@@ -136,6 +136,7 @@ follow_gateway = true
 - **`auto` / `least_load` / `round_robin`**: spread `bge-m3-mlx-fp16` (and aliases) across local + all peers that serve it.
 - **`local_first` / tight `local_spillover`**: keeps light or sequential embed traffic on the gateway—avoid for large backfills.
 - **Do not** use a single-host `[routing.model_pools.*]` for BGE unless you intend to pin one machine.
+- For catch-all pools, list **every** swarm `agent_id` in `hosts` that should absorb misnamed requests; unlisted machines never pool-route (exact catalog match still applies). Replicate the same `[routing.model_pools.*]` block on each mesh node when tuning locally.
 
 Verify with repeated embeds and `netllm_requests_total{model="bge-*"}` on the gateway **and** each peer. Honcho fork doc: `Honcho/docs/guides/netllm-embedding-swarm-linux.md` + `netllm-gateway-embedding-routing.toml.example`.
 

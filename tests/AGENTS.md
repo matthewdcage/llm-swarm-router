@@ -19,6 +19,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 - Add tests for real behavior; avoid trivial assertions
 - **Routing hardening:** `tests/test_routing_hardening.py` — per-request strategy/pin headers, hop-count loop backstop, peer-row pruning, offline re-probe window, config hot-apply, one-shot LAN defaults, merge-safe `config import`; `tests/test_agent.py::test_messages_api_round_robin_reaches_peer` locks the Messages-path strategy fix
 - **Swarm acceptance harness:** `tests/test_e2e_two_agents.py` runs two real agents + mock providers over HTTP (combined catalog, load spreading, loop-guarded hops, scan TTL). Extend it for any mesh behavior change; contract invariants live in `tests/test_contract.py`
+- **Status polling / peer probes:** `tests/test_status_peer_probe.py` — `/netllm/v1/status` (including `probe=1`) must not HTTP-probe peer agent `/v1` surfaces
 - **Open LAN swarm CLI/doctor:** `tests/test_cli_swarm_init.py` (open vs `--secure` init, `swarm-token --create`); `tests/test_doctor_open_lan.py` (no token issue on LAN); `tests/test_config_json.py` (`import_config` applies `ensure_lan_mesh_defaults`)
 - macOS install scripts: `tests/test_bundled_install_scripts.sh`
 - Menubar agent start (quiet + LAN listen): `tests/test_serve_quiet_lan.py` — regression for bundled `serve -q` with `0.0.0.0` listen reaching uvicorn
@@ -28,6 +29,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 
 - Agent or routing changes should extend `tests/` before merge
 - SDK bumps must pass `./scripts/ci.sh sdk` and contract tests in sdk packages
+- Dashboard telemetry UI contract: `tests/test_dashboard_telemetry.py` (Serving tab + `routerScopeBlock` markers)
 - Menubar e2e lives in `scripts/test-menubar-e2e.sh` (not pytest); includes bundled **quiet + 0.0.0.0 listen** smoke on Stage `.app` before DMG attach
 
 ## Verification

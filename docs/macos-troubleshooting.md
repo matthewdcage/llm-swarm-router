@@ -184,9 +184,11 @@ DMG/menubar installs: `netllm doctor` does not require a global CLI on PATH.
 
 ## Menubar stats or Serving tab empty
 
-**Serving Stats / web Serving tab:** Router metrics always appear (`routed_requests`, token totals). oMLX PP/TG, cache efficiency, and live rates require a local **oMLX 0.5.2+** backend with admin API reachable (default `:8080/admin/api/stats`).
+**Serving Stats / web Serving tab:** Router metrics always appear after at least one routed request (`router.session.requests`, token totals, `routed_requests` by backend id). Counters persist in `~/.config/netllm/stats.json`. oMLX PP/TG, cache efficiency, and live rates require a local **oMLX 0.5.2+** backend with admin API reachable (default `:8080/admin/api/stats`).
 
-**System Stats fly-out:** CPU/GPU/memory sparklines come from native macOS sampling in the menubar app. The web dashboard **Serving** tab shows router + oMLX panels; detailed host charts are menubar-only unless `psutil` is installed on the agent host (Linux optional host block in telemetry).
+**macOS Serving Stats stays at zero while curl works:** Rebuild/reinstall the menubar app from a current source build — older builds used a broken telemetry URL (`appendingPathComponent` on `?watch=1`). Fixed builds use `AgentHTTP.url` in `TelemetryPoller`.
+
+**System Stats fly-out:** CPU/GPU/memory sparklines come from native macOS sampling in the menubar app. The web dashboard **Serving** tab shows router panels first, then oMLX when available; detailed host charts are menubar-only unless `psutil` is installed on the agent host (Linux optional host block in telemetry).
 
 **Appearance gauges:** Settings → Appearance toggles optional CPU/GPU/MEM/LIV items in the menu bar (`ui.menubar_show_*` in config). They poll telemetry only while the menu is open.
 

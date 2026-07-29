@@ -265,7 +265,7 @@ enum AgentAPI {
     private static func fetchJSON(
         baseURL: URL, path: String, timeout: TimeInterval = 5
     ) async -> [String: Any]? {
-        guard let url = URL(string: path, relativeTo: baseURL)?.absoluteURL else { return nil }
+        guard let url = AgentHTTP.url(base: baseURL, path: path) else { return nil }
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
         do {
