@@ -84,7 +84,8 @@ def test_embeddings_unknown_model_404_lists_embedding_models(
             json={"model": "not-a-model", "input": "x"},
         )
     assert resp.status_code == 404
-    detail = resp.json()["detail"]
+    # F-38: /v1/* errors render the OpenAI error envelope, not {"detail"}.
+    detail = resp.json()["error"]["message"]
     assert "not-a-model" in detail
     # Embedding-capable models are listed first for embeddings requests.
     assert "nomic-embed-text" in detail
@@ -109,7 +110,7 @@ def test_chat_request_to_embedding_model_is_rejected_400(
             },
         )
     assert resp.status_code == 400
-    detail = resp.json()["detail"]
+    detail = resp.json()["error"]["message"]
     assert "embedding" in detail
     assert "/v1/embeddings" in detail
 

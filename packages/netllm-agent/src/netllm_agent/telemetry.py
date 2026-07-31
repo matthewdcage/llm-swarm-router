@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import os
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -12,6 +14,8 @@ from typing import Any
 
 from netllm_core.models import default_config_path
 from netllm_discovery.local import probe_omlx_telemetry
+
+logger = logging.getLogger(__name__)
 
 _HISTORY_LEN = 60
 # All-time counters are flushed at most this often instead of once per
@@ -116,16 +120,33 @@ class TelemetryService:
             data = json.loads(self._stats_path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 self._alltime = _RouterCounters.from_dict(data)
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        except json.JSONDecodeError as exc:
+            # A partial file means the process died mid-write (or the file
+            # was hand-edited); starting fresh is fine, doing so silently
+            # is not (docs/architecture/09-follow-up-audit-2026-07-31.md
+            # F-48).
+            logger.warning(
+                "corrupt stats file %s (%s); all-time counters reset",
+                self._stats_path,
+                exc,
+            )
+            return
+        except (OSError, TypeError, ValueError):
             return
 
     def _save_alltime(self) -> None:
+        # Write-then-rename: os.replace is atomic on POSIX and Windows, so
+        # a crash mid-write can never leave a truncated stats.json (F-48).
+        # The tmp file lives in the same directory to stay on the same
+        # filesystem.
+        tmp_path = self._stats_path.with_name(self._stats_path.name + ".tmp")
         try:
             self._stats_path.parent.mkdir(parents=True, exist_ok=True)
-            self._stats_path.write_text(
+            tmp_path.write_text(
                 json.dumps(self._alltime.persist_dict(), indent=2) + "\n",
                 encoding="utf-8",
             )
+            os.replace(tmp_path, self._stats_path)
         except OSError:
             return
         self._alltime_dirty = False

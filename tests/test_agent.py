@@ -873,16 +873,17 @@ def test_peer_forward_headers_loop_guard() -> None:
     )
     from netllm_core.models import HOPS_HEADER
 
-    assert AgentService._peer_forward_headers(peer) == {
+    service = AgentService(NetllmConfig())
+    assert service._peer_forward_headers(peer) == {
         LOCAL_ONLY_HEADER: "1",
         HOPS_HEADER: "1",
     }
     # Incoming hop count is propagated and incremented.
-    assert AgentService._peer_forward_headers(peer, {HOPS_HEADER: "1"}) == {
+    assert service._peer_forward_headers(peer, {HOPS_HEADER: "1"}) == {
         LOCAL_ONLY_HEADER: "1",
         HOPS_HEADER: "2",
     }
-    assert AgentService._peer_forward_headers(local) is None
+    assert service._peer_forward_headers(local) is None
 
 
 @patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import secrets
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -30,10 +31,42 @@ from netllm_agent.admin import (
     require_admin_access,
     save_config_patch,
 )
+from netllm_agent.errors import install_error_handlers
 from netllm_agent.metrics import metrics_bytes
 from netllm_agent.service import AgentService, SourceCapacityExceeded
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+async def _started_stream(gen: AsyncIterator[str]) -> AsyncIterator[str]:
+    """Pull the first chunk before the StreamingResponse exists (F-32).
+
+    An async generator executes nothing until first iteration, and
+    StreamingResponse sends ``http.response.start`` before iterating — so
+    pre-stream failures (source admission, routing resolution, every
+    backend failed) would surface as HTTP 200 with an aborted body.
+    Awaiting the first chunk here makes those errors raise in the route
+    handler, where they map to real status codes (429/502/...).
+
+    Mid-stream failures after bytes are on the wire can still only abort
+    the SSE stream — that is acceptable and standard; the service layer
+    emits an in-band error event for that case.
+    """
+    try:
+        first = await anext(gen)
+    except StopAsyncIteration:
+        first = None
+
+    async def _replay() -> AsyncIterator[str]:
+        try:
+            if first is not None:
+                yield first
+                async for chunk in gen:
+                    yield chunk
+        finally:
+            await gen.aclose()
+
+    return _replay()
 
 
 def create_app(
@@ -58,6 +91,7 @@ def create_app(
     app = FastAPI(title="netllm-agent", version=get_version(), lifespan=lifespan)
     app.state.service = service
     app.state.config = cfg
+    install_error_handlers(app)
 
     def _is_local_client(request: Request) -> bool:
         from netllm_core.platform import local_admin_client_hosts
@@ -161,7 +195,12 @@ def create_app(
         return {"status": "ok"}
 
     @app.get("/metrics")
-    async def metrics() -> Response:
+    async def metrics(request: Request) -> Response:
+        # F-41: /metrics exposes backend ids/providers, model names, routed
+        # counts and token totals — gated like the other read routes once a
+        # cluster token exists (Prometheus scrape configs support
+        # bearer_token); stays open when no token is configured.
+        require_read_access(request)
         return Response(content=metrics_bytes(), media_type="text/plain")
 
     # --- Swarm API ---
@@ -315,7 +354,8 @@ def create_app(
         return {"ok": True, "draining": service.draining}
 
     @app.get("/netllm/v1/client-env")
-    async def netllm_client_env() -> dict[str, Any]:
+    async def netllm_client_env(request: Request) -> dict[str, Any]:
+        require_read_access(request)
         base = service.swarm.local_agent_url()
         return {"vars": client_env_vars(base)}
 
@@ -409,8 +449,10 @@ def create_app(
         try:
             if stream:
                 return StreamingResponse(
-                    service.proxy_chat_completion_stream(
-                        payload, headers=request.headers
+                    await _started_stream(
+                        service.proxy_chat_completion_stream(
+                            payload, headers=request.headers
+                        )
                     ),
                     media_type="text/event-stream",
                 )
@@ -436,7 +478,9 @@ def create_app(
         try:
             if stream:
                 return StreamingResponse(
-                    service.proxy_responses_stream(payload, headers=request.headers),
+                    await _started_stream(
+                        service.proxy_responses_stream(payload, headers=request.headers)
+                    ),
                     media_type="text/event-stream",
                 )
             return await service.proxy_responses(payload, headers=request.headers)
@@ -473,7 +517,9 @@ def create_app(
         try:
             if stream:
                 return StreamingResponse(
-                    service.proxy_messages_stream(payload, headers=hdrs),
+                    await _started_stream(
+                        service.proxy_messages_stream(payload, headers=hdrs)
+                    ),
                     media_type="text/event-stream",
                 )
             return await service.proxy_messages(payload, headers=hdrs)
