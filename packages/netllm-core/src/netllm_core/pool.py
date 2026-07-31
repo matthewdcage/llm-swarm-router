@@ -431,13 +431,12 @@ class RouterPool:
         return names
 
     def resolve_via_pool(self, backend: Backend, requested_model: str) -> str | None:
-        """Pick the model to actually invoke on a pool-member backend,
-        ignoring the requested name entirely (model_aliases already
-        failed to match by the time callers reach this).
+        """Pick the model to invoke on a pool-member backend during overflow.
 
         Returns the first pool-allowed model this backend actually
         serves, or None if the backend is not a pool member / serves
-        none of its pool's allowed models.
+        none of its pool's allowed models. Callers reach this only after
+        alias matching failed on the selected backend.
         """
         pool_models = self.pool_models_for_backend(backend)
         if not pool_models:
@@ -480,6 +479,7 @@ class RouterPool:
         model: str,
         *,
         local_only: bool = False,
+        exact_model_only: bool = False,
         extra_candidates: list[Backend] | None = None,
     ) -> list[Backend]:
         """Candidate backends for `model`.
@@ -489,13 +489,18 @@ class RouterPool:
         backends whose credential came from the calling request, so one
         caller's key can never serve another's (F-04). They participate in
         selection exactly like pooled rows; only their lifetime differs.
+
+        When ``exact_model_only`` is True (agent-hop requests whose model was
+        already resolved upstream), pool catch-all bypass is disabled so the
+        terminating peer routes the forwarded model name literally instead of
+        substituting another pool member model.
         """
         names = self.model_names_for(model)
         searchable = (
             [*self._backends, *extra_candidates] if extra_candidates else self._backends
         )
 
-        def collect() -> list[Backend]:
+        def collect(*, allow_pool_overflow: bool) -> list[Backend]:
             out: list[Backend] = []
             for b in searchable:
                 if not b.enabled:
@@ -526,22 +531,29 @@ class RouterPool:
                 if self._serves_model(models, names):
                     out.append(b)
                     continue
-                # model_pools bypass: a pool-member backend is a candidate
-                # for ANY requested name, as long as it serves one of its
-                # pool's allowed models — independent of model_aliases.
+                if exact_model_only or not allow_pool_overflow:
+                    continue
+                # Pool overflow: only when no backend serves the requested
+                # model (exact/alias). A pool member substitutes one of its
+                # pool's allowed models — never steals a request another host
+                # could serve literally.
                 pool_models = self.pool_models_for_backend(b)
                 if pool_models and self._serves_model(models, pool_models):
                     out.append(b)
             return out
 
-        candidates = collect()
+        candidates = collect(allow_pool_overflow=False)
+        if not candidates:
+            candidates = collect(allow_pool_overflow=True)
         if not candidates:
             # Catalogs may be stale (model pulled moments ago) — refresh
             # once and rematch instead of spraying every backend.
             for b in self._backends:
                 if b.enabled and b.local:
                     self.is_healthy(b, force_refresh=True)
-            candidates = collect()
+            candidates = collect(allow_pool_overflow=False)
+            if not candidates:
+                candidates = collect(allow_pool_overflow=True)
         if not candidates:
             return []
         healthy = [b for b in candidates if self.is_healthy(b)]
@@ -555,6 +567,7 @@ class RouterPool:
         shard_key: str | None = None,
         attempt: int = 1,
         local_only: bool = False,
+        exact_model_only: bool = False,
         prefer_provider: str | None = None,
         prefer_cloud: bool = False,
         exclude_ids: set[str] | None = None,
@@ -563,16 +576,24 @@ class RouterPool:
     ) -> Backend | None:
         if local_only:
             all_candidates = self.backends_for_model(
-                model, local_only=True, extra_candidates=extra_candidates
+                model,
+                local_only=True,
+                exact_model_only=exact_model_only,
+                extra_candidates=extra_candidates,
             )
         else:
             local = self.backends_for_model(
-                model, local_only=True, extra_candidates=extra_candidates
+                model,
+                local_only=True,
+                exact_model_only=exact_model_only,
+                extra_candidates=extra_candidates,
             )
             remote = [
                 b
                 for b in self.backends_for_model(
-                    model, extra_candidates=extra_candidates
+                    model,
+                    exact_model_only=exact_model_only,
+                    extra_candidates=extra_candidates,
                 )
                 if not b.local
             ]

@@ -1902,7 +1902,7 @@ function renderRoutingTab() {
     textEl(
       "p",
       "empty",
-      "Host-scoped catch-all: listed hosts accept any requested model name, bypassing model_aliases matching, as long as they serve one of the pool's models."
+      "Heterogeneous pool: members route when they serve the requested model (or alias). Substitution to another pool model happens only when no backend in the mesh serves that name (overflow)."
     )
   );
   if (byName.model_pools) {

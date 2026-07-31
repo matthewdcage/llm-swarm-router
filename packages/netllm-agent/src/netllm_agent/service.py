@@ -38,6 +38,10 @@ from netllm_core.openai_responses_bridge import (
     translate_chat_stream_to_responses,
 )
 from netllm_core.pool import RouterPool, is_capacity_error
+from netllm_core.provider_payload import (
+    adapt_chat_completion_payload,
+    adapt_embeddings_payload,
+)
 from netllm_core.routing_policy import ResolvedRouting, resolve_routing
 from netllm_core.scenarios import Scenario, classify_scenario
 from netllm_core.source_identity import (
@@ -530,7 +534,9 @@ class AgentService:
         # be forwarded again.
         return AgentService._incoming_hops(hdrs) >= MAX_FORWARD_HOPS
 
-    def _model_for_backend(self, model: str, backend: Backend) -> str:
+    def _model_for_backend(
+        self, model: str, backend: Backend, *, exact_model_only: bool = False
+    ) -> str:
         """Resolve the requested (canonical) model name to the ID this
         backend actually serves, via routing.model_aliases.
 
@@ -544,6 +550,10 @@ class AgentService:
         routing.model_pools member, fall back to whichever pool-allowed
         model it actually serves — the requested name is irrelevant once
         a pool backend was selected for it (see RouterPool.resolve_via_pool).
+
+        Agent-hop requests (``exact_model_only=True``) skip pool
+        substitution because the upstream gateway already resolved the
+        provider model name carried in the payload.
         """
         served = backend.health.models
         if not served:
@@ -564,10 +574,32 @@ class AgentService:
                 sid = served_id.casefold()
                 if sid == name or sid.startswith(name + ":"):
                     return served_id
-        pool_model = self.pool.resolve_via_pool(backend, model)
-        if pool_model is not None:
-            return pool_model
+        if not exact_model_only:
+            pool_model = self.pool.resolve_via_pool(backend, model)
+            if pool_model is not None:
+                return pool_model
         return model
+
+    def _prepare_upstream_chat_payload(
+        self,
+        payload: dict[str, Any],
+        model: str,
+        backend: Backend,
+        *,
+        exact_model_only: bool,
+    ) -> tuple[str, dict[str, Any]]:
+        upstream_model = self._model_for_backend(
+            model, backend, exact_model_only=exact_model_only
+        )
+        merged = (
+            {**payload, "model": upstream_model} if upstream_model != model else payload
+        )
+        adapted = adapt_chat_completion_payload(
+            merged,
+            backend,
+            is_agent_hop=backend.id.startswith("peer:"),
+        )
+        return upstream_model, adapted
 
     def _model_not_found_error(
         self, model: str, *, capability: str | None = None
@@ -830,6 +862,7 @@ class AgentService:
         shard: ShardContext | None,
         *,
         local_only: bool = False,
+        exact_model_only: bool = False,
         prefer_provider: str | None = None,
         prefer_cloud: bool = False,
         exclude_ids: set[str] | None = None,
@@ -858,7 +891,9 @@ class AgentService:
         if strategy == "batch_shard":
             if shard and shard.batch_id is not None and shard.index is not None:
                 candidates = self.pool.backends_for_model(
-                    model, extra_candidates=extra_candidates
+                    model,
+                    exact_model_only=exact_model_only,
+                    extra_candidates=extra_candidates,
                 )
                 if attempt == 1:
                     url = self._batch_ledger.assign(
@@ -889,6 +924,7 @@ class AgentService:
                     shard_key=shard_key,
                     attempt=attempt,
                     local_only=local_only,
+                    exact_model_only=exact_model_only,
                     prefer_provider=prefer_provider,
                     prefer_cloud=prefer_cloud,
                     exclude_ids=exclude_ids,
@@ -913,6 +949,7 @@ class AgentService:
                     model,
                     "round_robin",
                     local_only=local_only,
+                    exact_model_only=exact_model_only,
                     prefer_provider=prefer_provider,
                     prefer_cloud=prefer_cloud,
                     exclude_ids=exclude_ids,
@@ -924,6 +961,7 @@ class AgentService:
                 "failover",
                 attempt=attempt,
                 local_only=local_only,
+                exact_model_only=exact_model_only,
                 prefer_provider=prefer_provider,
                 prefer_cloud=prefer_cloud,
                 exclude_ids=exclude_ids,
@@ -952,6 +990,7 @@ class AgentService:
             shard_key=shard_key,
             attempt=attempt,
             local_only=local_only,
+            exact_model_only=exact_model_only,
             prefer_provider=prefer_provider,
             prefer_cloud=prefer_cloud,
             exclude_ids=exclude_ids,
@@ -1000,6 +1039,7 @@ class AgentService:
         self._source_admit(resolved_source.id, source_cfg)
         try:
             shard = extract_shard_context(payload, hdrs)
+            exact_model_only = self._incoming_hops(hdrs) >= 1
 
             await self.refresh_local_backends()
             cloud_extra: list[Backend] = []
@@ -1022,6 +1062,7 @@ class AgentService:
                     attempt,
                     shard,
                     local_only=routing.local_only,
+                    exact_model_only=exact_model_only,
                     prefer_provider=routing.prefer_provider,
                     prefer_cloud=routing.cloud_leads,
                     exclude_ids=tried,
@@ -1038,11 +1079,13 @@ class AgentService:
                 t0 = time.monotonic()
                 try:
                     client = self._openai_upstream(backend, hdrs)
-                    upstream_model = self._model_for_backend(model, backend)
-                    upstream_payload = (
-                        {**payload, "model": upstream_model}
-                        if upstream_model != model
-                        else payload
+                    upstream_model, upstream_payload = (
+                        self._prepare_upstream_chat_payload(
+                            payload,
+                            model,
+                            backend,
+                            exact_model_only=exact_model_only,
+                        )
                     )
                     result = await client.chat_completion(upstream_payload)
                     if upstream_model != requested_model and isinstance(result, dict):
@@ -1117,6 +1160,7 @@ class AgentService:
         self._source_admit(resolved_source.id, source_cfg)
         try:
             shard = extract_shard_context(payload, hdrs)
+            exact_model_only = self._incoming_hops(hdrs) >= 1
 
             await self.refresh_local_backends()
             cloud_extra: list[Backend] = []
@@ -1140,6 +1184,7 @@ class AgentService:
                     attempt,
                     shard,
                     local_only=routing.local_only,
+                    exact_model_only=exact_model_only,
                     prefer_provider=routing.prefer_provider,
                     prefer_cloud=routing.cloud_leads,
                     exclude_ids=tried,
@@ -1155,11 +1200,13 @@ class AgentService:
                 )
                 try:
                     client = self._openai_upstream(backend, hdrs)
-                    upstream_model = self._model_for_backend(model, backend)
-                    upstream_payload = (
-                        {**payload, "model": upstream_model}
-                        if upstream_model != model
-                        else payload
+                    upstream_model, upstream_payload = (
+                        self._prepare_upstream_chat_payload(
+                            payload,
+                            model,
+                            backend,
+                            exact_model_only=exact_model_only,
+                        )
                     )
                     stream = self._stream_with_metrics(
                         client, upstream_payload, backend, model, shard
@@ -1268,6 +1315,7 @@ class AgentService:
         )
         self._source_admit(resolved_source.id, source_cfg)
         try:
+            exact_model_only = self._incoming_hops(hdrs) >= 1
             await self.refresh_local_backends()
             cloud_extra: list[Backend] = []
             if routing.allow_cloud_inject:
@@ -1291,6 +1339,7 @@ class AgentService:
                     attempt,
                     None,
                     local_only=routing.local_only,
+                    exact_model_only=exact_model_only,
                     prefer_provider=routing.prefer_provider,
                     prefer_cloud=routing.cloud_leads,
                     exclude_ids=tried,
@@ -1307,11 +1356,18 @@ class AgentService:
                 t0 = time.monotonic()
                 try:
                     client = self._openai_upstream(backend, hdrs)
-                    upstream_model = self._model_for_backend(model, backend)
-                    upstream_payload = (
+                    upstream_model = self._model_for_backend(
+                        model, backend, exact_model_only=exact_model_only
+                    )
+                    merged = (
                         {**payload, "model": upstream_model}
                         if upstream_model != model
                         else payload
+                    )
+                    upstream_payload = adapt_embeddings_payload(
+                        merged,
+                        backend,
+                        is_agent_hop=backend.id.startswith("peer:"),
                     )
                     result = await client.embeddings(upstream_payload)
                     if upstream_model != requested_model and isinstance(result, dict):
@@ -1655,6 +1711,7 @@ class AgentService:
         attempt: int,
         *,
         requested_model: str | None = None,
+        exact_model_only: bool = False,
     ) -> dict[str, Any]:
         """One acquire→call→account cycle for the Messages API."""
         self.pool.acquire(backend)
@@ -1662,7 +1719,12 @@ class AgentService:
         t0 = time.monotonic()
         try:
             result = await self._messages_on_backend(
-                backend, payload, model, hdrs, api_key
+                backend,
+                payload,
+                model,
+                hdrs,
+                api_key,
+                exact_model_only=exact_model_only,
             )
             if (
                 requested_model is not None
@@ -1732,6 +1794,7 @@ class AgentService:
         )
         self._source_admit(resolved_source.id, source_cfg)
         try:
+            exact_model_only = self._incoming_hops(hdrs) >= 1
             await self.refresh_local_backends()
             cloud_extra: list[Backend] = []
             if routing.allow_cloud_inject:
@@ -1759,6 +1822,7 @@ class AgentService:
                     attempt,
                     None,
                     local_only=routing.local_only,
+                    exact_model_only=exact_model_only,
                     prefer_provider=routing.prefer_provider,
                     prefer_cloud=routing.cloud_leads,
                     exclude_ids=tried,
@@ -1777,6 +1841,7 @@ class AgentService:
                         api_key,
                         attempt,
                         requested_model=requested_model,
+                        exact_model_only=exact_model_only,
                     )
                 except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
                     last_error = exc
@@ -1795,6 +1860,7 @@ class AgentService:
                         api_key,
                         attempt,
                         requested_model=requested_model,
+                        exact_model_only=exact_model_only,
                     )
                 except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
                     last_error = exc
@@ -1841,6 +1907,7 @@ class AgentService:
         )
         self._source_admit(resolved_source.id, source_cfg)
         try:
+            exact_model_only = self._incoming_hops(hdrs) >= 1
             await self.refresh_local_backends()
             cloud_extra: list[Backend] = []
             if routing.allow_cloud_inject:
@@ -1870,6 +1937,7 @@ class AgentService:
                         attempt,
                         None,
                         local_only=routing.local_only,
+                        exact_model_only=exact_model_only,
                         prefer_provider=routing.prefer_provider,
                         prefer_cloud=routing.cloud_leads,
                         exclude_ids=tried,
@@ -1903,7 +1971,12 @@ class AgentService:
                 )
                 try:
                     async for chunk in self._messages_stream_on_backend(
-                        backend, payload, model, hdrs, api_key
+                        backend,
+                        payload,
+                        model,
+                        hdrs,
+                        api_key,
+                        exact_model_only=exact_model_only,
                     ):
                         yielded_any = True
                         yield chunk
@@ -1960,6 +2033,8 @@ class AgentService:
         model: str,
         headers: Mapping[str, str],
         fallback_api_key: str,
+        *,
+        exact_model_only: bool = False,
     ) -> dict[str, Any]:
         if backend.api_format == "anthropic":
             key = backend.resolve_api_key() or fallback_api_key
@@ -1977,7 +2052,12 @@ class AgentService:
             )
             return await client.messages_create(payload)
         oai_payload = anthropic_to_openai_request(payload)
-        oai_payload["model"] = self._model_for_backend(model, backend)
+        _upstream_model, oai_payload = self._prepare_upstream_chat_payload(
+            oai_payload,
+            model,
+            backend,
+            exact_model_only=exact_model_only,
+        )
         client = self._openai_upstream(backend, headers)
         result = await client.chat_completion(oai_payload)
         return openai_to_anthropic_response(result, model=model)
@@ -1989,6 +2069,8 @@ class AgentService:
         model: str,
         headers: Mapping[str, str],
         fallback_api_key: str,
+        *,
+        exact_model_only: bool = False,
     ) -> AsyncIterator[str]:
         if backend.api_format == "anthropic":
             key = backend.resolve_api_key() or fallback_api_key
@@ -2008,7 +2090,12 @@ class AgentService:
                 yield chunk
             return
         oai_payload = anthropic_to_openai_request(payload)
-        oai_payload["model"] = self._model_for_backend(model, backend)
+        _upstream_model, oai_payload = self._prepare_upstream_chat_payload(
+            oai_payload,
+            model,
+            backend,
+            exact_model_only=exact_model_only,
+        )
         client = self._openai_upstream(backend, headers)
         async for chunk in translate_openai_stream_to_anthropic(
             client.chat_completion_stream(oai_payload),
