@@ -8,6 +8,8 @@ from typing import Any
 
 from openai import AsyncOpenAI, OpenAI
 
+from netllm_sdk_openai.payload import adapt_chat_payload_for_sdk
+
 
 class OpenAIUpstreamError(Exception):
     """Normalized upstream failure."""
@@ -54,7 +56,8 @@ class OpenAIUpstream:
         try:
             if payload.get("stream"):
                 raise OpenAIUpstreamError("Use chat_completion_stream for stream=True")
-            resp = await self._async.chat.completions.create(**payload)
+            sdk_payload = adapt_chat_payload_for_sdk(payload)
+            resp = await self._async.chat.completions.create(**sdk_payload)
             return resp.model_dump()
         except Exception as exc:
             raise _wrap(exc) from exc
@@ -65,7 +68,8 @@ class OpenAIUpstream:
     ) -> AsyncIterator[str]:
         payload = {**payload, "stream": True}
         try:
-            stream = await self._async.chat.completions.create(**payload)
+            sdk_payload = adapt_chat_payload_for_sdk(payload)
+            stream = await self._async.chat.completions.create(**sdk_payload)
             async for chunk in stream:
                 yield f"data: {json.dumps(chunk.model_dump())}\n\n"
             yield "data: [DONE]\n\n"

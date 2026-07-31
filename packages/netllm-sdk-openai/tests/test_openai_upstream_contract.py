@@ -86,6 +86,27 @@ async def test_chat_completion_stream_sse_format(mock_cls: MagicMock) -> None:
 
 @pytest.mark.asyncio
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
+async def test_chat_completion_moves_top_k_to_extra_body(mock_cls: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_cls.return_value = mock_client
+    mock_resp = MagicMock()
+    mock_resp.model_dump.return_value = {"id": "chatcmpl-1", "object": "chat.completion"}
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_resp)
+
+    upstream = OpenAIUpstream("http://127.0.0.1:8012/v1")
+    payload = {
+        "model": "qwen3-next-80b",
+        "messages": [{"role": "user", "content": "hi"}],
+        "top_k": 40,
+    }
+    await upstream.chat_completion(payload)
+    call_kwargs = mock_client.chat.completions.create.await_args.kwargs
+    assert "top_k" not in call_kwargs
+    assert call_kwargs["extra_body"] == {"top_k": 40}
+
+
+@pytest.mark.asyncio
+@patch("netllm_sdk_openai.client.AsyncOpenAI")
 async def test_embeddings_passes_payload(mock_cls: MagicMock) -> None:
     mock_client = MagicMock()
     mock_cls.return_value = mock_client
