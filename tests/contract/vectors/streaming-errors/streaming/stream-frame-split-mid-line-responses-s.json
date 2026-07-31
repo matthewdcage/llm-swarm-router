@@ -1,5 +1,7 @@
 {
-  "divergence": [],
+  "divergence": [
+    "D16"
+  ],
   "expected": {
     "admission_delta": {
       "request_count": 0,
@@ -90,7 +92,7 @@
     ]
   },
   "id": "stream-frame-split-mid-line-responses-s",
-  "note": "split boundaries do not perturb Responses sequence_number ordering",
+  "note": "split boundaries do not perturb Responses sequence_number ordering. [D16] a clean 200 with zero success accounting",
   "request": {
     "body": {
       "input": "hi",

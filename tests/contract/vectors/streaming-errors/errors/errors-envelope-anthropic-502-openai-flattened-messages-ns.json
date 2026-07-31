@@ -18,13 +18,14 @@
     },
     "body_shape": {
       "error": {
-        "message": "ANTHROPIC_API_KEY required for cloud Messages API",
-        "type": "authentication_error"
+        "message": "Error code: 500 - {'error': {'message': 'farm scripted HTTP 500', 'type': 'farm_error', 'param': None, 'code': None}}",
+        "type": "api_error"
       },
       "type": "error"
     },
     "metrics_delta": {
       "counters": {
+        "netllm_requests_total{backend=http://alpha.farm/v1,model=claude-farm,status=error}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
       },
@@ -47,8 +48,18 @@
       "routed_counts": {}
     },
     "sse_frames": null,
-    "status": 401,
-    "upstream_calls": []
+    "status": 502,
+    "upstream_calls": [
+      {
+        "backend": "alpha",
+        "headers": {
+          "authorization": "Bearer farm-key"
+        },
+        "method": "POST",
+        "model": "farm-chat",
+        "path": "/v1/chat/completions"
+      }
+    ]
   },
   "id": "errors-envelope-anthropic-502-openai-flattened-messages-ns",
   "note": "[D11] an OpenAIUpstreamError from a translated backend is flattened to 502 on the Messages route (400/404 are not forwarded either) \u2014 body is still Anthropic-shaped",
@@ -83,7 +94,12 @@
       }
     ],
     "routing": {
-      "default_strategy": "failover"
+      "default_strategy": "failover",
+      "model_aliases": {
+        "claude-farm": [
+          "farm-chat"
+        ]
+      }
     }
   }
 }

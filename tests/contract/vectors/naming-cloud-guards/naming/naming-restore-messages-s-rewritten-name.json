@@ -23,7 +23,6 @@
         "netllm_completion_tokens_total{backend=http://ant.farm,model=served-a}": 5.0,
         "netllm_prompt_tokens_total{backend=http://ant.farm,model=served-a}": 3.0,
         "netllm_request_latency_seconds_count{backend=http://ant.farm}": 1.0,
-        "netllm_request_latency_seconds_sum{backend=http://ant.farm}": "<latency>",
         "netllm_requests_total{backend=http://ant.farm,model=served-a,status=ok}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=cli}": 1.0,
         "netllm_source_requests_total{resolved_via=header,source=cli}": 1.0

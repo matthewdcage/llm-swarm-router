@@ -1,5 +1,7 @@
 {
-  "divergence": [],
+  "divergence": [
+    "D16"
+  ],
   "expected": {
     "admission_delta": {
       "request_count": 0,
@@ -92,7 +94,7 @@
     ]
   },
   "id": "stream-midstream-drop-responses-s",
-  "note": "RESP-S: the Responses translator does not understand the OpenAI data:{error} chunk, drops it, and still emits response.completed \u2014 a mid-stream upstream failure is INVISIBLE to a Responses client even though the backend was marked failed. Real finding, no D-number; recorded as-is.",
+  "note": "RESP-S: the Responses translator does not understand the OpenAI data:{error} chunk, drops it, and still emits response.completed \u2014 a mid-stream upstream failure is INVISIBLE to a Responses client even though the backend was marked failed. Real finding, no D-number; recorded as-is. [D16] the 200 carries no success accounting either (routed_counts empty, request_count 0) while the error counter from the failed attempt is present.",
   "request": {
     "body": {
       "input": "hi",

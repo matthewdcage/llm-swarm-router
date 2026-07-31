@@ -51,7 +51,6 @@
         "netllm_completion_tokens_total{backend=http://cloudo.farm/v1,model=cloud-model}": 5.0,
         "netllm_prompt_tokens_total{backend=http://cloudo.farm/v1,model=cloud-model}": 3.0,
         "netllm_request_latency_seconds_count{backend=http://cloudo.farm/v1}": 1.0,
-        "netllm_request_latency_seconds_sum{backend=http://cloudo.farm/v1}": "<latency>",
         "netllm_requests_total{backend=http://cloudo.farm/v1,model=cloud-model,status=ok}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0

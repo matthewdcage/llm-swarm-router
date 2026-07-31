@@ -51,6 +51,7 @@
     "upstream_calls": []
   },
   "id": "exhaust-unknown-model-messages-ns",
+  "note": "[D11] intentional keyless 401: no candidate matches, so M-NS answers 401 ANTHROPIC_API_KEY-required with zero upstream calls where the OpenAI surfaces answer 404",
   "request": {
     "body": {
       "max_tokens": 16,

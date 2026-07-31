@@ -23,7 +23,6 @@
         "netllm_completion_tokens_total{backend=http://ant.farm,model=farm-chat}": 5.0,
         "netllm_prompt_tokens_total{backend=http://ant.farm,model=farm-chat}": 3.0,
         "netllm_request_latency_seconds_count{backend=http://ant.farm}": 1.0,
-        "netllm_request_latency_seconds_sum{backend=http://ant.farm}": "<latency>",
         "netllm_requests_total{backend=http://alpha.farm/v1,model=farm-chat,status=error}": 1.0,
         "netllm_requests_total{backend=http://ant.farm,model=farm-chat,status=ok}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,

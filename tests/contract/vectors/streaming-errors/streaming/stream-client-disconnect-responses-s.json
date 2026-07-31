@@ -1,5 +1,7 @@
 {
-  "divergence": [],
+  "divergence": [
+    "D16"
+  ],
   "drive": {
     "consume": 2,
     "mode": "service_stream_aclose"
@@ -66,7 +68,7 @@
     ]
   },
   "id": "stream-client-disconnect-responses-s",
-  "note": "GeneratorExit propagates through the Responses translation generator",
+  "note": "GeneratorExit propagates through the Responses translation generator. [D16] no success accounting \u2014 indistinguishable from a completed RESP-S stream, which records none either",
   "request": {
     "body": {
       "input": "hi",

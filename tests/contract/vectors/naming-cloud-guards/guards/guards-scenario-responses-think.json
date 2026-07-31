@@ -46,7 +46,6 @@
         "netllm_completion_tokens_total{backend=http://alpha.farm/v1,model=farm-chat}": 5.0,
         "netllm_prompt_tokens_total{backend=http://alpha.farm/v1,model=farm-chat}": 3.0,
         "netllm_request_latency_seconds_count{backend=http://alpha.farm/v1}": 1.0,
-        "netllm_request_latency_seconds_sum{backend=http://alpha.farm/v1}": "<latency>",
         "netllm_requests_total{backend=http://alpha.farm/v1,model=farm-chat,status=ok}": 1.0,
         "netllm_scenario_requests_total{scenario=think,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0

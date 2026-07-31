@@ -34,6 +34,14 @@ which is why the ``*-s`` exhaustion and admission vectors are real HTTP
 statuses rather than 200 + aborted body — carry **no** annotation: they pin
 the fixed behavior and must not move again.
 
+Every vector also runs through ``anticollapse.assert_no_unintended_keyless_
+401`` at record time and ``assert_corpus_has_no_unintended_keyless_401`` at
+replay time: a keyless-401 recording (401 + zero upstream calls + a missing
+``ANTHROPIC_API_KEY`` body) is only allowed where the vector's ``note`` says
+so, because that outcome is also what a scenario whose request never reaches
+the farm produces. The two ``exhaust-unknown-model-messages-*`` vectors are
+the intentional ones here.
+
 Running
 =======
 
@@ -68,6 +76,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from anticollapse import (
+    assert_corpus_has_no_unintended_keyless_401,
+    assert_no_unintended_keyless_401,
+)
 from canonical import canonicalize_result
 from drivers import contract_environment, scanned_backend_id
 from netllm_core.models import Backend, BackendHealth
@@ -75,7 +87,7 @@ from netllm_core.models import Backend, BackendHealth
 VECTOR_DIR = Path(__file__).resolve().parent / "vectors" / "routing-failover"
 RECORD = os.environ.get("NETLLM_VECTOR_RECORD") == "1"
 
-_VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 16)}
+_VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 17)}
 
 # --------------------------------------------------------------------------
 # Fixtures of the world: farm backends, request bodies, shared config bits
@@ -193,6 +205,7 @@ def vector(
     headers: dict[str, str] | None = None,
     body: dict[str, Any] | None = None,
     pre_state: dict[str, Any] | None = None,
+    note: str = "",
 ) -> dict[str, Any]:
     scenario: dict[str, Any] = {"backends": backends}
     if routing:
@@ -211,6 +224,10 @@ def vector(
     }
     if pre_state:
         doc["pre_state"] = pre_state
+    if note:
+        # Free-text; also the anti-collapse declaration channel
+        # (anticollapse.declares_keyless_401).
+        doc["note"] = note
     return doc
 
 
@@ -450,6 +467,11 @@ EXHAUST += [
         divergence=["D11"],
         body=msg_body("no-such-model"),
         routing={"default_strategy": "failover"},
+        note=(
+            "[D11] intentional keyless 401: no candidate matches, so M-NS "
+            "answers 401 ANTHROPIC_API_KEY-required with zero upstream calls "
+            "where the OpenAI surfaces answer 404"
+        ),
     ),
     vector(
         "exhaust-unknown-model-messages-s",
@@ -458,6 +480,7 @@ EXHAUST += [
         divergence=["D11"],
         body=msg_body("no-such-model"),
         routing={"default_strategy": "failover"},
+        note="[D11] intentional keyless 401, same split on the M-S stream route",
     ),
     # D8: EMB pre-seeds every anthropic-format pool row into `tried`, so a
     # mixed pool only ever reaches the openai-format row.
@@ -658,6 +681,12 @@ def test_divergence_annotations_are_valid_ids() -> None:
         assert not unknown, f"{doc['id']}: unknown divergence IDs {unknown}"
 
 
+def test_no_unintended_keyless_401_recorded() -> None:
+    """Replay-time half of the anti-collapse guard (anticollapse.py)."""
+    paths = sorted(VECTOR_DIR.glob("*.json")) if VECTOR_DIR.exists() else []
+    assert_corpus_has_no_unintended_keyless_401(paths)
+
+
 def test_no_orphan_vector_files() -> None:
     on_disk = (
         {p.stem for p in VECTOR_DIR.glob("*.json")} if VECTOR_DIR.exists() else set()
@@ -672,6 +701,8 @@ def test_no_orphan_vector_files() -> None:
 def test_routing_failover_vector(doc: dict[str, Any]) -> None:
     path = vector_path(doc)
     actual = _run_vector(doc)
+    # Anti-collapse: fails at record time, before a false vector can land.
+    assert_no_unintended_keyless_401(doc, actual)
     if RECORD:
         VECTOR_DIR.mkdir(parents=True, exist_ok=True)
         path.write_text(

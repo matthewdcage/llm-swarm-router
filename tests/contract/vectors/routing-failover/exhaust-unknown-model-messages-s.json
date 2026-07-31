@@ -51,6 +51,7 @@
     "upstream_calls": []
   },
   "id": "exhaust-unknown-model-messages-s",
+  "note": "[D11] intentional keyless 401, same split on the M-S stream route",
   "request": {
     "body": {
       "max_tokens": 16,

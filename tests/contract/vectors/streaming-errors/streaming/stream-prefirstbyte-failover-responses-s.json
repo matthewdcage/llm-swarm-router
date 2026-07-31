@@ -1,5 +1,7 @@
 {
-  "divergence": [],
+  "divergence": [
+    "D16"
+  ],
   "expected": {
     "admission_delta": {
       "request_count": 0,
@@ -105,7 +107,7 @@
     ]
   },
   "id": "stream-prefirstbyte-failover-responses-s",
-  "note": "RESP-S inherits C-S failover; edge translation starts on beta",
+  "note": "RESP-S inherits C-S failover; edge translation starts on beta. [D16] beta's success is not accounted \u2014 only alpha's error counter lands",
   "request": {
     "body": {
       "input": "hi",

@@ -22,7 +22,7 @@ Two groups (plan-f24-f26.md §2, Phase 0b "streaming" + the F-38 half of
 
 Divergence annotations
 ----------------------
-``divergence`` carries behavior-matrix.md IDs (D1–D15) for the cell a
+``divergence`` carries behavior-matrix.md IDs (D1–D16) for the cell a
 vector pins. Used here:
 
 - **D9** — M-S mid-stream error frame has no terminator event, and the
@@ -32,6 +32,12 @@ vector pins. Used here:
   flattened to 502 instead of forwarding its status.
 - **D6 / D8** — where the recorded candidate order is produced by the
   Messages anthropic fallback tier and its ``tried`` pre-seeding.
+- **D16** — RESP-S records no success accounting: the Responses bridge
+  breaks out of the chat stream at ``data: [DONE]``, so
+  ``_stream_with_metrics``' post-loop ``mark_success`` / ok-REQUESTS_TOTAL
+  / ``_request_count`` never run. Carried by the five ``*-responses-s``
+  200-vectors, which is why they record ``routed_counts={}`` and
+  ``request_count=0``.
 
 Vectors for behavior the F-30..F-48 remediation already fixed carry no
 annotation — they pin the fixed behavior and must not move again. That
@@ -47,7 +53,18 @@ Findings with no D-number are carried in the non-schema ``note`` field
 rather than mis-annotated. The sharpest one is
 ``stream-midstream-drop-responses-s``: the Responses translator swallows
 the OpenAI error chunk and still emits ``response.completed``, so a
-mid-stream upstream failure is invisible on that surface.
+mid-stream upstream failure is invisible on that surface. (Its *accounting*
+half now has a number — D16, above.)
+
+Anti-collapse
+-------------
+Every vector here runs through ``anticollapse.assert_no_unintended_keyless_
+401`` at record time and ``assert_corpus_has_no_unintended_keyless_401`` at
+replay time. Three vectors in this module used to stand up an openai-format
+farm serving ``CHAT_MODEL`` while asking for ``MSG_MODEL`` with no alias
+between them, so they silently recorded a keyless 401 with zero upstream
+calls instead of the D9/D11 behavior their notes claimed; ``_TRANSLATED_ARM``
+supplies the missing alias and the guard makes the mistake unrepeatable.
 
 Harness gaps worked around locally (additive, in this module only — see
 the Phase 0b report):
@@ -90,13 +107,17 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from anticollapse import (
+    assert_corpus_has_no_unintended_keyless_401,
+    assert_no_unintended_keyless_401,
+)
 from canonical import canonicalize_result
 from drivers import DriveResult, contract_environment
 
 GROUP_DIR = Path(__file__).resolve().parent / "vectors" / "streaming-errors"
 RECORD = os.environ.get("NETLLM_VECTOR_RECORD") == "1"
 
-VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 16)}
+VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 17)}
 GROUPS = ("streaming", "errors")
 _ID_PREFIX = {"streaming": "stream-", "errors": "errors-"}
 
@@ -241,6 +262,13 @@ def vector(
 
 _FAILOVER = {"default_strategy": "failover"}
 
+# The Messages surfaces ask for MSG_MODEL; an openai-format farm host serves
+# CHAT_MODEL. Without an alias bridging the two, no candidate matches and the
+# request collapses into a keyless 401 with zero upstream calls (D11) instead
+# of exercising the translated arm — see anticollapse.py. Every messages
+# vector aimed at an openai-format row therefore routes through this.
+_TRANSLATED_ARM = {**_FAILOVER, "model_aliases": {MSG_MODEL: [CHAT_MODEL]}}
+
 
 def _streaming() -> list[tuple[str, dict[str, Any]]]:
     g = "streaming"
@@ -301,7 +329,7 @@ def _streaming() -> list[tuple[str, dict[str, Any]]]:
             path="messages_s",
             backends=[oai("alpha", [drop(2)])],
             divergence=["D9"],
-            routing=_FAILOVER,
+            routing=_TRANSLATED_ARM,
             note=(
                 "M-S openai-format arm: the OpenAI mid-stream failure is "
                 "translated into the same terminator-less Anthropic error "
@@ -315,13 +343,17 @@ def _streaming() -> list[tuple[str, dict[str, Any]]]:
             "stream-midstream-drop-responses-s",
             path="responses_s",
             backends=[oai("alpha", [drop(2)]), oai("beta")],
+            divergence=["D16"],
             routing=_FAILOVER,
             note=(
                 "RESP-S: the Responses translator does not understand the "
                 "OpenAI data:{error} chunk, drops it, and still emits "
                 "response.completed — a mid-stream upstream failure is "
                 "INVISIBLE to a Responses client even though the backend was "
-                "marked failed. Real finding, no D-number; recorded as-is."
+                "marked failed. Real finding, no D-number; recorded as-is. "
+                "[D16] the 200 carries no success accounting either "
+                "(routed_counts empty, request_count 0) while the error "
+                "counter from the failed attempt is present."
             ),
         )
     )
@@ -361,8 +393,13 @@ def _streaming() -> list[tuple[str, dict[str, Any]]]:
             "stream-prefirstbyte-failover-responses-s",
             path="responses_s",
             backends=[oai("alpha", [FAIL_500]), oai("beta")],
+            divergence=["D16"],
             routing=_FAILOVER,
-            note="RESP-S inherits C-S failover; edge translation starts on beta",
+            note=(
+                "RESP-S inherits C-S failover; edge translation starts on "
+                "beta. [D16] beta's success is not accounted — only alpha's "
+                "error counter lands"
+            ),
         )
     )
 
@@ -422,10 +459,14 @@ def _streaming() -> list[tuple[str, dict[str, Any]]]:
             "stream-usage-chunk-parsed-responses-s",
             path="responses_s",
             backends=[oai("alpha", [stream_ok(usage_in_final=True)])],
+            divergence=["D16"],
             note=(
-                "usage is parsed BELOW the Responses translation (in "
-                "_stream_with_metrics), so RESP-S telemetry equals C-S "
-                "telemetry even though the wire events differ"
+                "[D16] usage IS parsed below the Responses translation, but "
+                "none of it is ever recorded: the bridge breaks out of the "
+                "chat stream at data:[DONE], so _stream_with_metrics' "
+                "post-loop success accounting never runs. RESP-S telemetry is "
+                "therefore EMPTY where C-S records mark_success, ok-"
+                "REQUESTS_TOTAL, latency, tokens and _request_count"
             ),
         )
     )
@@ -475,8 +516,13 @@ def _streaming() -> list[tuple[str, dict[str, Any]]]:
             "stream-client-disconnect-responses-s",
             path="responses_s",
             backends=[oai("alpha", [stream_ok(["a", "b", "c", "d"])])],
+            divergence=["D16"],
             drive={"mode": "service_stream_aclose", "consume": 2},
-            note="GeneratorExit propagates through the Responses translation generator",
+            note=(
+                "GeneratorExit propagates through the Responses translation "
+                "generator. [D16] no success accounting — indistinguishable "
+                "from a completed RESP-S stream, which records none either"
+            ),
         )
     )
 
@@ -522,8 +568,12 @@ def _streaming() -> list[tuple[str, dict[str, Any]]]:
             "stream-frame-split-mid-line-responses-s",
             path="responses_s",
             backends=[oai("alpha", [stream_ok(["a", "b"])])],
+            divergence=["D16"],
             wire={"split_bytes": 7},
-            note="split boundaries do not perturb Responses sequence_number ordering",
+            note=(
+                "split boundaries do not perturb Responses sequence_number "
+                "ordering. [D16] a clean 200 with zero success accounting"
+            ),
         )
     )
     return out
@@ -627,7 +677,7 @@ def _errors() -> list[tuple[str, dict[str, Any]]]:
             path="messages_ns",
             backends=[oai("alpha", [FAIL_500])],
             divergence=["D11"],
-            routing=_FAILOVER,
+            routing=_TRANSLATED_ARM,
             note=(
                 "[D11] an OpenAIUpstreamError from a translated backend is "
                 "flattened to 502 on the Messages route (400/404 are not "
@@ -699,7 +749,7 @@ def _errors() -> list[tuple[str, dict[str, Any]]]:
             path="messages_s",
             backends=[oai("alpha", [FAIL_500])],
             divergence=["D11"],
-            routing=_FAILOVER,
+            routing=_TRANSLATED_ARM,
             note="[D11] flattening applies to the stream route too, post-F-32",
         )
     )
@@ -940,6 +990,11 @@ def test_divergence_annotations_are_valid_ids() -> None:
         assert not unknown, f"{doc['id']}: unknown divergence IDs {unknown}"
 
 
+def test_no_unintended_keyless_401_recorded() -> None:
+    """Replay-time half of the anti-collapse guard (anticollapse.py)."""
+    assert_corpus_has_no_unintended_keyless_401(checked_in_vectors())
+
+
 def test_no_orphan_vector_files() -> None:
     declared = {vector_path(g, d["id"]) for g, d in all_vectors()}
     orphans = sorted(str(p) for p in set(checked_in_vectors()) - declared)
@@ -952,6 +1007,8 @@ def test_no_orphan_vector_files() -> None:
 def test_streaming_errors_vector(group: str, doc: dict[str, Any]) -> None:
     path = vector_path(group, doc["id"])
     actual = run_vector(doc)
+    # Anti-collapse: fails at record time, before a false vector can land.
+    assert_no_unintended_keyless_401(doc, actual)
     if RECORD:
         _write(path, {**doc, "expected": actual})
     assert path.exists(), f"{path.name} not recorded — run with NETLLM_VECTOR_RECORD=1"

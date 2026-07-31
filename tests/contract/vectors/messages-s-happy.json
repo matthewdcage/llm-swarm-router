@@ -20,7 +20,6 @@
         "netllm_completion_tokens_total{backend=http://anthro1.farm,model=claude-farm}": 5.0,
         "netllm_prompt_tokens_total{backend=http://anthro1.farm,model=claude-farm}": 3.0,
         "netllm_request_latency_seconds_count{backend=http://anthro1.farm}": 1.0,
-        "netllm_request_latency_seconds_sum{backend=http://anthro1.farm}": "<latency>",
         "netllm_requests_total{backend=http://anthro1.farm,model=claude-farm,status=ok}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0

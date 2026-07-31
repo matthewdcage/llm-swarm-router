@@ -107,6 +107,13 @@ class ServiceProbe:
 
         metrics = {}
         for key in sorted(set(before["counters"]) | set(after["counters"])):
+            # The latency SUM is wall-clock and is never recorded: a coarse
+            # platform timer (Windows ~15.6ms) makes an in-process farm call
+            # measure 0.0s, and a zero delta is dropped below, so the key
+            # would be present on some machines and absent on others. The
+            # paired _count pins that the observation happened.
+            if key.startswith("netllm_request_latency_seconds_sum"):
+                continue
             d = after["counters"].get(key, 0.0) - before["counters"].get(key, 0.0)
             if d:
                 metrics[key] = d

@@ -37,7 +37,6 @@
       "counters": {
         "netllm_prompt_tokens_total{backend=http://alpha.farm/v1,model=bge-m3}": 3.0,
         "netllm_request_latency_seconds_count{backend=http://alpha.farm/v1}": 1.0,
-        "netllm_request_latency_seconds_sum{backend=http://alpha.farm/v1}": "<latency>",
         "netllm_requests_total{backend=http://alpha.farm/v1,model=bge-m3,status=ok}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0

@@ -1,7 +1,7 @@
 """Divergence-annotation lint (plan-f24-f26.md §2, the universal gate rule).
 
 Mechanical commits change zero vectors. Semantic commits may change only
-vectors annotated with divergence IDs (D1-D15, behavior-matrix.md) that the
+vectors annotated with divergence IDs (D1-D16, behavior-matrix.md) that the
 commit declares in tests/contract/allowed-divergences.txt. Any vector diff
 vs git HEAD without a matching declared ID fails here — a machine check,
 not reviewer judgment.
@@ -43,9 +43,24 @@ _VOLATILE_TOKENS = {
 }
 
 
+# Metric keys the volatile-field schema may add or remove wholesale. Only
+# these may appear on one side and not the other; every other key mismatch is
+# a real change.
+_VOLATILE_KEY_PREFIXES = ("netllm_request_latency_seconds_sum",)
+
+
+def _drop_volatile_keys(d: dict) -> dict:
+    return {
+        k: v
+        for k, v in d.items()
+        if not (isinstance(k, str) and k.startswith(_VOLATILE_KEY_PREFIXES))
+    }
+
+
 def _differs_beyond_volatile(head: object, cur: object) -> bool:
     """True if head/cur differ anywhere outside the volatile vocabulary."""
     if isinstance(head, dict) and isinstance(cur, dict):
+        head, cur = _drop_volatile_keys(head), _drop_volatile_keys(cur)
         if head.keys() != cur.keys():
             return True
         return any(_differs_beyond_volatile(head[k], cur[k]) for k in head)
@@ -55,12 +70,18 @@ def _differs_beyond_volatile(head: object, cur: object) -> bool:
         return any(_differs_beyond_volatile(h, c) for h, c in zip(head, cur))
     if head == cur:
         return False
-    # A volatile leaf may move between tokens (and 0 was a legacy latency-sum
-    # rendering), but never to or from a real recorded value.
-    return not (
-        (head in _VOLATILE_TOKENS or head == 0)
-        and (cur in _VOLATILE_TOKENS or cur == 0)
-    )
+
+    # A volatile leaf may move between tokens (0 was a legacy latency-sum
+    # rendering), but never to or from a real recorded value. Only str/int
+    # leaves can be volatile: a dict or list operand here is a real change,
+    # and `x in _VOLATILE_TOKENS` on a dict would raise TypeError.
+    def _volatile_leaf(value: object) -> bool:
+        if isinstance(value, str):
+            return value in _VOLATILE_TOKENS
+        # bool is an int subclass; False must never count as the legacy 0.
+        return isinstance(value, int) and not isinstance(value, bool) and value == 0
+
+    return not (_volatile_leaf(head) and _volatile_leaf(cur))
 
 
 def _git_show(rel_path: str) -> bytes | None:
@@ -131,12 +152,13 @@ def test_changed_vectors_carry_declared_divergence_ids() -> None:
         if head_bytes == path.read_bytes():
             continue  # unchanged
         doc = json.loads(path.read_text())
-        if harness_rerecord:
-            if _differs_beyond_volatile(json.loads(head_bytes), doc):
-                violations.append(
-                    f"{name}: declared {_HARNESS_RERECORD} but differs vs HEAD "
-                    "outside the volatile-field vocabulary"
-                )
+        # A harness re-record and a semantic phase can land in the same PR, so
+        # the two channels compose per vector: a vector whose diff is entirely
+        # volatile is covered by the declaration, and anything else still has
+        # to justify itself with divergence IDs below.
+        if harness_rerecord and not _differs_beyond_volatile(
+            json.loads(head_bytes), doc
+        ):
             continue
         ids = set(doc.get("divergence", []))
         if not ids:

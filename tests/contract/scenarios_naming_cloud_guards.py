@@ -25,11 +25,18 @@ Three groups (plan-f24-f26.md §2, Phase 0b):
 
 Divergence annotations
 ----------------------
-``divergence`` lists behavior-matrix.md IDs D1–D15 that a vector's recorded
+``divergence`` lists behavior-matrix.md IDs D1–D16 that a vector's recorded
 cells embody. Vectors whose behavior the F-30..F-48 remediation already
 fixed carry ``[]`` — they pin the fixed behavior. Findings that are real but
-have no D-number (F-25's matcher split; the RESP-S accounting hole) are
-carried in a non-schema ``note`` field instead of being mis-annotated.
+have no D-number (F-25's matcher split) are carried in a non-schema ``note``
+field instead of being mis-annotated. (The RESP-S success-accounting hole is
+no longer one of them: it is D16, pinned by the ``*-responses-s``
+200-vectors in ``scenarios_streaming_errors``.)
+
+Every vector also runs through ``anticollapse.assert_no_unintended_keyless_
+401`` at record time and ``assert_corpus_has_no_unintended_keyless_401`` at
+replay time, so a scenario that never reaches the farm cannot masquerade as
+a recorded behavior.
 
 Running
 -------
@@ -51,13 +58,17 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from anticollapse import (
+    assert_corpus_has_no_unintended_keyless_401,
+    assert_no_unintended_keyless_401,
+)
 from canonical import canonicalize_result
 from drivers import contract_environment
 
 GROUP_DIR = Path(__file__).resolve().parent / "vectors" / "naming-cloud-guards"
 RECORD = os.environ.get("NETLLM_VECTOR_RECORD") == "1"
 
-VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 16)}
+VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 17)}
 GROUPS = ("naming", "cloud", "guards")
 
 # Farm hosts (farm.FarmBackend.base_url): openai rows carry "/v1", the
@@ -937,6 +948,11 @@ def test_every_definition_is_materialized() -> None:
     assert not missing, f"undefined vector files: {missing}"
 
 
+def test_no_unintended_keyless_401_recorded() -> None:
+    """Replay-time half of the anti-collapse guard (anticollapse.py)."""
+    assert_corpus_has_no_unintended_keyless_401(checked_in_vectors())
+
+
 def test_vector_docs_are_well_formed() -> None:
     for path in checked_in_vectors():
         doc = json.loads(path.read_text())
@@ -956,6 +972,8 @@ def test_vector_docs_are_well_formed() -> None:
 def test_naming_cloud_guards_vector(vector_path_: Path) -> None:
     doc = json.loads(vector_path_.read_text())
     actual = run_vector(doc)
+    # Anti-collapse: fails at record time, before a false vector can land.
+    assert_no_unintended_keyless_401(doc, actual)
     if RECORD:
         doc["expected"] = actual
         _write(vector_path_, doc)

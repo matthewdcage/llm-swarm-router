@@ -1,5 +1,7 @@
 {
-  "divergence": [],
+  "divergence": [
+    "D16"
+  ],
   "expected": {
     "admission_delta": {
       "request_count": 0,
@@ -90,7 +92,7 @@
     ]
   },
   "id": "stream-usage-chunk-parsed-responses-s",
-  "note": "usage is parsed BELOW the Responses translation (in _stream_with_metrics), so RESP-S telemetry equals C-S telemetry even though the wire events differ",
+  "note": "[D16] usage IS parsed below the Responses translation, but none of it is ever recorded: the bridge breaks out of the chat stream at data:[DONE], so _stream_with_metrics' post-loop success accounting never runs. RESP-S telemetry is therefore EMPTY where C-S records mark_success, ok-REQUESTS_TOTAL, latency, tokens and _request_count",
   "request": {
     "body": {
       "input": "hi",
