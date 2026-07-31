@@ -12,6 +12,8 @@ from typing import Any
 
 import netllm_cli.main as cli_main
 import pytest
+from netllm_cli.commands import diagnose as cli_diagnose
+from netllm_cli.commands import sources as cli_sources
 from netllm_core.models import (
     NetllmConfig,
     SourceConfig,
@@ -38,7 +40,7 @@ def test_f43_sources_toggle_does_not_import_agent_or_fastapi() -> None:
     config_guards), like `netllm config import` — not through the agent's
     HTTP admin layer. Importing netllm_agent.admin drags FastAPI into a
     plain CLI command and re-breaks the layering the F-02 fix established."""
-    src = inspect.getsource(cli_main.sources_toggle)
+    src = inspect.getsource(cli_sources.sources_toggle)
     assert "netllm_agent" not in src
     assert "fastapi" not in src
 
@@ -202,7 +204,7 @@ def test_f46_doctor_notes_cloud_first_when_fallback_is_local(
     async def _one_online(cfg: NetllmConfig) -> list[dict[str, Any]]:
         return [{"name": "ollama", "status": "online", "models": ["m"]}]
 
-    monkeypatch.setattr(cli_main, "scan_local_providers", _one_online)
+    monkeypatch.setattr(cli_diagnose, "scan_local_providers", _one_online)
     monkeypatch.setattr("netllm_discovery.runtime.check_listen_port", lambda _cfg: None)
 
     cfg = NetllmConfig()

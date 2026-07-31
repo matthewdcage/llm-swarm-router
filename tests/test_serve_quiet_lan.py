@@ -33,7 +33,7 @@ default_strategy = "local_first"
     )
 
     with patch("netllm_discovery.runtime.check_listen_port", return_value=None):
-        with patch("netllm_cli.main.asyncio.run", return_value=[]):
+        with patch("netllm_cli.commands.serve_lifecycle.asyncio.run", return_value=[]):
             with patch("netllm_agent.app.create_app", return_value=object()):
                 with patch("uvicorn.run") as uvicorn_run:
                     result = runner.invoke(

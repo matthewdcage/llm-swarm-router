@@ -8,6 +8,9 @@ from unittest.mock import patch
 
 import netllm_cli.main as cli_main
 import pytest
+from netllm_cli.commands import _common as cli_common
+from netllm_cli.commands import init_install as cli_init_install
+from netllm_cli.commands import join_swarm as cli_join_swarm
 from netllm_core.models import BackendOverride, NetllmConfig, load_config, save_config
 from typer.testing import CliRunner
 
@@ -19,7 +22,7 @@ def _no_provider_scan(monkeypatch: pytest.MonkeyPatch):
     async def _empty(cfg: NetllmConfig) -> list[dict[str, Any]]:
         return []
 
-    monkeypatch.setattr(cli_main, "scan_local_providers", _empty)
+    monkeypatch.setattr(cli_init_install, "scan_local_providers", _empty)
 
 
 def _init(tmp_path: Path, *args: str):
@@ -78,8 +81,8 @@ def test_join_writes_swarm_config(tmp_path: Path) -> None:
         "cluster_token_set": True,
     }
     with (
-        patch.object(cli_main, "_fetch_join_status", return_value=fake_status),
-        patch.object(cli_main, "_validate_join_token") as mock_validate,
+        patch.object(cli_join_swarm, "_fetch_join_status", return_value=fake_status),
+        patch.object(cli_join_swarm, "_validate_join_token") as mock_validate,
     ):
         result = runner.invoke(
             cli_main.app,
@@ -105,7 +108,7 @@ def test_join_rejects_token_against_open_swarm(tmp_path: Path) -> None:
     cfg_path = tmp_path / "config.toml"
     save_config(NetllmConfig(), cfg_path)
     fake_status = {"agent_id": "gw-1", "cluster_token_set": False}
-    with patch.object(cli_main, "_fetch_join_status", return_value=fake_status):
+    with patch.object(cli_join_swarm, "_fetch_join_status", return_value=fake_status):
         result = runner.invoke(
             cli_main.app,
             [
@@ -128,8 +131,8 @@ def test_join_rejects_own_url(tmp_path: Path) -> None:
     save_config(cfg, cfg_path)
     fake_status = {"agent_id": "self", "cluster_token_set": True}
     with (
-        patch.object(cli_main, "_fetch_join_status", return_value=fake_status),
-        patch.object(cli_main, "_validate_join_token"),
+        patch.object(cli_join_swarm, "_fetch_join_status", return_value=fake_status),
+        patch.object(cli_join_swarm, "_validate_join_token"),
         patch(
             "netllm_discovery.lan.local_lan_ip",
             return_value="192.168.1.5",
@@ -151,7 +154,7 @@ def test_join_rejects_own_url(tmp_path: Path) -> None:
 
 
 def test_normalize_agent_url() -> None:
-    norm = cli_main._normalize_agent_url
+    norm = cli_common._normalize_agent_url
     assert norm("192.168.1.20") == "http://192.168.1.20:11400"
     assert norm("http://192.168.1.20:11400/") == "http://192.168.1.20:11400"
     assert norm("studio.local:11400") == "http://studio.local:11400"
@@ -160,7 +163,7 @@ def test_normalize_agent_url() -> None:
 
 
 def test_listen_port_of_handles_ipv6_and_bare_hosts() -> None:
-    port_of = cli_main._listen_port_of
+    port_of = cli_init_install._listen_port_of
     assert port_of("127.0.0.1:11400") == "11400"
     assert port_of("0.0.0.0:12000") == "12000"
     assert port_of("[::1]:11400") == "11400"
@@ -188,9 +191,11 @@ def test_validate_join_token_rejects_server_error() -> None:
     import pytest as _pytest
     import typer as _typer
 
-    with patch.object(cli_main.httpx, "Client", FakeClient):
+    with patch.object(cli_join_swarm.httpx, "Client", FakeClient):
         with _pytest.raises(_typer.Exit):
-            cli_main._validate_join_token("http://192.168.1.20:11400", "tok", "me")
+            cli_join_swarm._validate_join_token(
+                "http://192.168.1.20:11400", "tok", "me"
+            )
 
 
 def test_init_swarm_upgrades_existing_config_without_force(tmp_path: Path) -> None:

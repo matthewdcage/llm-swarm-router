@@ -76,12 +76,13 @@ def test_init_non_tty_writes_single_machine_defaults(
     """`netllm init` without a TTY must never prompt and must keep the
     current single-machine defaults (loopback listen, local_first)."""
     import netllm_cli.main as cli_main
+    from netllm_cli.commands import init_install as cli_init_install
     from typer.testing import CliRunner
 
     async def _no_providers(cfg: NetllmConfig) -> list[dict[str, str]]:
         return []
 
-    monkeypatch.setattr(cli_main, "scan_local_providers", _no_providers)
+    monkeypatch.setattr(cli_init_install, "scan_local_providers", _no_providers)
     cfg_path = tmp_path / "config.toml"
     runner = CliRunner()
     result = runner.invoke(
