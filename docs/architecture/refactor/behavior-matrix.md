@@ -1,0 +1,103 @@
+# netllm-agent Request-Proxy Behavior Matrix (HEAD = `64f14a4`)
+
+All `s:` line refs are `packages/netllm-agent/src/netllm_agent/service.py`, `a:` = `packages/netllm-agent/src/netllm_agent/app.py`, `p:` = `packages/netllm-core/src/netllm_core/pool.py`, `rp:` = `packages/netllm-core/src/netllm_core/routing_policy.py`, `m:` = `packages/netllm-core/src/netllm_core/models.py`, `cap:` = `packages/netllm-core/src/netllm_core/capabilities.py`. All against `git show HEAD:<path>` — the working tree is being remediated concurrently and was not consulted.
+
+## The six paths
+
+| Path | Service entry | Route |
+|---|---|---|
+| Chat non-stream (C-NS) | `proxy_chat_completion` s:974–1089 | a:403–424 |
+| Chat stream (C-S) | `proxy_chat_completion_stream` s:1091–1204 | a:403–424 |
+| Embeddings (EMB) | `proxy_embeddings` s:1237–1357 | a:451–463 |
+| Messages non-stream (M-NS) | `proxy_messages` s:1704–1811 (+ `_messages_attempt` s:1648–1702) | a:466–486 |
+| Messages stream (M-S) | `proxy_messages_stream` s:1813–1954 | a:466–486 |
+| Responses (RESP) | `proxy_responses` s:1206–1222 / `proxy_responses_stream` s:1224–1235 — pure delegation | a:426–449 |
+
+RESP is *not* a seventh loop: it translates Responses⇄chat at the edge (`responses_to_chat_request` s:1220/1230, `chat_to_responses_response` s:1222, `translate_chat_stream_to_responses` s:1232–1235) and inherits every C-NS/C-S cell below verbatim, per the docstring at s:1212–1219 and docs/architecture/03-request-lifecycle.md:5–15.
+
+## Behavior matrix
+
+| Concern | C-NS | C-S | EMB | M-NS | M-S |
+|---|---|---|---|---|---|
+| **Source attribution** | `_attribute_source` s:982 (impl s:739–752; counts once, not per attempt) | s:1099 | s:1252 | s:1712 | s:1821 |
+| **Scenario classify + count** | s:984–989 (`api_format="openai"`; impl s:766–786) | s:1101–1106 | s:1254–1259 (`"openai"` — even for embedding traffic) | s:1714–1719 (`"anthropic"`) | s:1823–1828 |
+| **Model rewrite chain** | source `model_rewrites` s:990 (impl s:760–764) → scenario model s:991 (impl s:788–797); payload NOT mutated — per-backend rewrite at call time | s:1107–1108, same | s:1260–1261, same | s:1720–1721 then **payload mutated upfront** s:1722–1723 | s:1829–1830, mutated s:1831–1832 |
+| **Capability guard** | `_reject_non_chat_model` s:992 (impl s:590–609, 400) | s:1109 | **none** — no guard of any kind | `_reject_non_chat_messages_model` s:1724 (impl s:611–620, Anthropic-typed 400) | s:1833 |
+| **Routing resolution** | `_resolved_routing` s:993–999 (impl s:717–737 → `resolve_routing` rp:60–191; precedence headers > scenario rule > source > policy > globals, rp:76–95) | s:1110–1116 | s:1262–1268 | s:1726–1732 | s:1835–1841 |
+| **Admission (per-source cap)** | `_source_admit` s:1000 before first await (impl s:799–818, raises `SourceCapacityExceeded` s:87–99); release in finally s:1089 | s:1117 / s:1204 | s:1269 / s:1357 | s:1733 / s:1811 | s:1842 / s:1954 |
+| **Shard context** | `extract_shard_context` s:1002; passed to selection s:1023; `_mark_shard_success` s:1063 | s:1119, s:1141; shard success inside `_stream_with_metrics` s:2038 | **None** — selection gets `None` s:1292 | **None** s:1760 | **None** s:1871 |
+| **Backend refresh** | `refresh_local_backends()` s:1004 | s:1121 | s:1271 | s:1735 | s:1844 |
+| **Cloud injection** | if `routing.allow_cloud_inject`: request-scoped legacy OpenAI row from `Authorization`/env (`_legacy_openai_cloud_backend` s:1007–1009, impl s:1386–1423; key s:1367–1376) + `_materialize_cloud_provider_backends()` s:1010 (impl s:1448–1542, pooled `cloud-<id>` rows) | s:1123–1127 | s:1273–1277 | legacy **Anthropic** row from `x-api-key`/env s:1737–1739 (impl s:1425–1446; key s:1360–1364) + materialize | s:1846–1848 |
+| **Cloud fallback shape** | legacy row rides as `extra_candidates` s:1030 — participates in strategy selection like a pool row (p:485–492); `prefer_cloud=routing.cloud_leads` s:1026 orders cloud first when `cloud.fallback="local"` (rp:29–32, 104–106) | s:1148, s:1144 | s:1299, s:1295 | anthropic-format rows pre-excluded from the strategy loop (s:1746–1750) and tried as an **ordered final fallback tier** `_anthropic_fallback_backends` s:1785–1800 (impl s:1628–1646) | same exclusion s:1851–1855; fallback via `fallback_iter` state machine s:1861–1899 |
+| **Loop shape / attempt cap** | `while attempt < max_attempts`, `max_attempts = max(len(pool.backends), 1)` s:1011–1016; note cap counts **pool** rows only, not `cloud_extra` | s:1128–1134 + `yielded_any` s:1132 | s:1278–1285 | strategy loop s:1751–1753 **plus** unbounded fallback-tier `for` s:1785–1788 (attempts beyond cap) | single `while True` interleaving both phases via `candidates_exhausted`/`fallback_iter` s:1861–1899 |
+| **Per-request failed-backend exclusion** | `tried: set` s:1014, added on failure s:1067, passed as `exclude_ids` s:1027 | s:1131/1175/1145 | **pre-seeded** with all anthropic-format pool rows s:1281–1283 | pre-seeded with anthropic rows incl. `cloud_extra` s:1746–1750; add s:1783 | s:1851–1855, add s:1913 |
+| **Selection** | `_offload_if_probing(_select_backend_for_request, …)` s:1018–1031 (selector s:825–960: pin s:840–853, `auto`→`least_load`/`batch_shard` s:854–857, batch-ledger s:858–932, load-aware strategies keep balancing on retry / others drop to `failover` s:938–947; thread offload s:966–972) | s:1136–1148 | s:1287–1300 | s:1755–1768 | s:1866–1879 |
+| **Header overrides** | `x-netllm-local-only` + hop backstop s:522–531 (`MAX_FORWARD_HOPS`), `x-netllm-strategy` s:732/rp:165–168, `x-netllm-backend` pin s:733/rp:181 → s:1028 | s:1146 | s:1297 | s:1765; plus `anthropic-version`/`-beta` pass-through s:1378–1384→1973 | s:1876; s:2002 |
+| **Peer forwarding** | `_peer_forward_headers` s:651–670 sets `local_only=1` + hops+1 on `peer:` rows, applied in `_openai_upstream` s:685; cluster-token auth s:672–680 | same (s:1157) | same (s:1309) | openai-format arm only s:1981; anthropic-format arm (AnthropicUpstream s:1970–1977) never gets them | s:2012 / s:1999–2006 |
+| **Per-backend model resolution** | `_model_for_backend` s:1041 (impl s:533–570: alias exact → tag-prefix → casefold → pool fallback → passthrough) | s:1158 | s:1310 | openai-arm s:1980; **anthropic-arm sends payload model as-is** s:1964–1978 | s:2011 / anthropic-arm s:1993–2008 |
+| **Requested-name restore** | s:1048–1049 | SSE rewrite `_restore_stream_model` s:1167–1168 (impl s:622–649) | s:1317–1318 | s:1667–1672 (via `requested_model=` s:1779) | **absent** — translated stream uses rewritten model s:2015, never restored |
+| **Acquire/release** | `pool.acquire` s:1034 / release + `BACKEND_IN_FLIGHT` + `_update_health_metrics` in finally s:1078–1083 | s:1152–1155 / s:1193–1198 | s:1303–1306 / s:1346–1351 | inside `_messages_attempt` s:1660–1661 / s:1699–1702 | s:1900–1903 / s:1938–1943 |
+| **Capacity classification** | `_mark_backend_failure` s:1068 → `is_capacity_error` p:50–55, statuses **{409,429,503,507}** p:39 + body markers p:42–47; capacity ⇒ counted in `capacity_rejections`, never trips offline p:241–249; hard failures trip at `max_failures` p:257–262; peer 400/404 exempt p:252–253 | inside `_stream_with_metrics` s:2040 only — outer except s:1173–1192 does **not** call it | s:1336 | s:1688 | s:1914 (direct) |
+| **mark_success** | `pool.mark_success(backend, latency_ms)` s:1051 (impl p:264–276: reset failures, latency EMA, `routed_counts`) | s:2032 (in `_stream_with_metrics`) | s:1320 | s:1674 | **absent** (F-33) |
+| **REQUESTS_TOTAL / latency** | ok s:1052–1055; error s:1069–1071 | ok s:2033–2036; error s:2041–2043 | ok s:1321–1324; error s:1337–1339 | ok s:1675–1678; error s:1689–1691 | **absent both** |
+| **Telemetry / token capture** | `_record_success_telemetry` s:1056–1061 (impl s:174–197; usage keys both dialects s:161–172; `PROMPT/COMPLETION_TOKENS_TOTAL`) + `_request_count` s:1062 | `telemetry.record_request()` s:2037 — **request counted, zero tokens, no `_request_count`** | s:1325–1331 (full) | s:1679–1685 (full) | **absent** (F-33) |
+| **Mid-stream failure after bytes sent** | n/a | OpenAI-shape `data: {"error"…}` + `data: [DONE]` s:1182–1192, then return (no retry) | n/a (no stream arm) | n/a | Anthropic-shape `event: error` frame s:1921–1937, no terminator event |
+| **Exhaustion error** | re-raise `last_error` else `_model_not_found_error` (404 + alias/pool hint, s:572–588) s:1085–1087 | s:1200–1202 | s:1353–1355 with `capability="embedding"` | `last_error` → else 401 "ANTHROPIC_API_KEY required" if keyless → else generic `AnthropicUpstreamError` s:1802–1809 | s:1945–1952 |
+| **Route-layer mapping** | 429 for `SourceCapacityExceeded`; `OpenAIUpstreamError` → own status only if 400/404 else 502 a:418–424 | same clauses but **dead for streams** (F-32) a:409–424 | a:457–463 | `AnthropicUpstreamError` → its status or 502; `OpenAIUpstreamError` → flat 502 (400/404 not forwarded) a:480–486 | dead for streams a:473–486 |
+
+## Divergence list (= refactor requirements)
+
+Each item is a place where a shared concern is implemented differently or missing; a unified `_RequestPlan` + `_run_with_failover` (the F-24 design, 07-findings-register.md:677–693) must make each an explicit, parameterized decision.
+
+1. **Success accounting — 3 tiers.** Full (mark_success + REQUESTS_TOTAL + latency + tokens + `_request_count`): C-NS s:1051–1062, EMB s:1320–1331, M-NS s:1674–1685. Partial (no tokens, no `_request_count`): C-S via s:2032–2037. **Nothing**: M-S s:1904–1910. → **F-33, in-flight**: remediation gives M-S the `_stream_with_metrics` treatment and has both streaming wrappers parse the final usage-bearing SSE chunk (09:143–157) — after it lands the refactor's target is "full accounting everywhere incl. stream usage parse".
+2. **Failure accounting.** C-S outer except records neither `_mark_backend_failure` nor error-status REQUESTS_TOTAL (s:1173–1192; delegated to s:2040–2043 — the exact divergence F-24 documented, 07:685–688). M-S marks failure directly (s:1914) but never increments REQUESTS_TOTAL error. Non-stream paths do both inline.
+3. **Streaming route-layer error handling is dead code (F-32, in-flight).** a:409–424/436–449/473–486 catch around `StreamingResponse` generators that haven't run yet ⇒ capacity/exhaustion errors on `stream=true` become HTTP 200 + aborted body. The planned fix (pre-flight attribution/admission/routing/first-backend before constructing the response, 09:139–141) **changes the loop shape of all three stream paths** — the refactor must be designed against the post-F-32 split (plan/first-connect phase vs. stream phase), not the current all-in-generator shape.
+4. **Capability guard.** C-NS/C-S reject non-chat models pre-routing (s:992/1109); M-NS/M-S post-payload-mutation (s:1724/1833) with an Anthropic-typed twin (s:611–620); EMB has **no guard at all** — a chat model routed to /v1/embeddings burns the whole retry budget.
+5. **Shard context** only on chat paths (s:1002/1119); EMB/M-NS/M-S pass `None` (s:1292/1760/1871), so `batch_shard`/deterministic placement silently degrades there.
+6. **Cloud fallback topology.** OpenAI paths: cloud row is a first-class strategy candidate via `extra_candidates` (s:1030). Messages paths: anthropic rows are excluded from the strategy loop and appended as an ordered fallback tier (s:1746–1750 + 1785/1861–1899) — two different "cloud last" mechanisms, the M-S one via a bespoke `candidates_exhausted`/`fallback_iter` state machine unique to that function.
+7. **Attempt cap semantics.** `max_attempts = max(len(pool.backends), 1)` (s:1013/1130/1280/1752/1857) excludes request-scoped `cloud_extra`; M-NS/M-S then exceed the cap through the fallback tier while C-NS/C-S/EMB cannot.
+8. **`tried` pre-seeding** as a format filter: EMB seeds pool anthropic rows (s:1281–1283); messages seed pool **and** cloud_extra anthropic rows (s:1746–1750/1851–1855); chat seeds nothing — same set doing double duty (failure exclusion + format exclusion) with three different initializations.
+9. **Requested-model restore**: present in four paths (s:1048, 1167, 1317, 1667–1672) — missing in M-S (translated stream emits the rewritten model, s:2013–2016).
+10. **Payload mutation timing**: messages rewrite `payload["model"]` up-front (s:1722–1723/1831–1832); chat/embeddings keep the payload immutable and rewrite per backend (s:1042–1046) — matters for retries across backends with different aliases.
+11. **Error propagation asymmetry**: OpenAI routes forward upstream 400/404 (a:422); the messages route forwards any `AnthropicUpstreamError` status but flattens `OpenAIUpstreamError` (from translated backends) to 502 (a:485–486). Keyless exhaustion is 401 on messages (s:1804–1808/1947–1951) vs 404-model-not-found on OpenAI paths (s:1087/1202/1355). (Adjacent: F-38 — all bodies are `{"detail"}` not OpenAI/Anthropic error shapes, 09:207–217.)
+12. **Header normalization** duplicated at the messages route only (a:471) — harmless today, but a trap.
+13. **Peer-forward loop-guard headers** only exist on the OpenAI upstream constructor (s:682–715); the Anthropic-format arm never attaches them (s:1970–1977/1999–2006) — currently safe only because peers are always openai-format rows.
+14. **EMB scenario classification** runs the chat classifier with `api_format="openai"` (s:1254–1259) — scenario rules written for chat silently apply to embedding traffic.
+15. **Not currently divergent but coupled to in-flight work**: `TypeError` from the F-30 SDK bug (`messages_stream` passes `stream=` to `.stream()`, 09:88–99) is not an `AnthropicUpstreamError`, so it escapes M-S's except (s:1911) and surfaces through the F-32 dead zone as a 200/aborted stream; **F-35, in-flight**: EMB's SDK call splats raw payloads (`netllm-sdk-openai/client.py:79–84` per 09:180–184) while chat is adapted — after remediation, payload adaptation should be a per-endpoint property of the plan, not of the SDK call site.
+
+Constant across all paths (safe to hoist verbatim): attribution/scenario counting once per request (s:739–786), admit-before-first-await + finally-release (s:799–823), capacity classification (s:498–509 → p:39–55, statuses 409/429/503/507), `_offload_if_probing` selection, `yielded_any` no-replay guard on both streams (s:1132/1858), pin/strategy/local-only header plumbing (s:717–737 → rp:60–191).
+
+## F-25 — model-name mechanism overlap
+
+Register text (07-findings-register.md:696–708), verbatim:
+
+> **F-25 · Overlapping mechanisms doing the same job**
+> *PARTIAL (`3b6ec71`) — the duplicate cloud-injection mechanism is gone (legacy rows are request-scoped, registry rows stay pooled). The model-name overlap and the `config.py`/`install_detect` shims are **open**.*
+>
+> | Overlap | Members | Direction |
+> |---|---|---|
+> | Model-name resolution | `model_aliases`, `model_pools`, `sources[].model_rewrites`, `sources[].scenarios[].model` — and a planned `model_groups` | `routing-hardening-plan.md` §Phase 4 already states `model_pools` should fold into `model_groups` rather than coexist |
+> | Cloud backend injection | legacy env/caller-key inject (`openai-cloud`, `anthropic-cloud`) **and** registry materialisation (`cloud-<id>`) | retire the legacy path (also fixes F-04) |
+> | Config module naming | `netllm_core.config` (re-export) and `netllm_core.models` | collapse |
+> | Install detection | `netllm_core.install_detect` and `netllm_cli.install_detect` (pure re-export) | collapse |
+> | Routing precedence | globals → policies → source → scenario → headers, five layers that can each set `strategy`/`local_only`/`allow_cloud` | document a single precedence table in the config reference; the logic is correct but only discoverable by reading `resolve_routing` |
+>
+> **Fix.** Each is small individually; sequence them behind F-24 so the refactor lands once.
+
+Current HEAD map of the model-name overlap — five config surfaces, two independent matchers, one heuristic:
+
+| Mechanism | Config | Applied at | Semantics |
+|---|---|---|---|
+| `sources[].model_rewrites` | m:216 | s:760–764, per path s:990/1107/1260/1720/1829 | request-name → canonical-name, per source, **before** everything else |
+| `sources[].scenarios[].model` | m:165 (ScenarioRule, m:150–168) | s:788–797, per path s:991/1108/1261/1721/1830 | hard override on top of rewrites, per (source, scenario) |
+| `routing.model_aliases` | m:311 | matcher A: candidate filter `backends_for_model` → `model_names_for` p:386–399 + `_serves_model` p:455–462 (exact + `name:tag` prefix, casefolded); matcher B: invocation-name resolver `_model_for_backend` s:533–570 (exact → tag-prefix → casefold, distinct precedence) | canonical → served IDs; the same alias list is matched **twice** by two different algorithms that must agree |
+| `routing.model_pools` | m:318, ModelPool m:245–260 | candidate bypass p:529–534 (`pool_models_for_backend` p:416–431); invocation fallback `resolve_via_pool` p:433–453, reached from s:567–569 | host-scoped catch-all: pool member is candidate for ANY name; requested name discarded |
+| Served-catalog truth | `backend.health.models` (probes); cloud allowlist copied into it at s:1515–1534; empty catalogs = "blind candidates" p:522–525, auth-gated skip p:510–521 | both matchers above; `known_models` for 404s p:464–476 | what the name must ultimately land on |
+| Capability heuristic | cap:53–68 (name-token classifier, unknown ⇒ chat) | guards s:590–620, 404 filtering s:577/p:473 | orthogonal name-derived layer that can veto any of the above |
+| Planned `model_groups` | docs/routing-hardening-plan.md:83, 167, 172–176 | not implemented | plan explicitly says fold `model_pools` in rather than coexist |
+
+Resolution order actually experienced by one request: `model_rewrites` → scenario `model` → capability guard → (candidate filter: aliases∪pool vs catalogs) → per-backend: alias exact → alias tag-prefix → alias casefold → pool intersection → passthrough. The refactor's `_RequestPlan` should compute the canonical model once (rewrites+scenario) and make the alias/pool/catalog triple a single matcher used for both candidacy and invocation — eliminating the A/B matcher divergence risk that is F-25's core.
+
+## Interaction with in-flight remediation (F-30…F-48 branch)
+
+Will change cells before the refactor starts: **F-32** (stream paths split into pre-flight + stream phases — reshapes C-S/M-S/RESP-S loop structure and revives route-layer error mapping), **F-33** (M-S gains full success accounting; both stream paths gain usage parsing — collapses divergence #1), **F-35** (EMB payload adaptation in the SDK — removes divergence #15b), **F-30** (fixes the anthropic-format M-S TypeError, making the M-S anthropic arm reachable at all). The refactor should treat the post-remediation state as its baseline and divergences #2–#14 as its requirements list; 09:410–414 confirms fragmentation across the loops (F-33/F-35 landing on one sibling only) is now the dominant defect generator, which is the register's stated case for finally doing F-24.
