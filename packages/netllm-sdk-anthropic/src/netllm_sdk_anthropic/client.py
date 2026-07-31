@@ -54,9 +54,14 @@ class AnthropicUpstream:
         self,
         payload: dict[str, Any],
     ) -> AsyncIterator[str]:
-        payload = {**payload, "stream": True}
+        # Use create(stream=True), not the .stream() helper: the helper takes
+        # no "stream" kwarg and yields SDK-synthesized events ("text", ...)
+        # that are not Anthropic wire-protocol events; downstream consumers
+        # forward these SSE strings verbatim to clients.
+        payload = {k: v for k, v in payload.items() if k != "stream"}
         try:
-            async with self._client.messages.stream(**payload) as stream:
+            stream = await self._client.messages.create(**payload, stream=True)
+            async with stream:
                 async for event in stream:
                     if hasattr(event, "model_dump"):
                         data = event.model_dump()

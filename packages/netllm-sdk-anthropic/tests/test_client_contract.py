@@ -71,40 +71,13 @@ async def test_messages_stream_sse_format(mock_cls: MagicMock) -> None:
     event.type = "content_block_delta"
     event.model_dump.return_value = {"type": "content_block_delta", "index": 0}
 
-    async def stream_ctx(**_kwargs):
-        class Ctx:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                return None
-
-            def __aiter__(self):
-                return self
-
-            async def __anext__(self):
-                raise StopAsyncIteration
-
-        ctx = Ctx()
-        ctx.__aiter__ = lambda: iter([event])  # type: ignore[method-assign]
-        return ctx
-
-    mock_stream = MagicMock()
-
-    async def _aiter():
-        yield event
-
-    mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)
-    mock_stream.__aexit__ = AsyncMock(return_value=None)
-
-    class StreamMgr:
+    class _Stream:
         async def __aenter__(self):
-            return _Stream()
+            return self
 
         async def __aexit__(self, *args):
             return None
 
-    class _Stream:
         def __aiter__(self):
             return self
 
@@ -114,13 +87,16 @@ async def test_messages_stream_sse_format(mock_cls: MagicMock) -> None:
                 return event
             raise StopAsyncIteration
 
-    mock_client.messages.stream = MagicMock(return_value=StreamMgr())
+    # F-30: streaming goes through messages.create(stream=True) — the
+    # .stream() helper rejects a "stream" kwarg and emits non-wire events.
+    mock_client.messages.create = AsyncMock(return_value=_Stream())
 
     upstream = AnthropicUpstream("sk-test")
     payload = {
         "model": "claude-3-5-haiku-20241022",
         "max_tokens": 10,
         "messages": [{"role": "user", "content": "hi"}],
+        "stream": True,
     }
     lines = []
     async for line in upstream.messages_stream(payload):
@@ -128,3 +104,6 @@ async def test_messages_stream_sse_format(mock_cls: MagicMock) -> None:
     assert lines
     assert lines[0].startswith("event: content_block_delta")
     assert "data: " in lines[0]
+    kwargs = mock_client.messages.create.await_args.kwargs
+    assert kwargs["stream"] is True
+    assert kwargs["model"] == payload["model"]
