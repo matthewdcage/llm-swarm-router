@@ -16,12 +16,15 @@ Response bodies / SSE data payloads (recursive, by key):
 - ``system_fingerprint`` -> "<fp>"
 
 Metrics delta:
-- ``netllm_request_latency_seconds_sum{...}`` -> ">0" when positive
-  (wall-clock latency; the paired ``_count`` stays exact)
+- ``netllm_request_latency_seconds_sum{...}`` -> "<latency>"
+- ``latency_ema_changed`` booleans -> "<ema>" (pool delta)
 
-Pool delta:
-- ``latency_ema_changed`` booleans -> "updated" / "unchanged"
-  (the EMA's numeric value is wall-clock; whether it moved is contract)
+Both are wall-clock derived and must stay fully volatile: a coarse platform
+timer (Windows ticks at ~15.6ms) measures an in-process fake-backend call as
+0.0s, so neither "is the sum positive" nor "did the EMA move" is stable across
+machines. That accounting actually ran is still pinned exactly, by
+``netllm_request_latency_seconds_count``, ``routed_counts`` and
+``netllm_requests_total`` -- none of which depend on the clock.
 """
 
 from __future__ import annotations
@@ -87,7 +90,7 @@ def canonicalize_metrics(metrics: dict[str, float]) -> dict[str, Any]:
     for key in sorted(metrics):
         value = metrics[key]
         if key.startswith(_LATENCY_SUM):
-            out[key] = ">0" if value > 0 else 0
+            out[key] = "<latency>"
         else:
             out[key] = value
     return out
@@ -96,8 +99,7 @@ def canonicalize_metrics(metrics: dict[str, float]) -> dict[str, Any]:
 def canonicalize_pool_delta(pool: dict[str, Any]) -> dict[str, Any]:
     out = dict(pool)
     out["latency_ema_changed"] = {
-        url: "updated" if changed else "unchanged"
-        for url, changed in sorted(pool.get("latency_ema_changed", {}).items())
+        url: "<ema>" for url in sorted(pool.get("latency_ema_changed", {}))
     }
     return canonicalize_json(out)
 

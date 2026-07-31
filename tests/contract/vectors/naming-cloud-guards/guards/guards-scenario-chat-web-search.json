@@ -51,7 +51,7 @@
         "netllm_completion_tokens_total{backend=http://alpha.farm/v1,model=farm-chat}": 5.0,
         "netllm_prompt_tokens_total{backend=http://alpha.farm/v1,model=farm-chat}": 3.0,
         "netllm_request_latency_seconds_count{backend=http://alpha.farm/v1}": 1.0,
-        "netllm_request_latency_seconds_sum{backend=http://alpha.farm/v1}": ">0",
+        "netllm_request_latency_seconds_sum{backend=http://alpha.farm/v1}": "<latency>",
         "netllm_requests_total{backend=http://alpha.farm/v1,model=farm-chat,status=ok}": 1.0,
         "netllm_scenario_requests_total{scenario=web_search,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
@@ -70,7 +70,7 @@
         "http://alpha.farm/v1": 0
       },
       "latency_ema_changed": {
-        "http://alpha.farm/v1": "updated"
+        "http://alpha.farm/v1": "<ema>"
       },
       "routed_counts": {
         "817df768-a998-5ed5-b113-1689b0222b1b": 1

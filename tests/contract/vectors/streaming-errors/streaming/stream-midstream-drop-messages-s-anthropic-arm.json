@@ -41,8 +41,8 @@
         "http://ant2.farm": 0
       },
       "latency_ema_changed": {
-        "http://ant1.farm": "unchanged",
-        "http://ant2.farm": "unchanged"
+        "http://ant1.farm": "<ema>",
+        "http://ant2.farm": "<ema>"
       },
       "routed_counts": {}
     },

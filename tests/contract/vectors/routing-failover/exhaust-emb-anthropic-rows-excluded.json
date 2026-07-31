@@ -48,8 +48,8 @@
         "http://embed1.farm/v1": 0
       },
       "latency_ema_changed": {
-        "http://anthro1.farm": "unchanged",
-        "http://embed1.farm/v1": "unchanged"
+        "http://anthro1.farm": "<ema>",
+        "http://embed1.farm/v1": "<ema>"
       },
       "routed_counts": {}
     },

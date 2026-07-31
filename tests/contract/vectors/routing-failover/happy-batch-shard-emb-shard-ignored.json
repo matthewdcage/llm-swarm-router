@@ -39,7 +39,7 @@
       "counters": {
         "netllm_prompt_tokens_total{backend=http://embed1.farm/v1,model=farm-embed}": 3.0,
         "netllm_request_latency_seconds_count{backend=http://embed1.farm/v1}": 1.0,
-        "netllm_request_latency_seconds_sum{backend=http://embed1.farm/v1}": ">0",
+        "netllm_request_latency_seconds_sum{backend=http://embed1.farm/v1}": "<latency>",
         "netllm_requests_total{backend=http://embed1.farm/v1,model=farm-embed,status=ok}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
@@ -62,8 +62,8 @@
         "http://embed2.farm/v1": 0
       },
       "latency_ema_changed": {
-        "http://embed1.farm/v1": "updated",
-        "http://embed2.farm/v1": "unchanged"
+        "http://embed1.farm/v1": "<ema>",
+        "http://embed2.farm/v1": "<ema>"
       },
       "routed_counts": {
         "21fab0e3-0498-5859-afe9-4e7358e9b564": 1

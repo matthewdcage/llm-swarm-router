@@ -3,3 +3,9 @@
 # differ from git HEAD; mechanical phases keep it empty, a semantic phase
 # adds exactly the IDs it declares (e.g. "D2") and removes them on merge.
 # One ID per line; '#' starts a comment.
+
+# Windows CI: coarse platform timer (~15.6ms) measures in-process fake-backend
+# calls as 0.0s, so the latency sum and EMA-moved flags were not stable across
+# machines. canonical.py now treats both as fully volatile; this re-record is
+# proven to touch nothing outside that vocabulary. Remove after merge.
+HARNESS-RERECORD

@@ -41,7 +41,7 @@
         "http://embed1.farm/v1": 0
       },
       "latency_ema_changed": {
-        "http://embed1.farm/v1": "unchanged"
+        "http://embed1.farm/v1": "<ema>"
       },
       "routed_counts": {}
     },

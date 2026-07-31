@@ -49,8 +49,8 @@
         "http://beta.farm/v1": 0
       },
       "latency_ema_changed": {
-        "http://alpha.farm/v1": "unchanged",
-        "http://beta.farm/v1": "unchanged"
+        "http://alpha.farm/v1": "<ema>",
+        "http://beta.farm/v1": "<ema>"
       },
       "routed_counts": {}
     },

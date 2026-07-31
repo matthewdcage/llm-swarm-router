@@ -40,7 +40,7 @@
         "http://anthro1.farm": 0
       },
       "latency_ema_changed": {
-        "http://anthro1.farm": "unchanged"
+        "http://anthro1.farm": "<ema>"
       },
       "routed_counts": {}
     },

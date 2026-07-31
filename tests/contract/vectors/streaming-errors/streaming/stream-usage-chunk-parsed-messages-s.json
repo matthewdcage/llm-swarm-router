@@ -23,7 +23,7 @@
         "netllm_completion_tokens_total{backend=http://ant1.farm,model=claude-farm}": 5.0,
         "netllm_prompt_tokens_total{backend=http://ant1.farm,model=claude-farm}": 3.0,
         "netllm_request_latency_seconds_count{backend=http://ant1.farm}": 1.0,
-        "netllm_request_latency_seconds_sum{backend=http://ant1.farm}": ">0",
+        "netllm_request_latency_seconds_sum{backend=http://ant1.farm}": "<latency>",
         "netllm_requests_total{backend=http://ant1.farm,model=claude-farm,status=ok}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
@@ -42,7 +42,7 @@
         "http://ant1.farm": 0
       },
       "latency_ema_changed": {
-        "http://ant1.farm": "updated"
+        "http://ant1.farm": "<ema>"
       },
       "routed_counts": {
         "http://ant1.farm": 1
