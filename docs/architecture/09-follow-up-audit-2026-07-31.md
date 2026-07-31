@@ -10,7 +10,7 @@ raw findings survived verification (35 CONFIRMED, 1 narrowed in scope);
 deduplicated to 24 findings below**, numbered **F-30…F-53** continuing the
 register's append-only namespace.
 
-**Baseline guard:** `uv run pytest -q` → **647 passed, 4 skipped** (above the
+**Baseline guard:** `uv run pytest -q` → **647 passed, 4 skipped** at audit time; **699 passed, 4 skipped** after remediation (above the
 642-passing baseline). Lint clean. No regression of any RESOLVED F-01…F-29
 finding was found — the specific fix sites of F-01/F-02/F-03/F-04/F-05/F-06/
 F-07/F-09/F-13 were each re-verified intact at HEAD.
@@ -58,6 +58,10 @@ juggling.
 - Prediction (c) confirmed at S2: the README's flagship quickstart no longer
   matches the code (F-31).
 
+## Remediation status (2026-07-31)
+
+21 of 24 findings **RESOLVED** on this branch (all S1/S2 except F-34, and all S3 except F-49), each with a finding-targeted red-green regression test and an independent verification pass. F-39 partial (events fixed; live-Codex check deferred). F-34 and F-49 deferred with reasons noted in place. Suite 647 → 699 passing.
+
 ## Severity summary
 
 | Severity | Count | Theme |
@@ -82,6 +86,8 @@ juggling.
 # S1 — production-affecting
 
 ## F-30 · Streaming Anthropic Messages to any anthropic-format backend always fails
+
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
 
 **Severity** S1 · **Area** request path / SDK adapter · **Reproduced** · **Verdict** CONFIRMED (found independently by two dimensions)
 
@@ -109,6 +115,8 @@ this class.
 
 ## F-31 · README two-machine quickstart cannot work as written
 
+> **RESOLVED (2026-07-31, remediation on this branch)** — docs corrected; every claim re-verified against the cited code; independently verified.
+
 **Severity** S2 · **Area** docs alignment · **Verdict** CONFIRMED
 
 `README.md:69-77` and `README.md:290` claim `./netllm init --swarm` generates a
@@ -124,6 +132,8 @@ most prominent workflow.
 the open-LAN flow (`init --swarm` on both machines, verify with `./netllm peers`).
 
 ## F-32 · Streaming routes' error handling is dead code — errors yield HTTP 200 + aborted stream
+
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
 
 **Severity** S2 · **Area** request path · **Verdict** CONFIRMED
 
@@ -142,6 +152,8 @@ resolution, first-backend selection) before constructing the
 
 ## F-33 · Success accounting diverges across the four proxy loops; the new Serving UI makes it visible
 
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
+
 **Severity** S2 · **Area** telemetry / F-24 divergence · **Verdict** CONFIRMED
 
 `packages/netllm-agent/src/netllm_agent/service.py:1904-1910` —
@@ -157,6 +169,8 @@ skewed health/latency stats that `least_load`/`latency_weighted` also consume.
 have both streaming wrappers parse the final usage-bearing SSE chunk.
 
 ## F-34 · Windows "service" is a plain console exe registered with sc.exe — SCM will kill it
+
+> **DEFERRED — Windows service host design choice; parked for the multi-env dev workspace**
 
 **Severity** S2 · **Area** packaging (Windows) · **Verdict** CONFIRMED
 
@@ -175,6 +189,8 @@ mirroring the systemd *user*-unit posture.
 
 ## F-35 · c9bd30a payload adaptation applied to chat only — embeddings still 502s on unknown fields
 
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
+
 **Verdict** CONFIRMED (two dimensions independently) · **F-24 follow-up**
 
 `packages/netllm-sdk-openai/src/netllm_sdk_openai/client.py:59,71` adapt the
@@ -185,6 +201,8 @@ on `/v1/embeddings`. **Fix:** an embeddings twin of the adapter, or generalize
 `adapt_chat_payload_for_sdk` over an allowed-param set.
 
 ## F-36 · `_SDK_CHAT_PARAMS` is a hand-maintained mirror of the pinned SDK signature with no drift test
+
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
 
 **Verdict** CONFIRMED (three dimensions) · **F-21-class mirror, F-16-adjacent**
 
@@ -197,6 +215,8 @@ _SDK_CHAT_PARAMS` in `./scripts/ci.sh sdk` / the sdk-canary workflow.
 
 ## F-37 · `payload.py` non-dict `extra_body` branch is a contradictory dead store
 
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
+
 **Verdict** CONFIRMED (two dimensions) · **F-18-class**
 
 `payload.py:111-115` — the `else` branch assigns `out["extra_body"] = existing`
@@ -205,6 +225,8 @@ is silently discarded. **Fix:** delete the dead assignment, decide drop-vs-pass
 explicitly, add the case to `tests/test_payload_adaptation.py`.
 
 ## F-38 · `/v1/*` error bodies are FastAPI `{"detail"}`, not OpenAI/Anthropic error shapes
+
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
 
 **Verdict** CONFIRMED · **NEW**
 
@@ -218,6 +240,8 @@ handlers keyed on path prefix; forward upstream status codes uniformly.
 
 ## F-39 · Responses streaming bridge omits `response.output_item.done` / `content_part.*` events
 
+> **PARTIAL — missing SSE lifecycle events fixed with a fixture-replay test; live-Codex verification deliberately deferred (no Codex in CI)**
+
 **Verdict** CONFIRMED · **NEW**
 
 `packages/netllm-core/src/netllm_core/openai_responses_bridge.py:363-419` never
@@ -228,6 +252,8 @@ test replaying a real Responses SSE transcript; run the live-Codex check.
 
 ## F-40 · `/netllm/v1/client-env` is the one `/netllm` route with no gate after F-13
 
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
+
 **Verdict** CONFIRMED · **F-13 follow-up**
 
 `app.py:317-320` takes no `Request`, calls neither `require_read_access` nor
@@ -237,6 +263,8 @@ it like the other read routes, or mark it deliberately public with a test
 asserting the payload never carries secrets.
 
 ## F-41 · `/metrics` stays unauthenticated and exposes fleet-reconnaissance data F-13 gated elsewhere
+
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
 
 **Verdict** CONFIRMED · **F-13 follow-up (scope omission)**
 
@@ -249,6 +277,8 @@ token is configured.
 
 ## F-42 · Wire payloads can steer SDK-level controls: `extra_headers`, `extra_query`, `timeout`
 
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
+
 **Verdict** CONFIRMED · **NEW (c9bd30a contract)**
 
 `payload.py:8-51` classifies three SDK *control* kwargs as client-settable: a
@@ -258,6 +288,8 @@ headers into the upstream call. **Fix:** drop the three from
 in `normalize_client_payload`; add a regression test.
 
 ## F-43 · CLI `sources toggle` imports `netllm_agent` internals and FastAPI
+
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
 
 **Verdict** CONFIRMED · **adjacent to F-02 (which remains resolved)**
 
@@ -270,6 +302,8 @@ catching `ConfigGuardError`.
 
 ## F-44 · Dead async `probe_anthropic_compat` still embodies the pre-fix F-07 billable-probe bug
 
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
+
 **Verdict** CONFIRMED · **F-07/F-18 follow-up**
 
 `packages/netllm-core/src/netllm_core/health.py:214-237` — the async twin still
@@ -280,6 +314,8 @@ mirror the fixed sync logic with a parity test.
 
 ## F-45 · `_anthropic_api_key` env fallback lacks the placeholder-key guard `_openai_api_key` has
 
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
+
 **Verdict** CONFIRMED · **F-04 follow-up (fix itself holds)**
 
 `service.py:1360-1364` returns `os.environ["ANTHROPIC_API_KEY"]` without
@@ -288,6 +324,8 @@ an anthropic-format `[[routing.backends]]` row with no `api_key` can send a
 literal `netllm-*` placeholder upstream. **Fix:** one-line mirror + one test.
 
 ## F-46 · `cloud.fallback = "local"` is still cloud-first — the acknowledged UX trap is unarmed
+
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
 
 **Verdict** CONFIRMED · **NEW as a registered finding (noted in AGENTS.md at baseline)**
 
@@ -300,6 +338,8 @@ explanation on every change, and note it in `doctor`.
 
 ## F-47 · Source identity is not propagated on peer hops — mesh traffic attributes as `default`
 
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
+
 **Verdict** CONFIRMED · **NEW**
 
 `service.py:662-670` — `_peer_forward_headers` forwards only the loop-guard and
@@ -311,6 +351,8 @@ unauthenticated forwarded header).
 
 ## F-48 · `stats.json` is rewritten in place — crash mid-write zeroes all-time counters
 
+> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
+
 **Verdict** CONFIRMED · **F-09 follow-up (durability, not frequency)**
 
 `packages/netllm-agent/src/netllm_agent/telemetry.py:122-130` —
@@ -319,6 +361,8 @@ JSON on next start. **Fix:** tmp-file + `os.replace` (atomic on POSIX and
 Windows); log a warning on `JSONDecodeError` instead of silent reset.
 
 ## F-49 · Telemetry contract fields hand-mirrored in three surfaces (dashboard JS, two Swift files)
+
+> **DEFERRED — telemetry-mirror consolidation folded into the F-24/F-26 refactor plan (phase 10)**
 
 **Verdict** CONFIRMED (two dimensions) · **F-21 follow-up, extended by ccc1c79**
 
@@ -332,6 +376,8 @@ dashboard.js when the F-24/F-26 refactor is picked up.
 
 ## F-50 · c9bd30a's payload contract is documented nowhere; sdk-openai DOX not updated
 
+> **RESOLVED (2026-07-31, remediation on this branch)** — docs corrected; every claim re-verified against the cited code; independently verified.
+
 **Verdict** CONFIRMED (two dimensions) · **NEW (post-audit commit)**
 
 `payload.py` aliases `repeat_penalty→repetition_penalty` for every
@@ -344,6 +390,8 @@ a user-facing note in `docs/editor-integration.md`.
 
 ## F-51 · AGENTS.md contradicts itself on the `netllm sources` CLI
 
+> **RESOLVED (2026-07-31, remediation on this branch)** — docs corrected; every claim re-verified against the cited code; independently verified.
+
 **Verdict** CONFIRMED · **NEW**
 
 Key commands (AGENTS.md:77-78) documents `sources list|toggle` (which ship,
@@ -353,6 +401,8 @@ sources CLI is "still not built". **Fix:** edit the bullet to
 
 ## F-52 · `docs/telemetry-api.md` still documents the pre-F-10 psutil behavior
 
+> **RESOLVED (2026-07-31, remediation on this branch)** — docs corrected; every claim re-verified against the cited code; independently verified.
+
 **Verdict** CONFIRMED · **F-10 doc-side follow-up**
 
 `docs/telemetry-api.md:45` says `host` stays null unless psutil is manually
@@ -361,6 +411,8 @@ installed (Linux); psutil is now a hard dependency of netllm-agent
 the doc and its `"host": null` example.
 
 ## F-53 · Undocumented shipped surface: `config export|schema`, `models --local/--subnet-scan`, `[ui]` menubar/favorites keys
+
+> **RESOLVED (2026-07-31, remediation on this branch)** — docs corrected; every claim re-verified against the cited code; independently verified.
 
 **Verdict** DOWNGRADED→narrowed (core confirmed) · **F-21-adjacent (docs, not mirror)**
 
