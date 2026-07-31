@@ -90,7 +90,10 @@ async def test_chat_completion_moves_top_k_to_extra_body(mock_cls: MagicMock) ->
     mock_client = MagicMock()
     mock_cls.return_value = mock_client
     mock_resp = MagicMock()
-    mock_resp.model_dump.return_value = {"id": "chatcmpl-1", "object": "chat.completion"}
+    mock_resp.model_dump.return_value = {
+        "id": "chatcmpl-1",
+        "object": "chat.completion",
+    }
     mock_client.chat.completions.create = AsyncMock(return_value=mock_resp)
 
     upstream = OpenAIUpstream("http://127.0.0.1:8012/v1")
