@@ -78,6 +78,8 @@ Prefer `./netllm` from the repo root, works without global PATH (`uv run` wrappe
 | `./netllm sources toggle <id>` | Register (if new) and enable a source, or flip its `enabled` state — never auto-installs the CLI |
 | `./netllm drain [on\|off]` | Stop/resume receiving new swarm work (runtime-only, resets on restart) |
 | `./netllm config-edit` | Open `config.toml` in `$EDITOR` |
+| `./netllm config export` | Full config as JSON to stdout (settings UI) |
+| `./netllm config schema` | Config form schema JSON (same as `GET /netllm/v1/config/schema`; works without a running agent) |
 | `./scripts/ci.sh` | Lint + test (same as CI) |
 | `./scripts/ci.sh lint` | Ruff check + format --check (repo-wide) + dashboard token drift |
 | `./scripts/ci.sh test` | Run tests |
@@ -261,7 +263,8 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
   `netllm-` (the sentinel or a virtual source key) is never forwarded as
   a real cloud credential (`is_netllm_placeholder_key`) — found via live
   smoke testing that `netllm-<source>` keys were leaking upstream before
-  this fix. `netllm sources`/`netllm connect` CLI still not built — see
+  this fix. The `netllm connect` CLI is still not built
+  (`netllm sources list|toggle` shipped — see Key commands) — see
   [docs/cli-source-routing-plan.md](docs/cli-source-routing-plan.md).
 - **Routing hardening (phase 1):** `/v1/messages` honors all routing strategies (not just local_first/spillover); per-request `x-netllm-strategy`, `x-netllm-backend`, `x-netllm-hops` headers on proxy routes; one-shot LAN defaults (`routing.lan_defaults_applied` — explicit `local_first` no longer rewritten); peer row prune + `swarm.rediscover_interval_s` background loop; config hot-apply via admin API + merge-safe `netllm config import`; audit + remaining phases in [docs/routing-hardening-plan.md](docs/routing-hardening-plan.md)
 - **Routing hardening (phase 6, mesh fairness):** auth-gated (401/403) empty-catalog backends are never blind routing candidates; load-aware strategies keep balancing on retries (no local-first failover collapse); routine provider scans never run the 1-token inference diagnose (`scan_local_providers(diagnose=True)` is CLI-`discover`-only — routine diagnose forced chat-model loads under memory pressure); `prune_local_provider_rows` drops rows for de-configured providers; `routing.follow_gateway` (default true) makes peer-role agents adopt the gateway's strategy from heartbeats; macOS Settings index-binding crash fixed (bounds-safe Bindings in policy/override editors) and Settings shows the resolved LAN address — [docs/routing-hardening-plan.md](docs/routing-hardening-plan.md)

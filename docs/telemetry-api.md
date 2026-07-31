@@ -29,7 +29,12 @@ Same host access as `/netllm/v1/status` (no admin token required on loopback).
     "backends": []
   },
   "omlx": { "available": false },
-  "host": null,
+  "host": {
+    "cpu_percent": 12.5,
+    "memory_used_gb": 18.42,
+    "memory_total_gb": 32.0,
+    "memory_percent": 57.6
+  },
   "history": {
     "router_rps": [],
     "omlx_pp_tps": [],
@@ -42,7 +47,7 @@ When an oMLX backend is online, `omlx.available` is true and `session` / `alltim
 
 Router all-time counters persist to `~/.config/netllm/stats.json`.
 
-Host metrics (E/P CPU, memory breakdown) are macOS menubar-only today; `host` stays null in the agent response unless `psutil` is installed on the agent host (Linux).
+The `host` block (CPU %, memory used/total/percent) is populated on all platforms — `psutil` is a hard dependency of netllm-agent; it is `null` only if the `psutil` import fails. Richer host metrics (E/P CPU split, memory breakdown) remain macOS menubar-only (native, not from this API).
 
 ## UI surfaces
 
