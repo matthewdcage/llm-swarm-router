@@ -129,6 +129,51 @@ async def test_embeddings_passes_payload(mock_cls: MagicMock) -> None:
 
 @pytest.mark.asyncio
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
+async def test_embeddings_moves_extension_fields_to_extra_body(
+    mock_cls: MagicMock,
+) -> None:
+    """F-35: client.embeddings() applies the extension-field adaptation."""
+    mock_client = MagicMock()
+    mock_cls.return_value = mock_client
+    mock_resp = MagicMock()
+    mock_resp.model_dump.return_value = {"object": "list", "data": []}
+    mock_client.embeddings.create = AsyncMock(return_value=mock_resp)
+
+    upstream = OpenAIUpstream("http://127.0.0.1:11434/v1")
+    payload = {"model": "nomic-embed-text", "input": "hi", "truncate": True}
+    await upstream.embeddings(payload)
+    call_kwargs = mock_client.embeddings.create.await_args.kwargs
+    assert "truncate" not in call_kwargs
+    assert call_kwargs["extra_body"] == {"truncate": True}
+
+
+@pytest.mark.asyncio
+@patch("netllm_sdk_openai.client.AsyncOpenAI")
+async def test_chat_completion_strips_sdk_control_kwargs(mock_cls: MagicMock) -> None:
+    """F-42: wire extra_headers/extra_query/timeout never become SDK kwargs."""
+    mock_client = MagicMock()
+    mock_cls.return_value = mock_client
+    mock_resp = MagicMock()
+    mock_resp.model_dump.return_value = {"id": "c1", "object": "chat.completion"}
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_resp)
+
+    upstream = OpenAIUpstream("http://127.0.0.1:11434/v1")
+    payload = {
+        "model": "llama3",
+        "messages": [{"role": "user", "content": "hi"}],
+        "extra_headers": {"Authorization": "Bearer stolen"},
+        "extra_query": {"debug": "1"},
+        "timeout": 0.001,
+    }
+    await upstream.chat_completion(payload)
+    call_kwargs = mock_client.chat.completions.create.await_args.kwargs
+    assert "extra_headers" not in call_kwargs
+    assert "extra_query" not in call_kwargs
+    assert "timeout" not in call_kwargs
+
+
+@pytest.mark.asyncio
+@patch("netllm_sdk_openai.client.AsyncOpenAI")
 async def test_embeddings_wraps_errors(mock_cls: MagicMock) -> None:
     mock_client = MagicMock()
     mock_cls.return_value = mock_client

@@ -8,7 +8,10 @@ from typing import Any
 
 from openai import AsyncOpenAI, OpenAI
 
-from netllm_sdk_openai.payload import adapt_chat_payload_for_sdk
+from netllm_sdk_openai.payload import (
+    adapt_chat_payload_for_sdk,
+    adapt_embeddings_payload_for_sdk,
+)
 
 
 class OpenAIUpstreamError(Exception):
@@ -78,7 +81,8 @@ class OpenAIUpstream:
 
     async def embeddings(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
-            resp = await self._async.embeddings.create(**payload)
+            sdk_payload = adapt_embeddings_payload_for_sdk(payload)
+            resp = await self._async.embeddings.create(**sdk_payload)
             return resp.model_dump()
         except Exception as exc:
             raise _wrap(exc) from exc
