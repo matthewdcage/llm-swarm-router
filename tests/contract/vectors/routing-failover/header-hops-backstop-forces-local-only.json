@@ -1,0 +1,106 @@
+{
+  "divergence": [],
+  "expected": {
+    "admission_delta": {
+      "request_count": 0,
+      "scenario_counts": {
+        "default:default": 1
+      },
+      "shardless_fallbacks": 0,
+      "source_counts": {
+        "default": 1
+      },
+      "source_in_flight": {
+        "default": 0
+      }
+    },
+    "body_shape": {
+      "error": {
+        "code": "not_found",
+        "message": "Model 'remote-only-model' not found on any backend. Known models: farm-chat. Map provider-specific names with [routing.model_aliases], or add the host to a [routing.model_pools] entry to accept any request name.",
+        "param": null,
+        "type": "invalid_request_error"
+      }
+    },
+    "metrics_delta": {
+      "counters": {
+        "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
+        "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
+      },
+      "gauges": {
+        "netllm_backend_healthy{backend=http://alpha.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_healthy{backend=http://beta.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://alpha.farm/v1}": 0.0,
+        "netllm_backend_in_flight{backend=http://beta.farm/v1}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://alpha.farm/v1": "online",
+        "http://beta.farm/v1": "unknown"
+      },
+      "in_flight": {
+        "http://alpha.farm/v1": 0,
+        "http://beta.farm/v1": 0
+      },
+      "latency_ema_changed": {
+        "http://alpha.farm/v1": "unchanged",
+        "http://beta.farm/v1": "unchanged"
+      },
+      "routed_counts": {}
+    },
+    "sse_frames": null,
+    "status": 404,
+    "upstream_calls": []
+  },
+  "id": "header-hops-backstop-forces-local-only",
+  "request": {
+    "body": {
+      "messages": [
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "model": "remote-only-model"
+    },
+    "headers": {
+      "x-netllm-hops": "2"
+    },
+    "path": "chat_ns"
+  },
+  "scenario": {
+    "backends": [
+      {
+        "api_format": "openai",
+        "local": true,
+        "models": [
+          "farm-chat"
+        ],
+        "name": "alpha",
+        "scan_visible": true,
+        "script": [
+          {
+            "behavior": "ok"
+          }
+        ]
+      },
+      {
+        "api_format": "openai",
+        "local": false,
+        "models": [],
+        "name": "beta",
+        "scan_visible": false,
+        "script": [
+          {
+            "behavior": "ok"
+          }
+        ]
+      }
+    ],
+    "routing": {
+      "default_strategy": "failover"
+    }
+  }
+}

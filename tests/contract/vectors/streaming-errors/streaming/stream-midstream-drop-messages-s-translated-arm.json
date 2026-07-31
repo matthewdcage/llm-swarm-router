@@ -1,0 +1,89 @@
+{
+  "divergence": [
+    "D9"
+  ],
+  "expected": {
+    "admission_delta": {
+      "request_count": 0,
+      "scenario_counts": {
+        "default:default": 1
+      },
+      "shardless_fallbacks": 0,
+      "source_counts": {
+        "default": 1
+      },
+      "source_in_flight": {
+        "default": 0
+      }
+    },
+    "body_shape": {
+      "error": {
+        "message": "ANTHROPIC_API_KEY required for cloud Messages API",
+        "type": "authentication_error"
+      },
+      "type": "error"
+    },
+    "metrics_delta": {
+      "counters": {
+        "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
+        "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
+      },
+      "gauges": {
+        "netllm_backend_healthy{backend=http://alpha.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://alpha.farm/v1}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://alpha.farm/v1": "online"
+      },
+      "in_flight": {
+        "http://alpha.farm/v1": 0
+      },
+      "latency_ema_changed": {
+        "http://alpha.farm/v1": "unchanged"
+      },
+      "routed_counts": {}
+    },
+    "sse_frames": null,
+    "status": 401,
+    "upstream_calls": []
+  },
+  "id": "stream-midstream-drop-messages-s-translated-arm",
+  "note": "M-S openai-format arm: the OpenAI mid-stream failure is translated into the same terminator-less Anthropic error frame; message_start carries the per-backend model",
+  "request": {
+    "body": {
+      "max_tokens": 16,
+      "messages": [
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "model": "claude-farm"
+    },
+    "headers": {},
+    "path": "messages_s"
+  },
+  "scenario": {
+    "backends": [
+      {
+        "api_format": "openai",
+        "models": [
+          "farm-chat"
+        ],
+        "name": "alpha",
+        "script": [
+          {
+            "after_n": 2,
+            "behavior": "midstream_drop"
+          }
+        ]
+      }
+    ],
+    "routing": {
+      "default_strategy": "failover"
+    }
+  }
+}

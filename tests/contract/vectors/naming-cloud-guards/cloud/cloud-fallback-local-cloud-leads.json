@@ -1,0 +1,155 @@
+{
+  "divergence": [],
+  "expected": {
+    "admission_delta": {
+      "request_count": 1,
+      "scenario_counts": {
+        "default:default": 1
+      },
+      "shardless_fallbacks": 0,
+      "source_counts": {
+        "default": 1
+      },
+      "source_in_flight": {
+        "default": 0
+      }
+    },
+    "body_shape": {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "logprobs": null,
+          "message": {
+            "annotations": null,
+            "audio": null,
+            "content": "farm reply",
+            "function_call": null,
+            "refusal": null,
+            "role": "assistant",
+            "tool_calls": null
+          }
+        }
+      ],
+      "created": "<ts>",
+      "id": "<id>",
+      "model": "shared",
+      "moderation": null,
+      "object": "chat.completion",
+      "service_tier": null,
+      "system_fingerprint": null,
+      "usage": {
+        "completion_tokens": 5,
+        "completion_tokens_details": null,
+        "prompt_tokens": 3,
+        "prompt_tokens_details": null,
+        "total_tokens": 8
+      }
+    },
+    "metrics_delta": {
+      "counters": {
+        "netllm_completion_tokens_total{backend=http://cloudo.farm/v1,model=shared}": 5.0,
+        "netllm_prompt_tokens_total{backend=http://cloudo.farm/v1,model=shared}": 3.0,
+        "netllm_request_latency_seconds_count{backend=http://cloudo.farm/v1}": 1.0,
+        "netllm_request_latency_seconds_sum{backend=http://cloudo.farm/v1}": ">0",
+        "netllm_requests_total{backend=http://cloudo.farm/v1,model=shared,status=ok}": 1.0,
+        "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
+        "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
+      },
+      "gauges": {
+        "netllm_backend_healthy{backend=http://alpha.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_healthy{backend=http://cloudo.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://alpha.farm/v1}": 0.0,
+        "netllm_backend_in_flight{backend=http://cloudo.farm/v1}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://alpha.farm/v1": "online",
+        "http://cloudo.farm/v1": "online"
+      },
+      "in_flight": {
+        "http://alpha.farm/v1": 0,
+        "http://cloudo.farm/v1": 0
+      },
+      "latency_ema_changed": {
+        "http://alpha.farm/v1": "unchanged",
+        "http://cloudo.farm/v1": "updated"
+      },
+      "routed_counts": {
+        "cloud-openai": 1
+      }
+    },
+    "sse_frames": null,
+    "status": 200,
+    "upstream_calls": [
+      {
+        "backend": "cloudo",
+        "headers": {
+          "authorization": "Bearer cloud-key"
+        },
+        "method": "POST",
+        "model": "shared",
+        "path": "/v1/chat/completions"
+      }
+    ]
+  },
+  "id": "cloud-fallback-local-cloud-leads",
+  "note": "fallback='local' => ResolvedRouting.cloud_leads => prefer_cloud orders the materialized cloud-openai row ahead of the local row",
+  "request": {
+    "body": {
+      "messages": [
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "model": "shared"
+    },
+    "path": "chat_ns"
+  },
+  "scenario": {
+    "backends": [
+      {
+        "models": [
+          "shared"
+        ],
+        "name": "alpha"
+      },
+      {
+        "models": [
+          "shared"
+        ],
+        "name": "cloudo"
+      }
+    ],
+    "cloud": {
+      "enabled": true,
+      "fallback": "local",
+      "providers": {
+        "openai": {
+          "api_key": "cloud-key",
+          "base_url": "http://cloudo.farm/v1",
+          "enabled": true,
+          "models": [
+            "shared"
+          ]
+        }
+      }
+    },
+    "routing": {
+      "backends": [
+        {
+          "api_format": "openai",
+          "api_key": "farm-key",
+          "base_url": "http://alpha.farm/v1",
+          "enabled": true,
+          "local": true,
+          "provider": "custom"
+        }
+      ],
+      "default_strategy": "failover"
+    }
+  }
+}

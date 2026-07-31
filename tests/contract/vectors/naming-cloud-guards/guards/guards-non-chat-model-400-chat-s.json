@@ -1,0 +1,75 @@
+{
+  "divergence": [],
+  "expected": {
+    "admission_delta": {
+      "request_count": 0,
+      "scenario_counts": {
+        "default:default": 1
+      },
+      "shardless_fallbacks": 0,
+      "source_counts": {
+        "default": 1
+      },
+      "source_in_flight": {}
+    },
+    "body_shape": {
+      "error": {
+        "code": null,
+        "message": "Model 'bge-m3' (capability: embedding) cannot serve chat completions. Use POST /v1/embeddings for embedding models.",
+        "param": null,
+        "type": "invalid_request_error"
+      }
+    },
+    "metrics_delta": {
+      "counters": {
+        "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
+        "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
+      },
+      "gauges": {
+        "netllm_backend_healthy{backend=http://alpha.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://alpha.farm/v1}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://alpha.farm/v1": "online"
+      },
+      "in_flight": {
+        "http://alpha.farm/v1": 0
+      },
+      "latency_ema_changed": {
+        "http://alpha.farm/v1": "unchanged"
+      },
+      "routed_counts": {}
+    },
+    "sse_frames": null,
+    "status": 400,
+    "upstream_calls": []
+  },
+  "id": "guards-non-chat-model-400-chat-s",
+  "note": "openai-typed 400 raised pre-routing: zero upstream calls, source counted but never admitted (source_in_flight has no entry). Post-F-32 the stream paths return a real 400, not a 200 with an aborted body.",
+  "request": {
+    "body": {
+      "messages": [
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "model": "bge-m3"
+    },
+    "path": "chat_s"
+  },
+  "scenario": {
+    "backends": [
+      {
+        "models": [
+          "farm-chat",
+          "bge-m3"
+        ],
+        "name": "alpha"
+      }
+    ]
+  }
+}

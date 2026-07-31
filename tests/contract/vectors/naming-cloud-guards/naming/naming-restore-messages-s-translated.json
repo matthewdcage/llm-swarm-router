@@ -1,0 +1,124 @@
+{
+  "divergence": [
+    "D9"
+  ],
+  "expected": {
+    "admission_delta": {
+      "request_count": 1,
+      "scenario_counts": {
+        "default:default": 1
+      },
+      "shardless_fallbacks": 0,
+      "source_counts": {
+        "default": 1
+      },
+      "source_in_flight": {
+        "default": 0
+      }
+    },
+    "body_shape": null,
+    "metrics_delta": {
+      "counters": {
+        "netllm_completion_tokens_total{backend=http://alpha.farm/v1,model=canon}": 5.0,
+        "netllm_request_latency_seconds_count{backend=http://alpha.farm/v1}": 1.0,
+        "netllm_request_latency_seconds_sum{backend=http://alpha.farm/v1}": ">0",
+        "netllm_requests_total{backend=http://alpha.farm/v1,model=canon,status=ok}": 1.0,
+        "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
+        "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
+      },
+      "gauges": {
+        "netllm_backend_healthy{backend=http://alpha.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://alpha.farm/v1}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://alpha.farm/v1": "online"
+      },
+      "in_flight": {
+        "http://alpha.farm/v1": 0
+      },
+      "latency_ema_changed": {
+        "http://alpha.farm/v1": "updated"
+      },
+      "routed_counts": {
+        "817df768-a998-5ed5-b113-1689b0222b1b": 1
+      }
+    },
+    "sse_frames": [
+      [
+        "event: message_start",
+        "data: {\"message\": {\"content\": [], \"id\": \"<id>\", \"model\": \"served-a\", \"role\": \"assistant\", \"stop_reason\": null, \"type\": \"message\", \"usage\": {\"input_tokens\": 0, \"output_tokens\": 0}}, \"type\": \"message_start\"}"
+      ],
+      [
+        "event: content_block_start",
+        "data: {\"content_block\": {\"text\": \"\", \"type\": \"text\"}, \"index\": 0, \"type\": \"content_block_start\"}"
+      ],
+      [
+        "event: content_block_delta",
+        "data: {\"delta\": {\"text\": \"farm \", \"type\": \"text_delta\"}, \"index\": 0, \"type\": \"content_block_delta\"}"
+      ],
+      [
+        "event: content_block_delta",
+        "data: {\"delta\": {\"text\": \"reply\", \"type\": \"text_delta\"}, \"index\": 0, \"type\": \"content_block_delta\"}"
+      ],
+      [
+        "event: content_block_stop",
+        "data: {\"index\": 0, \"type\": \"content_block_stop\"}"
+      ],
+      [
+        "event: message_delta",
+        "data: {\"delta\": {\"stop_reason\": \"end_turn\", \"stop_sequence\": null}, \"type\": \"message_delta\", \"usage\": {\"output_tokens\": 5}}"
+      ],
+      [
+        "event: message_stop",
+        "data: {\"type\": \"message_stop\"}"
+      ]
+    ],
+    "status": 200,
+    "upstream_calls": [
+      {
+        "backend": "alpha",
+        "headers": {
+          "authorization": "Bearer farm-key"
+        },
+        "method": "POST",
+        "model": "served-a",
+        "path": "/v1/chat/completions"
+      }
+    ]
+  },
+  "id": "naming-restore-messages-s-translated",
+  "note": "translated Anthropic SSE: message_start carries the rewritten served-a, never restored to canon",
+  "request": {
+    "body": {
+      "max_tokens": 16,
+      "messages": [
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "model": "canon"
+    },
+    "path": "messages_s"
+  },
+  "scenario": {
+    "backends": [
+      {
+        "models": [
+          "served-a"
+        ],
+        "name": "alpha"
+      }
+    ],
+    "routing": {
+      "model_aliases": {
+        "canon": [
+          "served-a"
+        ]
+      }
+    }
+  }
+}

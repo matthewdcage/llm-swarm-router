@@ -1,0 +1,65 @@
+{
+  "divergence": [],
+  "drive": {
+    "method": "GET",
+    "mode": "raw",
+    "url": "/netllm/v1/cloud/providers/nope/models"
+  },
+  "expected": {
+    "admission_delta": {
+      "request_count": 0,
+      "scenario_counts": {},
+      "shardless_fallbacks": 0,
+      "source_counts": {},
+      "source_in_flight": {}
+    },
+    "body_shape": {
+      "detail": "unknown cloud provider"
+    },
+    "metrics_delta": {
+      "counters": {},
+      "gauges": {
+        "netllm_backend_healthy{backend=http://alpha.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://alpha.farm/v1}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://alpha.farm/v1": "online"
+      },
+      "in_flight": {
+        "http://alpha.farm/v1": 0
+      },
+      "latency_ema_changed": {
+        "http://alpha.farm/v1": "unchanged"
+      },
+      "routed_counts": {}
+    },
+    "sse_frames": null,
+    "status": 404,
+    "upstream_calls": []
+  },
+  "id": "errors-envelope-detail-netllm-404",
+  "note": "/netllm/* keeps FastAPI's {'detail': ...} \u2014 a control surface, not a dialect",
+  "request": {
+    "headers": {},
+    "path": ""
+  },
+  "scenario": {
+    "backends": [
+      {
+        "api_format": "openai",
+        "models": [
+          "farm-chat"
+        ],
+        "name": "alpha",
+        "script": [
+          {
+            "behavior": "ok"
+          }
+        ]
+      }
+    ]
+  }
+}

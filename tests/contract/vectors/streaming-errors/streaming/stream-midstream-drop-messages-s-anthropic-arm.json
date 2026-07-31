@@ -1,0 +1,125 @@
+{
+  "divergence": [
+    "D9"
+  ],
+  "expected": {
+    "admission_delta": {
+      "request_count": 0,
+      "scenario_counts": {
+        "default:default": 1
+      },
+      "shardless_fallbacks": 0,
+      "source_counts": {
+        "default": 1
+      },
+      "source_in_flight": {
+        "default": 0
+      }
+    },
+    "body_shape": null,
+    "metrics_delta": {
+      "counters": {
+        "netllm_requests_total{backend=http://ant1.farm,model=claude-farm,status=error}": 1.0,
+        "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
+        "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
+      },
+      "gauges": {
+        "netllm_backend_healthy{backend=http://ant1.farm,provider=custom}": 1.0,
+        "netllm_backend_healthy{backend=http://ant2.farm,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://ant1.farm}": 0.0,
+        "netllm_backend_in_flight{backend=http://ant2.farm}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://ant1.farm": "online",
+        "http://ant2.farm": "online"
+      },
+      "in_flight": {
+        "http://ant1.farm": 0,
+        "http://ant2.farm": 0
+      },
+      "latency_ema_changed": {
+        "http://ant1.farm": "unchanged",
+        "http://ant2.farm": "unchanged"
+      },
+      "routed_counts": {}
+    },
+    "sse_frames": [
+      [
+        "event: message_start",
+        "data: {\"message\": {\"container\": null, \"content\": [], \"id\": \"<id>\", \"model\": \"claude-farm\", \"role\": \"assistant\", \"stop_details\": null, \"stop_reason\": null, \"stop_sequence\": null, \"type\": \"message\", \"usage\": {\"cache_creation\": null, \"cache_creation_input_tokens\": null, \"cache_read_input_tokens\": null, \"inference_geo\": null, \"input_tokens\": 3, \"output_tokens\": 1, \"output_tokens_details\": null, \"server_tool_use\": null, \"service_tier\": null}}, \"type\": \"message_start\"}"
+      ],
+      [
+        "event: content_block_start",
+        "data: {\"content_block\": {\"citations\": null, \"text\": \"\", \"type\": \"text\"}, \"index\": 0, \"type\": \"content_block_start\"}"
+      ],
+      [
+        "event: error",
+        "data: {\"error\": {\"message\": \"farm: midstream drop\", \"type\": \"upstream_error\"}, \"type\": \"error\"}"
+      ]
+    ],
+    "status": 200,
+    "upstream_calls": [
+      {
+        "backend": "ant1",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "farm-key"
+        },
+        "method": "POST",
+        "model": "claude-farm",
+        "path": "/v1/messages"
+      }
+    ]
+  },
+  "id": "stream-midstream-drop-messages-s-anthropic-arm",
+  "note": "M-S native arm: Anthropic-shaped `event: error` frame with NO terminator event (plan Phase 7 [D9] adds one) and no data:[DONE] \u2014 the stream simply stops",
+  "request": {
+    "body": {
+      "max_tokens": 16,
+      "messages": [
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "model": "claude-farm"
+    },
+    "headers": {},
+    "path": "messages_s"
+  },
+  "scenario": {
+    "backends": [
+      {
+        "api_format": "anthropic",
+        "models": [
+          "claude-farm"
+        ],
+        "name": "ant1",
+        "script": [
+          {
+            "after_n": 2,
+            "behavior": "midstream_drop"
+          }
+        ]
+      },
+      {
+        "api_format": "anthropic",
+        "models": [
+          "claude-farm"
+        ],
+        "name": "ant2",
+        "script": [
+          {
+            "behavior": "ok"
+          }
+        ]
+      }
+    ],
+    "routing": {
+      "default_strategy": "failover"
+    }
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "divergence": [
+    "D8"
+  ],
+  "expected": {
+    "admission_delta": {
+      "request_count": 0,
+      "scenario_counts": {
+        "default:default": 1
+      },
+      "shardless_fallbacks": 0,
+      "source_counts": {
+        "default": 1
+      },
+      "source_in_flight": {
+        "default": 0
+      }
+    },
+    "body_shape": {
+      "error": {
+        "code": null,
+        "message": "Error code: 500 - {'error': {'message': 'farm scripted HTTP 500', 'type': 'farm_error', 'param': None, 'code': None}}",
+        "param": null,
+        "type": "api_error"
+      }
+    },
+    "metrics_delta": {
+      "counters": {
+        "netllm_requests_total{backend=http://embed1.farm/v1,model=farm-embed,status=error}": 1.0,
+        "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
+        "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
+      },
+      "gauges": {
+        "netllm_backend_healthy{backend=http://anthro1.farm,provider=custom}": 1.0,
+        "netllm_backend_healthy{backend=http://embed1.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://anthro1.farm}": 0.0,
+        "netllm_backend_in_flight{backend=http://embed1.farm/v1}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://anthro1.farm": "online",
+        "http://embed1.farm/v1": "online"
+      },
+      "in_flight": {
+        "http://anthro1.farm": 0,
+        "http://embed1.farm/v1": 0
+      },
+      "latency_ema_changed": {
+        "http://anthro1.farm": "unchanged",
+        "http://embed1.farm/v1": "unchanged"
+      },
+      "routed_counts": {}
+    },
+    "sse_frames": null,
+    "status": 502,
+    "upstream_calls": [
+      {
+        "backend": "embed1",
+        "headers": {
+          "authorization": "Bearer farm-key"
+        },
+        "method": "POST",
+        "model": "farm-embed",
+        "path": "/v1/embeddings"
+      }
+    ]
+  },
+  "id": "exhaust-emb-anthropic-rows-excluded",
+  "request": {
+    "body": {
+      "input": "hi",
+      "model": "farm-embed"
+    },
+    "headers": {},
+    "path": "emb"
+  },
+  "scenario": {
+    "backends": [
+      {
+        "api_format": "openai",
+        "models": [
+          "farm-embed"
+        ],
+        "name": "embed1",
+        "script": [
+          {
+            "behavior": "http",
+            "status": 500
+          }
+        ]
+      },
+      {
+        "api_format": "anthropic",
+        "models": [
+          "claude-farm"
+        ],
+        "name": "anthro1",
+        "script": [
+          {
+            "behavior": "ok"
+          }
+        ]
+      }
+    ],
+    "routing": {
+      "default_strategy": "failover"
+    }
+  }
+}

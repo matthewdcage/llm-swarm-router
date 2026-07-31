@@ -1,0 +1,138 @@
+{
+  "divergence": [
+    "D10"
+  ],
+  "expected": {
+    "admission_delta": {
+      "request_count": 1,
+      "scenario_counts": {
+        "cli:default": 1
+      },
+      "shardless_fallbacks": 0,
+      "source_counts": {
+        "cli": 1
+      },
+      "source_in_flight": {
+        "cli": 0
+      }
+    },
+    "body_shape": {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "logprobs": null,
+          "message": {
+            "annotations": null,
+            "audio": null,
+            "content": "farm reply",
+            "function_call": null,
+            "refusal": null,
+            "role": "assistant",
+            "tool_calls": null
+          }
+        }
+      ],
+      "created": "<ts>",
+      "id": "<id>",
+      "model": "req-name",
+      "moderation": null,
+      "object": "chat.completion",
+      "service_tier": null,
+      "system_fingerprint": null,
+      "usage": {
+        "completion_tokens": 5,
+        "completion_tokens_details": null,
+        "prompt_tokens": 3,
+        "prompt_tokens_details": null,
+        "total_tokens": 8
+      }
+    },
+    "metrics_delta": {
+      "counters": {
+        "netllm_completion_tokens_total{backend=http://alpha.farm/v1,model=served-a}": 5.0,
+        "netllm_prompt_tokens_total{backend=http://alpha.farm/v1,model=served-a}": 3.0,
+        "netllm_request_latency_seconds_count{backend=http://alpha.farm/v1}": 1.0,
+        "netllm_request_latency_seconds_sum{backend=http://alpha.farm/v1}": ">0",
+        "netllm_requests_total{backend=http://alpha.farm/v1,model=served-a,status=ok}": 1.0,
+        "netllm_scenario_requests_total{scenario=default,source=cli}": 1.0,
+        "netllm_source_requests_total{resolved_via=header,source=cli}": 1.0
+      },
+      "gauges": {
+        "netllm_backend_healthy{backend=http://alpha.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://alpha.farm/v1}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://alpha.farm/v1": "online"
+      },
+      "in_flight": {
+        "http://alpha.farm/v1": 0
+      },
+      "latency_ema_changed": {
+        "http://alpha.farm/v1": "updated"
+      },
+      "routed_counts": {
+        "817df768-a998-5ed5-b113-1689b0222b1b": 1
+      }
+    },
+    "sse_frames": null,
+    "status": 200,
+    "upstream_calls": [
+      {
+        "backend": "alpha",
+        "headers": {
+          "authorization": "Bearer farm-key"
+        },
+        "method": "POST",
+        "model": "req-name",
+        "path": "/v1/chat/completions"
+      }
+    ]
+  },
+  "id": "naming-rewrite-source-default-scenario",
+  "note": "source model_rewrites resolves req-name -> served-a, but the chat path leaves the payload immutable and only rewrites when the per-backend id differs from the canonical name \u2014 so the ORIGINAL request name goes on the wire and the rewrite is a no-op upstream. Messages mutates upfront and does not have this hole (see naming-rewrite-messages-ns-on-wire).",
+  "request": {
+    "body": {
+      "messages": [
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "model": "req-name"
+    },
+    "headers": {
+      "x-netllm-source": "cli"
+    },
+    "path": "chat_ns"
+  },
+  "scenario": {
+    "backends": [
+      {
+        "models": [
+          "served-a",
+          "scenario-model"
+        ],
+        "name": "alpha"
+      }
+    ],
+    "routing": {
+      "sources": [
+        {
+          "id": "cli",
+          "model_rewrites": {
+            "req-name": "served-a"
+          },
+          "scenarios": {
+            "think": {
+              "model": "scenario-model"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
