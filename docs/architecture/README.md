@@ -41,6 +41,7 @@ carries a `file:line` reference and, where practical, a reproduction that was ac
 | 06 | [Dependencies](06-dependencies.md) | Internal graph, external packages, platform/build/CI dependencies |
 | 07 | [Findings register](07-findings-register.md) | 29 verified findings with fix status: correctness, security, performance, simplification |
 | 08 | [Feature integration status](08-feature-integration-status.md) | Shipped / partial / orphaned matrix for planning |
+| 09 | [Follow-up audit 2026-07-31](09-follow-up-audit-2026-07-31.md) | F-30…F-53: product-outward audit at `c9bd30a` (wire fidelity, docs alignment, cross-surface consistency) |
 
 ## Scope and method
 
