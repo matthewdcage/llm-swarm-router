@@ -296,6 +296,21 @@ async def translate_chat_stream_to_responses(
                         },
                     },
                 )
+                yield _sse_event(
+                    "response.content_part.added",
+                    {
+                        "type": "response.content_part.added",
+                        "sequence_number": seq(),
+                        "item_id": text_item_id,
+                        "output_index": 0,
+                        "content_index": 0,
+                        "part": {
+                            "type": "output_text",
+                            "text": "",
+                            "annotations": [],
+                        },
+                    },
+                )
             text_buffer += delta["content"]
             yield _sse_event(
                 "response.output_text.delta",
@@ -373,17 +388,39 @@ async def translate_chat_stream_to_responses(
                 "text": text_buffer,
             },
         )
-        output.append(
+        final_part = {
+            "type": "output_text",
+            "text": text_buffer,
+            "annotations": [],
+        }
+        yield _sse_event(
+            "response.content_part.done",
             {
-                "id": text_item_id,
-                "type": "message",
-                "status": "completed",
-                "role": "assistant",
-                "content": [
-                    {"type": "output_text", "text": text_buffer, "annotations": []}
-                ],
-            }
+                "type": "response.content_part.done",
+                "sequence_number": seq(),
+                "item_id": text_item_id,
+                "output_index": 0,
+                "content_index": 0,
+                "part": final_part,
+            },
         )
+        message_item = {
+            "id": text_item_id,
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [final_part],
+        }
+        yield _sse_event(
+            "response.output_item.done",
+            {
+                "type": "response.output_item.done",
+                "sequence_number": seq(),
+                "output_index": 0,
+                "item": message_item,
+            },
+        )
+        output.append(message_item)
 
     for idx in sorted(tool_calls):
         state = tool_calls[idx]
@@ -397,16 +434,24 @@ async def translate_chat_stream_to_responses(
                 "arguments": state["arguments"],
             },
         )
-        output.append(
+        function_call_item = {
+            "id": state["item_id"],
+            "type": "function_call",
+            "status": "completed",
+            "call_id": state["call_id"],
+            "name": state["name"],
+            "arguments": state["arguments"] or "{}",
+        }
+        yield _sse_event(
+            "response.output_item.done",
             {
-                "id": state["item_id"],
-                "type": "function_call",
-                "status": "completed",
-                "call_id": state["call_id"],
-                "name": state["name"],
-                "arguments": state["arguments"] or "{}",
-            }
+                "type": "response.output_item.done",
+                "sequence_number": seq(),
+                "output_index": idx + 1,
+                "item": function_call_item,
+            },
         )
+        output.append(function_call_item)
 
     status = "incomplete" if finish_reason == "length" else "completed"
     yield _sse_event(
