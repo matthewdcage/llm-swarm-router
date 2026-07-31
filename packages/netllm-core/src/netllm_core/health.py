@@ -211,32 +211,6 @@ async def diagnose_backend(
     return result
 
 
-async def probe_anthropic_compat(
-    base_url: str,
-    client: httpx.AsyncClient,
-    *,
-    api_key: str | None = None,
-    timeout_s: float = DEFAULT_TIMEOUT,
-) -> dict[str, Any]:
-    """Reachability check for Anthropic Messages API backends."""
-    messages_url = _anthropic_messages_url(base_url)
-    headers: dict[str, str] = {"content-type": "application/json"}
-    if api_key:
-        headers["x-api-key"] = api_key
-    payload = {
-        "model": "claude-3-5-haiku-20241022",
-        "max_tokens": 1,
-        "messages": [{"role": "user", "content": "hi"}],
-    }
-    try:
-        resp = await client.post(
-            messages_url, json=payload, headers=headers, timeout=timeout_s
-        )
-        return _anthropic_probe_status(resp)
-    except Exception as exc:
-        return status_from_exception(exc, timeout_s)
-
-
 def probe_anthropic_compat_sync(
     base_url: str,
     *,
