@@ -4,7 +4,7 @@
   ],
   "expected": {
     "admission_delta": {
-      "request_count": 0,
+      "request_count": 1,
       "scenario_counts": {
         "default:default": 1
       },
@@ -19,7 +19,11 @@
     "body_shape": null,
     "metrics_delta": {
       "counters": {
+        "netllm_completion_tokens_total{backend=http://beta.farm/v1,model=farm-chat}": 5.0,
+        "netllm_prompt_tokens_total{backend=http://beta.farm/v1,model=farm-chat}": 3.0,
+        "netllm_request_latency_seconds_count{backend=http://beta.farm/v1}": 1.0,
         "netllm_requests_total{backend=http://alpha.farm/v1,model=farm-chat,status=error}": 1.0,
+        "netllm_requests_total{backend=http://beta.farm/v1,model=farm-chat,status=ok}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
       },
@@ -44,7 +48,9 @@
         "http://alpha.farm/v1": "<ema>",
         "http://beta.farm/v1": "<ema>"
       },
-      "routed_counts": {}
+      "routed_counts": {
+        "1dd8db59-83d9-5688-afc5-3700acf0ce90": 1
+      }
     },
     "sse_frames": [
       [
@@ -107,7 +113,7 @@
     ]
   },
   "id": "stream-prefirstbyte-failover-responses-s",
-  "note": "RESP-S inherits C-S failover; edge translation starts on beta. [D16] beta's success is not accounted \u2014 only alpha's error counter lands",
+  "note": "RESP-S inherits C-S failover; edge translation starts on beta. [D16] Phase 7: beta's success IS accounted now \u2014 alpha's error counter and beta's full success set both land, exactly as C-S records them",
   "request": {
     "body": {
       "input": "hi",

@@ -91,7 +91,7 @@ def test_model_for_backend_exact_alias_beats_prefix_match() -> None:
     )
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_core.pool.probe_openai_compat_sync")
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
 def test_canonical_request_rewrites_payload_and_response(
@@ -160,7 +160,7 @@ def test_canonical_request_rewrites_payload_and_response(
     assert resp.json()["model"] == "llama3"
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_core.pool.probe_openai_compat_sync")
 def test_unknown_model_returns_404_with_catalog(
     mock_probe: object,
@@ -200,7 +200,7 @@ def test_unknown_model_returns_404_with_catalog(
     assert "qwen2" in detail
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_core.pool.probe_openai_compat_sync")
 def test_models_listing_includes_canonical_alias(
     mock_probe: object,
@@ -233,54 +233,34 @@ def test_models_listing_includes_canonical_alias(
     assert "llama3" in ids
 
 
-async def _gen(chunks: list[str]):
-    for c in chunks:
-        yield c
-
-
-def test_restore_stream_model_rewrites_chunks() -> None:
-    import asyncio
+def test_restore_sse_chunk_rewrites_model() -> None:
+    """[Phase 7] `_restore_stream_model` — the generator that wrapped a whole
+    stream to do this — is gone; StreamSession restores per line through the
+    adapter, and the line rewrite itself lives in surfaces/base.py."""
     import json
 
-    from netllm_agent.service import AgentService
+    from netllm_agent.service.surfaces.base import restore_openai_sse_chunk
 
     chunk = (
         'data: {"id":"c1","object":"chat.completion.chunk",'
         '"model":"llama3:8b-instruct-q4_K_M","choices":[]}\n\n'
     )
-
-    async def run() -> list[str]:
-        out = []
-        async for c in AgentService._restore_stream_model(
-            _gen([chunk, "data: [DONE]\n\n"]), "llama3"
-        ):
-            out.append(c)
-        return out
-
-    out = asyncio.run(run())
-    assert json.loads(out[0].split("\n")[0][len("data: ") :])["model"] == "llama3"
-    assert out[1] == "data: [DONE]\n\n"
+    out = restore_openai_sse_chunk(chunk, "llama3")
+    assert json.loads(out.split("\n")[0][len("data: ") :])["model"] == "llama3"
+    assert restore_openai_sse_chunk("data: [DONE]\n\n", "llama3") == "data: [DONE]\n\n"
 
 
-def test_restore_stream_model_handles_multi_line_chunks() -> None:
-    import asyncio
+def test_restore_sse_chunk_handles_multi_line_chunks() -> None:
     import json
 
-    from netllm_agent.service import AgentService
+    from netllm_agent.service.surfaces.base import restore_openai_sse_chunk
 
     multi = (
         'data: {"id":"c1","model":"llama3:8b-instruct-q4_K_M","choices":[]}\n\n'
         'data: {"id":"c2","model":"llama3:8b-instruct-q4_K_M","choices":[]}\n\n'
     )
-
-    async def run() -> list[str]:
-        out = []
-        async for c in AgentService._restore_stream_model(_gen([multi]), "llama3"):
-            out.append(c)
-        return out
-
-    out = asyncio.run(run())
-    data_lines = [ln for ln in out[0].split("\n") if ln.startswith("data: ")]
+    out = restore_openai_sse_chunk(multi, "llama3")
+    data_lines = [ln for ln in out.split("\n") if ln.startswith("data: ")]
     assert len(data_lines) == 2
     for ln in data_lines:
         assert json.loads(ln[len("data: ") :])["model"] == "llama3"

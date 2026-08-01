@@ -68,7 +68,7 @@
     ]
   },
   "id": "stream-client-disconnect-responses-s",
-  "note": "GeneratorExit propagates through the Responses translation generator. [D16] no success accounting \u2014 indistinguishable from a completed RESP-S stream, which records none either",
+  "note": "GeneratorExit propagates through the Responses translation generator. No success accounting \u2014 the stream never reached its end. [D16] that is now a real distinction: a COMPLETED RESP-S stream records the full set, so an aborted one recording nothing is information rather than a hole",
   "request": {
     "body": {
       "input": "hi",

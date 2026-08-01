@@ -50,7 +50,7 @@
     "sse_frames": [
       [
         "event: message_start",
-        "data: {\"message\": {\"container\": null, \"content\": [], \"id\": \"<id>\", \"model\": \"served-a\", \"role\": \"assistant\", \"stop_details\": null, \"stop_reason\": null, \"stop_sequence\": null, \"type\": \"message\", \"usage\": {\"cache_creation\": null, \"cache_creation_input_tokens\": null, \"cache_read_input_tokens\": null, \"inference_geo\": null, \"input_tokens\": 3, \"output_tokens\": 1, \"output_tokens_details\": null, \"server_tool_use\": null, \"service_tier\": null}}, \"type\": \"message_start\"}"
+        "data: {\"message\": {\"container\": null, \"content\": [], \"id\": \"<id>\", \"model\": \"req-name\", \"role\": \"assistant\", \"stop_details\": null, \"stop_reason\": null, \"stop_sequence\": null, \"type\": \"message\", \"usage\": {\"cache_creation\": null, \"cache_creation_input_tokens\": null, \"cache_read_input_tokens\": null, \"inference_geo\": null, \"input_tokens\": 3, \"output_tokens\": 1, \"output_tokens_details\": null, \"server_tool_use\": null, \"service_tier\": null}}, \"type\": \"message_start\"}"
       ],
       [
         "event: content_block_start",
@@ -92,7 +92,7 @@
     ]
   },
   "id": "naming-restore-messages-s-rewritten-name",
-  "note": "source rewrite + M-S: the client sees served-a, never req-name",
+  "note": "source rewrite + M-S: [D9] Phase 7 \u2014 the client sees the name it sent, req-name, while served-a stays on the upstream call",
   "request": {
     "body": {
       "max_tokens": 16,

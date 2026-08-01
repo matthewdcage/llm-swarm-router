@@ -66,7 +66,7 @@ flowchart LR
     subgraph agent["netllm-agent (FastAPI + uvicorn, port 11400)"]
         API["HTTP layer — app.py"]
         ADMIN["Admin layer — admin.py"]
-        SVC["AgentService — service.py"]
+        SVC["AgentService — service/ package<br/>engine + surface adapters"]
         TEL["TelemetryService"]
         MET["Prometheus /metrics"]
     end
@@ -201,15 +201,23 @@ token configured nothing is gated — the zero-config path is unchanged.
 
 ## Codebase size
 
+*Re-measured 2026-08-01 at the close of the F-24/F-25/F-26 consolidation.*
+
 | Area | Files | Lines |
 |------|-------|-------|
-| `packages/` Python (6 packages) | 52 | 13,924 |
-| ↳ largest: `netllm_agent/service.py` | 1 | 2,246 |
-| ↳ second: `netllm_cli/main.py` | 1 | 2,141 |
-| `apps/netllm-mac/Sources` Swift | 45 | ~7,500 |
-| ↳ largest: `SettingsWindowView.swift` | 1 | 1,244 |
-| Bundled dashboard (JS/CSS/HTML) | 3 | 3,457 |
-| Tests (`tests/` + SDK package tests) | 63 | 642 passing |
+| `packages/` Python (6 packages) | 83 | 16,197 |
+| ↳ largest: `netllm_core/models.py` | 1 | 690 |
+| ↳ `netllm_agent/service/` (was `service.py`, 2,363) | 16 | 3,570 |
+| ↳ largest module in it: `service/surfaces/base.py` | 1 | 486 |
+| ↳ `netllm_cli/main.py` + `commands/` (was `main.py`, 2,141) | 11 | 2,383 |
+| ↳ largest module in it: `commands/observe.py` | 1 | 468 |
+| `apps/netllm-mac/Sources` Swift | 55 | 9,076 |
+| ↳ largest: `SettingsWindowView.swift` | 1 | 1,237 |
+| Bundled dashboard (JS/CSS/HTML) | 4 | 3,613 |
+| ↳ largest first-party source file in the repo: `dashboard.js` | 1 | 2,825 |
+| Tests (`tests/` + SDK package tests) | 87 | 1,087 passing, 4 skipped |
 
-Two 2 kLOC modules (`service.py`, `main.py`) carry most of the complexity and most of the
-findings in [07](07-findings-register.md); both are flagged for decomposition (F-24).
+Both 2 kLOC Python modules are gone (F-24/F-26 RESOLVED): the request path is one engine
+plus four surface adapters, and no module in either former monolith's lineage exceeds 500
+lines. The largest first-party source file is now `dashboard.js`, deliberately left intact
+and tracked as F-54 in [09](09-follow-up-audit-2026-07-31.md).

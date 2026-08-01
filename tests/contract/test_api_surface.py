@@ -60,9 +60,17 @@ def test_service_module_exports() -> None:
     assert service_mod.LEGACY_CLOUD_BACKEND_IDS == frozenset(
         {"openai-cloud", "anthropic-cloud"}
     )
-    # The test suite's most common patch target must stay importable from
-    # the service namespace until the Phase 9 repoint.
-    assert hasattr(service_mod, "scan_local_providers")
+    # [Phase 9] The repoint happened: the suite's most common patch target
+    # now lives on its owning module, and there is deliberately NO shim
+    # re-exporting it here (plan §3 Phase 9 — "module-global indirection
+    # must not become load-bearing"). Asserted negatively so a well-meaning
+    # re-export cannot slip back in and make both spellings "work" while
+    # only one of them intercepts.
+    assert not hasattr(service_mod, "scan_local_providers")
+
+    import netllm_agent.service.backends as backends_mod
+
+    assert hasattr(backends_mod, "scan_local_providers")
 
 
 def test_agent_service_surface_app_consumes() -> None:

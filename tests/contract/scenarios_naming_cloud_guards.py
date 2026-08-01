@@ -13,8 +13,10 @@ Three groups (plan-f24-f26.md §2, Phase 0b):
   shape, and one adversarial alias/pool set where the pool's *candidate*
   matcher (``RouterPool._serves_model`` via ``backends_for_model``) and the
   service's *invocation* matcher (``AgentService._model_for_backend`` →
-  ``RouterPool.resolve_via_pool``) disagree. That pair is the F-25
-  regression trap: current behavior is recorded as-is, not fixed.
+  ``RouterPool.resolve_via_pool``) disagreed. That pair was the F-25
+  regression trap, recorded as-is in Phase 0 and **retired as D18 in Phase
+  8b**, where both matchers were replaced by the one
+  ``netllm_core.model_resolution.ModelResolver`` walk.
 - ``cloud`` — cloud.fallback ordering (``cloud`` vs ``local`` vs ``none``),
   the master switch, materialized ``cloud-<id>`` rows, the legacy
   request-scoped rows built from caller credentials, and the Messages
@@ -27,11 +29,12 @@ Divergence annotations
 ----------------------
 ``divergence`` lists behavior-matrix.md IDs D1–D16 that a vector's recorded
 cells embody. Vectors whose behavior the F-30..F-48 remediation already
-fixed carry ``[]`` — they pin the fixed behavior. Findings that are real but
-have no D-number (F-25's matcher split) are carried in a non-schema ``note``
-field instead of being mis-annotated. (The RESP-S success-accounting hole is
-no longer one of them: it is D16, pinned by the ``*-responses-s``
-200-vectors in ``scenarios_streaming_errors``.)
+fixed carry ``[]`` — they pin the fixed behavior. Findings that were real but
+had no D-number when recorded (F-25's matcher split) were carried in a
+non-schema ``note`` field instead of being mis-annotated; the matcher split
+gained its number, D18, only when Phase 8b actually changed the behavior.
+(The RESP-S success-accounting hole is no longer one of them: it is D16,
+pinned by the ``*-responses-s`` 200-vectors in ``scenarios_streaming_errors``.)
 
 Every vector also runs through ``anticollapse.assert_no_unintended_keyless_
 401`` at record time and ``assert_corpus_has_no_unintended_keyless_401`` at
@@ -69,7 +72,10 @@ from netllm_core.models import OPENAI_CLOUD_BASE_URL
 GROUP_DIR = Path(__file__).resolve().parent / "vectors" / "naming-cloud-guards"
 RECORD = os.environ.get("NETLLM_VECTOR_RECORD") == "1"
 
-VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 17)}
+# D18 (Phase 8b, F-25 matcher unification) is the highest ID this
+# group carries; the shared lint in test_divergence_lint.py owns the
+# repo-wide range.
+VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 19)}
 GROUPS = ("naming", "cloud", "guards")
 
 # Farm hosts (farm.FarmBackend.base_url): openai rows carry "/v1", the
@@ -415,14 +421,14 @@ def _naming() -> list[tuple[str, dict[str, Any]]]:
             },
             divergence=["D9", "D10"],
             note=(
-                "Anthropic SSE dialect: no _restore_stream_model on M-S (D9). "
-                "PHASE 4b [D10] makes the anthropic arm resolve the served id "
-                "per backend, so message_start now carries 'served-a' where it "
-                "used to carry 'canon'. This is CLIENT-VISIBLE and it is D9's "
-                "hole, not a new one: M-S is the one surface with no restore "
-                "step, so the moment the wire name stops being the canonical "
-                "name the client sees the difference. Phase 7 [D9] adds the "
-                "restore and this cell goes back to 'canon'."
+                "Anthropic SSE dialect. PHASE 4b [D10] made the anthropic arm "
+                "resolve the served id per backend, so 'served-a' goes on the "
+                "wire (upstream_calls still show it) and message_start briefly "
+                "carried it too — M-S was the one surface with no restore "
+                "step, so the moment the wire name stopped being the canonical "
+                "name the client saw the difference. PHASE 7 [D9] adds the "
+                "restore: message_start carries 'canon' again while the "
+                "upstream call is unchanged. D10's cell did not move."
             ),
         )
     )
@@ -434,8 +440,11 @@ def _naming() -> list[tuple[str, dict[str, Any]]]:
             request={"path": "messages_s", "body": _msg("canon")},
             divergence=["D9"],
             note=(
-                "translated Anthropic SSE: message_start carries the rewritten "
-                "served-a, never restored to canon"
+                "translated Anthropic SSE: the bridge copies the upstream "
+                "chunk's own model into message_start, so 'served-a' appeared "
+                "there. [D9] Phase 7 restores 'canon' — and does it by value, "
+                "not by comparing the adapter's resolved name, precisely "
+                "because this arm's wire name is the bridge's choice"
             ),
         )
     )
@@ -453,7 +462,10 @@ def _naming() -> list[tuple[str, dict[str, Any]]]:
                 "body": _msg("req-name"),
             },
             divergence=["D9", "D10"],
-            note="source rewrite + M-S: the client sees served-a, never req-name",
+            note=(
+                "source rewrite + M-S: [D9] Phase 7 — the client sees the name "
+                "it sent, req-name, while served-a stays on the upstream call"
+            ),
         )
     )
 
@@ -472,16 +484,21 @@ def _naming() -> list[tuple[str, dict[str, Any]]]:
                 "routing": pool_tag,
             },
             request={"path": "chat_ns", "body": _chat("anything-goes")},
+            divergence=["D18"],
             note=(
-                "F-25 REGRESSION TRAP — recorded as-is, do not 'fix' while "
-                "refactoring. Matcher A (RouterPool._serves_model, used by "
-                "backends_for_model) accepts the host because served "
-                "'poolmodel:7b' tag-prefix-matches pool model 'poolmodel'. "
-                "Matcher B (RouterPool.resolve_via_pool, reached from "
-                "AgentService._model_for_backend) has NO tag-prefix arm — exact "
-                "and casefold-exact only — so it returns None and the requested "
-                "name 'anything-goes' is sent to a host that does not serve it. "
-                "A unified matcher must reproduce or deliberately retire this."
+                "F-25 REGRESSION TRAP — RETIRED in plan §3 Phase 8b as [D18]. "
+                "Originally: matcher A (RouterPool._serves_model, used by "
+                "backends_for_model) accepted the host because served "
+                "'poolmodel:7b' tag-prefix-matches pool model 'poolmodel', "
+                "while matcher B (RouterPool.resolve_via_pool, reached from "
+                "AgentService._model_for_backend) had NO tag-prefix arm — exact "
+                "and casefold-exact only — so it returned None and the "
+                "requested name 'anything-goes' went to a host that does not "
+                "serve it. ModelResolver runs one walk for both questions, so "
+                "the group arm now matches with the same three arms candidacy "
+                "always used and the upstream call carries 'poolmodel:7b'. "
+                "This vector is now byte-identical to the alias control below "
+                "in everything but its routing block — which is the point."
             ),
         )
     )
@@ -497,6 +514,11 @@ def _naming() -> list[tuple[str, dict[str, Any]]]:
                 },
             },
             request={"path": "chat_ns", "body": _chat("anything-goes")},
+            # NOTE TEXT IS FROZEN. This vector is D18's control: it must
+            # stay byte-identical across the Phase 8b switch, and a note
+            # edit would destroy exactly that proof. The now-historical
+            # wording is superseded by the trap vector's note above and by
+            # behavior-matrix D18.
             note=(
                 "control for the trap above: add the SAME name to "
                 "model_aliases and the two matchers agree, because "

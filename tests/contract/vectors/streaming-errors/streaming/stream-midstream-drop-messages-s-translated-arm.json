@@ -44,7 +44,7 @@
     "sse_frames": [
       [
         "event: message_start",
-        "data: {\"message\": {\"content\": [], \"id\": \"<id>\", \"model\": \"farm-chat\", \"role\": \"assistant\", \"stop_reason\": null, \"type\": \"message\", \"usage\": {\"input_tokens\": 0, \"output_tokens\": 0}}, \"type\": \"message_start\"}"
+        "data: {\"message\": {\"content\": [], \"id\": \"<id>\", \"model\": \"claude-farm\", \"role\": \"assistant\", \"stop_reason\": null, \"type\": \"message\", \"usage\": {\"input_tokens\": 0, \"output_tokens\": 0}}, \"type\": \"message_start\"}"
       ],
       [
         "event: content_block_start",
@@ -57,6 +57,10 @@
       [
         "event: error",
         "data: {\"error\": {\"message\": \"farm: midstream drop\", \"type\": \"upstream_error\"}, \"type\": \"error\"}"
+      ],
+      [
+        "event: message_stop",
+        "data: {\"type\": \"message_stop\"}"
       ]
     ],
     "status": 200,
@@ -73,7 +77,7 @@
     ]
   },
   "id": "stream-midstream-drop-messages-s-translated-arm",
-  "note": "M-S openai-format arm: the OpenAI mid-stream failure is translated into the same terminator-less Anthropic error frame; message_start carries the per-backend model",
+  "note": "M-S openai-format arm: the OpenAI mid-stream failure is translated into the same error frame + message_stop terminator [D9]; message_start now carries the REQUESTED name, restored over the per-backend one the bridge copies out of the upstream chunk",
   "request": {
     "body": {
       "max_tokens": 16,

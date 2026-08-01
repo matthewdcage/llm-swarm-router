@@ -25,19 +25,23 @@ Divergence annotations
 ``divergence`` carries behavior-matrix.md IDs (D1–D16) for the cell a
 vector pins. Used here:
 
-- **D9** — M-S mid-stream error frame has no terminator event, and the
-  translated M-S arm emits the rewritten model. Plan Phase 7 flips both.
+- **D9** — the M-S mid-stream error frame had no terminator event, and the
+  M-S stream arm restored no model name at all. Plan Phase 7 flipped both:
+  the error frame is followed by ``event: message_stop`` and
+  ``message_start`` carries the requested name.
 - **D11** — Messages exhaustion is a keyless 401 where the OpenAI surfaces
   404, and an ``OpenAIUpstreamError`` from a translated backend is
   flattened to 502 instead of forwarding its status.
 - **D6 / D8** — where the recorded candidate order is produced by the
   Messages anthropic fallback tier and its ``tried`` pre-seeding.
-- **D16** — RESP-S records no success accounting: the Responses bridge
-  breaks out of the chat stream at ``data: [DONE]``, so
-  ``_stream_with_metrics``' post-loop ``mark_success`` / ok-REQUESTS_TOTAL
-  / ``_request_count`` never run. Carried by the five ``*-responses-s``
-  200-vectors, which is why they record ``routed_counts={}`` and
-  ``request_count=0``.
+- **D16** — RESP-S used to record no success accounting: the Responses
+  bridge breaks out of the chat stream at ``data: [DONE]``, so the stream
+  wrapper's post-loop ``mark_success`` / ok-REQUESTS_TOTAL /
+  ``_request_count`` never ran. Plan Phase 7 fixed it structurally —
+  ``engine.StreamSession`` reads one chunk ahead and settles the attempt
+  before that chunk leaves — so the five ``*-responses-s`` vectors now
+  record the same success set C-S does. The two that still record none do
+  so because nothing succeeded (a failed attempt, an aborted client).
 
 Vectors for behavior the F-30..F-48 remediation already fixed carry no
 annotation — they pin the fixed behavior and must not move again. That
@@ -45,9 +49,9 @@ covers most of this slice: F-32 (a pre-stream 429/502 is a real HTTP
 status, not 200 + aborted body), F-33 (both stream wrappers record full
 success accounting and parse the usage chunk), and F-38 (dialect-shaped
 error envelopes). D2 is deliberately absent: post-remediation every C-S
-upstream error passes through ``_stream_with_metrics`` and M-S increments
-the error counter inline, so the "failure accounting missing on the stream
-paths" divergence is no longer observable from the outside.
+upstream error is accounted by the engine and M-S increments the error
+counter inline, so the "failure accounting missing on the stream paths"
+divergence is no longer observable from the outside.
 
 Findings with no D-number are carried in the non-schema ``note`` field
 rather than mis-annotated. The sharpest one is
@@ -316,9 +320,11 @@ def _streaming() -> list[tuple[str, dict[str, Any]]]:
             divergence=["D9"],
             routing=_FAILOVER,
             note=(
-                "M-S native arm: Anthropic-shaped `event: error` frame with "
-                "NO terminator event (plan Phase 7 [D9] adds one) and no "
-                "data:[DONE] — the stream simply stops"
+                "M-S native arm: Anthropic-shaped `event: error` frame "
+                "followed by its terminator, `event: message_stop` — [D9], "
+                "Phase 7. The OpenAI arm has always closed a failed stream "
+                "with data:[DONE]; this arm used to just stop, leaving a "
+                "client that tracks the message lifecycle waiting"
             ),
         )
     )
@@ -332,8 +338,10 @@ def _streaming() -> list[tuple[str, dict[str, Any]]]:
             routing=_TRANSLATED_ARM,
             note=(
                 "M-S openai-format arm: the OpenAI mid-stream failure is "
-                "translated into the same terminator-less Anthropic error "
-                "frame; message_start carries the per-backend model"
+                "translated into the same error frame + message_stop "
+                "terminator [D9]; message_start now carries the REQUESTED "
+                "name, restored over the per-backend one the bridge copies "
+                "out of the upstream chunk"
             ),
         )
     )
@@ -351,9 +359,10 @@ def _streaming() -> list[tuple[str, dict[str, Any]]]:
                 "response.completed — a mid-stream upstream failure is "
                 "INVISIBLE to a Responses client even though the backend was "
                 "marked failed. Real finding, no D-number; recorded as-is. "
-                "[D16] the 200 carries no success accounting either "
-                "(routed_counts empty, request_count 0) while the error "
-                "counter from the failed attempt is present."
+                "[D16] the absence of success accounting here is now the "
+                "failed attempt's, not the bridge's: nothing succeeded, so "
+                "only the error counter lands. Phase 7 fixed the bridge "
+                "hole, not this one."
             ),
         )
     )
@@ -397,8 +406,9 @@ def _streaming() -> list[tuple[str, dict[str, Any]]]:
             routing=_FAILOVER,
             note=(
                 "RESP-S inherits C-S failover; edge translation starts on "
-                "beta. [D16] beta's success is not accounted — only alpha's "
-                "error counter lands"
+                "beta. [D16] Phase 7: beta's success IS accounted now — "
+                "alpha's error counter and beta's full success set both land, "
+                "exactly as C-S records them"
             ),
         )
     )
@@ -461,12 +471,12 @@ def _streaming() -> list[tuple[str, dict[str, Any]]]:
             backends=[oai("alpha", [stream_ok(usage_in_final=True)])],
             divergence=["D16"],
             note=(
-                "[D16] usage IS parsed below the Responses translation, but "
-                "none of it is ever recorded: the bridge breaks out of the "
-                "chat stream at data:[DONE], so _stream_with_metrics' "
-                "post-loop success accounting never runs. RESP-S telemetry is "
-                "therefore EMPTY where C-S records mark_success, ok-"
-                "REQUESTS_TOTAL, latency, tokens and _request_count"
+                "[D16] Phase 7: the usage parsed below the Responses "
+                "translation now reaches telemetry. StreamSession settles the "
+                "attempt BEFORE handing on the chunk the bridge breaks at, so "
+                "abandoning the generator at data:[DONE] can no longer strand "
+                "mark_success, ok-REQUESTS_TOTAL, latency, tokens or "
+                "_request_count. RESP-S is at C-S parity"
             ),
         )
     )
@@ -520,8 +530,10 @@ def _streaming() -> list[tuple[str, dict[str, Any]]]:
             drive={"mode": "service_stream_aclose", "consume": 2},
             note=(
                 "GeneratorExit propagates through the Responses translation "
-                "generator. [D16] no success accounting — indistinguishable "
-                "from a completed RESP-S stream, which records none either"
+                "generator. No success accounting — the stream never reached "
+                "its end. [D16] that is now a real distinction: a COMPLETED "
+                "RESP-S stream records the full set, so an aborted one "
+                "recording nothing is information rather than a hole"
             ),
         )
     )
@@ -572,7 +584,8 @@ def _streaming() -> list[tuple[str, dict[str, Any]]]:
             wire={"split_bytes": 7},
             note=(
                 "split boundaries do not perturb Responses sequence_number "
-                "ordering. [D16] a clean 200 with zero success accounting"
+                "ordering. [D16] a clean 200 that now carries the same "
+                "success accounting the equivalent C-S vector records"
             ),
         )
     )

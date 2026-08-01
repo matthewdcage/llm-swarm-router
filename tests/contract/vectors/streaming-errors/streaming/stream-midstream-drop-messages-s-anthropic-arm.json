@@ -58,6 +58,10 @@
       [
         "event: error",
         "data: {\"error\": {\"message\": \"farm: midstream drop\", \"type\": \"upstream_error\"}, \"type\": \"error\"}"
+      ],
+      [
+        "event: message_stop",
+        "data: {\"type\": \"message_stop\"}"
       ]
     ],
     "status": 200,
@@ -75,7 +79,7 @@
     ]
   },
   "id": "stream-midstream-drop-messages-s-anthropic-arm",
-  "note": "M-S native arm: Anthropic-shaped `event: error` frame with NO terminator event (plan Phase 7 [D9] adds one) and no data:[DONE] \u2014 the stream simply stops",
+  "note": "M-S native arm: Anthropic-shaped `event: error` frame followed by its terminator, `event: message_stop` \u2014 [D9], Phase 7. The OpenAI arm has always closed a failed stream with data:[DONE]; this arm used to just stop, leaving a client that tracks the message lifecycle waiting",
   "request": {
     "body": {
       "max_tokens": 16,

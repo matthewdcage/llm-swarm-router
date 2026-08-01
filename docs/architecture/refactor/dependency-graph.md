@@ -26,6 +26,15 @@ python3 scripts/analyze-module-graph.py --layout cli-inventory --file /tmp/main_
 # add --format json for the full machine-readable report
 ```
 
+> **Post-Phase 9 note.** `service.py` no longer exists — Phase 9 split it into
+> `netllm_agent/service/`. To reproduce the tables below, read the pre-split file
+> the same way `main.py` is read here:
+> `git show <phase-8-commit>:packages/netllm-agent/src/netllm_agent/service.py > /tmp/service_pre.py`.
+> The post-split graph is verified instead by
+> [`scripts/check-service-split-mechanical.py`](../../../scripts/check-service-split-mechanical.py)
+> (bodies unchanged) and by `tests/contract/test_patch_targets.py` (patch targets
+> repointed). Both cycles this document flagged are gone: see §5, seams S1-S4.
+
 **State analyzed:** commit `e8d4f5e` ("test(contract): phase 0a harness for the F-24/F-26
 refactor"), branch `claude/refactor-f24-f26-consolidation`.
 `git diff --stat HEAD` is empty for both target files, so the worktree `service.py`

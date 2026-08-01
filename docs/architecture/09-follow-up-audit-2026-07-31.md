@@ -424,15 +424,81 @@ to the AGENTS.md Key commands table and commented keys to
 
 ---
 
+# Post-audit entries (F-54…)
+
+Opened after the 2026-07-31 audit closed, continuing the same append-only
+namespace. These are **not** part of this audit's 24 findings or its severity
+summary; they are carve-outs from findings that other work closed, filed here
+so nothing is dropped when an ID is marked RESOLVED.
+
+## F-54 · `dashboard.js` is 2,825 lines with no module boundary
+
+> **OPEN** — deliberately deferred by the F-24/F-26 consolidation (plan-f24-f26.md §3 Phase 10, [refactor/module-inventory.md](refactor/module-inventory.md) Part 3).
+
+**Verdict** CONFIRMED · **F-49 / F-26 carve-out**
+
+`packages/netllm-agent/src/netllm_agent/static/dashboard.js` is the largest
+first-party source file in the repo (2,825 lines; next is
+`SettingsWindowView.swift` at 1,237) and holds tab rendering, telemetry
+polling, config editing, and the update card in one flat scope with no module
+boundary.
+
+The F-49 *contract* slice landed in Phase 10 — `docs/telemetry-api.md` is
+normative, the client-side `total_tokens` re-derivations are deleted, and
+`tests/contract/test_telemetry_contract.py` gates the key set — which removes
+the coupling F-49 actually complained about. The **structural** split did not,
+for a stated reason: modularising it means either ES-module serving or a build
+step, a different risk class with zero coverage from the Python suite that
+F-26 named as its safety net, and it would have doubled the review surface of
+an already large mechanical change.
+
+**Fix.** Split into ES modules served as such (`type="module"`), one module per
+tab plus a shared render/format core, and add a JS lint to CI — `docs/lint-index.md`
+records that there is still no ESLint/Biome config, so this file has never been
+linted. Prerequisite for that: F-27's remaining gap (no JS/CSS lint).
+
+---
+
+## F-55 · Two pure re-export module shims (`netllm_core.config`, `netllm_cli.install_detect`)
+
+> **OPEN** — carved out of F-25 when the consolidation refactor closed it.
+
+**Verdict** CONFIRMED · **F-25 carve-out**
+
+`netllm_core/config.py` re-exports 20 names from `netllm_core.models`;
+`netllm_cli/install_detect.py` re-exports 15 names from
+`netllm_core.install_detect`. Neither adds behaviour. They were two of F-25's
+five rows, but unlike the other three they are **not** overlapping *mechanisms*
+— nothing routes differently because of them, and no bug can hide in the gap
+between two implementations, because there is only one implementation. Holding
+F-25 open for them would have misrepresented the model-name overlap (its actual
+subject) as unresolved.
+
+Live importers at time of writing: 9 for `netllm_core.config`, 10 for
+`netllm_cli.install_detect`.
+
+**Fix.** Mechanical: repoint importers to the real module and delete both
+shims. Low value on its own; fold into the next PR that touches the CLI command
+modules broadly, and keep `netllm_core/__init__.py`'s public re-exports
+(`NetllmConfig`, `load_config`, `save_config`) which are a package API, not a
+shim.
+
+---
+
 ## Status verifications (informational, no action)
 
 - **Open/partial baseline findings re-verified unchanged:** F-20, F-21, F-23,
   F-24, F-25, F-26, F-28, F-29 all remain accurately described at HEAD; none
   silently resolved or materially worsened (F-21 nudged by ccc1c79 → F-49).
+  *(Superseded 2026-08-01: F-24, F-25 and F-26 were closed by the
+  consolidation refactor on `claude/refactor-f24-f26-consolidation`; F-49's
+  contract slice landed with it and its structural remainder is now F-54.)*
 - **F-26 sizes:** service.py 2,246 · cli main.py 2,141 · dashboard.js 2,817
   (baseline: 2,149 / 2,119 / 2,721). Growth came from the audit's own
   remediation; post-audit accretion is dashboard.js only. Stable debt, not
-  growing debt.
+  growing debt. *(Superseded 2026-08-01: service.py → `service/` package,
+  largest module 486 · main.py → 80 lines + `commands/`, largest module 468 ·
+  dashboard.js 2,825, unchanged by design and now tracked as F-54.)*
 - **Integration roll-up:** Cursor/generic-OpenAI solid · Claude Code local path
   solid, cloud-Anthropic streaming broken (F-30) · Codex bridge partial (F-39,
   live verification unrun) · Honcho solid per its doc · Gemini CLI correctly
@@ -449,6 +515,9 @@ to the AGENTS.md Key commands table and commented keys to
 - **Architecture doc counts drifted** within 2 days (642→647 tests, LOC
   figures): expected decay of frozen snapshots; bump figures on the next
   audit-adjacent PR (per AGENTS.md verification rules) rather than per commit.
+  *(Re-measured 2026-08-01 at the close of the consolidation refactor: 1,087
+  passing + 4 skipped; 16,197 lines of first-party Python under
+  `packages/*/src`; largest Python module `netllm_core/models.py` at 690.)*
 
 ## Comparison to the established baseline
 

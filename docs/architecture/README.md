@@ -1,13 +1,20 @@
 # Architecture & audit documentation
 
 Reviewed release: **0.4.5.0** · Audit date: **2026-07-29** ·
-Branch: `docs/architecture-audit` @ `bb3eae0`
+Last refreshed: **2026-08-01** · Branch: `claude/refactor-f24-f26-consolidation`
 
-> **Remediation landed.** 20 of 29 findings are fixed (all S1 and S2, plus the
-> low-risk S3 cleanups) across four commits on this branch — see the status
-> column in [07-findings-register.md](07-findings-register.md). The original
+> **Remediation landed.** 20 of 29 findings were fixed (all S1 and S2, plus the
+> low-risk S3 cleanups) across four commits on `docs/architecture-audit` — see the
+> status column in [07-findings-register.md](07-findings-register.md). The original
 > audit was taken at `a3ec16a`; `26c45b7` (mesh fix #36) landed mid-audit and
-> is accounted for. Suite: **642 passing**.
+> is accounted for.
+>
+> **Consolidation landed (2026-08-01).** F-24, F-25 and F-26 — the two large
+> refactors originally scoped out — are RESOLVED: one failover engine plus four
+> surface adapters, one model-name matcher, both 2 kLOC modules dissolved. The
+> operator-visible behaviour changes are enumerated in
+> [refactor/RELEASE-NOTES.md](refactor/RELEASE-NOTES.md). Suite: **1,087 passing,
+> 4 skipped** (356 of them a new golden-vector contract suite).
 
 This set documents **llm-swarm-router** (`netllm`) as built: every component, every
 dependency, the routing and control-plane logic, and a severity-ranked register of
@@ -35,23 +42,24 @@ carries a `file:line` reference and, where practical, a reproduction that was ac
 |---|----------|--------|
 | 01 | [System overview](01-system-overview.md) | Product shape, deployment topologies, container diagram, tech stack |
 | 02 | [Component architecture](02-component-architecture.md) | Package-by-package responsibilities, domain model, module map |
-| 03 | [Request lifecycle](03-request-lifecycle.md) | The four proxy surfaces, routing decision flow, failover, streaming |
+| 03 | [Request lifecycle](03-request-lifecycle.md) | The engine/adapter architecture, the four request surfaces, routing decision flow, failover, streaming |
 | 04 | [Discovery & swarm](04-discovery-and-swarm.md) | Local scan, mDNS, subnet scan, heartbeat gossip, peer state machine |
 | 05 | [Configuration & control plane](05-configuration-and-control-plane.md) | Config model, the three write paths, admin API, schema-driven UI |
 | 06 | [Dependencies](06-dependencies.md) | Internal graph, external packages, platform/build/CI dependencies |
 | 07 | [Findings register](07-findings-register.md) | 29 verified findings with fix status: correctness, security, performance, simplification |
 | 08 | [Feature integration status](08-feature-integration-status.md) | Shipped / partial / orphaned matrix for planning |
-| 09 | [Follow-up audit 2026-07-31](09-follow-up-audit-2026-07-31.md) | F-30…F-53: product-outward audit at `c9bd30a` (wire fidelity, docs alignment, cross-surface consistency) |
+| 09 | [Follow-up audit 2026-07-31](09-follow-up-audit-2026-07-31.md) | F-30…F-53: product-outward audit at `c9bd30a` (wire fidelity, docs alignment, cross-surface consistency), plus post-audit entries F-54… |
+| — | [refactor/](refactor/) | The F-24/F-25/F-26 consolidation: adopted plan, behavior matrix (D1–D18), module inventory, dependency graph, release notes |
 
 ## Scope and method
 
-**In scope:** the `packages/` Python workspace (6 packages, ~13.3k LOC), the `apps/netllm-mac`
-Swift menubar app (~7.5k LOC), the bundled web dashboard (~3.4k LOC of HTML/CSS/JS),
-`packaging/`, `scripts/`, and CI workflows.
+**In scope:** the `packages/` Python workspace (6 packages, 16.2k LOC as of 2026-08-01),
+the `apps/netllm-mac` Swift menubar app (9.1k LOC), the bundled web dashboard (3.6k LOC of
+HTML/CSS/JS), `packaging/`, `scripts/`, and CI workflows.
 
 **Verification performed during this audit:**
 
-- Full test suite at audit time: **584 passed**; after remediation: **642 passed**.
+- Full test suite at audit time: **584 passed**; after remediation: **642 passed**; after the F-24/F-25/F-26 consolidation (2026-08-01): **1,087 passed, 4 skipped**.
 - Reproduced 4 defects with executable scripts before fixing (F-01, F-02, F-04, F-11).
 - Cross-checked every "orphan" claim with a repo-wide symbol grep including tests.
 - Re-verified all four S1 findings against `26c45b7` before starting work — none

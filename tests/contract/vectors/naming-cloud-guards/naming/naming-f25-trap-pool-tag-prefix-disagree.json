@@ -1,5 +1,7 @@
 {
-  "divergence": [],
+  "divergence": [
+    "D18"
+  ],
   "expected": {
     "admission_delta": {
       "request_count": 1,
@@ -84,13 +86,13 @@
           "authorization": "Bearer farm-key"
         },
         "method": "POST",
-        "model": "anything-goes",
+        "model": "poolmodel:7b",
         "path": "/v1/chat/completions"
       }
     ]
   },
   "id": "naming-f25-trap-pool-tag-prefix-disagree",
-  "note": "F-25 REGRESSION TRAP \u2014 recorded as-is, do not 'fix' while refactoring. Matcher A (RouterPool._serves_model, used by backends_for_model) accepts the host because served 'poolmodel:7b' tag-prefix-matches pool model 'poolmodel'. Matcher B (RouterPool.resolve_via_pool, reached from AgentService._model_for_backend) has NO tag-prefix arm \u2014 exact and casefold-exact only \u2014 so it returns None and the requested name 'anything-goes' is sent to a host that does not serve it. A unified matcher must reproduce or deliberately retire this.",
+  "note": "F-25 REGRESSION TRAP \u2014 RETIRED in plan \u00a73 Phase 8b as [D18]. Originally: matcher A (RouterPool._serves_model, used by backends_for_model) accepted the host because served 'poolmodel:7b' tag-prefix-matches pool model 'poolmodel', while matcher B (RouterPool.resolve_via_pool, reached from AgentService._model_for_backend) had NO tag-prefix arm \u2014 exact and casefold-exact only \u2014 so it returned None and the requested name 'anything-goes' went to a host that does not serve it. ModelResolver runs one walk for both questions, so the group arm now matches with the same three arms candidacy always used and the upstream call carries 'poolmodel:7b'. This vector is now byte-identical to the alias control below in everything but its routing block \u2014 which is the point.",
   "request": {
     "body": {
       "messages": [

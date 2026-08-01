@@ -95,7 +95,7 @@ _MESSAGES_BODY = {
 }
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 def test_f38_openai_shape_on_no_backend_502(mock_scan: AsyncMock) -> None:
     mock_scan.return_value = []
     with TestClient(create_app(_base_cfg())) as client:
@@ -171,7 +171,7 @@ def test_f32_stream_capacity_exceeded_is_http_429(_mock_admit: object) -> None:
     assert resp.json()["error"]["type"] == "rate_limit_error"
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 def test_f32_stream_no_backend_is_http_5xx(mock_scan: AsyncMock) -> None:
     mock_scan.return_value = []
     with TestClient(create_app(_base_cfg())) as client:
@@ -196,7 +196,7 @@ def test_f32_messages_stream_capacity_exceeded_is_http_429(
     assert body["error"]["type"] == "rate_limit_error"
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 def test_f32_responses_stream_no_backend_is_http_5xx(mock_scan: AsyncMock) -> None:
     mock_scan.return_value = []
     with TestClient(create_app(_base_cfg())) as client:

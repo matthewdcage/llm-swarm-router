@@ -18,13 +18,13 @@ Index: [README.md](README.md). Parent rail: [../AGENTS.md](../AGENTS.md).
 |-----|------|
 | `01-system-overview.md` | topologies, container diagram, stack, state inventory, endpoint table |
 | `02-component-architecture.md` | package graph, per-module responsibility tables, domain model |
-| `03-request-lifecycle.md` | the four proxy surfaces, routing decision flow, failover, loop guards |
+| `03-request-lifecycle.md` | the request surfaces, the engine/adapter split, routing decision flow, failover, loop guards |
 | `04-discovery-and-swarm.md` | both discovery planes, peer state machine, gossip, network/security model, timing constants |
 | `05-configuration-and-control-plane.md` | config model, the three write paths, merge semantics, admin API, source identity |
 | `06-dependencies.md` | internal graph, external/undeclared deps, platform + CI + release dependencies |
 | `07-findings-register.md` | F-01…F-29 with severity, evidence, and fix |
 | `08-feature-integration-status.md` | shipped / partial / orphaned per client surface; product decisions |
-| `09-follow-up-audit-2026-07-31.md` | F-30…F-53 with severity, evidence, and fix (same contracts as 07; IDs continue the register namespace) |
+| `09-follow-up-audit-2026-07-31.md` | F-30…F-53 with severity, evidence, and fix (same contracts as 07; IDs continue the register namespace), plus a **Post-audit entries** tail (F-54…) for IDs opened after this audit closed |
 
 ## Local Contracts
 

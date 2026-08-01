@@ -26,6 +26,9 @@ run_lint() {
   uv run ruff check .
   uv run ruff format --check .
   python3 scripts/generate-dashboard-tokens.py --check
+  # Anti-erosion gate (F-24/F-26 plan §1): the failover loop must stay
+  # surface-agnostic. Cheap, no imports, fails loudly.
+  python3 scripts/check-engine-erosion.py
 }
 
 # Non-blocking for now: basedpyright is configured in pyproject.toml but has

@@ -44,8 +44,12 @@ def _spy_schedules(service: Any) -> list[CandidateSchedule]:
     seen: list[CandidateSchedule] = []
     original = service.build_candidates
 
-    def spy(plan: Any, cloud_extra: Any) -> CandidateSchedule:
-        schedule = original(plan, cloud_extra)
+    # [Phase 9 / Seam S2] ``build_candidates`` grew a keyword-only
+    # ``fallback_tiers`` when the anthropic tier stopped being fetched by a
+    # ``plan.surface`` branch inside it. Forward *args/**kwargs so the spy
+    # cannot silently stop matching the signature again.
+    def spy(*args: Any, **kwargs: Any) -> CandidateSchedule:
+        schedule = original(*args, **kwargs)
         seen.append(schedule)
         return schedule
 

@@ -50,7 +50,7 @@
     "sse_frames": [
       [
         "event: message_start",
-        "data: {\"message\": {\"container\": null, \"content\": [], \"id\": \"<id>\", \"model\": \"served-a\", \"role\": \"assistant\", \"stop_details\": null, \"stop_reason\": null, \"stop_sequence\": null, \"type\": \"message\", \"usage\": {\"cache_creation\": null, \"cache_creation_input_tokens\": null, \"cache_read_input_tokens\": null, \"inference_geo\": null, \"input_tokens\": 3, \"output_tokens\": 1, \"output_tokens_details\": null, \"server_tool_use\": null, \"service_tier\": null}}, \"type\": \"message_start\"}"
+        "data: {\"message\": {\"container\": null, \"content\": [], \"id\": \"<id>\", \"model\": \"canon\", \"role\": \"assistant\", \"stop_details\": null, \"stop_reason\": null, \"stop_sequence\": null, \"type\": \"message\", \"usage\": {\"cache_creation\": null, \"cache_creation_input_tokens\": null, \"cache_read_input_tokens\": null, \"inference_geo\": null, \"input_tokens\": 3, \"output_tokens\": 1, \"output_tokens_details\": null, \"server_tool_use\": null, \"service_tier\": null}}, \"type\": \"message_start\"}"
       ],
       [
         "event: content_block_start",
@@ -92,7 +92,7 @@
     ]
   },
   "id": "naming-restore-messages-s-anthropic-arm",
-  "note": "Anthropic SSE dialect: no _restore_stream_model on M-S (D9). PHASE 4b [D10] makes the anthropic arm resolve the served id per backend, so message_start now carries 'served-a' where it used to carry 'canon'. This is CLIENT-VISIBLE and it is D9's hole, not a new one: M-S is the one surface with no restore step, so the moment the wire name stops being the canonical name the client sees the difference. Phase 7 [D9] adds the restore and this cell goes back to 'canon'.",
+  "note": "Anthropic SSE dialect. PHASE 4b [D10] made the anthropic arm resolve the served id per backend, so 'served-a' goes on the wire (upstream_calls still show it) and message_start briefly carried it too \u2014 M-S was the one surface with no restore step, so the moment the wire name stopped being the canonical name the client saw the difference. PHASE 7 [D9] adds the restore: message_start carries 'canon' again while the upstream call is unchanged. D10's cell did not move.",
   "request": {
     "body": {
       "max_tokens": 16,

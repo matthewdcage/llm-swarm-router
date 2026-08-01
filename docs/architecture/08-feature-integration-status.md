@@ -14,21 +14,34 @@ and endpoints.
 | ⬚ | Not exposed; the feature works but this surface cannot reach it |
 | — | Not applicable to that surface |
 
+## API surfaces (client-facing)
+
+Every row changed observably in the F-24/F-25/F-26 consolidation; the operator-facing
+detail is in [refactor/RELEASE-NOTES.md](refactor/RELEASE-NOTES.md).
+
+| Surface | Status | What changed for clients |
+|---------|--------|--------------------------|
+| `POST /v1/chat/completions` (± stream) | ✅ | `batch_shard` failover order and attempt count (D17). Streaming errors reach the client as a real HTTP status instead of 200 + aborted body. |
+| `POST /v1/responses` (± stream) | ✅ | Streamed Responses requests now record success telemetry — previously `routed_requests`, token counters and latency showed errors but never successes (D16). No wire change. |
+| `POST /v1/embeddings` | ✅ | **New 400 capability guard**: a chat-only model sent to `/v1/embeddings` is now rejected up front instead of burning the whole retry budget (D4). Shard context is now honoured (D5). |
+| `POST /v1/messages` (± stream) | ✅ | Upstream 400/404 from a translated OpenAI-format backend is forwarded instead of flattened to 502 (D11). Streamed responses restore the requested model name on `message_start`, and a mid-stream error frame now has its `message_stop` terminator (D9). Shard context is now honoured (D5). |
+| `GET /netllm/v1/telemetry` | ✅ | `docs/telemetry-api.md` is normative and CI-gated; the previously-undocumented `subscribers` key is now documented (F-49). |
+
 ## Routing engine
 
 | Feature | Engine | CLI | Dashboard | macOS app | Notes |
 |---------|--------|-----|-----------|-----------|-------|
 | 8 routing strategies | ✅ | ✅ | ✅ | ✅ | |
 | Per-request headers (`x-netllm-strategy`, `-backend`, `-local-only`, `-hops`) | ✅ | — | — | — | Protocol-level; documented in `routing-hardening-plan.md` |
-| Failover with per-request exclusion | ✅ | — | — | — | |
+| Failover with per-request exclusion | ✅ | — | — | — | One engine loop for every surface; retry budget is `CandidateSchedule.max_attempts` (F-24 fixed, `a4c8893`…HEAD) |
 | Capacity-error classification (409/429/503/507 + body markers) | ✅ | — | — | — | Surfaced as `capacity_rejections` in status |
-| `routing.model_aliases` | ✅ | ⬚ | ✅ | ✅ | No CLI command; edit via config or a UI |
-| `routing.model_pools` | ✅ | ⬚ | ✅ | ✅ | Config-only when the plan was written; both UIs now render it |
+| `routing.model_aliases` | ✅ | ⬚ | ✅ | ✅ | No CLI command; edit via config or a UI. Matched by the single `ModelResolver` walk (F-25 fixed) |
+| `routing.model_pools` | ✅ | ⬚ | ✅ | ✅ | Config-only when the plan was written; both UIs now render it. Parses into `ModelGroup`; the invoked upstream name is now always one the backend advertises (D18 — see [refactor/RELEASE-NOTES.md](refactor/RELEASE-NOTES.md)) |
 | `routing.policies` | ✅ | ⬚ | ✅ | ✅ | `source` scope survives a save (F-01 fixed, `6a5d190`) |
 | `routing.backends` overrides | ✅ | ⬚ | ✅ | ✅ | `max_concurrency` persists and hot-applies (F-01/F-05 fixed, `6a5d190`) |
 | `follow_gateway` strategy adoption | ✅ | ⬚ | ✅ | ✅ | Runtime-only, never persisted |
 | Batch sharding (`batch_shard`, HRW/modulo) | ✅ | — | — | — | Header/`user`/`metadata` driven; `shardless_fallbacks` counter surfaces misuse |
-| `model_groups` (weights, prefer, batch eligibility) | ⬚ | ⬚ | ⬚ | ⬚ | **Not built.** Sketched in `routing-hardening-plan.md` Phase 4 |
+| `model_groups` (weights, prefer, batch eligibility) | ⬚ | ⬚ | ⬚ | ⬚ | **Not built** as config. The internal `ModelGroup` representation exists and `model_pools` parses into it, so adding `routing.model_groups` is a second *parser*, not a second mechanism (F-25) |
 
 ## Source identity and per-caller routing
 
@@ -102,7 +115,7 @@ deferred to Phase 5 and never closed.
 | Feature | Engine | CLI | Dashboard | macOS app | Notes |
 |---------|--------|-----|-----------|-----------|-------|
 | Prometheus `/metrics` (7 collectors) | ✅ | — | — | — | Requests, latency, health, in-flight, source, scenario, token counters |
-| Router session + all-time telemetry | ✅ | ⬚ | ✅ | ✅ | Debounced persistence (F-09 fixed, `3b6ec71`) |
+| Router session + all-time telemetry | ✅ | ⬚ | ✅ | ✅ | Debounced persistence (F-09 fixed, `3b6ec71`). `docs/telemetry-api.md` is normative and the emitted key set is gated by `tests/contract/test_telemetry_contract.py`; clients read `total_tokens`, never re-derive it (F-49 contract slice fixed) |
 | oMLX deep telemetry (stats, activity, loaded models) | ✅ | ⬚ | ✅ | ✅ | Only provider with this depth |
 | Host CPU/memory block | ✅ | — | ✅ | ✅ | `psutil` is a declared dependency (F-10 fixed, `bb3eae0`) |
 | Per-backend `routed_requests` counters | ✅ | ✅ | ✅ | ◐ | Answers "peer discovered but idle" |
@@ -134,7 +147,7 @@ procedure — this is a credentials and release-process task, not engineering wo
 | Plan | Stated status | Verified reality |
 |------|--------------|------------------|
 | `routing-hardening-plan.md` Phases 1–3, 5 | done | ✅ genuinely implemented |
-| `routing-hardening-plan.md` Phase 4 — `model_groups` | "still future work" | ✅ accurate; `model_pools` shipped as the simpler half |
+| `routing-hardening-plan.md` Phase 4 — `model_groups` | "still future work" | ✅ accurate as *config*; since the F-25 consolidation `model_pools` parses into the internal `ModelGroup`, so the "fold, don't coexist" requirement is already satisfied at the data-model level |
 | `routing-hardening-plan.md` — `require_same_model_for_shard` | Phase 1 says "now actually wired in"; Phase 5 says the planner was deleted and the field "is a no-op again" | ⚠️ **self-contradictory** — the Phase 1 bullet was never struck through. `config.example.toml` and `packages/netllm-core/AGENTS.md` both correctly say deprecated. Fixed 2026-07-29 (F-17) |
 | `config-schema-rewrite-plan.md` Phases 1–5 | "done, with two scope limits" | ✅ accurate; the limits are real and still cost (F-21) |
 | `models-ux-plan.md` A + B1–B3 | delivered (macOS) | ✅ |

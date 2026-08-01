@@ -8,7 +8,10 @@ FastAPI agent daemon: OpenAI-compatible `/v1/*` (chat, models, embeddings), Anth
 
 ## Ownership
 
-Key modules: `app.py`, `service.py`, `admin.py`, `metrics.py`, `shard.py`. Static UI: `static/` (HTML, JS, CSS, tokens).
+Key modules: `app.py`, `service/` (the `AgentService` mixin composition: `engine.py` is the
+only failover loop, `surfaces/` the per-surface adapters, `accounting.py` the only accounting
+writer), `admin.py`, `metrics.py`, `shard.py`, `request_plan.py`, `candidates.py`,
+`taxonomy.py`, `errors.py`. Static UI: `static/` (HTML, JS, CSS, tokens).
 
 ## Local Contracts
 

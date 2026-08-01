@@ -185,12 +185,17 @@ function routerScopeBlock(title, scope) {
     card.appendChild(textEl("p", "muted-sm", "No data yet — routed chat/embeddings increment these counters."));
     return card;
   }
+  // docs/telemetry-api.md is normative (F-49): the router always emits every
+  // key of the scope block, `total_tokens` included. Do not re-derive or
+  // fall back to an alternate key here — a missing key is a server bug that
+  // tests/contract/test_telemetry_contract.py is there to catch, and a silent
+  // client-side sum only hides it.
   const grid = el("div", "metrics");
   const rows = [
-    ["Requests", formatCompactCount(scope.requests ?? 0)],
-    ["Prompt tokens", formatCompactCount(scope.prompt_tokens ?? 0)],
-    ["Completion tokens", formatCompactCount(scope.completion_tokens ?? 0)],
-    ["Total tokens", formatCompactCount(scope.total_tokens ?? (scope.prompt_tokens || 0) + (scope.completion_tokens || 0))],
+    ["Requests", formatCompactCount(scope.requests)],
+    ["Prompt tokens", formatCompactCount(scope.prompt_tokens)],
+    ["Completion tokens", formatCompactCount(scope.completion_tokens)],
+    ["Total tokens", formatCompactCount(scope.total_tokens)],
     ["Avg prefill", formatTps(scope.avg_prefill_tps)],
     ["Avg generation", formatTps(scope.avg_generation_tps)],
   ];
@@ -737,7 +742,10 @@ function servingScopeBlock(title, scope) {
   }
   const grid = el("div", "metrics");
   const rows = [
-    ["Total tokens", formatCompactCount(scope.total_tokens ?? scope.prompt_tokens + scope.completion_tokens)],
+    // The router normalizes the oMLX admin payload
+    // (netllm_discovery.local._normalize_omlx_stats_scope), so `total_tokens`
+    // is server-computed here too — see docs/telemetry-api.md (F-49).
+    ["Total tokens", formatCompactCount(scope.total_tokens)],
     ["Cached tokens", formatCompactCount(scope.total_cached_tokens)],
     ["Cache efficiency", scope.cache_efficiency_pct != null ? `${scope.cache_efficiency_pct}%` : "—"],
     ["Avg PP speed", formatTps(scope.avg_prefill_tps)],

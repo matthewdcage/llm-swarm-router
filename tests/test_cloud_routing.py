@@ -368,7 +368,7 @@ def client_factory():
     return _make
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
 def test_registry_provider_serves_chat_completion(
     mock_openai_cls: MagicMock,
@@ -407,7 +407,7 @@ def test_registry_provider_serves_chat_completion(
     assert resp.json()["choices"][0]["message"]["content"] == "kimi reply"
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 def test_cloud_disabled_master_switch_returns_no_backend_error(
     mock_scan: AsyncMock, client_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -424,7 +424,7 @@ def test_cloud_disabled_master_switch_returns_no_backend_error(
     assert resp.status_code == 502
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
 def test_fallback_local_prefers_cloud_over_local_mesh(
     mock_openai_cls: MagicMock,

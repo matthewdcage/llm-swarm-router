@@ -48,6 +48,7 @@ dev = [
     "httpx>=0.28",
     "venvstacks>=0.5",
     "pre-commit>=4.0",
+    "hypothesis>=6.100",
 ]
 
 [tool.pytest.ini_options]

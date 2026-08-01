@@ -98,7 +98,6 @@ SERVICE_INVENTORY: dict[str, str] = {
     "AgentService._reject_non_chat_model": "policy.py",
     "AgentService._reject_non_chat_messages_model": "policy.py",
     "AgentService._restore_sse_line_model": "proxy.py",
-    "AgentService._restore_stream_model": "proxy.py",
     # Cluster G -> service/policy.py
     "AgentService._resolved_routing": "policy.py",
     "AgentService._attribute_source": "policy.py",
@@ -118,7 +117,6 @@ SERVICE_INVENTORY: dict[str, str] = {
     "AgentService.proxy_responses": "proxy.py",
     "AgentService.proxy_responses_stream": "proxy.py",
     "AgentService.proxy_embeddings": "proxy.py",
-    "AgentService._stream_with_metrics": "proxy.py",
     # Cluster J -> service/cloud.py
     "AgentService._anthropic_api_key": "cloud.py",
     "AgentService._openai_api_key": "cloud.py",
@@ -162,16 +160,15 @@ SERVICE_PLAN.update(
         "AgentService._mark_backend_failure": "accounting.py",
         "AgentService._exhausted": "surfaces/base.py",
         "AgentService._update_health_metrics": "status.py",
-        "AgentService._stream_with_metrics": "engine.py",
         "AgentService._restore_sse_line_model": "surfaces/base.py",
-        "AgentService._restore_stream_model": "surfaces/base.py",
         "AgentService.proxy_chat_completion": "surfaces/chat.py",
         "AgentService.proxy_chat_completion_stream": "surfaces/chat.py",
         "AgentService.proxy_responses": "surfaces/responses.py",
         "AgentService.proxy_responses_stream": "surfaces/responses.py",
         "AgentService.proxy_embeddings": "surfaces/embeddings.py",
         "AgentService._anthropic_fallback_backends": "surfaces/messages.py",
-        "AgentService._messages_attempt": "surfaces/messages.py",
+        # `_messages_attempt` was deleted in Phase 6 — engine._run_attempt
+        # runs that cycle for every non-streaming surface now.
         "AgentService.proxy_messages": "surfaces/messages.py",
         "AgentService.proxy_messages_stream": "surfaces/messages.py",
         "AgentService._messages_on_backend": "surfaces/messages.py",
@@ -199,6 +196,9 @@ SERVICE_PLAN.update(
         "AttemptRecorder.failure": "accounting.py",
         "AttemptRecorder.success": "accounting.py",
         "AttemptRecorder.success_from_result": "accounting.py",
+        # Phase 6: the engine's handle on the recorder, so engine.py never
+        # imports back into service.py (the service <-> engine cycle).
+        "AgentService.new_attempt_recorder": "accounting.py",
     }
 )
 

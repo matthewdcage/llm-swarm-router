@@ -67,11 +67,14 @@ _ACCOUNTING_PREFIXES = (
 )
 _TOKEN_PREFIXES = ("netllm_prompt_tokens_total", "netllm_completion_tokens_total")
 
-# D16 (behavior-matrix.md): the Responses bridge breaks out of the chat
-# stream at data:[DONE], abandoning the generator before the post-loop
-# success accounting runs. Excluded from the success-parity comparison and
-# pinned by its own test instead.
-_D16_PATHS = frozenset({"responses_s"})
+# [D16] RESOLVED in Phase 7. The Responses bridge still breaks out of the
+# chat stream at data:[DONE] — that is the bridge's business — but the
+# accounting no longer sits behind that chunk: engine.StreamSession settles
+# the attempt one chunk ahead, so abandoning the generator cannot strand it.
+# RESP-S therefore joins the success-parity comparison; the set is empty and
+# kept only so a future exclusion has to be spelled out rather than smuggled
+# into the loop.
+_D16_PATHS: frozenset[str] = frozenset()
 
 
 def _scenario(alpha: list[dict], beta: list[dict]) -> dict[str, Any]:
@@ -165,8 +168,8 @@ def test_token_counter_differences_are_wire_content_only(contract_env) -> None:
         "emb": {emb_prompt_key: 3.0},
         # The OpenAI->Anthropic stream bridge drops input_tokens.
         "messages_s": {completion_key: 5.0},
-        # D16: no success accounting whatsoever.
-        "responses_s": {},
+        # [D16] Phase 7: RESP-S records exactly what C-S records.
+        "responses_s": {prompt_key: 3.0, completion_key: 5.0},
     }
     for path, run in runs.items():
         assert _subset(run["delta"]["metrics"], _TOKEN_PREFIXES) == expected[path], (
@@ -176,20 +179,29 @@ def test_token_counter_differences_are_wire_content_only(contract_env) -> None:
         )
 
 
-def test_responses_stream_success_accounting_hole_is_pinned(contract_env) -> None:
-    """D16 pin: RESP-S still records nothing on success. When a later phase
-    fixes the bridge this test fails and RESP-S joins the parity set."""
+def test_responses_stream_success_accounting_matches_chat_stream(
+    contract_env,
+) -> None:
+    """[D16] The former hole, inverted into a pin on the fix.
+
+    RESP-S is C-S plus an edge translation, so its accounting must be C-S's
+    exactly — same routed_counts shape, same request_count, same tokens,
+    same ok-counter. This used to be the one path where all of that was
+    empty on a successful request."""
     runs = _drive_all(contract_env, [http(500)], [ok()])
-    delta = runs["responses_s"]["delta"]
+    resp, chat = runs["responses_s"]["delta"], runs["chat_s"]["delta"]
     assert runs["responses_s"]["status"] == 200
-    assert delta["pool"]["routed_counts"] == {}
-    assert delta["admission"]["request_count"] == 0
-    assert _subset(delta["metrics"], _TOKEN_PREFIXES) == {}
-    ok_keys = [k for k in delta["metrics"] if "status=ok" in k]
-    assert ok_keys == []
-    # The failure half is intact even on this path.
+    assert resp["pool"]["routed_counts"] == chat["pool"]["routed_counts"] != {}
+    assert resp["admission"]["request_count"] == chat["admission"]["request_count"] == 1
+    assert _subset(resp["metrics"], _TOKEN_PREFIXES) == _subset(
+        chat["metrics"], _TOKEN_PREFIXES
+    )
+    assert [k for k in resp["metrics"] if "status=ok" in k] == [
+        k for k in chat["metrics"] if "status=ok" in k
+    ]
+    # The failure half was never the broken one, and still is not.
     assert (
-        delta["metrics"][
+        resp["metrics"][
             f"netllm_requests_total{{backend={_ALPHA},model=farm-chat,status=error}}"
         ]
         == 1.0

@@ -29,7 +29,7 @@ def _quiet_config() -> NetllmConfig:
     return cfg
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_core.pool.probe_openai_compat_sync")
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
 def test_embeddings_routes_to_serving_backend(
@@ -69,7 +69,7 @@ def test_embeddings_routes_to_serving_backend(
     assert sent and sent[0]["model"] == "nomic-embed-text"
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_core.pool.probe_openai_compat_sync")
 def test_embeddings_unknown_model_404_lists_embedding_models(
     mock_probe: MagicMock,
@@ -95,7 +95,7 @@ def test_embeddings_unknown_model_404_lists_embedding_models(
     assert "nomic-embed-text" in detail
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_core.pool.probe_openai_compat_sync")
 def test_embeddings_request_to_chat_model_is_rejected_400(
     mock_probe: MagicMock,
@@ -121,7 +121,7 @@ def test_embeddings_request_to_chat_model_is_rejected_400(
     assert "/v1/chat/completions" in detail
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_core.pool.probe_openai_compat_sync")
 def test_chat_request_to_embedding_model_is_rejected_400(
     mock_probe: MagicMock,
@@ -145,7 +145,7 @@ def test_chat_request_to_embedding_model_is_rejected_400(
     assert "/v1/embeddings" in detail
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_core.pool.probe_openai_compat_sync")
 def test_messages_request_to_embedding_model_is_rejected_400(
     mock_probe: MagicMock,
@@ -166,7 +166,7 @@ def test_messages_request_to_embedding_model_is_rejected_400(
     assert resp.status_code == 400
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_core.pool.probe_openai_compat_sync")
 def test_models_list_includes_capability(
     mock_probe: MagicMock,

@@ -4,7 +4,7 @@
   ],
   "expected": {
     "admission_delta": {
-      "request_count": 0,
+      "request_count": 1,
       "scenario_counts": {
         "default:default": 1
       },
@@ -19,6 +19,10 @@
     "body_shape": null,
     "metrics_delta": {
       "counters": {
+        "netllm_completion_tokens_total{backend=http://alpha.farm/v1,model=farm-chat}": 5.0,
+        "netllm_prompt_tokens_total{backend=http://alpha.farm/v1,model=farm-chat}": 3.0,
+        "netllm_request_latency_seconds_count{backend=http://alpha.farm/v1}": 1.0,
+        "netllm_requests_total{backend=http://alpha.farm/v1,model=farm-chat,status=ok}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
       },
@@ -38,7 +42,9 @@
       "latency_ema_changed": {
         "http://alpha.farm/v1": "<ema>"
       },
-      "routed_counts": {}
+      "routed_counts": {
+        "817df768-a998-5ed5-b113-1689b0222b1b": 1
+      }
     },
     "sse_frames": [
       [
@@ -92,7 +98,7 @@
     ]
   },
   "id": "stream-usage-chunk-parsed-responses-s",
-  "note": "[D16] usage IS parsed below the Responses translation, but none of it is ever recorded: the bridge breaks out of the chat stream at data:[DONE], so _stream_with_metrics' post-loop success accounting never runs. RESP-S telemetry is therefore EMPTY where C-S records mark_success, ok-REQUESTS_TOTAL, latency, tokens and _request_count",
+  "note": "[D16] Phase 7: the usage parsed below the Responses translation now reaches telemetry. StreamSession settles the attempt BEFORE handing on the chunk the bridge breaks at, so abandoning the generator at data:[DONE] can no longer strand mark_success, ok-REQUESTS_TOTAL, latency, tokens or _request_count. RESP-S is at C-S parity",
   "request": {
     "body": {
       "input": "hi",
