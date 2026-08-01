@@ -483,6 +483,44 @@ modules broadly, and keep `netllm_core/__init__.py`'s public re-exports
 (`NetllmConfig`, `load_config`, `save_config`) which are a package API, not a
 shim.
 
+## F-56 · Divergence lint launders renames: content and annotation changes inside a rename are invisible
+
+**Severity** S3 · **Area** contract-test tooling · **Verdict** CONFIRMED (final merge-readiness verifier, 2026-08-01)
+
+`tests/contract/test_divergence_lint.py` keys vectors on their repo-relative path
+and treats any path absent from `HEAD` as a new baseline recording, which passes
+unconditionally. A rename therefore enters the lint as a new file, so **both**
+content changes and divergence-annotation *removals* made in the same change are
+structurally invisible to the gate.
+
+Exercised on this branch: `chain-attempt-cap-with-cloud-extra.json` →
+`chain-cloud-extra-not-candidate-for-model.json` also dropped its `["D7"]`
+annotation. The verifier diffed it and confirmed the expectations are
+byte-identical apart from `id` and `divergence`, so nothing is hidden in this
+instance and the retitle is defensible — but the gate could not have established
+that on its own.
+
+**Fix:** detect renames (git similarity, or a stable `id` field carried inside the
+vector) and hold a renamed vector to the same content and annotation comparison
+as an in-place edit.
+
+## F-57 · Capability guard reports the post-rewrite model name, leaking internal ids
+
+**Severity** S3 · **Area** request path / naming · **Verdict** CONFIRMED (independently reproduced)
+
+The capability guard runs after the source `model_rewrites` and scenario-model
+chain, so a rejection echoes the *rewritten* upstream id rather than the name the
+caller sent. An operator whose rewrite maps a public name onto an internal one
+sees that internal id in the 400 body.
+
+Pre-existing — not introduced by the F-24/F-26 consolidation, and deliberately
+not fixed there because that work ran under a byte-identical vector gate and this
+is a behavior change. Until now it was described only under "Known issue" in
+[refactor/RELEASE-NOTES.md](refactor/RELEASE-NOTES.md).
+
+**Fix:** guard on (or report) the requested name; add a vector pinning the model
+field of the 400 body.
+
 ---
 
 ## Status verifications (informational, no action)
