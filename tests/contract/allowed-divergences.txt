@@ -2,39 +2,6 @@
 # commit/PR (behavior-matrix.md D1-D16). Empty = no checked-in vector may
 # differ from git HEAD; mechanical phases keep it empty, a semantic phase
 # adds exactly the IDs it declares (e.g. "D2") and removes them on merge.
+# HARNESS-RERECORD declares a canonicalizer-only re-record; it composes with
+# IDs per vector and is re-proved by the lint, not trusted.
 # One ID per line; '#' starts a comment.
-#
-# HARNESS-RERECORD (the canonicalizer's latency/EMA volatility re-record) is
-# gone: that re-record already landed in HEAD, and the flag is whole-corpus —
-# while declared, it forbids ANY non-volatile vector change, including the
-# real ones below.
-
-# Phase 0 gate remediation (adversarial-verifier blockers 1 and 3).
-#
-# D9 / D11: three vectors stood up an openai-format farm serving `farm-chat`
-# while the request asked for `claude-farm` with no alias between them, so
-# they recorded a keyless 401 with zero upstream calls instead of the D9
-# translated-arm / D11 flattening behavior their notes claimed.
-# routing.model_aliases now bridges the two names and they are re-recorded
-# against reality:
-#   stream-midstream-drop-messages-s-translated-arm            (D9)
-#   errors-envelope-anthropic-502-openai-flattened-messages-ns (D11)
-#   errors-prestream-502-openai-flattened-messages-s           (D11)
-# D11 also covers the note added to the two intentional keyless-401 vectors
-# (exhaust-unknown-model-messages-ns/-s) — that note is how they declare
-# themselves to the anti-collapse guard.
-#
-# D16: newly registered in behavior-matrix.md — the RESP-S stream path
-# records no mark_success / ok-REQUESTS_TOTAL / request_count. The five
-# responses_s 200-vectors move from divergence [] to ["D16"]; their recorded
-# expectations are unchanged.
-D9
-D11
-D16
-
-# Harness re-record (composes per-vector with the IDs above): probe.py stopped
-# recording netllm_request_latency_seconds_sum. Windows' ~15.6ms timer makes an
-# in-process farm call measure 0.0s, and a zero delta is dropped, so the key was
-# present on some machines and absent on others. The paired _count still pins
-# that the observation happened. Remove after merge.
-HARNESS-RERECORD
