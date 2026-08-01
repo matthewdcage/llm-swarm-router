@@ -12,22 +12,18 @@
       "source_counts": {
         "default": 1
       },
-      "source_in_flight": {
-        "default": 0
-      }
+      "source_in_flight": {}
     },
     "body_shape": {
       "error": {
         "code": null,
-        "message": "Error code: 500 - {'error': {'message': 'farm scripted HTTP 500', 'type': 'farm_error', 'param': None, 'code': None}}",
+        "message": "Model 'farm-chat' (capability: chat) cannot serve embeddings. Use POST /v1/chat/completions for chat models.",
         "param": null,
-        "type": "api_error"
+        "type": "invalid_request_error"
       }
     },
     "metrics_delta": {
       "counters": {
-        "netllm_requests_total{backend=http://alpha.farm/v1,model=farm-chat,status=error}": 1.0,
-        "netllm_requests_total{backend=http://beta.farm/v1,model=farm-chat,status=error}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
       },
@@ -55,30 +51,11 @@
       "routed_counts": {}
     },
     "sse_frames": null,
-    "status": 502,
-    "upstream_calls": [
-      {
-        "backend": "alpha",
-        "headers": {
-          "authorization": "Bearer farm-key"
-        },
-        "method": "POST",
-        "model": "farm-chat",
-        "path": "/v1/embeddings"
-      },
-      {
-        "backend": "beta",
-        "headers": {
-          "authorization": "Bearer farm-key"
-        },
-        "method": "POST",
-        "model": "farm-chat",
-        "path": "/v1/embeddings"
-      }
-    ]
+    "status": 400,
+    "upstream_calls": []
   },
   "id": "guards-emb-chat-model-burns-retry-budget",
-  "note": "the concrete cost of the missing guard: the whole retry budget is spent on a model that can never embed",
+  "note": "BASELINE: the concrete cost of the missing guard \u2014 the whole retry budget spent on a model that can never embed, ending in a 502. PHASE 4c [D4]: rejected before the loop, upstream_calls == [] and both backends untouched. This vector is the reason the guard exists.",
   "request": {
     "body": {
       "input": "hi",

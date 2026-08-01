@@ -1,7 +1,5 @@
 {
-  "divergence": [
-    "D4"
-  ],
+  "divergence": [],
   "expected": {
     "admission_delta": {
       "request_count": 0,
@@ -12,18 +10,21 @@
       "source_counts": {
         "default": 1
       },
-      "source_in_flight": {}
+      "source_in_flight": {
+        "default": 0
+      }
     },
     "body_shape": {
       "error": {
         "code": null,
-        "message": "Model 'farm-chat' (capability: chat) cannot serve embeddings. Use POST /v1/chat/completions for chat models.",
+        "message": "Error code: 500 - {'error': {'message': 'farm scripted HTTP 500', 'type': 'farm_error', 'param': None, 'code': None}}",
         "param": null,
-        "type": "invalid_request_error"
+        "type": "api_error"
       }
     },
     "metrics_delta": {
       "counters": {
+        "netllm_requests_total{backend=http://alpha.farm/v1,model=farm-chat,status=error}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
       },
@@ -46,27 +47,55 @@
       "routed_counts": {}
     },
     "sse_frames": null,
-    "status": 400,
-    "upstream_calls": []
+    "status": 502,
+    "upstream_calls": [
+      {
+        "backend": "alpha",
+        "headers": {
+          "authorization": "Bearer farm-key"
+        },
+        "method": "POST",
+        "model": "farm-chat",
+        "path": "/v1/chat/completions"
+      }
+    ]
   },
-  "id": "guards-emb-chat-model-unguarded",
-  "note": "BASELINE: no capability guard on /v1/embeddings \u2014 a chat model routed and got a 200 full of nonsense. PHASE 4c [D4]: the guard is a plan step on every surface now, so this is an OpenAI-typed 400 with zero upstream calls, source counted but never admitted \u2014 the same shape the chat and Messages guards have always produced.",
+  "id": "chain-cloud-extra-not-candidate-for-model",
   "request": {
     "body": {
-      "input": "hi",
+      "messages": [
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
       "model": "farm-chat"
     },
-    "path": "emb"
+    "headers": {
+      "authorization": "Bearer sk-farm-cloud"
+    },
+    "path": "chat_ns"
   },
   "scenario": {
     "backends": [
       {
+        "api_format": "openai",
+        "local": true,
         "models": [
-          "farm-chat",
-          "bge-m3"
+          "farm-chat"
         ],
-        "name": "alpha"
+        "name": "alpha",
+        "scan_visible": true,
+        "script": [
+          {
+            "behavior": "http",
+            "status": 500
+          }
+        ]
       }
-    ]
+    ],
+    "routing": {
+      "default_strategy": "failover"
+    }
   }
 }

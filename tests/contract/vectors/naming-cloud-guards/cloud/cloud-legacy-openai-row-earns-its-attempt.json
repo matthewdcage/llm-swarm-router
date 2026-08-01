@@ -1,0 +1,154 @@
+{
+  "divergence": [
+    "D6",
+    "D7"
+  ],
+  "expected": {
+    "admission_delta": {
+      "request_count": 1,
+      "scenario_counts": {
+        "default:default": 1
+      },
+      "shardless_fallbacks": 0,
+      "source_counts": {
+        "default": 1
+      },
+      "source_in_flight": {
+        "default": 0
+      }
+    },
+    "body_shape": {
+      "choices": [
+        {
+          "finish_reason": "stop",
+          "index": 0,
+          "logprobs": null,
+          "message": {
+            "annotations": null,
+            "audio": null,
+            "content": "farm reply",
+            "function_call": null,
+            "refusal": null,
+            "role": "assistant",
+            "tool_calls": null
+          }
+        }
+      ],
+      "created": "<ts>",
+      "id": "<id>",
+      "model": "farm-chat",
+      "moderation": null,
+      "object": "chat.completion",
+      "service_tier": null,
+      "system_fingerprint": null,
+      "usage": {
+        "completion_tokens": 5,
+        "completion_tokens_details": null,
+        "prompt_tokens": 3,
+        "prompt_tokens_details": null,
+        "total_tokens": 8
+      }
+    },
+    "metrics_delta": {
+      "counters": {
+        "netllm_completion_tokens_total{backend=https://api.openai.com/v1,model=farm-chat}": 5.0,
+        "netllm_prompt_tokens_total{backend=https://api.openai.com/v1,model=farm-chat}": 3.0,
+        "netllm_request_latency_seconds_count{backend=https://api.openai.com/v1}": 1.0,
+        "netllm_requests_total{backend=http://alpha.farm/v1,model=farm-chat,status=error}": 1.0,
+        "netllm_requests_total{backend=https://api.openai.com/v1,model=farm-chat,status=ok}": 1.0,
+        "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
+        "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
+      },
+      "gauges": {
+        "netllm_backend_healthy{backend=http://alpha.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://alpha.farm/v1}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://alpha.farm/v1": "online"
+      },
+      "in_flight": {
+        "http://alpha.farm/v1": 0
+      },
+      "latency_ema_changed": {
+        "http://alpha.farm/v1": "<ema>"
+      },
+      "routed_counts": {
+        "openai-cloud": 1
+      }
+    },
+    "sse_frames": null,
+    "status": 200,
+    "upstream_calls": [
+      {
+        "backend": "alpha",
+        "headers": {
+          "authorization": "Bearer farm-key"
+        },
+        "method": "POST",
+        "model": "farm-chat",
+        "path": "/v1/chat/completions"
+      },
+      {
+        "backend": "oaicloud",
+        "headers": {
+          "authorization": "Bearer sk-caller-key"
+        },
+        "method": "POST",
+        "model": "farm-chat",
+        "path": "/v1/chat/completions"
+      }
+    ]
+  },
+  "id": "cloud-legacy-openai-row-earns-its-attempt",
+  "note": "[D7] the attempt cap used to be max(len(pool.backends), 1) = 1, so the injected legacy cloud row could never be tried after the one pool row failed \u2014 the request-scoped candidate was counted by selection but not by the budget. max_attempts is now the sum over the schedule (1 pool row + 1 extra_candidate = 2), so attempt 2 reaches the cloud row and it serves the request. Note the wire evidence: the second call carries the CALLER's key (Bearer sk-caller-key), not the farm key \u2014 it really is the legacy request-scoped row (F-04), not a pool row.",
+  "request": {
+    "body": {
+      "messages": [
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "model": "farm-chat"
+    },
+    "headers": {
+      "authorization": "Bearer sk-caller-key"
+    },
+    "path": "chat_ns"
+  },
+  "scenario": {
+    "backends": [
+      {
+        "models": [
+          "farm-chat"
+        ],
+        "name": "alpha",
+        "script": [
+          {
+            "behavior": "http",
+            "status": 500
+          }
+        ]
+      },
+      {
+        "configured": false,
+        "local": false,
+        "models": [
+          "farm-chat"
+        ],
+        "name": "oaicloud",
+        "url": "https://api.openai.com/v1"
+      }
+    ],
+    "cloud": {
+      "enabled": true,
+      "fallback": "cloud"
+    },
+    "routing": {
+      "default_strategy": "failover"
+    }
+  }
+}

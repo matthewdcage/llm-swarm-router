@@ -1,6 +1,6 @@
 {
   "divergence": [
-    "D7"
+    "D11"
   ],
   "expected": {
     "admission_delta": {
@@ -18,15 +18,14 @@
     },
     "body_shape": {
       "error": {
-        "code": null,
-        "message": "Error code: 500 - {'error': {'message': 'farm scripted HTTP 500', 'type': 'farm_error', 'param': None, 'code': None}}",
-        "param": null,
-        "type": "api_error"
-      }
+        "message": "Error code: 400 - {'error': {'message': 'farm scripted HTTP 400', 'type': 'farm_error', 'param': None, 'code': None}}",
+        "type": "invalid_request_error"
+      },
+      "type": "error"
     },
     "metrics_delta": {
       "counters": {
-        "netllm_requests_total{backend=http://alpha.farm/v1,model=farm-chat,status=error}": 1.0,
+        "netllm_requests_total{backend=http://alpha.farm/v1,model=claude-farm,status=error}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
       },
@@ -49,7 +48,7 @@
       "routed_counts": {}
     },
     "sse_frames": null,
-    "status": 502,
+    "status": 400,
     "upstream_calls": [
       {
         "backend": "alpha",
@@ -62,42 +61,45 @@
       }
     ]
   },
-  "id": "chain-attempt-cap-with-cloud-extra",
+  "id": "errors-messages-ns-upstream-400-forwarded",
+  "note": "[D11] upstream 400 from a translated (openai-format) backend on /v1/messages: forwarded like every OpenAI surface does, not flattened to 502; body stays Anthropic-shaped",
   "request": {
     "body": {
+      "max_tokens": 16,
       "messages": [
         {
           "content": "hi",
           "role": "user"
         }
       ],
-      "model": "farm-chat"
+      "model": "claude-farm"
     },
-    "headers": {
-      "authorization": "Bearer sk-farm-cloud"
-    },
-    "path": "chat_ns"
+    "headers": {},
+    "path": "messages_ns"
   },
   "scenario": {
     "backends": [
       {
         "api_format": "openai",
-        "local": true,
         "models": [
           "farm-chat"
         ],
         "name": "alpha",
-        "scan_visible": true,
         "script": [
           {
             "behavior": "http",
-            "status": 500
+            "status": 400
           }
         ]
       }
     ],
     "routing": {
-      "default_strategy": "failover"
+      "default_strategy": "failover",
+      "model_aliases": {
+        "claude-farm": [
+          "farm-chat"
+        ]
+      }
     }
   }
 }

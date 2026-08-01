@@ -64,6 +64,7 @@ from anticollapse import (
 )
 from canonical import canonicalize_result
 from drivers import contract_environment
+from netllm_core.models import OPENAI_CLOUD_BASE_URL
 
 GROUP_DIR = Path(__file__).resolve().parent / "vectors" / "naming-cloud-guards"
 RECORD = os.environ.get("NETLLM_VECTOR_RECORD") == "1"
@@ -276,6 +277,42 @@ def _naming() -> list[tuple[str, dict[str, Any]]]:
         )
     )
 
+    out.append(
+        vector(
+            g,
+            "naming-cross-alias-retry-messages-ns",
+            scenario={
+                "backends": [
+                    _backend(
+                        "ant",
+                        ["served-a"],
+                        api_format="anthropic",
+                        script=_fail(503),
+                    ),
+                    _backend("ant2", ["served-b"], api_format="anthropic"),
+                ],
+                "routing": {
+                    "model_aliases": {"canon": ["served-a", "served-b"]},
+                    "default_strategy": "failover",
+                },
+            },
+            request={
+                "path": "messages_ns",
+                "headers": {"x-api-key": "caller"},
+                "body": _msg("canon"),
+            },
+            divergence=["D10"],
+            note=(
+                "THE D10 vector. One canonical name, two anthropic-format "
+                "backends serving it under DIFFERENT ids. Attempt 1 (ant) must "
+                "carry 'served-a' and attempt 2 (ant2) 'served-b'. Under the "
+                "old up-front payload mutation both attempts carried the same "
+                "name, so the retry asked ant2 for a model it does not serve. "
+                "The response body reports 'canon' either way."
+            ),
+        )
+    )
+
     # -- requested-name restore across every response shape ------------------
     alias_openai = {
         "backends": [_backend("alpha", ["served-a"])],
@@ -328,13 +365,19 @@ def _naming() -> list[tuple[str, dict[str, Any]]]:
             "naming-restore-messages-ns-translated",
             scenario=alias_openai,
             request={"path": "messages_ns", "body": _msg("canon")},
+            divergence=["D10"],
             note=(
-                "M-NS via the openai translation arm: the response body reports "
-                "the UPSTREAM served id (served-a), not the requested name. "
-                "openai_to_anthropic_response prefers payload['model'], and the "
-                "_messages_attempt restore only fires when requested_model != the "
-                "canonical model — which it is not here. Not a listed D-number; "
-                "the matrix records M-NS restore as present."
+                "M-NS via the openai translation arm. BASELINE: the response "
+                "body reported the UPSTREAM served id (served-a), not the "
+                "requested name — openai_to_anthropic_response prefers "
+                "payload['model'], and the _messages_attempt restore only "
+                "fired when requested_model != the canonical model, which it "
+                "is not here. PHASE 4b [D10]: the restore now compares the "
+                "name that actually came back against requested_model (what "
+                "chat has always done), so the body reports 'canon'. Claimed "
+                "under D10 because it is the same payload/model-timing cell: "
+                "the old condition was only ever correct while the Messages "
+                "surfaces mutated payload['model'] up-front."
             ),
         )
     )
@@ -348,7 +391,16 @@ def _naming() -> list[tuple[str, dict[str, Any]]]:
                 "headers": {"x-api-key": "caller-key"},
                 "body": _msg("canon"),
             },
-            note="anthropic arm sends the payload model as-is; no alias resolution",
+            divergence=["D10"],
+            note=(
+                "BASELINE: the anthropic arm sent the payload model as-is "
+                "('canon'), with no alias resolution — it relied on the "
+                "caller having mutated payload['model'] up-front. PHASE 4b "
+                "[D10]: the payload is immutable and the arm resolves the "
+                "served id per backend like every other surface, so the wire "
+                "carries 'served-a'. The response body still reports 'canon' "
+                "(the restore fix in the same commit)."
+            ),
         )
     )
     out.append(
@@ -361,8 +413,17 @@ def _naming() -> list[tuple[str, dict[str, Any]]]:
                 "headers": {"x-api-key": "caller-key"},
                 "body": _msg("canon"),
             },
-            divergence=["D9"],
-            note="Anthropic SSE dialect: no _restore_stream_model on M-S",
+            divergence=["D9", "D10"],
+            note=(
+                "Anthropic SSE dialect: no _restore_stream_model on M-S (D9). "
+                "PHASE 4b [D10] makes the anthropic arm resolve the served id "
+                "per backend, so message_start now carries 'served-a' where it "
+                "used to carry 'canon'. This is CLIENT-VISIBLE and it is D9's "
+                "hole, not a new one: M-S is the one surface with no restore "
+                "step, so the moment the wire name stops being the canonical "
+                "name the client sees the difference. Phase 7 [D9] adds the "
+                "restore and this cell goes back to 'canon'."
+            ),
         )
     )
     out.append(
@@ -600,6 +661,47 @@ def _cloud() -> list[tuple[str, dict[str, Any]]]:
     out.append(
         vector(
             g,
+            "cloud-legacy-openai-row-earns-its-attempt",
+            scenario={
+                "backends": [
+                    _backend("alpha", ["farm-chat"], script=_fail(500)),
+                    # A farm host standing in for api.openai.com, deliberately
+                    # NOT in routing.backends: the only way the request-scoped
+                    # legacy row is both injected AND reachable, so its
+                    # attempt is observable instead of health-gated away.
+                    _backend(
+                        "oaicloud",
+                        ["farm-chat"],
+                        url=OPENAI_CLOUD_BASE_URL,
+                        configured=False,
+                        local=False,
+                    ),
+                ],
+                "routing": {"default_strategy": "failover"},
+                "cloud": {"enabled": True, "fallback": "cloud"},
+            },
+            request={
+                "path": "chat_ns",
+                "headers": {"authorization": "Bearer sk-caller-key"},
+                "body": _chat("farm-chat"),
+            },
+            divergence=["D6", "D7"],
+            note=(
+                "[D7] the attempt cap used to be max(len(pool.backends), 1) = 1, "
+                "so the injected legacy cloud row could never be tried after the "
+                "one pool row failed — the request-scoped candidate was counted "
+                "by selection but not by the budget. max_attempts is now the sum "
+                "over the schedule (1 pool row + 1 extra_candidate = 2), so "
+                "attempt 2 reaches the cloud row and it serves the request. Note "
+                "the wire evidence: the second call carries the CALLER's key "
+                "(Bearer sk-caller-key), not the farm key — it really is the "
+                "legacy request-scoped row (F-04), not a pool row."
+            ),
+        )
+    )
+    out.append(
+        vector(
+            g,
             "cloud-legacy-anthropic-row-fallback-tier",
             scenario={
                 "backends": [_backend("alpha", ["farm-chat"], script=_fail(503))],
@@ -751,7 +853,14 @@ def _guards() -> list[tuple[str, dict[str, Any]]]:
             scenario=GUARD_FARM,
             request={"path": "emb", "body": {"model": "farm-chat", "input": "hi"}},
             divergence=["D4"],
-            note="no capability guard on /v1/embeddings — a chat model routes",
+            note=(
+                "BASELINE: no capability guard on /v1/embeddings — a chat "
+                "model routed and got a 200 full of nonsense. PHASE 4c [D4]: "
+                "the guard is a plan step on every surface now, so this is an "
+                "OpenAI-typed 400 with zero upstream calls, source counted but "
+                "never admitted — the same shape the chat and Messages guards "
+                "have always produced."
+            ),
         )
     )
     out.append(
@@ -767,8 +876,11 @@ def _guards() -> list[tuple[str, dict[str, Any]]]:
             request={"path": "emb", "body": {"model": "farm-chat", "input": "hi"}},
             divergence=["D4"],
             note=(
-                "the concrete cost of the missing guard: the whole retry budget "
-                "is spent on a model that can never embed"
+                "BASELINE: the concrete cost of the missing guard — the whole "
+                "retry budget spent on a model that can never embed, ending "
+                "in a 502. PHASE 4c [D4]: rejected before the loop, "
+                "upstream_calls == [] and both backends untouched. This "
+                "vector is the reason the guard exists."
             ),
         )
     )
@@ -828,6 +940,48 @@ def _guards() -> list[tuple[str, dict[str, Any]]]:
                 "traffic. The swap then never reaches the wire (payload "
                 "immutability, D10), so the damage is confined to candidacy "
                 "and counters — for now."
+            ),
+        )
+    )
+    out.append(
+        vector(
+            g,
+            "guards-scenario-rule-surface-qualified-skips-emb",
+            scenario={
+                "backends": [_backend("alpha", ["bge-m3", "scenario-embed"])],
+                "routing": {
+                    "sources": [
+                        {
+                            "id": "cli",
+                            "scenarios": {
+                                "think": {
+                                    "model": "scenario-embed",
+                                    "surfaces": ["chat"],
+                                }
+                            },
+                        }
+                    ]
+                },
+            },
+            request={
+                "path": "emb",
+                "headers": {"x-netllm-source": "cli"},
+                "body": {"model": "bge-m3", "input": "hi", "reasoning_effort": "high"},
+            },
+            divergence=["D14"],
+            note=(
+                "PHASE 4d [D14] opt-in: byte-for-byte the request of "
+                "guards-scenario-emb-classified-as-chat, with surfaces=['chat'] "
+                "added to the rule. The request is STILL classified 'think' "
+                "(scenario_counts cli:think is identical — classification is "
+                "surface-independent on purpose), but the rule no longer fires, "
+                "so the canonical model stays bge-m3: candidacy, the metrics "
+                "model label and the 404 hint all follow the requested model "
+                "again instead of the chat-shaped override. (The wire model is "
+                "bge-m3 in BOTH vectors — the override never reached the wire "
+                "even when it fired, which is the chat-side half of D10 and is "
+                "NOT fixed in this phase.) Drop the qualifier and the old "
+                "behavior comes back."
             ),
         )
     )

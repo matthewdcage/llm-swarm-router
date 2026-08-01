@@ -5,3 +5,43 @@
 # HARNESS-RERECORD declares a canonicalizer-only re-record; it composes with
 # IDs per vector and is re-proved by the lint, not trusted.
 # One ID per line; '#' starts a comment.
+D11   # phase 3c/3d — messages route forwards upstream 400/404
+D10   # phase 4b — messages payload immutable, per-backend model at call time
+D9    # NOT FLIPPED HERE. naming-restore-messages-s-anthropic-arm is annotated
+      # [D9, D10]; the lint requires a changed vector's WHOLE id set to be
+      # declared, so D10's change to that one cell drags D9 in. No other D9
+      # vector changes in this phase (naming-restore-messages-s-translated
+      # and naming-restore-messages-s-rewritten-name are both untouched) —
+      # the M-S requested-name restore is still missing and is Phase 7's job.
+D4    # phase 4c — capability guard is a plan step on every surface, incl. the
+      # NEW embeddings guard
+D14   # phase 4d — scenario classification takes a surface input
+D12   # phase 4e — headers normalized once, in the plan
+D5    # phase 5 — plan.shard reaches selection on EMB, M-NS and M-S (and the
+      # matching batch-ledger mark_done), not just on the chat paths
+D6    # phase 5 — both cloud topologies are CandidateSchedule data
+      # (extra_candidates+prefer_cloud vs an ordered fallback tier); no
+      # behavior change intended, declared because the M-S state machine and
+      # the messages tier construction move wholesale
+D7    # phase 5 — max_attempts is the explicit sum over the schedule; OpenAI
+      # surfaces gain the attempt the injected legacy cloud row can use, and
+      # the messages fallback tier is inside the budget instead of past it
+D8    # phase 5 — `tried` is pure failure exclusion; dialect eligibility is
+      # schedule.ineligible_ids (replacing the three tried pre-seedings)
+D17   # phase 5 — the batch-ledger arm of _select_backend_for_request now
+      # filters its candidate list by exclude_ids (required by D5+D8: an
+      # anthropic row must not be ledger-assigned to /v1/embeddings). NOT
+      # invisible on chat: BatchRequestLedger.reassign_failed walks by index
+      # (shard.py:75-83), so removing the failed row makes urls.index() raise,
+      # pos = -1, and the retry walk restarts at the head of the list instead
+      # of continuing past the failed position — changing C-NS/C-S batch_shard
+      # failover order and attempt count whenever the ledger assigned a
+      # non-first backend. Kept deliberately (the old forward-only walk gave a
+      # shard on the last row zero failover). Declared so the two new
+      # chain-batch-shard-reassign-restarts-at-head-* vectors are attributable;
+      # no pre-existing vector carries D17 (all five checked-in batch_shard
+      # vectors are happy-path, which is why the gate could not see this).
+D13   # phase 5 — peer loop-guard headers on the anthropic-format arm.
+      # DEFENSIVE: no checked-in vector can carry an anthropic `peer:` row
+      # (the harness cannot mint peer rows at all), so zero vectors change;
+      # pinned by test_candidate_schedule.py's simulated-anthropic-peer test.

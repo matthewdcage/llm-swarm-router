@@ -128,15 +128,32 @@ class FarmBackend:
     # `local: false` override rows: a scan-discovered row is always
     # local=True and wins the pool merge over the override's flag.
     scan_visible: bool = True
+    # Explicit base URL, for hosts that must answer at a specific address
+    # rather than at "<name>.farm" — the only real case is standing in for
+    # a cloud endpoint (OPENAI_CLOUD_BASE_URL / ANTHROPIC_CLOUD_BASE_URL) so
+    # a request-scoped legacy cloud row is reachable and can pass the pool's
+    # health gate. None keeps the "<name>.farm" convention.
+    url: str | None = None
+    # False keeps the host out of routing.backends: it exists on the wire
+    # but the router does not know it as a configured pool row. Required
+    # for cloud stand-ins — a configured row at the same URL suppresses the
+    # legacy inject entirely (service._legacy_openai_cloud_backend).
+    configured: bool = True
     _cursor: int = 0
 
     @property
     def base_url(self) -> str:
         # OpenAI rows carry ".../v1" (the SDK appends /chat/completions);
         # Anthropic rows carry the bare root (the SDK appends /v1/messages).
+        if self.url is not None:
+            return self.url
         if self.api_format == "anthropic":
             return f"http://{self.name}.farm"
         return f"http://{self.name}.farm/v1"
+
+    @property
+    def host(self) -> str:
+        return httpx.URL(self.base_url).host
 
     def next_behavior(self) -> dict[str, Any]:
         if not self.script:
@@ -199,6 +216,8 @@ class FakeFarm:
         script: list[dict[str, Any]] | None = None,
         local: bool = True,
         scan_visible: bool = True,
+        url: str | None = None,
+        configured: bool = True,
     ) -> FarmBackend:
         backend = FarmBackend(
             name=name,
@@ -207,8 +226,10 @@ class FakeFarm:
             script=list(script or []),
             local=local,
             scan_visible=scan_visible,
+            url=url,
+            configured=configured,
         )
-        self._by_host[f"{name}.farm"] = backend
+        self._by_host[backend.host] = backend
         return backend
 
     @property

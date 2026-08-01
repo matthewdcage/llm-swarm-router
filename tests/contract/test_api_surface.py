@@ -126,3 +126,62 @@ def test_app_factory_signature_frozen() -> None:
     params = inspect.signature(create_app).parameters
     assert "config" in params
     assert "config_path" in params
+
+
+# --- Phase 4: the prologue lives in exactly one place ----------------------
+
+_PROXY_ENTRY_POINTS = (
+    "proxy_chat_completion",
+    "proxy_chat_completion_stream",
+    "proxy_embeddings",
+    "proxy_messages",
+    "proxy_messages_stream",
+)
+
+# Everything build_request_plan owns. A proxy entry point that calls one of
+# these directly has started to grow a second prologue — the exact defect
+# F-24 describes and the dependency graph counts (57 of service.py's 123
+# cross-cluster call sites were these five copies).
+_PLAN_OWNED = (
+    "_normalize_headers",
+    "_attribute_source",
+    "_source_config",
+    "_classify_and_record_scenario",
+    "_apply_source_model_rewrite",
+    "_apply_scenario_model",
+    "_reject_non_chat_model",
+    "_reject_non_chat_messages_model",
+    "_reject_non_embedding_model",
+    "_resolved_routing",
+    "_source_admit",
+    "extract_shard_context",
+)
+
+
+def _entry_point_source(name: str) -> str:
+    import inspect
+    import textwrap
+
+    from netllm_agent.service import AgentService
+
+    return textwrap.dedent(inspect.getsource(getattr(AgentService, name)))
+
+
+def test_every_proxy_entry_point_builds_exactly_one_request_plan() -> None:
+    for name in _PROXY_ENTRY_POINTS:
+        src = _entry_point_source(name)
+        assert src.count("self.build_request_plan(") == 1, (
+            f"{name}: expected exactly one build_request_plan call, "
+            f"found {src.count('self.build_request_plan(')}"
+        )
+
+
+def test_no_proxy_entry_point_reimplements_the_prologue() -> None:
+    leaks: list[str] = []
+    for name in _PROXY_ENTRY_POINTS:
+        src = _entry_point_source(name)
+        leaks += [f"{name} -> {sym}" for sym in _PLAN_OWNED if sym in src]
+    assert not leaks, (
+        "proxy entry points reaching past build_request_plan into the "
+        f"prologue: {leaks}"
+    )

@@ -685,6 +685,38 @@ def _errors() -> list[tuple[str, dict[str, Any]]]:
             ),
         )
     )
+    # Phase 3 / D11: the same translated arm, but with an upstream status
+    # the OpenAI surfaces DO forward. These are the vectors the D11 flip
+    # actually moves (502 -> 400/404); the 500 rows above stay 502 either
+    # way, which is why they alone could never prove the flip landed.
+    for status in (400, 404):
+        out.append(
+            vector(
+                g,
+                f"errors-messages-ns-upstream-{status}-forwarded",
+                path="messages_ns",
+                backends=[oai("alpha", [{"behavior": "http", "status": status}])],
+                divergence=["D11"],
+                routing=_TRANSLATED_ARM,
+                note=(
+                    f"[D11] upstream {status} from a translated (openai-format) "
+                    "backend on /v1/messages: forwarded like every OpenAI "
+                    "surface does, not flattened to 502; body stays "
+                    "Anthropic-shaped"
+                ),
+            )
+        )
+    out.append(
+        vector(
+            g,
+            "errors-messages-s-upstream-404-forwarded",
+            path="messages_s",
+            backends=[oai("alpha", [{"behavior": "http", "status": 404}])],
+            divergence=["D11"],
+            routing=_TRANSLATED_ARM,
+            note="[D11] forwarding applies to the M-S pre-stream mapping too",
+        )
+    )
     out.append(
         vector(
             g,

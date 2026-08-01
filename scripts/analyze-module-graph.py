@@ -91,6 +91,10 @@ SERVICE_INVENTORY: dict[str, str] = {
     "AgentService._wants_local_only": "policy.py",
     "AgentService._model_for_backend": "policy.py",
     "AgentService._model_not_found_error": "policy.py",
+    # Phase 3 replaced _model_not_found_error's call sites with the
+    # taxonomy helper (netllm_agent/taxonomy.py); the method that remains
+    # on AgentService is the thin per-surface adapter of it.
+    "AgentService._exhausted": "policy.py",
     "AgentService._reject_non_chat_model": "policy.py",
     "AgentService._reject_non_chat_messages_model": "policy.py",
     "AgentService._restore_sse_line_model": "proxy.py",
@@ -156,6 +160,7 @@ SERVICE_PLAN.update(
         "AgentService._record_success_telemetry": "accounting.py",
         "AgentService._record_stream_success": "accounting.py",
         "AgentService._mark_backend_failure": "accounting.py",
+        "AgentService._exhausted": "surfaces/base.py",
         "AgentService._update_health_metrics": "status.py",
         "AgentService._stream_with_metrics": "engine.py",
         "AgentService._restore_sse_line_model": "surfaces/base.py",
@@ -171,6 +176,29 @@ SERVICE_PLAN.update(
         "AgentService.proxy_messages_stream": "surfaces/messages.py",
         "AgentService._messages_on_backend": "surfaces/messages.py",
         "AgentService._messages_stream_on_backend": "surfaces/messages.py",
+        # Phases 2-5 additions. Without these ten the nodes fall into the
+        # synthetic "UNMAPPED" bucket, which then shares edges with
+        # surfaces/messages.py and shows up as a phantom SCC
+        # ['UNMAPPED', 'surfaces/messages.py'] — masking the real
+        # backends.py <-> status.py cycle later phases have to reason about.
+        # Destinations are plan-f24-f26.md section 1: policy.py "owns
+        # build_request_plan()", selection.py owns "CandidateSchedule
+        # construction", backends.py owns "upstream construction/peer
+        # headers", accounting.py owns "AttemptRecorder".
+        "AgentService.build_request_plan": "policy.py",
+        "AgentService.build_candidates": "selection.py",
+        "AgentService._anthropic_upstream_headers": "backends.py",
+        "AgentService._anthropic_payload_for_backend": "surfaces/messages.py",
+        # Sits with its two siblings (_reject_non_chat_model,
+        # _reject_non_chat_messages_model) rather than in surfaces/, which is
+        # where the plan's adapter.guard eventually takes it: all three are
+        # name-derived capability checks called from build_request_plan.
+        "AgentService._reject_non_embedding_model": "policy.py",
+        "AttemptRecorder.__init__": "accounting.py",
+        "AttemptRecorder.already_recorded": "accounting.py",
+        "AttemptRecorder.failure": "accounting.py",
+        "AttemptRecorder.success": "accounting.py",
+        "AttemptRecorder.success_from_result": "accounting.py",
     }
 )
 

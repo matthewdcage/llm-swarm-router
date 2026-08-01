@@ -46,31 +46,39 @@
     },
     "metrics_delta": {
       "counters": {
-        "netllm_completion_tokens_total{backend=http://ant.farm,model=canon}": 5.0,
-        "netllm_prompt_tokens_total{backend=http://ant.farm,model=canon}": 3.0,
-        "netllm_request_latency_seconds_count{backend=http://ant.farm}": 1.0,
-        "netllm_requests_total{backend=http://ant.farm,model=canon,status=ok}": 1.0,
+        "netllm_completion_tokens_total{backend=http://ant2.farm,model=canon}": 5.0,
+        "netllm_prompt_tokens_total{backend=http://ant2.farm,model=canon}": 3.0,
+        "netllm_request_latency_seconds_count{backend=http://ant2.farm}": 1.0,
+        "netllm_requests_total{backend=http://ant.farm,model=canon,status=error}": 1.0,
+        "netllm_requests_total{backend=http://ant2.farm,model=canon,status=ok}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
       },
       "gauges": {
         "netllm_backend_healthy{backend=http://ant.farm,provider=custom}": 1.0,
-        "netllm_backend_in_flight{backend=http://ant.farm}": 0.0
+        "netllm_backend_healthy{backend=http://ant2.farm,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://ant.farm}": 0.0,
+        "netllm_backend_in_flight{backend=http://ant2.farm}": 0.0
       }
     },
     "pool_delta": {
-      "capacity_rejections": {},
+      "capacity_rejections": {
+        "http://ant.farm": 1
+      },
       "health_status": {
-        "http://ant.farm": "online"
+        "http://ant.farm": "online",
+        "http://ant2.farm": "online"
       },
       "in_flight": {
-        "http://ant.farm": 0
+        "http://ant.farm": 0,
+        "http://ant2.farm": 0
       },
       "latency_ema_changed": {
-        "http://ant.farm": "<ema>"
+        "http://ant.farm": "<ema>",
+        "http://ant2.farm": "<ema>"
       },
       "routed_counts": {
-        "http://ant.farm": 1
+        "http://ant2.farm": 1
       }
     },
     "sse_frames": null,
@@ -85,11 +93,21 @@
         "method": "POST",
         "model": "served-a",
         "path": "/v1/messages"
+      },
+      {
+        "backend": "ant2",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "farm-key"
+        },
+        "method": "POST",
+        "model": "served-b",
+        "path": "/v1/messages"
       }
     ]
   },
-  "id": "naming-restore-messages-ns-anthropic-arm",
-  "note": "BASELINE: the anthropic arm sent the payload model as-is ('canon'), with no alias resolution \u2014 it relied on the caller having mutated payload['model'] up-front. PHASE 4b [D10]: the payload is immutable and the arm resolves the served id per backend like every other surface, so the wire carries 'served-a'. The response body still reports 'canon' (the restore fix in the same commit).",
+  "id": "naming-cross-alias-retry-messages-ns",
+  "note": "THE D10 vector. One canonical name, two anthropic-format backends serving it under DIFFERENT ids. Attempt 1 (ant) must carry 'served-a' and attempt 2 (ant2) 'served-b'. Under the old up-front payload mutation both attempts carried the same name, so the retry asked ant2 for a model it does not serve. The response body reports 'canon' either way.",
   "request": {
     "body": {
       "max_tokens": 16,
@@ -102,7 +120,7 @@
       "model": "canon"
     },
     "headers": {
-      "x-api-key": "caller-key"
+      "x-api-key": "caller"
     },
     "path": "messages_ns"
   },
@@ -113,13 +131,28 @@
         "models": [
           "served-a"
         ],
-        "name": "ant"
+        "name": "ant",
+        "script": [
+          {
+            "behavior": "http",
+            "status": 503
+          }
+        ]
+      },
+      {
+        "api_format": "anthropic",
+        "models": [
+          "served-b"
+        ],
+        "name": "ant2"
       }
     ],
     "routing": {
+      "default_strategy": "failover",
       "model_aliases": {
         "canon": [
-          "served-a"
+          "served-a",
+          "served-b"
         ]
       }
     }

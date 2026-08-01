@@ -78,17 +78,47 @@ def test_embeddings_unknown_model_404_lists_embedding_models(
     mock_scan.return_value = [_OLLAMA_SCAN_ROW]
     mock_probe.return_value = _OLLAMA_PROBE
 
+    # [D4] The name has to survive the new embeddings capability guard to
+    # reach exhaustion at all: model_capability() reads an unrecognized name
+    # as "chat", and a chat-classified name is now a 400 here (see
+    # test_embeddings_request_to_chat_model_is_rejected_400 below).
     with TestClient(create_app(_quiet_config())) as client:
         resp = client.post(
             "/v1/embeddings",
-            json={"model": "not-a-model", "input": "x"},
+            json={"model": "not-an-embed-model", "input": "x"},
         )
     assert resp.status_code == 404
     # F-38: /v1/* errors render the OpenAI error envelope, not {"detail"}.
     detail = resp.json()["error"]["message"]
-    assert "not-a-model" in detail
+    assert "not-an-embed-model" in detail
     # Embedding-capable models are listed first for embeddings requests.
     assert "nomic-embed-text" in detail
+
+
+@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_core.pool.probe_openai_compat_sync")
+def test_embeddings_request_to_chat_model_is_rejected_400(
+    mock_probe: MagicMock,
+    mock_scan: AsyncMock,
+) -> None:
+    """[D4] The mirror image of the chat guard, new in Phase 4c.
+
+    /v1/embeddings used to have no capability guard at all: a chat model was
+    dispatched to every backend in turn until the retry budget ran out.
+    """
+    mock_scan.return_value = [_OLLAMA_SCAN_ROW]
+    mock_probe.return_value = _OLLAMA_PROBE
+
+    with TestClient(create_app(_quiet_config())) as client:
+        resp = client.post(
+            "/v1/embeddings",
+            json={"model": "llama3", "input": "x"},
+        )
+    assert resp.status_code == 400
+    detail = resp.json()["error"]["message"]
+    assert "llama3" in detail
+    assert "capability: chat" in detail
+    assert "/v1/chat/completions" in detail
 
 
 @patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)

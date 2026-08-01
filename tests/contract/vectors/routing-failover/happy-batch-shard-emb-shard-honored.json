@@ -8,7 +8,7 @@
       "scenario_counts": {
         "default:default": 1
       },
-      "shardless_fallbacks": 1,
+      "shardless_fallbacks": 0,
       "source_counts": {
         "default": 1
       },
@@ -37,9 +37,9 @@
     },
     "metrics_delta": {
       "counters": {
-        "netllm_prompt_tokens_total{backend=http://embed1.farm/v1,model=farm-embed}": 3.0,
-        "netllm_request_latency_seconds_count{backend=http://embed1.farm/v1}": 1.0,
-        "netllm_requests_total{backend=http://embed1.farm/v1,model=farm-embed,status=ok}": 1.0,
+        "netllm_prompt_tokens_total{backend=http://embed2.farm/v1,model=farm-embed}": 3.0,
+        "netllm_request_latency_seconds_count{backend=http://embed2.farm/v1}": 1.0,
+        "netllm_requests_total{backend=http://embed2.farm/v1,model=farm-embed,status=ok}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
       },
@@ -65,14 +65,14 @@
         "http://embed2.farm/v1": "<ema>"
       },
       "routed_counts": {
-        "21fab0e3-0498-5859-afe9-4e7358e9b564": 1
+        "a9b4b743-3da4-555a-9b0a-567acac98745": 1
       }
     },
     "sse_frames": null,
     "status": 200,
     "upstream_calls": [
       {
-        "backend": "embed1",
+        "backend": "embed2",
         "headers": {
           "authorization": "Bearer farm-key"
         },
@@ -82,7 +82,7 @@
       }
     ]
   },
-  "id": "happy-batch-shard-emb-shard-ignored",
+  "id": "happy-batch-shard-emb-shard-honored",
   "request": {
     "body": {
       "input": "hi",

@@ -8,7 +8,7 @@
       "scenario_counts": {
         "default:default": 1
       },
-      "shardless_fallbacks": 1,
+      "shardless_fallbacks": 0,
       "source_counts": {
         "default": 1
       },
@@ -93,7 +93,7 @@
       }
     ]
   },
-  "id": "happy-batch-shard-messages-shard-ignored",
+  "id": "happy-batch-shard-messages-shard-honored",
   "request": {
     "body": {
       "max_tokens": 16,

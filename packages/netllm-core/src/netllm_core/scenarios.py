@@ -101,6 +101,7 @@ def classify_scenario(
     payload: Mapping[str, Any],
     *,
     api_format: str,
+    surface: str | None = None,
     user_agent: str = "",
     long_context_token_threshold: int = DEFAULT_LONG_CONTEXT_TOKEN_THRESHOLD,
 ) -> Scenario:
@@ -117,6 +118,17 @@ def classify_scenario(
        checked last.
 
     Anything else -> "default".
+
+    [D14] `surface` ("chat" | "embeddings" | "messages") says which proxy
+    surface is asking. Classification itself is deliberately unchanged by
+    it: /v1/embeddings traffic still runs this chat-shaped heuristic and
+    can still come out as "think" or "long_context", exactly as before, so
+    existing scenario_counts and existing configs keep their meaning. What
+    the surface gates is whether a matching `ScenarioRule` is allowed to
+    fire (`ScenarioRule.applies_to`, consumed by `resolve_routing` and the
+    plan builder's model override) — narrowing is opt-in, per rule. The
+    parameter is threaded here rather than only at the rule so a future
+    surface-specific classifier needs no further signature churn.
     """
     if _estimate_prompt_tokens(payload) >= long_context_token_threshold:
         return "long_context"

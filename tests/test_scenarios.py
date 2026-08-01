@@ -287,8 +287,74 @@ def test_apply_scenario_model_overrides_rewritten_model() -> None:
     )
 
 
+def test_scenario_rule_surface_qualifier_gates_the_rule() -> None:
+    """[D14] Phase 4d: an unqualified rule fires everywhere (compat); a rule
+    that names its surfaces fires only there — model override and routing
+    fields together, never half of one."""
+    from netllm_agent.service import AgentService
+    from netllm_agent.taxonomy import Surface
+    from netllm_core.models import ScenarioRule, SourceConfig
+    from netllm_core.routing_policy import resolve_routing
+
+    unqualified = SourceConfig(
+        id="cli", scenarios={"think": ScenarioRule(model="big", local_only=True)}
+    )
+    chat_only = SourceConfig(
+        id="cli",
+        scenarios={
+            "think": ScenarioRule(model="big", local_only=True, surfaces=["chat"])
+        },
+    )
+    routing = NetllmConfig().routing
+
+    for surface in (Surface.CHAT, Surface.EMBEDDINGS, Surface.MESSAGES):
+        assert (
+            AgentService._apply_scenario_model(
+                unqualified, "think", "asked", surface=surface
+            )
+            == "big"
+        ), surface
+        assert resolve_routing(
+            routing,
+            model="asked",
+            api_format="openai",
+            header_local_only=False,
+            source=unqualified,
+            scenario="think",
+            surface=surface.value,
+        ).local_only, surface
+
+    assert (
+        AgentService._apply_scenario_model(chat_only, "think", "asked", surface=None)
+        == "big"
+    )
+    assert (
+        AgentService._apply_scenario_model(
+            chat_only, "think", "asked", surface=Surface.CHAT
+        )
+        == "big"
+    )
+    for surface in (Surface.EMBEDDINGS, Surface.MESSAGES):
+        assert (
+            AgentService._apply_scenario_model(
+                chat_only, "think", "asked", surface=surface
+            )
+            == "asked"
+        ), surface
+        assert not resolve_routing(
+            routing,
+            model="asked",
+            api_format="openai",
+            header_local_only=False,
+            source=chat_only,
+            scenario="think",
+            surface=surface.value,
+        ).local_only, surface
+
+
 def test_service_classify_and_record_scenario_counts() -> None:
     from netllm_agent.service import AgentService
+    from netllm_agent.taxonomy import Surface
 
     cfg = NetllmConfig()
     service = AgentService(cfg)
@@ -298,7 +364,11 @@ def test_service_classify_and_record_scenario_counts() -> None:
         "messages": [{"role": "user", "content": "hi"}],
     }
     scenario = service._classify_and_record_scenario(
-        payload, api_format="anthropic", source_id="default", headers={}
+        payload,
+        api_format="anthropic",
+        surface=Surface.MESSAGES,
+        source_id="default",
+        headers={},
     )
     assert scenario == "background"
     assert service._scenario_counts[("default", "background")] == 1

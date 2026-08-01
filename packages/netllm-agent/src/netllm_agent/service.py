@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import time
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +58,7 @@ from netllm_discovery.swarm import PeerRecord, SwarmRegistry
 from netllm_sdk_anthropic.client import AnthropicUpstream, AnthropicUpstreamError
 from netllm_sdk_openai.client import OpenAIUpstream, OpenAIUpstreamError
 
+from netllm_agent.candidates import CandidateSchedule, excluded_api_formats
 from netllm_agent.metrics import (
     BACKEND_HEALTH,
     BACKEND_IN_FLIGHT,
@@ -68,12 +69,14 @@ from netllm_agent.metrics import (
     SCENARIO_REQUESTS_TOTAL,
     SOURCE_REQUESTS_TOTAL,
 )
+from netllm_agent.request_plan import RequestPlan, api_format_for
 from netllm_agent.shard import (
     BatchRequestLedger,
     ShardContext,
     backend_for_url,
     extract_shard_context,
 )
+from netllm_agent.taxonomy import ExhaustionContext, Surface, exhaustion_error
 from netllm_agent.telemetry import TelemetryService
 
 logger = logging.getLogger(__name__)
@@ -107,6 +110,112 @@ class SourceCapacityExceeded(Exception):
         super().__init__(
             f"source {source_id!r} is at its configured max_concurrency ({limit})"
         )
+
+
+class AttemptRecorder:
+    """The one place per-attempt success and failure accounting lands.
+
+    Before this existed, each of the five proxy paths (chat ns/s,
+    embeddings, messages ns/s) inlined its own success block and its own
+    failure block, which is why a fix could land on one loop only
+    (behavior-matrix.md D1/D2, F-24). Every path now routes accounting
+    through a recorder instead, so the pool ledger, ``REQUESTS_TOTAL``,
+    ``REQUEST_LATENCY``, the token counters, ``telemetry.record_usage``,
+    ``_request_count`` and shard completion are written by exactly one
+    piece of code.
+
+    One instance per proxied request; the instance is threaded into the
+    per-attempt helpers (``_stream_with_metrics``, ``_messages_attempt``)
+    so an inner wrapper and the outer failover loop share its dedup
+    ledger.
+    """
+
+    __slots__ = ("_service", "_recorded_failures")
+
+    def __init__(self, service: AgentService) -> None:
+        self._service = service
+        # Exceptions already accounted for, held by identity. A stream
+        # wrapper records the failure and re-raises the same object to
+        # the failover loop; without this the loop's own except clause
+        # would count it a second time (D2 dedup guard).
+        self._recorded_failures: list[Exception] = []
+
+    def success(
+        self,
+        *,
+        backend: Backend,
+        model: str,
+        latency_s: float,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        shard: ShardContext | None = None,
+    ) -> None:
+        """Full success accounting for one completed attempt."""
+        service = self._service
+        service.pool.mark_success(backend, latency_s * 1000)
+        REQUESTS_TOTAL.labels(backend=backend.base_url, model=model, status="ok").inc()
+        REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency_s)
+        if prompt_tokens or completion_tokens:
+            PROMPT_TOKENS_TOTAL.labels(backend=backend.base_url, model=model).inc(
+                prompt_tokens
+            )
+            COMPLETION_TOKENS_TOTAL.labels(backend=backend.base_url, model=model).inc(
+                completion_tokens
+            )
+        service.telemetry.record_usage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            prefill_duration=latency_s * 0.3 if prompt_tokens else 0.0,
+            generation_duration=latency_s * 0.7 if completion_tokens else 0.0,
+        )
+        service._request_count += 1
+        service._mark_shard_success(shard)
+
+    def success_from_result(
+        self,
+        *,
+        backend: Backend,
+        model: str,
+        result: Any,
+        latency_s: float,
+        shard: ShardContext | None = None,
+    ) -> None:
+        """Non-streaming twin of :meth:`success` — tokens come from the
+        response body's ``usage`` object instead of an SSE chunk."""
+        prompt, completion = AgentService._usage_from_response(result)
+        self.success(
+            backend=backend,
+            model=model,
+            latency_s=latency_s,
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            shard=shard,
+        )
+
+    def failure(self, *, backend: Backend, model: str, exc: Exception) -> None:
+        """Failure accounting for one attempt, at most once per exception.
+
+        This is the *only* caller of ``is_capacity_error`` in the agent:
+        capacity rejections (busy model reload, rate limit, memory guard)
+        exclude the backend for this request only, while hard errors
+        count toward the offline trip (pool.py p:39-55, p:241-262).
+        Classifying anywhere else is how the two halves drifted apart.
+        """
+        if self.already_recorded(exc):
+            return
+        self._recorded_failures.append(exc)
+        status_code = getattr(exc, "status_code", None)
+        self._service.pool.mark_failure(
+            backend,
+            capacity=is_capacity_error(status_code, str(exc)),
+            status_code=status_code,
+        )
+        REQUESTS_TOTAL.labels(
+            backend=backend.base_url, model=model, status="error"
+        ).inc()
+
+    def already_recorded(self, exc: Exception) -> bool:
+        return any(recorded is exc for recorded in self._recorded_failures)
 
 
 class AgentService:
@@ -181,31 +290,6 @@ class AgentService:
         )
         return prompt, completion
 
-    def _record_success_telemetry(
-        self,
-        *,
-        backend: Backend,
-        model: str,
-        result: Any,
-        latency_s: float,
-    ) -> None:
-        prompt, completion = self._usage_from_response(result)
-        if prompt or completion:
-            PROMPT_TOKENS_TOTAL.labels(backend=backend.base_url, model=model).inc(
-                prompt
-            )
-            COMPLETION_TOKENS_TOTAL.labels(backend=backend.base_url, model=model).inc(
-                completion
-            )
-        prefill_dur = latency_s * 0.3 if prompt else 0.0
-        gen_dur = latency_s * 0.7 if completion else max(latency_s, 0.0)
-        self.telemetry.record_usage(
-            prompt_tokens=prompt,
-            completion_tokens=completion,
-            prefill_duration=prefill_dur,
-            generation_duration=gen_dur if completion else 0.0,
-        )
-
     @staticmethod
     def _usage_from_sse_chunk(chunk: str) -> tuple[int, int]:
         """Token usage carried by one SSE chunk, if any.
@@ -245,35 +329,6 @@ class AgentService:
                 ),
             )
         return prompt, completion
-
-    def _record_stream_success(
-        self,
-        *,
-        backend: Backend,
-        model: str,
-        latency_s: float,
-        prompt_tokens: int,
-        completion_tokens: int,
-    ) -> None:
-        """Success accounting for a completed stream — the streaming twin
-        of _record_success_telemetry (F-33)."""
-        self.pool.mark_success(backend, latency_s * 1000)
-        REQUESTS_TOTAL.labels(backend=backend.base_url, model=model, status="ok").inc()
-        REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency_s)
-        if prompt_tokens or completion_tokens:
-            PROMPT_TOKENS_TOTAL.labels(backend=backend.base_url, model=model).inc(
-                prompt_tokens
-            )
-            COMPLETION_TOKENS_TOTAL.labels(backend=backend.base_url, model=model).inc(
-                completion_tokens
-            )
-        self.telemetry.record_usage(
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            prefill_duration=latency_s * 0.3 if prompt_tokens else 0.0,
-            generation_duration=latency_s * 0.7 if completion_tokens else 0.0,
-        )
-        self._request_count += 1
 
     async def refresh_local_backends(
         self,
@@ -574,19 +629,6 @@ class AgentService:
                 }
         return {"object": "list", "data": list(seen.values())}
 
-    def _mark_backend_failure(self, backend: Backend, exc: Exception) -> None:
-        """Route failure accounting through capacity classification.
-
-        Capacity rejections (busy model reload, rate limit, memory
-        guard) exclude the backend for *this* request only; hard errors
-        count toward the offline trip as before.
-        """
-        self.pool.mark_failure(
-            backend,
-            capacity=is_capacity_error(getattr(exc, "status_code", None), str(exc)),
-            status_code=getattr(exc, "status_code", None),
-        )
-
     @staticmethod
     def _normalize_headers(headers: Mapping[str, str] | None) -> dict[str, str]:
         if not headers:
@@ -648,22 +690,25 @@ class AgentService:
             return pool_model
         return model
 
-    def _model_not_found_error(
-        self, model: str, *, capability: str | None = None
-    ) -> OpenAIUpstreamError:
-        if not self.pool.backends:
-            return OpenAIUpstreamError("No healthy backends available for model")
-        known = self.pool.known_models(capability=capability) if capability else []
-        if not known:
-            known = self.pool.known_models()
-        listing = ", ".join(known) if known else "none discovered yet"
-        return OpenAIUpstreamError(
-            f"Model '{model}' not found on any backend. "
-            f"Known models: {listing}. "
-            "Map provider-specific names with [routing.model_aliases], or "
-            "add the host to a [routing.model_pools] entry to accept any "
-            "request name.",
-            status_code=404,
+    def _exhausted(
+        self,
+        surface: Surface,
+        requested_model: str,
+        last_error: Exception | None,
+        *,
+        capability: str | None = None,
+        api_key: str = "",
+    ) -> Exception:
+        """Every failover loop's terminal error, via the taxonomy."""
+        return exhaustion_error(
+            ExhaustionContext(
+                surface=surface,
+                pool=self.pool,
+                requested_model=requested_model,
+                capability=capability,
+                api_key=api_key,
+            ),
+            last_error,
         )
 
     @staticmethod
@@ -695,6 +740,36 @@ class AgentService:
             return
         raise AnthropicUpstreamError(
             f"Model '{model}' (capability: {cap}) cannot serve the Messages API.",
+            status_code=400,
+        )
+
+    @staticmethod
+    def _reject_non_embedding_model(model: str) -> None:
+        """[D4] The embeddings surface's capability guard — new in Phase 4c.
+
+        /v1/embeddings had no guard of any kind: a chat model sent here was
+        dispatched to every backend in turn, each one 400/500-ing, until the
+        retry budget ran out (contract vector
+        ``guards-emb-chat-model-burns-retry-budget``). The chat and Messages
+        surfaces have rejected the mirror-image mistake since forever.
+
+        **User-visible tightening, release-note it.** ``model_capability``
+        classifies by name and returns ``"chat"`` for anything it does not
+        recognize, so an embedding model with an unrecognized name (no
+        ``embed`` substring and none of the known encoder-family tokens:
+        bge, gte, e5, minilm, bert, modernbert, colbert, splade) now gets a
+        400 here where it used to route. Callers in that position should
+        rename the served model, or map it with a ``[routing.model_aliases]``
+        entry whose *request* name carries an embedding token.
+        """
+        cap = model_capability(model)
+        if cap == "embedding":
+            return
+        hint = (
+            " Use POST /v1/chat/completions for chat models." if cap == "chat" else ""
+        )
+        raise OpenAIUpstreamError(
+            f"Model '{model}' (capability: {cap}) cannot serve embeddings.{hint}",
             status_code=400,
         )
 
@@ -810,6 +885,7 @@ class AgentService:
         headers: Mapping[str, str] | None,
         source: SourceConfig | None = None,
         scenario: str | None = None,
+        surface: Surface | None = None,
     ) -> ResolvedRouting:
         hdrs = self._normalize_headers(headers)
         return resolve_routing(
@@ -822,6 +898,7 @@ class AgentService:
             cloud=self.config.cloud,
             source=source,
             scenario=scenario,
+            surface=surface.value if surface is not None else None,
         )
 
     def _attribute_source(self, headers: Mapping[str, str] | None) -> ResolvedSource:
@@ -856,6 +933,7 @@ class AgentService:
         payload: Mapping[str, Any],
         *,
         api_format: str,
+        surface: Surface,
         source_id: str,
         headers: Mapping[str, str],
     ) -> Scenario:
@@ -866,7 +944,10 @@ class AgentService:
         scenario's request count.
         """
         scenario = classify_scenario(
-            payload, api_format=api_format, user_agent=headers.get("user-agent", "")
+            payload,
+            api_format=api_format,
+            surface=surface.value,
+            user_agent=headers.get("user-agent", ""),
         )
         key = (source_id, scenario)
         self._scenario_counts[key] = self._scenario_counts.get(key, 0) + 1
@@ -875,11 +956,22 @@ class AgentService:
 
     @staticmethod
     def _apply_scenario_model(
-        source: SourceConfig | None, scenario: Scenario, model: str
+        source: SourceConfig | None,
+        scenario: Scenario,
+        model: str,
+        *,
+        surface: Surface | None = None,
     ) -> str:
         if source is None:
             return model
         rule = source.scenarios.get(scenario)
+        # [D14] Same gate resolve_routing applies to the rule's strategy /
+        # local_only / allow_cloud fields, so a surface-qualified rule cannot
+        # half-fire: either the whole rule applies here or none of it does.
+        if rule is not None and not rule.applies_to(
+            surface.value if surface is not None else None
+        ):
+            return model
         if rule is not None and rule.model:
             return rule.model
         return model
@@ -948,6 +1040,32 @@ class AgentService:
                 candidates = self.pool.backends_for_model(
                     model, extra_candidates=extra_candidates
                 )
+                # [D5/D8/D17] The batch-ledger arm is the one selection
+                # route that never consulted exclude_ids: it handed the raw
+                # candidate list to the ledger. Feeding the shard to EMB and
+                # the Messages surfaces makes that reachable with a *dialect*
+                # exclusion in the set — and an anthropic row assigned by
+                # the ledger for a /v1/embeddings request is precisely what
+                # schedule.ineligible_ids exists to prevent.
+                #
+                # [D17] This is NOT invisible on the chat paths. The filter
+                # also removes the backend that just failed, and
+                # BatchRequestLedger.reassign_failed walks by *index*
+                # (shard.py:75-83: `urls.index(current_url)`, then
+                # `urls[pos + 1:]`). Dropping the failed row makes that
+                # lookup raise ValueError, so pos = -1 and the walk restarts
+                # at the HEAD of the candidate list instead of continuing
+                # past the failed position. Chat batch_shard failover order
+                # and attempt count therefore change whenever the ledger
+                # assigned a non-first backend: with three rows and shard
+                # index 2, a failure used to end the request after one
+                # attempt (urls[3:] is empty) and now walks rows 0..1.
+                # Deliberate — the old forward-only walk gave a shard pinned
+                # to the last row zero failover, and post-D5 an unfiltered
+                # list could re-dispatch to an ineligible dialect. Pinned by
+                # the chain-batch-shard-reassign-restarts-at-head-* vectors.
+                if exclude_ids:
+                    candidates = [b for b in candidates if b.id not in exclude_ids]
                 if attempt == 1:
                     url = self._batch_ledger.assign(
                         shard.batch_id, shard.index, candidates
@@ -1059,36 +1177,151 @@ class AgentService:
             return await asyncio.to_thread(fn, *args, **kwargs)
         return fn(*args, **kwargs)
 
-    async def proxy_chat_completion(
+    def build_request_plan(
         self,
         payload: dict[str, Any],
+        headers: Mapping[str, str] | None,
         *,
-        headers: Mapping[str, str] | None = None,
-    ) -> dict[str, Any]:
+        surface: Surface,
+    ) -> RequestPlan:
+        """The one prologue every proxy surface runs (plan §3 Phase 4).
+
+        Ordering is load-bearing and reproduces the five hand-copied
+        prologues exactly:
+
+        1. normalize headers once (D12),
+        2. attribute the source and count it (once per request, not per
+           attempt),
+        3. classify and count the scenario,
+        4. apply the model rewrite chain (source rewrites, then the
+           scenario override),
+        5. run the surface's capability guard,
+        6. resolve routing,
+        7. extract shard context,
+        8. admit against the per-source cap — **last**, and before the
+           caller's first ``await``, so a request rejected by a guard above
+           never reserves a slot. The matching ``_source_release`` belongs
+           in the caller's ``finally``.
+
+        Steps 5 and 8 raise; nothing before step 8 has taken a reservation,
+        so an exception out of this method needs no cleanup.
+        """
+        api_format = api_format_for(surface)
         hdrs = self._normalize_headers(headers)
         requested_model = payload.get("model", "")
         resolved_source = self._attribute_source(hdrs)
         source_cfg = self._source_config(resolved_source.id)
         scenario = self._classify_and_record_scenario(
             payload,
-            api_format="openai",
+            api_format=api_format,
+            surface=surface,
             source_id=resolved_source.id,
             headers=hdrs,
         )
         model = self._apply_source_model_rewrite(source_cfg, requested_model)
-        model = self._apply_scenario_model(source_cfg, scenario, model)
-        self._reject_non_chat_model(model)
+        model = self._apply_scenario_model(source_cfg, scenario, model, surface=surface)
+
+        api_key = ""
+        if surface is Surface.MESSAGES:
+            # [D10] The Messages surfaces used to rewrite payload["model"]
+            # here, up-front and once, which pinned every later attempt to
+            # the first backend's idea of the name. The payload is now
+            # immutable on every surface and the upstream name is derived
+            # per backend at call time (_messages_on_backend /
+            # _messages_stream_on_backend), so a retry onto a backend with a
+            # different alias sends *that* backend's served ID.
+            self._reject_non_chat_messages_model(model)
+            api_key = self._anthropic_api_key(hdrs)
+        elif surface is Surface.CHAT:
+            self._reject_non_chat_model(model)
+        else:
+            # [D4] Phase 4c: the guard is now a plan step on EVERY surface.
+            # /v1/embeddings used to have none at all.
+            self._reject_non_embedding_model(model)
+
         routing = self._resolved_routing(
             model,
-            api_format="openai",
+            api_format=api_format,
             headers=hdrs,
             source=source_cfg,
             scenario=scenario,
+            surface=surface,
         )
+        # [D5] Extracted on every surface, but only the chat paths pass it
+        # to selection today; Phase 5 flips the rest.
+        shard = extract_shard_context(payload, hdrs)
         self._source_admit(resolved_source.id, source_cfg)
-        try:
-            shard = extract_shard_context(payload, hdrs)
+        return RequestPlan(
+            surface=surface,
+            headers=hdrs,
+            source=resolved_source,
+            source_config=source_cfg,
+            scenario=scenario,
+            requested_model=requested_model,
+            model=model,
+            routing=routing,
+            shard=shard,
+            payload=payload,
+            api_key=api_key,
+        )
 
+    def build_candidates(
+        self, plan: RequestPlan, cloud_extra: Sequence[Backend]
+    ) -> CandidateSchedule:
+        """The one candidate schedule every proxy surface runs (Phase 5).
+
+        Call it *after* ``refresh_local_backends()`` and cloud
+        materialization: the pool it measures must be the pool the loop
+        will select from.
+
+        Three decisions, one place (candidates.py has the long form):
+
+        - **D8** — dialect eligibility becomes ``ineligible_ids``, computed
+          once over the pool *and* the request-scoped extras, instead of
+          three different pre-seedings of the loop's ``tried`` set. ``tried``
+          is now purely "this backend failed this request".
+        - **D6** — the two cloud topologies become data: OpenAI surfaces get
+          ``extra_candidates`` + ``prefer_cloud``, the Messages surfaces get
+          an ordered ``fallback_tiers`` entry. Neither is a code path any
+          more.
+        - **D7** — ``max_attempts`` is the sum over both phases, so the
+          legacy cloud row buys the attempt it can actually use and the
+          Messages fallback tier stops running past the cap.
+        """
+        excluded = excluded_api_formats(plan.surface)
+        extras = tuple(cloud_extra)
+        selectable = [*self.pool.backends, *extras]
+        ineligible = frozenset(b.id for b in selectable if b.api_format in excluded)
+        eligible = [b for b in selectable if b.id not in ineligible]
+
+        tiers: tuple[tuple[Backend, ...], ...] = ()
+        if plan.surface is Surface.MESSAGES:
+            tier = tuple(
+                self._anthropic_fallback_backends(
+                    local_only=plan.routing.local_only, extra=list(extras)
+                )
+            )
+            if tier:
+                tiers = (tier,)
+
+        return CandidateSchedule(
+            strategy_attempts=max(len(eligible), 1),
+            extra_candidates=extras,
+            prefer_cloud=plan.routing.cloud_leads,
+            ineligible_ids=ineligible,
+            fallback_tiers=tiers,
+        )
+
+    async def proxy_chat_completion(
+        self,
+        payload: dict[str, Any],
+        *,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        plan = self.build_request_plan(payload, headers, surface=Surface.CHAT)
+        payload, hdrs, model = plan.payload, plan.headers, plan.model
+        requested_model, routing, shard = plan.requested_model, plan.routing, plan.shard
+        try:
             await self.refresh_local_backends()
             cloud_extra: list[Backend] = []
             if routing.allow_cloud_inject:
@@ -1096,12 +1329,13 @@ class AgentService:
                     self._openai_api_key(hdrs)
                 )
                 self._materialize_cloud_provider_backends()
+            schedule = self.build_candidates(plan, cloud_extra)
             attempt = 0
+            recorder = AttemptRecorder(self)
             last_error: Exception | None = None
-            max_attempts = max(len(self.pool.backends), 1)
             tried: set[str] = set()
 
-            while attempt < max_attempts:
+            while attempt < schedule.strategy_attempts:
                 attempt += 1
                 backend = await self._offload_if_probing(
                     self._select_backend_for_request,
@@ -1111,11 +1345,11 @@ class AgentService:
                     shard,
                     local_only=routing.local_only,
                     prefer_provider=routing.prefer_provider,
-                    prefer_cloud=routing.cloud_leads,
-                    exclude_ids=tried,
+                    prefer_cloud=schedule.prefer_cloud,
+                    exclude_ids=schedule.exclusions(tried),
                     pinned=routing.pinned_backend,
                     cloud_provider_allowlist=routing.cloud_provider_allowlist,
-                    extra_candidates=cloud_extra,
+                    extra_candidates=list(schedule.extra_candidates),
                 )
                 if backend is None:
                     break
@@ -1136,27 +1370,18 @@ class AgentService:
                     if upstream_model != requested_model and isinstance(result, dict):
                         result["model"] = requested_model
                     latency = time.monotonic() - t0
-                    self.pool.mark_success(backend, latency * 1000)
-                    REQUESTS_TOTAL.labels(
-                        backend=backend.base_url, model=model, status="ok"
-                    ).inc()
-                    REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency)
-                    self._record_success_telemetry(
+                    recorder.success_from_result(
                         backend=backend,
                         model=model,
                         result=result,
                         latency_s=latency,
+                        shard=shard,
                     )
-                    self._request_count += 1
-                    self._mark_shard_success(shard)
                     return result
                 except OpenAIUpstreamError as exc:
                     last_error = exc
                     tried.add(backend.id)
-                    self._mark_backend_failure(backend, exc)
-                    REQUESTS_TOTAL.labels(
-                        backend=backend.base_url, model=model, status="error"
-                    ).inc()
+                    recorder.failure(backend=backend, model=model, exc=exc)
                     logger.warning(
                         "backend %s failed (attempt %s): %s",
                         backend.base_url,
@@ -1170,11 +1395,9 @@ class AgentService:
                     )
                     self._update_health_metrics()
 
-            if last_error:
-                raise last_error
-            raise self._model_not_found_error(requested_model)
+            raise self._exhausted(Surface.CHAT, requested_model, last_error)
         finally:
-            self._source_release(resolved_source.id)
+            self._source_release(plan.source.id)
 
     async def proxy_chat_completion_stream(
         self,
@@ -1182,30 +1405,10 @@ class AgentService:
         *,
         headers: Mapping[str, str] | None = None,
     ) -> AsyncIterator[str]:
-        hdrs = self._normalize_headers(headers)
-        requested_model = payload.get("model", "")
-        resolved_source = self._attribute_source(hdrs)
-        source_cfg = self._source_config(resolved_source.id)
-        scenario = self._classify_and_record_scenario(
-            payload,
-            api_format="openai",
-            source_id=resolved_source.id,
-            headers=hdrs,
-        )
-        model = self._apply_source_model_rewrite(source_cfg, requested_model)
-        model = self._apply_scenario_model(source_cfg, scenario, model)
-        self._reject_non_chat_model(model)
-        routing = self._resolved_routing(
-            model,
-            api_format="openai",
-            headers=hdrs,
-            source=source_cfg,
-            scenario=scenario,
-        )
-        self._source_admit(resolved_source.id, source_cfg)
+        plan = self.build_request_plan(payload, headers, surface=Surface.CHAT)
+        payload, hdrs, model = plan.payload, plan.headers, plan.model
+        requested_model, routing, shard = plan.requested_model, plan.routing, plan.shard
         try:
-            shard = extract_shard_context(payload, hdrs)
-
             await self.refresh_local_backends()
             cloud_extra: list[Backend] = []
             if routing.allow_cloud_inject:
@@ -1213,13 +1416,14 @@ class AgentService:
                     self._openai_api_key(hdrs)
                 )
                 self._materialize_cloud_provider_backends()
+            schedule = self.build_candidates(plan, cloud_extra)
             attempt = 0
+            recorder = AttemptRecorder(self)
             last_error: Exception | None = None
-            max_attempts = max(len(self.pool.backends), 1)
             tried: set[str] = set()
             yielded_any = False
 
-            while attempt < max_attempts:
+            while attempt < schedule.strategy_attempts:
                 attempt += 1
                 backend = await self._offload_if_probing(
                     self._select_backend_for_request,
@@ -1229,11 +1433,11 @@ class AgentService:
                     shard,
                     local_only=routing.local_only,
                     prefer_provider=routing.prefer_provider,
-                    prefer_cloud=routing.cloud_leads,
-                    exclude_ids=tried,
+                    prefer_cloud=schedule.prefer_cloud,
+                    exclude_ids=schedule.exclusions(tried),
                     pinned=routing.pinned_backend,
                     cloud_provider_allowlist=routing.cloud_provider_allowlist,
-                    extra_candidates=cloud_extra,
+                    extra_candidates=list(schedule.extra_candidates),
                 )
                 if backend is None:
                     break
@@ -1250,7 +1454,12 @@ class AgentService:
                         else payload
                     )
                     stream = self._stream_with_metrics(
-                        client, upstream_payload, backend, model, shard
+                        client,
+                        upstream_payload,
+                        backend,
+                        model,
+                        shard,
+                        recorder=recorder,
                     )
                     if upstream_model != requested_model:
                         stream = self._restore_stream_model(stream, requested_model)
@@ -1261,6 +1470,15 @@ class AgentService:
                 except OpenAIUpstreamError as exc:
                     last_error = exc
                     tried.add(backend.id)
+                    # [D2] Failures raised before _stream_with_metrics'
+                    # own try block gets to run (upstream-client
+                    # construction, per-backend model resolution) used to
+                    # be counted nowhere: this loop deferred all failure
+                    # accounting to the wrapper. Record here instead, and
+                    # let the recorder's dedup guard drop the call when
+                    # the wrapper already accounted for this very
+                    # exception -- exactly once, either way.
+                    recorder.failure(backend=backend, model=model, exc=exc)
                     logger.warning(
                         "stream backend %s failed (attempt %s): %s",
                         backend.base_url,
@@ -1285,11 +1503,9 @@ class AgentService:
                     )
                     self._update_health_metrics()
 
-            if last_error:
-                raise last_error
-            raise self._model_not_found_error(requested_model)
+            raise self._exhausted(Surface.CHAT, requested_model, last_error)
         finally:
-            self._source_release(resolved_source.id)
+            self._source_release(plan.source.id)
 
     async def proxy_responses(
         self,
@@ -1335,26 +1551,15 @@ class AgentService:
         /v1/embeddings surface). Anthropic-format backends are excluded:
         the Anthropic Messages API has no embeddings endpoint.
         """
-        hdrs = self._normalize_headers(headers)
-        requested_model = payload.get("model", "")
-        resolved_source = self._attribute_source(hdrs)
-        source_cfg = self._source_config(resolved_source.id)
-        scenario = self._classify_and_record_scenario(
-            payload,
-            api_format="openai",
-            source_id=resolved_source.id,
-            headers=hdrs,
-        )
-        model = self._apply_source_model_rewrite(source_cfg, requested_model)
-        model = self._apply_scenario_model(source_cfg, scenario, model)
-        routing = self._resolved_routing(
-            model,
-            api_format="openai",
-            headers=hdrs,
-            source=source_cfg,
-            scenario=scenario,
-        )
-        self._source_admit(resolved_source.id, source_cfg)
+        plan = self.build_request_plan(payload, headers, surface=Surface.EMBEDDINGS)
+        payload, hdrs, model = plan.payload, plan.headers, plan.model
+        requested_model, routing = plan.requested_model, plan.routing
+        # [D5] Phase 5: the embeddings surface extracted shard context in
+        # the plan but threw it away here, passing None to selection —
+        # `batch_shard` and deterministic placement silently degraded to
+        # round_robin for every embedding request. It is fed to selection
+        # now, exactly as the chat paths always have.
+        shard = plan.shard
         try:
             await self.refresh_local_backends()
             cloud_extra: list[Backend] = []
@@ -1363,28 +1568,27 @@ class AgentService:
                     self._openai_api_key(hdrs)
                 )
                 self._materialize_cloud_provider_backends()
+            schedule = self.build_candidates(plan, cloud_extra)
             attempt = 0
+            recorder = AttemptRecorder(self)
             last_error: Exception | None = None
-            max_attempts = max(len(self.pool.backends), 1)
-            tried: set[str] = {
-                b.id for b in self.pool.backends if b.api_format == "anthropic"
-            }
+            tried: set[str] = set()
 
-            while attempt < max_attempts:
+            while attempt < schedule.strategy_attempts:
                 attempt += 1
                 backend = await self._offload_if_probing(
                     self._select_backend_for_request,
                     model,
                     routing.strategy,
                     attempt,
-                    None,
+                    shard,
                     local_only=routing.local_only,
                     prefer_provider=routing.prefer_provider,
-                    prefer_cloud=routing.cloud_leads,
-                    exclude_ids=tried,
+                    prefer_cloud=schedule.prefer_cloud,
+                    exclude_ids=schedule.exclusions(tried),
                     pinned=routing.pinned_backend,
                     cloud_provider_allowlist=routing.cloud_provider_allowlist,
-                    extra_candidates=cloud_extra,
+                    extra_candidates=list(schedule.extra_candidates),
                 )
                 if backend is None:
                     break
@@ -1405,26 +1609,22 @@ class AgentService:
                     if upstream_model != requested_model and isinstance(result, dict):
                         result["model"] = requested_model
                     latency = time.monotonic() - t0
-                    self.pool.mark_success(backend, latency * 1000)
-                    REQUESTS_TOTAL.labels(
-                        backend=backend.base_url, model=model, status="ok"
-                    ).inc()
-                    REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency)
-                    self._record_success_telemetry(
+                    recorder.success_from_result(
                         backend=backend,
                         model=model,
                         result=result,
                         latency_s=latency,
+                        # [D5] Closing the ledger entry is the other half of
+                        # honouring the shard: a batch assignment that is
+                        # never marked done keeps its backend reserved for a
+                        # request that already succeeded.
+                        shard=shard,
                     )
-                    self._request_count += 1
                     return result
                 except OpenAIUpstreamError as exc:
                     last_error = exc
                     tried.add(backend.id)
-                    self._mark_backend_failure(backend, exc)
-                    REQUESTS_TOTAL.labels(
-                        backend=backend.base_url, model=model, status="error"
-                    ).inc()
+                    recorder.failure(backend=backend, model=model, exc=exc)
                     logger.warning(
                         "embeddings backend %s failed (attempt %s): %s",
                         backend.base_url,
@@ -1438,11 +1638,14 @@ class AgentService:
                     )
                     self._update_health_metrics()
 
-            if last_error:
-                raise last_error
-            raise self._model_not_found_error(requested_model, capability="embedding")
+            raise self._exhausted(
+                Surface.EMBEDDINGS,
+                requested_model,
+                last_error,
+                capability="embedding",
+            )
         finally:
-            self._source_release(resolved_source.id)
+            self._source_release(plan.source.id)
 
     @staticmethod
     def _anthropic_api_key(headers: Mapping[str, str]) -> str:
@@ -1465,6 +1668,29 @@ class AgentService:
         if env_key and not is_netllm_placeholder_key(env_key):
             return env_key
         return ""
+
+    def _anthropic_upstream_headers(
+        self, backend: Backend, headers: Mapping[str, str]
+    ) -> dict[str, str]:
+        """[D13] Default headers for an anthropic-format upstream call.
+
+        The OpenAI upstream constructor has always attached the peer
+        loop-guard headers (``_peer_forward_headers``); the anthropic-format
+        arm never did, so a ``peer:`` row that happened to be anthropic
+        would be forwarded *without* ``x-netllm-local-only`` and without an
+        incremented hop count — the receiving peer would consider itself
+        free to re-distribute, and the request could ping-pong across the
+        mesh. Nothing constructs such a row today (peers are discovered as
+        openai-format agents), which is why this was latent rather than
+        broken; attaching them here is defensive, and costs a dict merge.
+
+        The guard headers win the merge on purpose: they are the router's
+        own routing control plane, not caller pass-through.
+        """
+        return {
+            **self._anthropic_default_headers(headers),
+            **(self._peer_forward_headers(backend, headers) or {}),
+        }
 
     @staticmethod
     def _anthropic_default_headers(headers: Mapping[str, str]) -> dict[str, str]:
@@ -1746,8 +1972,11 @@ class AgentService:
         attempt: int,
         *,
         requested_model: str | None = None,
+        recorder: AttemptRecorder | None = None,
+        shard: ShardContext | None = None,
     ) -> dict[str, Any]:
         """One acquire→call→account cycle for the Messages API."""
+        recorder = recorder if recorder is not None else AttemptRecorder(self)
         self.pool.acquire(backend)
         BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
         t0 = time.monotonic()
@@ -1755,31 +1984,30 @@ class AgentService:
             result = await self._messages_on_backend(
                 backend, payload, model, hdrs, api_key
             )
+            # [D10] Compare against what actually came back, not against the
+            # canonical name. Once the anthropic arm resolves the served ID
+            # per backend, `requested_model != model` is the wrong test: an
+            # alias-only request (requested == canonical == "canon", served
+            # ID "served-a") would leave the backend's own name in the
+            # response body. Chat has always compared the upstream name.
             if (
                 requested_model is not None
-                and requested_model != model
                 and isinstance(result, dict)
+                and result.get("model") != requested_model
             ):
                 result["model"] = requested_model
             latency = time.monotonic() - t0
-            self.pool.mark_success(backend, latency * 1000)
-            REQUESTS_TOTAL.labels(
-                backend=backend.base_url, model=model, status="ok"
-            ).inc()
-            REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency)
-            self._record_success_telemetry(
+            recorder.success_from_result(
                 backend=backend,
                 model=model,
                 result=result,
                 latency_s=latency,
+                # [D5] Close the batch-ledger entry the shard opened.
+                shard=shard,
             )
-            self._request_count += 1
             return result
         except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
-            self._mark_backend_failure(backend, exc)
-            REQUESTS_TOTAL.labels(
-                backend=backend.base_url, model=model, status="error"
-            ).inc()
+            recorder.failure(backend=backend, model=model, exc=exc)
             logger.warning(
                 "messages backend %s failed (attempt %s): %s",
                 backend.base_url,
@@ -1798,30 +2026,14 @@ class AgentService:
         *,
         headers: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
-        hdrs = self._normalize_headers(headers)
-        requested_model = payload.get("model", "")
-        resolved_source = self._attribute_source(hdrs)
-        source_cfg = self._source_config(resolved_source.id)
-        scenario = self._classify_and_record_scenario(
-            payload,
-            api_format="anthropic",
-            source_id=resolved_source.id,
-            headers=hdrs,
-        )
-        model = self._apply_source_model_rewrite(source_cfg, requested_model)
-        model = self._apply_scenario_model(source_cfg, scenario, model)
-        if model != requested_model:
-            payload = {**payload, "model": model}
-        self._reject_non_chat_messages_model(model)
-        api_key = self._anthropic_api_key(hdrs)
-        routing = self._resolved_routing(
-            model,
-            api_format="anthropic",
-            headers=hdrs,
-            source=source_cfg,
-            scenario=scenario,
-        )
-        self._source_admit(resolved_source.id, source_cfg)
+        plan = self.build_request_plan(payload, headers, surface=Surface.MESSAGES)
+        payload, hdrs, model = plan.payload, plan.headers, plan.model
+        requested_model, routing = plan.requested_model, plan.routing
+        api_key = plan.api_key
+        # [D5] Phase 5: the Messages surfaces passed None to selection even
+        # though the plan carries the shard context — same silent degradation
+        # the embeddings surface had.
+        shard = plan.shard
         try:
             await self.refresh_local_backends()
             cloud_extra: list[Backend] = []
@@ -1831,31 +2043,29 @@ class AgentService:
 
             # Same strategy-driven selection loop as chat completions, so
             # round_robin / least_load / latency_weighted spread Messages
-            # traffic across the mesh too. Anthropic-format backends are
-            # excluded here and tried afterwards as the fallback tier.
+            # traffic across the mesh too. [D6/D8] Which rows that loop may
+            # see, and which come back afterwards as the ordered fallback
+            # tier, is now the schedule's decision, not this function's.
+            schedule = self.build_candidates(plan, cloud_extra)
+            recorder = AttemptRecorder(self)
             last_error: Exception | None = None
-            tried: set[str] = {
-                b.id
-                for b in [*self.pool.backends, *cloud_extra]
-                if b.api_format == "anthropic"
-            }
+            tried: set[str] = set()
             attempt = 0
-            max_attempts = max(len(self.pool.backends), 1)
-            while attempt < max_attempts:
+            while attempt < schedule.strategy_attempts:
                 attempt += 1
                 backend = await self._offload_if_probing(
                     self._select_backend_for_request,
                     model,
                     routing.strategy,
                     attempt,
-                    None,
+                    shard,
                     local_only=routing.local_only,
                     prefer_provider=routing.prefer_provider,
-                    prefer_cloud=routing.cloud_leads,
-                    exclude_ids=tried,
+                    prefer_cloud=schedule.prefer_cloud,
+                    exclude_ids=schedule.exclusions(tried),
                     pinned=routing.pinned_backend,
                     cloud_provider_allowlist=routing.cloud_provider_allowlist,
-                    extra_candidates=cloud_extra,
+                    extra_candidates=list(schedule.extra_candidates),
                 )
                 if backend is None:
                     break
@@ -1868,14 +2078,20 @@ class AgentService:
                         api_key,
                         attempt,
                         requested_model=requested_model,
+                        recorder=recorder,
+                        shard=shard,
                     )
                 except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
                     last_error = exc
                     tried.add(backend.id)
 
-            for backend in self._anthropic_fallback_backends(
-                local_only=routing.local_only, extra=cloud_extra
-            ):
+            # [D7] The fallback tier used to be an unbounded `for` over the
+            # anthropic rows: it ran past max_attempts by construction,
+            # because the cap only ever measured the pool. It is now part of
+            # the budget it spends.
+            for backend in schedule.fallback_backends():
+                if attempt >= schedule.max_attempts:
+                    break
                 attempt += 1
                 try:
                     return await self._messages_attempt(
@@ -1886,20 +2102,17 @@ class AgentService:
                         api_key,
                         attempt,
                         requested_model=requested_model,
+                        recorder=recorder,
+                        shard=shard,
                     )
                 except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
                     last_error = exc
 
-            if last_error:
-                raise last_error
-            if not api_key:
-                raise AnthropicUpstreamError(
-                    "ANTHROPIC_API_KEY required for cloud Messages API",
-                    status_code=401,
-                )
-            raise AnthropicUpstreamError("No healthy backends available for model")
+            raise self._exhausted(
+                Surface.MESSAGES, requested_model, last_error, api_key=api_key
+            )
         finally:
-            self._source_release(resolved_source.id)
+            self._source_release(plan.source.id)
 
     async def proxy_messages_stream(
         self,
@@ -1907,30 +2120,12 @@ class AgentService:
         *,
         headers: Mapping[str, str] | None = None,
     ) -> AsyncIterator[str]:
-        hdrs = self._normalize_headers(headers)
-        requested_model = payload.get("model", "")
-        resolved_source = self._attribute_source(hdrs)
-        source_cfg = self._source_config(resolved_source.id)
-        scenario = self._classify_and_record_scenario(
-            payload,
-            api_format="anthropic",
-            source_id=resolved_source.id,
-            headers=hdrs,
-        )
-        model = self._apply_source_model_rewrite(source_cfg, requested_model)
-        model = self._apply_scenario_model(source_cfg, scenario, model)
-        if model != requested_model:
-            payload = {**payload, "model": model}
-        self._reject_non_chat_messages_model(model)
-        api_key = self._anthropic_api_key(hdrs)
-        routing = self._resolved_routing(
-            model,
-            api_format="anthropic",
-            headers=hdrs,
-            source=source_cfg,
-            scenario=scenario,
-        )
-        self._source_admit(resolved_source.id, source_cfg)
+        plan = self.build_request_plan(payload, headers, surface=Surface.MESSAGES)
+        payload, hdrs, model = plan.payload, plan.headers, plan.model
+        requested_model, routing = plan.requested_model, plan.routing
+        api_key = plan.api_key
+        # [D5] See proxy_messages — the stream arm dropped the shard too.
+        shard = plan.shard
         try:
             await self.refresh_local_backends()
             cloud_extra: list[Backend] = []
@@ -1938,52 +2133,47 @@ class AgentService:
                 cloud_extra = self._legacy_anthropic_cloud_backend(api_key)
                 self._materialize_cloud_provider_backends()
 
+            schedule = self.build_candidates(plan, cloud_extra)
+            recorder = AttemptRecorder(self)
             last_error: Exception | None = None
-            tried: set[str] = {
-                b.id
-                for b in [*self.pool.backends, *cloud_extra]
-                if b.api_format == "anthropic"
-            }
+            tried: set[str] = set()
             attempt = 0
-            max_attempts = max(len(self.pool.backends), 1)
             yielded_any = False
-            # Strategy loop over the OpenAI-format mesh, then anthropic-format
-            # fallbacks — mirrors proxy_messages.
-            candidates_exhausted = False
-            fallback_iter = iter(())
+            # Strategy phase over the OpenAI-format mesh, then the ordered
+            # anthropic fallback tier — mirrors proxy_messages. [D6] Both
+            # tiers come from the schedule now, so the bespoke
+            # `candidates_exhausted`/lazy-`fallback_iter` state machine that
+            # existed only in this function is gone: the fallback iterator is
+            # built once, up front, from data.
+            fallback_iter = schedule.fallback_backends()
+            strategy_phase = True
             while True:
-                if not candidates_exhausted and attempt < max_attempts:
+                if strategy_phase and attempt < schedule.strategy_attempts:
                     attempt += 1
                     backend = await self._offload_if_probing(
                         self._select_backend_for_request,
                         model,
                         routing.strategy,
                         attempt,
-                        None,
+                        shard,
                         local_only=routing.local_only,
                         prefer_provider=routing.prefer_provider,
-                        prefer_cloud=routing.cloud_leads,
-                        exclude_ids=tried,
+                        prefer_cloud=schedule.prefer_cloud,
+                        exclude_ids=schedule.exclusions(tried),
                         pinned=routing.pinned_backend,
                         cloud_provider_allowlist=routing.cloud_provider_allowlist,
-                        extra_candidates=cloud_extra,
+                        extra_candidates=list(schedule.extra_candidates),
                     )
                     if backend is None:
-                        candidates_exhausted = True
-                        fallback_iter = iter(
-                            self._anthropic_fallback_backends(
-                                local_only=routing.local_only, extra=cloud_extra
-                            )
-                        )
+                        strategy_phase = False
                         continue
                 else:
-                    if not candidates_exhausted:
-                        candidates_exhausted = True
-                        fallback_iter = iter(
-                            self._anthropic_fallback_backends(
-                                local_only=routing.local_only, extra=cloud_extra
-                            )
-                        )
+                    # [D7] Bounded by the same budget the strategy phase
+                    # spends from; the old loop could not overrun because the
+                    # tier is finite, but nothing said so.
+                    strategy_phase = False
+                    if attempt >= schedule.max_attempts:
+                        break
                     backend = next(fallback_iter, None)
                     if backend is None:
                         break
@@ -2007,21 +2197,20 @@ class AgentService:
                     # Same success accounting as _stream_with_metrics —
                     # streamed Messages traffic must not be invisible to
                     # the pool and telemetry (F-33).
-                    self._record_stream_success(
+                    recorder.success(
                         backend=backend,
                         model=model,
                         latency_s=time.monotonic() - t0,
                         prompt_tokens=prompt_tokens,
                         completion_tokens=completion_tokens,
+                        # [D5] Close the batch-ledger entry the shard opened.
+                        shard=shard,
                     )
                     return
                 except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
                     last_error = exc
                     tried.add(backend.id)
-                    self._mark_backend_failure(backend, exc)
-                    REQUESTS_TOTAL.labels(
-                        backend=backend.base_url, model=model, status="error"
-                    ).inc()
+                    recorder.failure(backend=backend, model=model, exc=exc)
                     logger.warning(
                         "messages stream backend %s failed (attempt %s): %s",
                         backend.base_url,
@@ -2052,16 +2241,28 @@ class AgentService:
                     )
                     self._update_health_metrics()
 
-            if last_error:
-                raise last_error
-            if not api_key:
-                raise AnthropicUpstreamError(
-                    "ANTHROPIC_API_KEY required for cloud Messages API",
-                    status_code=401,
-                )
-            raise AnthropicUpstreamError("No healthy backends available for model")
+            raise self._exhausted(
+                Surface.MESSAGES, requested_model, last_error, api_key=api_key
+            )
         finally:
-            self._source_release(resolved_source.id)
+            self._source_release(plan.source.id)
+
+    def _anthropic_payload_for_backend(
+        self, payload: dict[str, Any], model: str, backend: Backend
+    ) -> dict[str, Any]:
+        """[D10] Per-backend model resolution for the anthropic-format arm.
+
+        The openai-format arm has always done this (`oai_payload["model"] =
+        self._model_for_backend(...)`); the anthropic arm relied on the
+        caller having mutated `payload["model"]` up-front, so it could only
+        ever send one name for the whole request. Resolving here makes the
+        Messages surfaces match chat/embeddings: the payload stays immutable
+        and each attempt sends the name *its* backend serves.
+        """
+        upstream_model = self._model_for_backend(model, backend)
+        if upstream_model == payload.get("model"):
+            return payload
+        return {**payload, "model": upstream_model}
 
     async def _messages_on_backend(
         self,
@@ -2080,12 +2281,14 @@ class AgentService:
             client = AnthropicUpstream(
                 key,
                 base_url=backend.base_url,
-                default_headers=self._anthropic_default_headers(headers),
+                default_headers=self._anthropic_upstream_headers(backend, headers),
                 auth_mode=backend.auth_mode,
                 connect_timeout=self.config.routing.upstream_connect_timeout_s,
                 read_timeout=self.config.routing.upstream_read_timeout_s,
             )
-            return await client.messages_create(payload)
+            return await client.messages_create(
+                self._anthropic_payload_for_backend(payload, model, backend)
+            )
         oai_payload = anthropic_to_openai_request(payload)
         oai_payload["model"] = self._model_for_backend(model, backend)
         client = self._openai_upstream(backend, headers)
@@ -2109,12 +2312,14 @@ class AgentService:
             client = AnthropicUpstream(
                 key,
                 base_url=backend.base_url,
-                default_headers=self._anthropic_default_headers(headers),
+                default_headers=self._anthropic_upstream_headers(backend, headers),
                 auth_mode=backend.auth_mode,
                 connect_timeout=self.config.routing.upstream_connect_timeout_s,
                 read_timeout=self.config.routing.upstream_read_timeout_s,
             )
-            async for chunk in client.messages_stream(payload):
+            async for chunk in client.messages_stream(
+                self._anthropic_payload_for_backend(payload, model, backend)
+            ):
                 yield chunk
             return
         oai_payload = anthropic_to_openai_request(payload)
@@ -2133,7 +2338,9 @@ class AgentService:
         backend: Backend,
         model: str,
         shard: ShardContext | None = None,
+        recorder: AttemptRecorder | None = None,
     ) -> AsyncIterator[str]:
+        recorder = recorder if recorder is not None else AttemptRecorder(self)
         t0 = time.monotonic()
         prompt_tokens = completion_tokens = 0
         try:
@@ -2145,19 +2352,16 @@ class AgentService:
                     prompt_tokens = max(prompt_tokens, p)
                     completion_tokens = max(completion_tokens, c)
                 yield chunk
-            self._record_stream_success(
+            recorder.success(
                 backend=backend,
                 model=model,
                 latency_s=time.monotonic() - t0,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
+                shard=shard,
             )
-            self._mark_shard_success(shard)
         except OpenAIUpstreamError as exc:
-            self._mark_backend_failure(backend, exc)
-            REQUESTS_TOTAL.labels(
-                backend=backend.base_url, model=model, status="error"
-            ).inc()
+            recorder.failure(backend=backend, model=model, exc=exc)
             raise
 
     def _try_start_mdns(self) -> Exception | None:

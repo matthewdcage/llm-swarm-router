@@ -1,5 +1,7 @@
 {
-  "divergence": [],
+  "divergence": [
+    "D10"
+  ],
   "expected": {
     "admission_delta": {
       "request_count": 1,
@@ -22,7 +24,7 @@
         }
       ],
       "id": "<id>",
-      "model": "served-a",
+      "model": "canon",
       "role": "assistant",
       "stop_reason": "end_turn",
       "type": "message",
@@ -75,7 +77,7 @@
     ]
   },
   "id": "naming-restore-messages-ns-translated",
-  "note": "M-NS via the openai translation arm: the response body reports the UPSTREAM served id (served-a), not the requested name. openai_to_anthropic_response prefers payload['model'], and the _messages_attempt restore only fires when requested_model != the canonical model \u2014 which it is not here. Not a listed D-number; the matrix records M-NS restore as present.",
+  "note": "M-NS via the openai translation arm. BASELINE: the response body reported the UPSTREAM served id (served-a), not the requested name \u2014 openai_to_anthropic_response prefers payload['model'], and the _messages_attempt restore only fired when requested_model != the canonical model, which it is not here. PHASE 4b [D10]: the restore now compares the name that actually came back against requested_model (what chat has always done), so the body reports 'canon'. Claimed under D10 because it is the same payload/model-timing cell: the old condition was only ever correct while the Messages surfaces mutated payload['model'] up-front.",
   "request": {
     "body": {
       "max_tokens": 16,

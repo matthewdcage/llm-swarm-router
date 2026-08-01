@@ -22,10 +22,15 @@ from drivers import PATHS, scanned_backend_id
 from farm import http, midstream_drop, ok
 from netllm_core.pool import is_capacity_error
 
+# [D4] /v1/embeddings gained a capability guard in Phase 4c, so the emb path
+# can no longer share the chat paths' model name: every farm backend serves
+# both and each surface asks for the one it is allowed to.
+_MODELS = ["farm-chat", "farm-embed"]
+
 _BODY: dict[str, dict[str, Any]] = {
     "chat_ns": {"model": "farm-chat", "messages": [{"role": "user", "content": "hi"}]},
     "chat_s": {"model": "farm-chat", "messages": [{"role": "user", "content": "hi"}]},
-    "emb": {"model": "farm-chat", "input": "hi"},
+    "emb": {"model": "farm-embed", "input": "hi"},
     "messages_ns": {
         "model": "farm-chat",
         "max_tokens": 16,
@@ -46,8 +51,8 @@ def _two_backend_scenario(
 ) -> dict[str, Any]:
     return {
         "backends": [
-            {"name": "alpha", "models": ["farm-chat"], "script": alpha_script},
-            {"name": "beta", "models": ["farm-chat"], "script": beta_script},
+            {"name": "alpha", "models": _MODELS, "script": alpha_script},
+            {"name": "beta", "models": _MODELS, "script": beta_script},
         ],
         "routing": {"default_strategy": "failover"},
     }
@@ -98,9 +103,7 @@ def test_source_admission_reserved_then_released_in_finally(
     # ... and so does an exhausted-failure request.
     env2 = contract_env(
         {
-            "backends": [
-                {"name": "gamma", "models": ["farm-chat"], "script": [http(500)]}
-            ],
+            "backends": [{"name": "gamma", "models": _MODELS, "script": [http(500)]}],
             "routing": {
                 "default_strategy": "failover",
                 "sources": [{"id": "cli", "max_concurrency": 1}],
@@ -236,7 +239,7 @@ def test_local_only_header_excludes_remote_backends(contract_env, path: str) -> 
             "backends": [
                 {
                     "name": "remote1",
-                    "models": ["farm-chat"],
+                    "models": _MODELS,
                     "script": [ok()],
                     "local": False,
                     "scan_visible": False,

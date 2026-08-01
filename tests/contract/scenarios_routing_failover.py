@@ -28,7 +28,10 @@ A vector carries ``"divergence": ["Dn"]`` only where the *cell it pins* is a
 behavior-matrix divergence that is still open on this tree (D5 shard context
 missing off the chat paths, D6/D8 the Messages fallback-tier + ``tried``
 pre-seeding, D7 the attempt cap excluding ``cloud_extra``, D11 the keyless
-401 vs 404 exhaustion split). Vectors for behavior the F-30..F-48
+401 vs 404 exhaustion split, D17 the batch-ledger candidate list honoring
+``exclude_ids`` — which restarts ``reassign_failed``'s index walk at the head
+of the list and so changes chat ``batch_shard`` failover order). Vectors for
+behavior the F-30..F-48
 remediation already fixed — notably D3, streaming route-layer error mapping,
 which is why the ``*-s`` exhaustion and admission vectors are real HTTP
 statuses rather than 200 + aborted body — carry **no** annotation: they pin
@@ -87,7 +90,7 @@ from netllm_core.models import Backend, BackendHealth
 VECTOR_DIR = Path(__file__).resolve().parent / "vectors" / "routing-failover"
 RECORD = os.environ.get("NETLLM_VECTOR_RECORD") == "1"
 
-_VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 17)}
+_VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 18)}
 
 # --------------------------------------------------------------------------
 # Fixtures of the world: farm backends, request bodies, shared config bits
@@ -179,6 +182,14 @@ _BODY_FOR_PATH = {
 # Shard headers: the explicit connector-style batch convention
 # (netllm_agent.shard.extract_shard_context).
 SHARD_HEADERS = {"x-netllm-batch-id": "batch-7", "x-netllm-shard-index": "1"}
+
+# Same convention, but an index that lands the ledger's assign() on a
+# NON-first backend (index % len(urls) != 0 for the three-row worlds below),
+# which is the only shape in which D17's head-restart is observable.
+SHARD_INDEX_2_HEADERS = {
+    "x-netllm-batch-id": "batch-17",
+    "x-netllm-shard-index": "2",
+}
 
 # A source with a concurrency ceiling, addressed by x-netllm-source.
 CAPPED_SOURCE = {
@@ -285,10 +296,13 @@ HAPPY += [
         backends=[chat_backend("alpha"), chat_backend("beta")],
         routing={"default_strategy": "batch_shard"},
     ),
-    # D5: EMB/M-NS pass shard=None into selection, so identical shard
-    # headers degrade to the shardless fallback instead of placing.
+    # D5: shard context reaches selection on EMB and M-NS too, so identical
+    # shard headers now place through the batch ledger instead of counting a
+    # shardless fallback. (Recorded at HEAD as "*-shard-ignored" with
+    # shardless_fallbacks == 1; renamed here because post-D5 the recording
+    # asserts the opposite of that name.)
     vector(
-        "happy-batch-shard-emb-shard-ignored",
+        "happy-batch-shard-emb-shard-honored",
         path="emb",
         backends=[emb_backend("embed1"), emb_backend("embed2")],
         divergence=["D5"],
@@ -296,7 +310,7 @@ HAPPY += [
         headers=SHARD_HEADERS,
     ),
     vector(
-        "happy-batch-shard-messages-shard-ignored",
+        "happy-batch-shard-messages-shard-honored",
         path="messages_ns",
         backends=[anthropic_backend("anthro1"), anthropic_backend("anthro2")],
         divergence=["D5"],
@@ -369,16 +383,60 @@ CHAIN: list[dict[str, Any]] = [
         routing={"default_strategy": "failover"},
         headers={"authorization": "Bearer sk-farm-cloud"},
     ),
-    # D7: max_attempts = max(len(pool.backends), 1) counts POOL rows only,
-    # so with the cloud row injected exactly as above, the single pool row's
-    # failure ends the loop and the cloud candidate is never reached.
+    # The mirror image of the control above, and NOT a D7 vector (it was
+    # annotated ["D7"] and named "chain-attempt-cap-with-cloud-extra" until
+    # this phase, but it pins nothing about the attempt cap — see below).
+    # The legacy cloud row IS injected here: cloud.enabled defaults to true,
+    # so routing.allow_cloud_inject is true, the caller's Authorization key
+    # mints the openai-cloud row, and schedule.strategy_attempts is 2 (pool
+    # row + extra). What it never becomes is a *candidate*: the row has a
+    # blind catalog, and pool.backends_for_model ends with `healthy or
+    # candidates`, so a healthy pool row that serves the requested name
+    # hides every blind row. Attempt 2 therefore selects nothing and the
+    # loop ends for want of a candidate, not at the cap. The D7 flip proper
+    # (the injected row earning the extra attempt) is pinned by
+    # naming-cloud-guards/cloud/cloud-legacy-openai-row-earns-its-attempt.
     vector(
-        "chain-attempt-cap-with-cloud-extra",
+        "chain-cloud-extra-not-candidate-for-model",
         path="chat_ns",
         backends=[chat_backend("alpha", [FAIL_500])],
-        divergence=["D7"],
         routing={"default_strategy": "failover"},
         headers={"authorization": "Bearer sk-farm-cloud"},
+    ),
+    # D17: the batch-ledger arm now filters candidates by exclude_ids, and
+    # BatchRequestLedger.reassign_failed walks by index (shard.py:75-83), so
+    # dropping the failed row makes urls.index() raise, pos = -1, and the
+    # retry walk restarts at the HEAD of the list. Shard index 2 over three
+    # rows assigns the LAST row (2 % 3 != 0) — the case the five happy-path
+    # batch_shard vectors never reached. Before this phase a failure there
+    # ended the request after one attempt (urls[3:] is empty); these two
+    # vectors pin the full post-change retry order in upstream_calls.
+    vector(
+        "chain-batch-shard-reassign-restarts-at-head-chat-ns",
+        path="chat_ns",
+        backends=[
+            chat_backend("alpha", [FAIL_500]),
+            chat_backend("beta", [OK]),
+            chat_backend("gamma", [FAIL_500]),
+        ],
+        divergence=["D17"],
+        routing={"default_strategy": "batch_shard"},
+        headers=SHARD_INDEX_2_HEADERS,
+    ),
+    # The C-S twin: identical world, streaming route. Both failures land
+    # before the first byte, so the walk is invisible to the client and the
+    # recorded frames are beta's clean stream.
+    vector(
+        "chain-batch-shard-reassign-restarts-at-head-chat-s",
+        path="chat_s",
+        backends=[
+            chat_backend("alpha", [FAIL_500]),
+            chat_backend("beta", [OK]),
+            chat_backend("gamma", [FAIL_500]),
+        ],
+        divergence=["D17"],
+        routing={"default_strategy": "batch_shard"},
+        headers=SHARD_INDEX_2_HEADERS,
     ),
 ]
 

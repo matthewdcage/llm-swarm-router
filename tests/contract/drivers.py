@@ -99,6 +99,10 @@ def build_config(scenario: dict[str, Any], farm: FakeFarm) -> NetllmConfig:
             "local": b.local,
         }
         for b in farm.backends
+        # `configured: false` hosts are on the wire but not in config — the
+        # router must reach them some other way (a request-scoped legacy
+        # cloud row, which a configured row at the same URL would suppress).
+        if b.configured
     ]
     for section in ("routing", "cloud", "agent", "swarm"):
         overrides = scenario.get(section)
@@ -124,6 +128,8 @@ def contract_environment(scenario: dict[str, Any]) -> Iterator[ContractEnv]:
             script=spec.get("script", []),
             local=spec.get("local", True),
             scan_visible=spec.get("scan_visible", True),
+            url=spec.get("url"),
+            configured=spec.get("configured", True),
         )
     env_patch = {k: "" for k in _SCRUBBED_ENV}
     with (
