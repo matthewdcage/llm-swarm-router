@@ -1472,6 +1472,19 @@ def doctor(
             "`netllm swarm-token --create` or Settings on untrusted networks."
         )
 
+    if (
+        cfg.cloud.enabled
+        and cfg.cloud.fallback_enabled
+        and cfg.cloud.fallback == "local"
+    ):
+        # F-46: the value names the fallback *tier*, so "local" reads
+        # local-first but means cloud-first. Make the resulting order loud.
+        notes.append(
+            "cloud.fallback = 'local': cloud is tried FIRST and the local "
+            "mesh is the fallback. For local-first routing run "
+            "`netllm cloud fallback local-first`."
+        )
+
     if cfg.agent.role == "gateway" and not cfg.agent.advertise:
         issues.append(
             (
@@ -1864,18 +1877,36 @@ def cloud_set_key(
     console.print(f"[green]Key stored[/] for cloud provider {provider!r}.")
 
 
+# The stored `cloud.fallback` value names the fallback *tier*, but users
+# read it as the priority (F-46): `fallback=local` is cloud-first. The
+# aliases say what the user means; the stored values stay unchanged for
+# config compat.
+_FALLBACK_ALIASES = {"local-first": "cloud", "cloud-first": "local"}
+
+
+def _fallback_order_line(fallback: str, fallback_enabled: bool) -> str:
+    """One explicit sentence stating the resulting try order."""
+    if not fallback_enabled or fallback == "none":
+        return "Order: local mesh only — no automatic cloud fallback."
+    if fallback == "local":
+        return "Order: cloud tried FIRST, local mesh is the fallback."
+    return "Order: local mesh tried FIRST, cloud is the fallback."
+
+
 @cloud_app.command("fallback")
 def cloud_fallback(
     mode: str = typer.Argument(
         ...,
-        help="cloud | local | none | on | off — direction, or on/off for the "
-        "fallback toggle",
+        help="local-first | cloud-first | cloud | local | none | on | off — "
+        "direction (local-first stores 'cloud': cloud is the fallback tier; "
+        "cloud-first stores 'local'), or on/off for the fallback toggle",
     ),
     config: Path | None = typer.Option(None, "--config"),
 ) -> None:
     """Set the cloud fallback direction, or toggle it on/off."""
     cfg_path = _config_path_option(config)
     cfg = load_config(cfg_path)
+    mode = _FALLBACK_ALIASES.get(mode, mode)
     if mode in ("on", "off"):
         cfg.cloud.fallback_enabled = mode == "on"
     elif mode in ("cloud", "local", "none"):
@@ -1883,7 +1914,8 @@ def cloud_fallback(
     else:
         print_error(
             "Invalid fallback mode",
-            f"{mode!r} — expected cloud, local, none, on, or off.",
+            f"{mode!r} — expected local-first, cloud-first, cloud, local, "
+            "none, on, or off.",
         )
         raise typer.Exit(1)
     save_config(cfg, cfg_path)
@@ -1891,6 +1923,7 @@ def cloud_fallback(
         f"[green]Cloud fallback[/] = {cfg.cloud.fallback} "
         f"({'on' if cfg.cloud.fallback_enabled else 'off'})"
     )
+    console.print(_fallback_order_line(cfg.cloud.fallback, cfg.cloud.fallback_enabled))
 
 
 @cloud_app.command("test")
@@ -2060,9 +2093,10 @@ def sources_toggle(
     config: Path | None = typer.Option(None, "--config"),
 ) -> None:
     """Register (if new) and enable a source, or flip its `enabled` state."""
-    from fastapi import HTTPException
-    from netllm_agent.admin import apply_config_patch
+    from netllm_core.config_guards import ConfigGuardError, apply_config_guards
+    from netllm_core.config_merge import apply_config_patch
     from netllm_core.known_harnesses import get_known_harness
+    from netllm_discovery.lan import own_agent_urls
 
     cfg_path = _config_path_option(config)
     cfg = load_config(cfg_path)
@@ -2081,10 +2115,16 @@ def sources_toggle(
         entries.append({"id": id, "enabled": True, "known_id": known_id})
         new_enabled = True
 
+    # Same merge + guard pair as `netllm config import` (config_json.py)
+    # and the agent's admin save path — see F-02 / F-43 in
+    # docs/architecture/07-findings-register.md.
+    updated = apply_config_patch(cfg, {"routing": {"sources": entries}})
     try:
-        updated = apply_config_patch(cfg, {"routing": {"sources": entries}})
-    except HTTPException as exc:
-        print_error(f"Could not toggle source {id!r}", str(exc.detail))
+        apply_config_guards(
+            updated, own_agent_urls=own_agent_urls(updated.agent.listen)
+        )
+    except ConfigGuardError as exc:
+        print_error(f"Could not toggle source {id!r}", str(exc))
         raise typer.Exit(1) from exc
 
     save_config(updated, cfg_path)

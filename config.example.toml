@@ -190,6 +190,12 @@ auto_start_on_launch = true
 check_for_updates_automatically = true
 # log_dir = ""  # default: ~/Library/.../logs (macOS), XDG state (Linux), %LOCALAPPDATA% (Windows)
 # serve writes agent.log under log_dir on all platforms
+# model_favorites = []  # pin model IDs to the top of model pickers
+# menubar_show_cpu = false   # macOS menubar gauges (System Stats)
+# menubar_show_gpu = false
+# menubar_show_mem = false
+# menubar_show_live = false  # live throughput gauge (LIV)
+# menubar_models_favorites_only = false  # menubar Models menu shows favorites only
 
 # Optional manual backend overrides (per-endpoint API keys via env)
 # [[routing.backends]]

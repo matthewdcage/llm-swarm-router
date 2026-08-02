@@ -66,15 +66,15 @@ Point **Cursor**, **Claude Code**, **Codex**, **Honcho**, or any compatible clie
 ### Two machines, three commands
 
 ```bash
-# Machine A — answer "yes" to the swarm question (or pass --swarm)
-./netllm init --swarm && ./netllm serve
+# Machine A — secured swarm: generates a cluster token, prints the join command
+./netllm init --swarm --secure && ./netllm serve
 # prints: netllm join http://<machine-A-ip>:11400 --token <generated>
 
 # Machine B — paste the join command from machine A
 ./netllm join http://<machine-A-ip>:11400 --token <generated> && ./netllm serve
 ```
 
-Both machines now share one model catalog, authenticate with the generated cluster token, and **spread same-model load automatically** (`local_spillover`: serve locally while idle, spill to the least-loaded peer when busy). Verify with `./netllm peers` and `./netllm models`.
+Both machines now share one model catalog, authenticate with the generated cluster token, and **spread same-model load automatically** (`local_spillover`: serve locally while idle, spill to the least-loaded peer when busy). Verify with `./netllm peers` and `./netllm models`. On a trusted home LAN you can skip the token: run `./netllm init --swarm && ./netllm serve` on both machines (no `join` needed) and they mesh via mDNS.
 
 ### Who reads what
 
@@ -287,15 +287,18 @@ Config: `~/.config/netllm/config.toml`, see [config.example.toml](config.example
 
 ```bash
 ./netllm init              # guided setup (asks: single machine or LAN swarm?)
-./netllm init --swarm      # LAN bind + cluster token + load spreading, prints join cmd
-./netllm join URL --token T     # join this machine to an existing swarm
+./netllm init --swarm      # LAN bind + load spreading (open trusted LAN, no token)
+./netllm init --swarm --secure  # same + cluster token, prints join cmd
+./netllm join URL --token T     # join this machine to a secured swarm
 ./netllm swarm-token       # show (or --rotate) the pairing token
 ./netllm serve             # foreground agent (dev/CI/Linux)
 ./netllm serve --host 0.0.0.0   # LAN bind without re-init
 ./netllm start|stop|restart     # background (app / Homebrew / systemd / Windows service)
 ./netllm status            # backends, health, peers
 ./netllm models            # routed catalog
+./netllm models --local    # local providers only (agent not required)
 ./netllm models --lan      # include remote LAN agents
+./netllm models --lan --subnet-scan   # probe the /24 when mDNS is blocked
 ./netllm peers             # mDNS browse (flags unreachable loopback-bound agents)
 ./netllm discover          # manual rescan (optional; agent auto-discovers)
 ./netllm test              # 1-token latency probe

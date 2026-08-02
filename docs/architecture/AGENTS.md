@@ -6,8 +6,9 @@ Two things in one folder, deliberately kept together so they cannot drift apart:
 
 1. **Reference** (01–06) — how the system is built: components, request lifecycle, swarm
    behaviour, configuration/control plane, dependency map. Intended to stay true.
-2. **Audit** (07–08) — a point-in-time register of defects, risks, and integration gaps,
-   plus the product-facing shipped/partial/orphaned matrix.
+2. **Audit** (07–09) — point-in-time registers of defects, risks, and integration gaps,
+   plus the product-facing shipped/partial/orphaned matrix. 09 continues 07's F-nn
+   namespace at F-30.
 
 Index: [README.md](README.md). Parent rail: [../AGENTS.md](../AGENTS.md).
 
@@ -23,6 +24,7 @@ Index: [README.md](README.md). Parent rail: [../AGENTS.md](../AGENTS.md).
 | `06-dependencies.md` | internal graph, external/undeclared deps, platform + CI + release dependencies |
 | `07-findings-register.md` | F-01…F-29 with severity, evidence, and fix |
 | `08-feature-integration-status.md` | shipped / partial / orphaned per client surface; product decisions |
+| `09-follow-up-audit-2026-07-31.md` | F-30…F-53 with severity, evidence, and fix (same contracts as 07; IDs continue the register namespace) |
 
 ## Local Contracts
 

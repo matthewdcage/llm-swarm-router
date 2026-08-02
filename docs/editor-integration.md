@@ -33,6 +33,8 @@ Use the same pattern for **Cursor, Claude Code, Codex, Honcho, Continue, Cline, 
 
 Verify after wiring: `./netllm test --model <your-model>` (add `--api anthropic` for Messages API).
 
+Non-standard sampling knobs (`top_k`, `min_p`, `repeat_penalty`, …) are accepted on the OpenAI-compatible routes and forwarded to backends that support them — netllm normalizes the payload for the upstream (including aliasing `repeat_penalty` to `repetition_penalty` for OpenAI-format backends such as vLLM), so tools that send Ollama/LM Studio-style options keep working through the router.
+
 Per-tool UI steps below; Honcho-specific connector sharding: [honcho-integration.md](honcho-integration.md).
 
 ## Cursor

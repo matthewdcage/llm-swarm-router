@@ -194,7 +194,8 @@ def test_unknown_model_returns_404_with_catalog(
             },
         )
     assert resp.status_code == 404
-    detail = resp.json()["detail"]
+    # F-38: /v1/* errors render the OpenAI error envelope, not {"detail"}.
+    detail = resp.json()["error"]["message"]
     assert "gpt-imaginary" in detail
     assert "qwen2" in detail
 

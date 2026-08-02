@@ -22,10 +22,12 @@ from netllm_core.cloud_providers import get_provider_spec
 from netllm_core.models import (
     ANTHROPIC_CLOUD_BASE_URL,
     BACKEND_PIN_HEADER,
+    DEFAULT_SOURCE_ID,
     HOPS_HEADER,
     LOCAL_ONLY_HEADER,
     MAX_FORWARD_HOPS,
     OPENAI_CLOUD_BASE_URL,
+    SOURCE_HEADER,
     STRATEGY_HEADER,
     Backend,
     BackendHealth,
@@ -82,6 +84,14 @@ logger = logging.getLogger(__name__)
 # clients are never cached, because their credential can come from the
 # calling request (docs/architecture/07-findings-register.md F-04).
 LEGACY_CLOUD_BACKEND_IDS = frozenset({"openai-cloud", "anthropic-cloud"})
+
+
+def _token_count(value: Any) -> int:
+    """Backend-supplied usage values are untrusted; never raise mid-stream."""
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 class SourceCapacityExceeded(Exception):
@@ -165,11 +175,11 @@ class AgentService:
         usage = result.get("usage")
         if not isinstance(usage, dict):
             return 0, 0
-        prompt = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
-        completion = int(
-            usage.get("completion_tokens") or usage.get("output_tokens") or 0
+        prompt = _token_count(usage.get("prompt_tokens") or usage.get("input_tokens"))
+        completion = _token_count(
+            usage.get("completion_tokens") or usage.get("output_tokens")
         )
-        return max(0, prompt), max(0, completion)
+        return prompt, completion
 
     def _record_success_telemetry(
         self,
@@ -195,6 +205,75 @@ class AgentService:
             prefill_duration=prefill_dur,
             generation_duration=gen_dur if completion else 0.0,
         )
+
+    @staticmethod
+    def _usage_from_sse_chunk(chunk: str) -> tuple[int, int]:
+        """Token usage carried by one SSE chunk, if any.
+
+        Understands both wire formats a streaming wrapper can see:
+        Anthropic (message_start's message.usage / message_delta's usage,
+        input_tokens/output_tokens) and OpenAI (the stream_options
+        include_usage chunk, prompt_tokens/completion_tokens).
+        """
+        prompt = completion = 0
+        for line in chunk.split("\n"):
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data or data == "[DONE]":
+                continue
+            try:
+                obj = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(obj, dict):
+                continue
+            usage = obj.get("usage")
+            if not isinstance(usage, dict):
+                message = obj.get("message")
+                usage = message.get("usage") if isinstance(message, dict) else None
+            if not isinstance(usage, dict):
+                continue
+            prompt = max(
+                prompt,
+                _token_count(usage.get("input_tokens") or usage.get("prompt_tokens")),
+            )
+            completion = max(
+                completion,
+                _token_count(
+                    usage.get("output_tokens") or usage.get("completion_tokens")
+                ),
+            )
+        return prompt, completion
+
+    def _record_stream_success(
+        self,
+        *,
+        backend: Backend,
+        model: str,
+        latency_s: float,
+        prompt_tokens: int,
+        completion_tokens: int,
+    ) -> None:
+        """Success accounting for a completed stream — the streaming twin
+        of _record_success_telemetry (F-33)."""
+        self.pool.mark_success(backend, latency_s * 1000)
+        REQUESTS_TOTAL.labels(backend=backend.base_url, model=model, status="ok").inc()
+        REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency_s)
+        if prompt_tokens or completion_tokens:
+            PROMPT_TOKENS_TOTAL.labels(backend=backend.base_url, model=model).inc(
+                prompt_tokens
+            )
+            COMPLETION_TOKENS_TOTAL.labels(backend=backend.base_url, model=model).inc(
+                completion_tokens
+            )
+        self.telemetry.record_usage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            prefill_duration=latency_s * 0.3 if prompt_tokens else 0.0,
+            generation_duration=latency_s * 0.7 if completion_tokens else 0.0,
+        )
+        self._request_count += 1
 
     async def refresh_local_backends(
         self,
@@ -648,9 +727,8 @@ class AgentService:
                 for line in chunk.split("\n")
             )
 
-    @staticmethod
     def _peer_forward_headers(
-        backend: Backend, incoming: Mapping[str, str] | None = None
+        self, backend: Backend, incoming: Mapping[str, str] | None = None
     ) -> dict[str, str] | None:
         """Loop guard: agent-hop forwards must terminate at the peer.
 
@@ -658,15 +736,25 @@ class AgentService:
         (round_robin, least_load, ...) could bounce the request back,
         ping-ponging it across the mesh. The hop counter is a second
         line of defense should the local-only header ever be dropped.
+
+        The resolved source id also rides along (F-47) so per-source
+        telemetry on the serving peer attributes mesh traffic to the real
+        caller instead of "default". Attribution-only: the receiving peer
+        re-resolves the header itself, and resolve_source never grants a
+        secret-gated identity from a bare header — only a virtual key
+        carrying the correct secret does.
         """
         if backend.id.startswith("peer:"):
-            hops = AgentService._incoming_hops(
-                AgentService._normalize_headers(incoming)
-            )
-            return {
+            hdrs = self._normalize_headers(incoming)
+            hops = self._incoming_hops(hdrs)
+            out = {
                 LOCAL_ONLY_HEADER: "1",
                 HOPS_HEADER: str(hops + 1),
             }
+            resolved = resolve_source(headers=hdrs, sources=self.config.routing.sources)
+            if resolved.id != DEFAULT_SOURCE_ID:
+                out[SOURCE_HEADER] = resolved.id
+            return out
         return None
 
     def _upstream_api_key(self, backend: Backend) -> str:
@@ -1361,7 +1449,10 @@ class AgentService:
         key = headers.get("x-api-key", "")
         if key and not is_netllm_placeholder_key(key):
             return key
-        return os.environ.get("ANTHROPIC_API_KEY", "")
+        env_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if env_key and not is_netllm_placeholder_key(env_key):
+            return env_key
+        return ""
 
     @staticmethod
     def _openai_api_key(headers: Mapping[str, str]) -> str:
@@ -1901,17 +1992,36 @@ class AgentService:
                 BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(
                     backend.in_flight
                 )
+                t0 = time.monotonic()
+                prompt_tokens = completion_tokens = 0
                 try:
                     async for chunk in self._messages_stream_on_backend(
                         backend, payload, model, hdrs, api_key
                     ):
+                        if '"usage"' in chunk:
+                            p, c = self._usage_from_sse_chunk(chunk)
+                            prompt_tokens = max(prompt_tokens, p)
+                            completion_tokens = max(completion_tokens, c)
                         yielded_any = True
                         yield chunk
+                    # Same success accounting as _stream_with_metrics —
+                    # streamed Messages traffic must not be invisible to
+                    # the pool and telemetry (F-33).
+                    self._record_stream_success(
+                        backend=backend,
+                        model=model,
+                        latency_s=time.monotonic() - t0,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                    )
                     return
                 except (AnthropicUpstreamError, OpenAIUpstreamError) as exc:
                     last_error = exc
                     tried.add(backend.id)
                     self._mark_backend_failure(backend, exc)
+                    REQUESTS_TOTAL.labels(
+                        backend=backend.base_url, model=model, status="error"
+                    ).inc()
                     logger.warning(
                         "messages stream backend %s failed (attempt %s): %s",
                         backend.base_url,
@@ -2025,16 +2135,23 @@ class AgentService:
         shard: ShardContext | None = None,
     ) -> AsyncIterator[str]:
         t0 = time.monotonic()
+        prompt_tokens = completion_tokens = 0
         try:
             async for chunk in client.chat_completion_stream(payload):
+                if '"usage"' in chunk:
+                    # Present only when the caller asked for
+                    # stream_options.include_usage; zero otherwise.
+                    p, c = self._usage_from_sse_chunk(chunk)
+                    prompt_tokens = max(prompt_tokens, p)
+                    completion_tokens = max(completion_tokens, c)
                 yield chunk
-            latency = time.monotonic() - t0
-            self.pool.mark_success(backend, latency * 1000)
-            REQUESTS_TOTAL.labels(
-                backend=backend.base_url, model=model, status="ok"
-            ).inc()
-            REQUEST_LATENCY.labels(backend=backend.base_url).observe(latency)
-            self.telemetry.record_request()
+            self._record_stream_success(
+                backend=backend,
+                model=model,
+                latency_s=time.monotonic() - t0,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
             self._mark_shard_success(shard)
         except OpenAIUpstreamError as exc:
             self._mark_backend_failure(backend, exc)
