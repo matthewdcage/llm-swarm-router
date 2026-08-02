@@ -1,0 +1,80 @@
+{
+  "divergence": [],
+  "expected": {
+    "admission_delta": {
+      "request_count": 0,
+      "scenario_counts": {
+        "default:default": 1
+      },
+      "shardless_fallbacks": 0,
+      "source_counts": {
+        "default": 1
+      },
+      "source_in_flight": {
+        "default": 0
+      }
+    },
+    "body_shape": {
+      "error": {
+        "code": "not_found",
+        "message": "Model 'no-such-embed-model' not found on any backend. Known models: farm-embed. Map provider-specific names with [routing.model_aliases], or add the host to a [routing.model_pools] entry to accept any request name.",
+        "param": null,
+        "type": "invalid_request_error"
+      }
+    },
+    "metrics_delta": {
+      "counters": {
+        "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
+        "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
+      },
+      "gauges": {
+        "netllm_backend_healthy{backend=http://embed1.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://embed1.farm/v1}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://embed1.farm/v1": "online"
+      },
+      "in_flight": {
+        "http://embed1.farm/v1": 0
+      },
+      "latency_ema_changed": {
+        "http://embed1.farm/v1": "<ema>"
+      },
+      "routed_counts": {}
+    },
+    "sse_frames": null,
+    "status": 404,
+    "upstream_calls": []
+  },
+  "id": "exhaust-unknown-model-emb",
+  "request": {
+    "body": {
+      "input": "hi",
+      "model": "no-such-embed-model"
+    },
+    "headers": {},
+    "path": "emb"
+  },
+  "scenario": {
+    "backends": [
+      {
+        "api_format": "openai",
+        "models": [
+          "farm-embed"
+        ],
+        "name": "embed1",
+        "script": [
+          {
+            "behavior": "ok"
+          }
+        ]
+      }
+    ],
+    "routing": {
+      "default_strategy": "failover"
+    }
+  }
+}

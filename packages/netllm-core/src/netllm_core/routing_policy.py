@@ -68,6 +68,7 @@ def resolve_routing(
     cloud: CloudConfig | None = None,
     source: SourceConfig | None = None,
     scenario: str | None = None,
+    surface: str | None = None,
 ) -> ResolvedRouting:
     """Merge default routing config, optional policy match, optional
     per-source overrides, an optional per-scenario override, and
@@ -83,6 +84,10 @@ def resolve_routing(
     versa. `scenario` (netllm_core.scenarios.classify_scenario) then
     looks up `source.scenarios[scenario]`, if present, and applies it on
     top of the source's own defaults for this one request only.
+    `surface` ("chat" | "embeddings" | "messages") gates that lookup
+    against `ScenarioRule.surfaces` (D14): a rule that names its surfaces
+    is skipped elsewhere, an unqualified rule still fires everywhere, and
+    passing no surface at all disables the gate entirely.
 
     `cloud` (default CloudConfig(), i.e. today's behavior: enabled=True,
     fallback="cloud") gates the default cloud-allowed stance:
@@ -151,6 +156,10 @@ def resolve_routing(
                 cloud_provider_allowlist = frozenset(source.cloud_providers)
 
         rule = source.scenarios.get(scenario) if scenario else None
+        # [D14] A rule that names its surfaces only fires on those; an
+        # unqualified rule (the default) fires everywhere, as it always has.
+        if rule is not None and not rule.applies_to(surface):
+            rule = None
         if rule is not None:
             if rule.strategy is not None:
                 strategy = rule.strategy

@@ -512,23 +512,37 @@ def create_app(
         require_inference_access(request)
         payload = await request.json()
         stream = bool(payload.get("stream"))
-        hdrs = {k.lower(): v for k, v in request.headers.items()}
+        # [D12] The route layer used to lower-case the header keys here
+        # before handing them over — the only route that did. Every proxy
+        # entry point normalizes exactly once now, at the top of
+        # build_request_plan (AgentService._normalize_headers), so this was a
+        # duplicate whose only future was to drift out of step with it.
 
         try:
             if stream:
                 return StreamingResponse(
                     await _started_stream(
-                        service.proxy_messages_stream(payload, headers=hdrs)
+                        service.proxy_messages_stream(payload, headers=request.headers)
                     ),
                     media_type="text/event-stream",
                 )
-            return await service.proxy_messages(payload, headers=hdrs)
+            return await service.proxy_messages(payload, headers=request.headers)
         except SourceCapacityExceeded as exc:
             raise HTTPException(status_code=429, detail=str(exc)) from exc
         except AnthropicUpstreamError as exc:
             status = exc.status_code or 502
             raise HTTPException(status_code=status, detail=str(exc)) from exc
         except OpenAIUpstreamError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            # D11 (plan §3 Phase 3, commit 3c): an OpenAIUpstreamError here
+            # comes from a translated (openai-format) backend, and used to
+            # be flattened to 502 — so a caller's own bad request or an
+            # unknown model read as "the router is broken". Forward 400/404
+            # exactly as the OpenAI surfaces above do; everything else
+            # stays 502. The body is still Anthropic-shaped (errors.py
+            # keys on the path, F-38).
+            raise HTTPException(
+                status_code=exc.status_code if exc.status_code in (400, 404) else 502,
+                detail=str(exc),
+            ) from exc
 
     return app

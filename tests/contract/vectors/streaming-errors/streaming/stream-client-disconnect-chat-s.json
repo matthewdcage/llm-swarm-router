@@ -1,0 +1,104 @@
+{
+  "divergence": [],
+  "drive": {
+    "consume": 2,
+    "mode": "service_stream_aclose"
+  },
+  "expected": {
+    "admission_delta": {
+      "request_count": 0,
+      "scenario_counts": {
+        "default:default": 1
+      },
+      "shardless_fallbacks": 0,
+      "source_counts": {
+        "default": 1
+      },
+      "source_in_flight": {
+        "default": 0
+      }
+    },
+    "body_shape": null,
+    "metrics_delta": {
+      "counters": {
+        "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
+        "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
+      },
+      "gauges": {
+        "netllm_backend_healthy{backend=http://alpha.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://alpha.farm/v1}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://alpha.farm/v1": "online"
+      },
+      "in_flight": {
+        "http://alpha.farm/v1": 0
+      },
+      "latency_ema_changed": {
+        "http://alpha.farm/v1": "<ema>"
+      },
+      "routed_counts": {}
+    },
+    "sse_frames": [
+      [
+        "data: {\"choices\": [{\"delta\": {\"content\": \"\", \"function_call\": null, \"refusal\": null, \"role\": \"assistant\", \"tool_calls\": null}, \"finish_reason\": null, \"index\": 0, \"logprobs\": null}], \"created\": \"<ts>\", \"id\": \"<id>\", \"model\": \"farm-chat\", \"moderation\": null, \"object\": \"chat.completion.chunk\", \"service_tier\": null, \"system_fingerprint\": null, \"usage\": null}"
+      ],
+      [
+        "data: {\"choices\": [{\"delta\": {\"content\": \"a\", \"function_call\": null, \"refusal\": null, \"role\": null, \"tool_calls\": null}, \"finish_reason\": null, \"index\": 0, \"logprobs\": null}], \"created\": \"<ts>\", \"id\": \"<id>\", \"model\": \"farm-chat\", \"moderation\": null, \"object\": \"chat.completion.chunk\", \"service_tier\": null, \"system_fingerprint\": null, \"usage\": null}"
+      ]
+    ],
+    "status": 200,
+    "upstream_calls": [
+      {
+        "backend": "alpha",
+        "headers": {
+          "authorization": "Bearer farm-key"
+        },
+        "method": "POST",
+        "model": "farm-chat",
+        "path": "/v1/chat/completions"
+      }
+    ]
+  },
+  "id": "stream-client-disconnect-chat-s",
+  "note": "GeneratorExit at chunk 2: pool in_flight and _source_in_flight both return to zero, BACKEND_IN_FLIGHT gauge is 0, and NO success accounting is recorded for the partial stream",
+  "request": {
+    "body": {
+      "messages": [
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "model": "farm-chat"
+    },
+    "headers": {},
+    "path": "chat_s"
+  },
+  "scenario": {
+    "backends": [
+      {
+        "api_format": "openai",
+        "models": [
+          "farm-chat"
+        ],
+        "name": "alpha",
+        "script": [
+          {
+            "behavior": "ok_stream",
+            "chunks": [
+              "a",
+              "b",
+              "c",
+              "d"
+            ],
+            "usage_in_final": true
+          }
+        ]
+      }
+    ]
+  }
+}

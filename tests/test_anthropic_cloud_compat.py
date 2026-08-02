@@ -21,7 +21,7 @@ def client() -> TestClient:
         yield test_client
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_sdk_anthropic.client.AsyncAnthropic")
 def test_cloud_passthrough_payload(
     mock_anthropic_cls: MagicMock,

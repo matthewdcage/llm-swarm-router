@@ -27,7 +27,7 @@ def test_doctor_flags_menubar_supervisor_not_running(tmp_path) -> None:
         hostname="test-host",
     )
     with patch.dict("os.environ", {"NETLLM_SUPERVISED": "menubar"}, clear=False):
-        with patch("netllm_cli.main.control_socket_path") as sock:
+        with patch("netllm_cli.commands.diagnose.control_socket_path") as sock:
             sock.return_value.exists.return_value = True
             with patch("netllm_cli.lifecycle.darwin.send_app_control") as send:
                 send.return_value = {"ok": True, "state": "failed", "pid": None}
@@ -36,11 +36,11 @@ def test_doctor_flags_menubar_supervisor_not_running(tmp_path) -> None:
                     return_value=conflict,
                 ):
                     with patch(
-                        "netllm_cli.main.asyncio.run",
+                        "netllm_cli.commands.diagnose.asyncio.run",
                         return_value=[{"status": "online", "id": "omlx"}],
                     ):
                         with patch(
-                            "netllm_cli.main.mdns_available",
+                            "netllm_cli.commands.diagnose.mdns_available",
                             return_value=False,
                         ):
                             result = runner.invoke(

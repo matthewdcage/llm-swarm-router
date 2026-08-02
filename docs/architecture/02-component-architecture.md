@@ -4,12 +4,12 @@
 
 ```mermaid
 flowchart BT
-    core["netllm-core<br/><i>routing, config, bridges, registries</i><br/>3,398 LOC"]
-    oai["netllm-sdk-openai<br/><i>openai SDK adapter</i><br/>117 LOC"]
-    ant["netllm-sdk-anthropic<br/><i>anthropic SDK adapter</i><br/>77 LOC"]
-    disc["netllm-discovery<br/><i>local scan, mDNS, swarm registry</i><br/>1,629 LOC"]
-    agent["netllm-agent<br/><i>FastAPI app, AgentService, admin</i><br/>3,572 LOC"]
-    cli["netllm-cli<br/><i>Typer CLI, lifecycle, install</i><br/>3,062 LOC"]
+    core["netllm-core<br/><i>routing, config, bridges, registries,<br/>model resolution</i><br/>5,010 LOC"]
+    oai["netllm-sdk-openai<br/><i>openai SDK adapter</i><br/>259 LOC"]
+    ant["netllm-sdk-anthropic<br/><i>anthropic SDK adapter</i><br/>82 LOC"]
+    disc["netllm-discovery<br/><i>local scan, mDNS, swarm registry</i><br/>1,906 LOC"]
+    agent["netllm-agent<br/><i>FastAPI app, engine + adapters, admin</i><br/>5,543 LOC"]
+    cli["netllm-cli<br/><i>Typer CLI, lifecycle, install</i><br/>3,397 LOC"]
     meta["netllm (meta-package)<br/>src/netllm"]
 
     disc --> core
@@ -183,15 +183,44 @@ defect (F-26).
 
 | Module | LOC | Responsibility |
 |--------|-----|----------------|
-| `service.py` | 2,149 | `AgentService` — the orchestrator. Owns pool, swarm, telemetry, all four proxy paths, cloud materialisation, background tasks |
-| `admin.py` | 521 | Loopback/token-gated admin helpers: doctor, config summary, patch save, peers-scan, log tail, registries |
-| `app.py` | 444 | FastAPI factory, route definitions, exception → HTTP status mapping, static mount |
-| `telemetry.py` | 257 | Session/all-time counters, oMLX telemetry proxy, ring-buffer history |
-| `shard.py` | 137 | Shard-context extraction and the bounded batch ledger |
+| `service/` | 3,570 | The `AgentService` mixin composition — 16 modules, table below |
+| `app.py` | 548 | FastAPI factory, route definitions, exception → HTTP status mapping, static mount |
+| `admin.py` | 511 | Loopback/token-gated admin helpers: doctor, config summary, patch save, peers-scan, log tail, registries |
+| `telemetry.py` | 304 | Session/all-time counters, oMLX telemetry proxy, ring-buffer history |
+| `shard.py` | 145 | Shard-context extraction and the bounded batch ledger |
+| `candidates.py` | 120 | `CandidateSchedule` — primary + extras + fallback tiers + `max_attempts` |
+| `taxonomy.py` | 108 | Error taxonomy and exhaustion classification |
+| `errors.py` | 90 | Per-surface wire error envelopes (OpenAI / Anthropic shapes) |
+| `request_plan.py` | 83 | `RequestPlan` (frozen) + `Surface` |
 | `metrics.py` | 58 | 7 Prometheus collectors |
-| `static/` | 3,457 | Bundled dashboard (`dashboard.js` alone is 2,721 lines) |
+| `static/` | 3,613 | Bundled dashboard (`dashboard.js` alone is 2,825 lines — F-54) |
 
-### AgentService responsibilities (why it is 2.1 kLOC)
+### The `service/` package (F-26)
+
+| Module | LOC | Responsibility |
+|--------|-----|----------------|
+| `surfaces/base.py` | 486 | `SurfaceAdapter` protocol, `BaseAdapter`, the two dialect adapters, SSE restore helpers |
+| `engine.py` | 469 | `run_with_failover`, `open_stream`, `StreamSession` — **the only failover loop** |
+| `policy.py` | 350 | Source attribution, scenario classification, routing resolution, admission, guards |
+| `cloud.py` | 308 | Legacy cloud injection + `[cloud.providers.*]` materialisation |
+| `surfaces/messages.py` | 282 | `MessagesAdapter`: both dialect arms, fallback tier, mid-stream error frame |
+| `swarm_tasks.py` | 274 | mDNS, rediscovery, subnet scan, heartbeat, gateway follow |
+| `backends.py` | 268 | Refresh/scan, prune, upstream construction, peer-forward headers |
+| `selection.py` | 259 | `_select_backend_for_request` + `CandidateSchedule` construction |
+| `accounting.py` | 211 | `AttemptRecorder` — **the only accounting writer** |
+| `core.py` | 140 | `__init__`, `apply_config`, `SourceCapacityExceeded` |
+| `status.py` | 134 | Status payload, telemetry sinks, health metrics |
+| `surfaces/chat.py` | 101 | `ChatAdapter` + the chat entry points |
+| `surfaces/responses.py` | 80 | Responses ⇄ chat edge translation over `ChatAdapter` |
+| `__init__.py` | 79 | Mixin composition; re-exports `AgentService`, `SourceCapacityExceeded`, `LEGACY_CLOUD_BACKEND_IDS` |
+| `surfaces/embeddings.py` | 79 | `EmbeddingsAdapter` incl. the capability guard |
+| `surfaces/__init__.py` | 50 | `adapter_for(service, surface)` |
+
+### AgentService responsibilities (historical — why it was 2.1 kLOC)
+
+> The mindmap below describes the **pre-split** `service.py`. It is kept because
+> it is the clearest statement of the nine responsibilities the package now
+> separates; map each branch to a module in the table above.
 
 ```mermaid
 mindmap
@@ -237,21 +266,26 @@ mindmap
       _record_success_telemetry
 ```
 
-Nine distinct responsibilities in one class. The four proxy paths share a near-identical
-~70-line acquire/call/account/failover loop that is copy-pasted four times — the single
-largest simplification opportunity in the repo (F-22).
+Nine distinct responsibilities in one class, and the four proxy paths shared a
+near-identical ~70-line acquire/call/account/failover loop copy-pasted four times.
+**RESOLVED (F-24/F-26):** the loop exists once in `service/engine.py`, the per-surface
+variance is the `SurfaceAdapter` protocol, and accounting is written in exactly one place
+(`AttemptRecorder`). Measured across the split: cross-module call edges 129 → 33,
+multi-writer shared-state groups 12 → 0, projected module cycles 2 → 0
+(`scripts/analyze-module-graph.py`).
 
 ## netllm-cli
 
 | Module | LOC | Responsibility |
 |--------|-----|----------------|
-| `main.py` | 2,119 | 24 top-level commands + `config`/`cloud`/`sources` sub-apps |
+| `commands/` | 2,303 | 10 modules, one per command group: `_common`, `init_install`, `join_swarm`, `observe`, `serve_lifecycle`, `diagnose`, `config_io`, `cloud`, `sources` |
+| `main.py` | 80 | Typer wiring only — registers the command modules and the `config`/`cloud`/`sources` sub-apps |
 | `ui.py` | 314 | Rich rendering helpers (tables, panels, hint blocks) |
 | `install.py` | 196 | Global CLI install via `uv tool install`, shell PATH wiring |
 | `oauth_pkce.py` | 143 | OpenRouter OAuth PKCE flow with localhost callback |
-| `lifecycle/` | 240 | Per-channel start/stop/restart: macOS app control socket, Homebrew, systemd, Windows `sc.exe` |
-| `config_json.py` | 40 | `config export` / `config import` — the macOS app's save path |
-| `install_detect.py` | 35 | Re-export shim over `netllm_core.install_detect` |
+| `lifecycle/` | 275 | Per-channel start/stop/restart: macOS app control socket, Homebrew, systemd, Windows `sc.exe` |
+| `config_json.py` | 46 | `config export` / `config import` — the macOS app's save path |
+| `install_detect.py` | 35 | Re-export shim over `netllm_core.install_detect` (F-55) |
 
 ### CLI command surface
 

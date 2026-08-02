@@ -39,6 +39,11 @@ ProviderId = Literal[
 ]
 ApiFormat = Literal["openai", "anthropic"]
 
+# [D14] The proxy surfaces a scenario rule can be scoped to. Mirrors
+# netllm_agent.taxonomy.Surface's values; Responses is deliberately absent
+# because it delegates to the chat surface and inherits its plan.
+SurfaceName = Literal["chat", "embeddings", "messages"]
+
 ANTHROPIC_CLOUD_BASE_URL = "https://api.anthropic.com"
 OPENAI_CLOUD_BASE_URL = "https://api.openai.com/v1"
 LOCAL_ONLY_HEADER = "x-netllm-local-only"
@@ -166,6 +171,26 @@ class ScenarioRule(BaseModel):
     strategy: RoutingStrategy | None = None
     local_only: bool = False
     allow_cloud: bool = False
+    # [D14] Which proxy surfaces this rule may fire on: any subset of
+    # {"chat", "embeddings", "messages"}. Empty (the default) means EVERY
+    # surface, which is the pre-Phase-4d behavior verbatim — scenario
+    # classification runs the same chat-shaped heuristic on /v1/embeddings
+    # traffic, so a rule written for chat has always applied there too. That
+    # is a real footgun (a `think` rule swapping in a reasoning model breaks
+    # an embeddings request outright), but silently narrowing existing
+    # configs would be a bigger one, so the narrowing is opt-in: name the
+    # surfaces you mean.
+    surfaces: list[SurfaceName] = Field(default_factory=list)
+
+    def applies_to(self, surface: str | None) -> bool:
+        """True when this rule is allowed to fire on `surface`.
+
+        An unqualified rule (the compat default) fires everywhere; so does
+        any rule when the caller did not say which surface it is on.
+        """
+        if not self.surfaces or surface is None:
+            return True
+        return surface in self.surfaces
 
 
 class SourceConfig(BaseModel):

@@ -1,0 +1,94 @@
+{
+  "divergence": [
+    "D4"
+  ],
+  "expected": {
+    "admission_delta": {
+      "request_count": 0,
+      "scenario_counts": {
+        "default:default": 1
+      },
+      "shardless_fallbacks": 0,
+      "source_counts": {
+        "default": 1
+      },
+      "source_in_flight": {}
+    },
+    "body_shape": {
+      "error": {
+        "code": null,
+        "message": "Model 'farm-chat' (capability: chat) cannot serve embeddings. Use POST /v1/chat/completions for chat models.",
+        "param": null,
+        "type": "invalid_request_error"
+      }
+    },
+    "metrics_delta": {
+      "counters": {
+        "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
+        "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
+      },
+      "gauges": {
+        "netllm_backend_healthy{backend=http://alpha.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_healthy{backend=http://beta.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://alpha.farm/v1}": 0.0,
+        "netllm_backend_in_flight{backend=http://beta.farm/v1}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://alpha.farm/v1": "online",
+        "http://beta.farm/v1": "online"
+      },
+      "in_flight": {
+        "http://alpha.farm/v1": 0,
+        "http://beta.farm/v1": 0
+      },
+      "latency_ema_changed": {
+        "http://alpha.farm/v1": "<ema>",
+        "http://beta.farm/v1": "<ema>"
+      },
+      "routed_counts": {}
+    },
+    "sse_frames": null,
+    "status": 400,
+    "upstream_calls": []
+  },
+  "id": "guards-emb-chat-model-burns-retry-budget",
+  "note": "BASELINE: the concrete cost of the missing guard \u2014 the whole retry budget spent on a model that can never embed, ending in a 502. PHASE 4c [D4]: rejected before the loop, upstream_calls == [] and both backends untouched. This vector is the reason the guard exists.",
+  "request": {
+    "body": {
+      "input": "hi",
+      "model": "farm-chat"
+    },
+    "path": "emb"
+  },
+  "scenario": {
+    "backends": [
+      {
+        "models": [
+          "farm-chat"
+        ],
+        "name": "alpha",
+        "script": [
+          {
+            "behavior": "http",
+            "status": 500
+          }
+        ]
+      },
+      {
+        "models": [
+          "farm-chat"
+        ],
+        "name": "beta",
+        "script": [
+          {
+            "behavior": "http",
+            "status": 500
+          }
+        ]
+      }
+    ]
+  }
+}

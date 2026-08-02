@@ -1,0 +1,105 @@
+{
+  "divergence": [
+    "D11"
+  ],
+  "expected": {
+    "admission_delta": {
+      "request_count": 0,
+      "scenario_counts": {
+        "default:default": 1
+      },
+      "shardless_fallbacks": 0,
+      "source_counts": {
+        "default": 1
+      },
+      "source_in_flight": {
+        "default": 0
+      }
+    },
+    "body_shape": {
+      "error": {
+        "message": "Error code: 400 - {'error': {'message': 'farm scripted HTTP 400', 'type': 'farm_error', 'param': None, 'code': None}}",
+        "type": "invalid_request_error"
+      },
+      "type": "error"
+    },
+    "metrics_delta": {
+      "counters": {
+        "netllm_requests_total{backend=http://alpha.farm/v1,model=claude-farm,status=error}": 1.0,
+        "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
+        "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
+      },
+      "gauges": {
+        "netllm_backend_healthy{backend=http://alpha.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://alpha.farm/v1}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://alpha.farm/v1": "online"
+      },
+      "in_flight": {
+        "http://alpha.farm/v1": 0
+      },
+      "latency_ema_changed": {
+        "http://alpha.farm/v1": "<ema>"
+      },
+      "routed_counts": {}
+    },
+    "sse_frames": null,
+    "status": 400,
+    "upstream_calls": [
+      {
+        "backend": "alpha",
+        "headers": {
+          "authorization": "Bearer farm-key"
+        },
+        "method": "POST",
+        "model": "farm-chat",
+        "path": "/v1/chat/completions"
+      }
+    ]
+  },
+  "id": "errors-messages-ns-upstream-400-forwarded",
+  "note": "[D11] upstream 400 from a translated (openai-format) backend on /v1/messages: forwarded like every OpenAI surface does, not flattened to 502; body stays Anthropic-shaped",
+  "request": {
+    "body": {
+      "max_tokens": 16,
+      "messages": [
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "model": "claude-farm"
+    },
+    "headers": {},
+    "path": "messages_ns"
+  },
+  "scenario": {
+    "backends": [
+      {
+        "api_format": "openai",
+        "models": [
+          "farm-chat"
+        ],
+        "name": "alpha",
+        "script": [
+          {
+            "behavior": "http",
+            "status": 400
+          }
+        ]
+      }
+    ],
+    "routing": {
+      "default_strategy": "failover",
+      "model_aliases": {
+        "claude-farm": [
+          "farm-chat"
+        ]
+      }
+    }
+  }
+}

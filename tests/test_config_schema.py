@@ -164,7 +164,14 @@ def test_source_scenarios_is_dict_of_scenario_rule_objects() -> None:
     scenario_rule_fields = {
         f["name"] for f in source_item_schema["scenarios"]["item_schema"]
     }
-    assert scenario_rule_fields == {"model", "strategy", "local_only", "allow_cloud"}
+    assert scenario_rule_fields == {
+        "model",
+        "strategy",
+        "local_only",
+        "allow_cloud",
+        # [D14] Phase 4d: optional surface qualifier; empty = every surface.
+        "surfaces",
+    }
 
 
 def test_source_match_gets_nested_object_widget() -> None:

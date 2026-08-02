@@ -1,0 +1,134 @@
+{
+  "divergence": [
+    "D16"
+  ],
+  "expected": {
+    "admission_delta": {
+      "request_count": 1,
+      "scenario_counts": {
+        "default:default": 1
+      },
+      "shardless_fallbacks": 0,
+      "source_counts": {
+        "default": 1
+      },
+      "source_in_flight": {
+        "default": 0
+      }
+    },
+    "body_shape": null,
+    "metrics_delta": {
+      "counters": {
+        "netllm_completion_tokens_total{backend=http://alpha.farm/v1,model=farm-chat}": 5.0,
+        "netllm_prompt_tokens_total{backend=http://alpha.farm/v1,model=farm-chat}": 3.0,
+        "netllm_request_latency_seconds_count{backend=http://alpha.farm/v1}": 1.0,
+        "netllm_requests_total{backend=http://alpha.farm/v1,model=farm-chat,status=ok}": 1.0,
+        "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
+        "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
+      },
+      "gauges": {
+        "netllm_backend_healthy{backend=http://alpha.farm/v1,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://alpha.farm/v1}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://alpha.farm/v1": "online"
+      },
+      "in_flight": {
+        "http://alpha.farm/v1": 0
+      },
+      "latency_ema_changed": {
+        "http://alpha.farm/v1": "<ema>"
+      },
+      "routed_counts": {
+        "817df768-a998-5ed5-b113-1689b0222b1b": 1
+      }
+    },
+    "sse_frames": [
+      [
+        "event: response.created",
+        "data: {\"response\": {\"created_at\": \"<ts>\", \"id\": \"<id>\", \"model\": \"farm-chat\", \"object\": \"response\", \"output\": [], \"status\": \"in_progress\"}, \"sequence_number\": 1, \"type\": \"response.created\"}"
+      ],
+      [
+        "event: response.output_item.added",
+        "data: {\"item\": {\"content\": [], \"id\": \"<id>\", \"role\": \"assistant\", \"status\": \"in_progress\", \"type\": \"message\"}, \"output_index\": 0, \"sequence_number\": 2, \"type\": \"response.output_item.added\"}"
+      ],
+      [
+        "event: response.content_part.added",
+        "data: {\"content_index\": 0, \"item_id\": \"<id>\", \"output_index\": 0, \"part\": {\"annotations\": [], \"text\": \"\", \"type\": \"output_text\"}, \"sequence_number\": 3, \"type\": \"response.content_part.added\"}"
+      ],
+      [
+        "event: response.output_text.delta",
+        "data: {\"content_index\": 0, \"delta\": \"a\", \"item_id\": \"<id>\", \"output_index\": 0, \"sequence_number\": 4, \"type\": \"response.output_text.delta\"}"
+      ],
+      [
+        "event: response.output_text.delta",
+        "data: {\"content_index\": 0, \"delta\": \"b\", \"item_id\": \"<id>\", \"output_index\": 0, \"sequence_number\": 5, \"type\": \"response.output_text.delta\"}"
+      ],
+      [
+        "event: response.output_text.done",
+        "data: {\"content_index\": 0, \"item_id\": \"<id>\", \"output_index\": 0, \"sequence_number\": 6, \"text\": \"ab\", \"type\": \"response.output_text.done\"}"
+      ],
+      [
+        "event: response.content_part.done",
+        "data: {\"content_index\": 0, \"item_id\": \"<id>\", \"output_index\": 0, \"part\": {\"annotations\": [], \"text\": \"ab\", \"type\": \"output_text\"}, \"sequence_number\": 7, \"type\": \"response.content_part.done\"}"
+      ],
+      [
+        "event: response.output_item.done",
+        "data: {\"item\": {\"content\": [{\"annotations\": [], \"text\": \"ab\", \"type\": \"output_text\"}], \"id\": \"<id>\", \"role\": \"assistant\", \"status\": \"completed\", \"type\": \"message\"}, \"output_index\": 0, \"sequence_number\": 8, \"type\": \"response.output_item.done\"}"
+      ],
+      [
+        "event: response.completed",
+        "data: {\"response\": {\"created_at\": \"<ts>\", \"id\": \"<id>\", \"model\": \"farm-chat\", \"object\": \"response\", \"output\": [{\"content\": [{\"annotations\": [], \"text\": \"ab\", \"type\": \"output_text\"}], \"id\": \"<id>\", \"role\": \"assistant\", \"status\": \"completed\", \"type\": \"message\"}], \"status\": \"completed\"}, \"sequence_number\": 9, \"type\": \"response.completed\"}"
+      ]
+    ],
+    "status": 200,
+    "upstream_calls": [
+      {
+        "backend": "alpha",
+        "headers": {
+          "authorization": "Bearer farm-key"
+        },
+        "method": "POST",
+        "model": "farm-chat",
+        "path": "/v1/chat/completions"
+      }
+    ]
+  },
+  "id": "stream-frame-split-mid-line-responses-s",
+  "note": "split boundaries do not perturb Responses sequence_number ordering. [D16] a clean 200 that now carries the same success accounting the equivalent C-S vector records",
+  "request": {
+    "body": {
+      "input": "hi",
+      "model": "farm-chat"
+    },
+    "headers": {},
+    "path": "responses_s"
+  },
+  "scenario": {
+    "backends": [
+      {
+        "api_format": "openai",
+        "models": [
+          "farm-chat"
+        ],
+        "name": "alpha",
+        "script": [
+          {
+            "behavior": "ok_stream",
+            "chunks": [
+              "a",
+              "b"
+            ],
+            "usage_in_final": true
+          }
+        ]
+      }
+    ]
+  },
+  "wire": {
+    "split_bytes": 7
+  }
+}

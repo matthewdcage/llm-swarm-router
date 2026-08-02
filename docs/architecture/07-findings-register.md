@@ -3,12 +3,18 @@
 29 findings from a source-level audit of `main` @ `a3ec16a` (release 0.4.5.0), 2026-07-29.
 Four were reproduced with executable scripts; the rest carry `file:line` evidence.
 
-**21 resolved, 2 partial, 6 open** as of `bb3eae0`. Each fixed finding carries a
-`RESOLVED (<commit>)` note under its heading; IDs are never renumbered, so commit
-messages and the traceability matrix keep pointing at the same thing.
+**24 resolved, 1 partial, 4 open** as of the F-24/F-25/F-26 consolidation branch
+(`a4c8893`…HEAD). Each fixed finding carries a `RESOLVED (<commit>)` note under its
+heading; IDs are never renumbered, so commit messages and the traceability matrix keep
+pointing at the same thing. F-24, F-25 and F-26 — the two large refactors this register
+originally scoped out — closed together; the residue they did not cover is tracked as
+F-54 (dashboard.js split) and F-55 (two re-export module shims) in
+[09](09-follow-up-audit-2026-07-31.md), never by re-opening a closed ID.
 
 **Baseline health is good.** At audit time `uv run pytest -q` → **584 passed**;
-after remediation → **642 passed**. Lint is clean.
+after remediation → **642 passed**; after the F-24/F-25/F-26 consolidation →
+**1,087 passed, 4 skipped** (356 of them the contract suite, which did not exist
+before). Lint is clean.
 The SDK isolation boundary holds. The routing hardening work described in
 `docs/routing-hardening-plan.md` is genuinely implemented, and the failover, capacity-error
 classification, and mesh loop guards are better than typical for a project this size.
@@ -20,13 +26,12 @@ Nothing below contradicts that; these are the remaining edges.
 |----------|-------|-------|-------|
 | **S1** — production-affecting correctness or security | 4 | **4** | silent config data loss, a bypassed security guard, event-loop blocking, credential reuse across callers |
 | **S2** — real user-visible defect or meaningful risk | 12 | **12** | restart-required config, TLS off, billable probes, races, IPv6 crash, LAN exposure, log growth |
-| **S3** — maintenance, clarity, latent risk | 13 | **5 + 2 partial** | dead code, duplicated logic, CI gate gaps, packaging limits |
+| **S3** — maintenance, clarity, latent risk | 13 | **8 + 1 partial** | dead code, duplicated logic, CI gate gaps, packaging limits |
 
-**Still open (all S3, by design — the two large refactors were scoped out):**
-F-20 (admin allowlist scoping), F-21 (config schema mirror), F-23 (N×N heartbeat
-catalogs), F-24 (four duplicated proxy loops), F-25 (model-name overlap),
-F-26 (two 2 kLOC modules), F-28 (packaging limits), F-29 (oMLX in discovery).
-F-24 and F-26 were deliberately excluded; the rest are follow-ups.
+**Still open (all S3):** F-20 (admin allowlist scoping), F-21 (config schema
+mirror), F-23 (N×N heartbeat catalogs), F-28 (packaging limits), F-29 (oMLX in
+discovery). F-24/F-25/F-26 were deliberately excluded from the original
+remediation and were closed later by the consolidation refactor.
 
 ## Recommended order of work
 
@@ -35,7 +40,8 @@ flowchart LR
     W1["Phase 1 — config integrity<br/>F-01 F-02 F-05 ✅"] --> W2["Phase 2 — request path<br/>F-03 F-04 F-08 F-09 ✅"]
     W2 --> W3["Phase 3 — exposure<br/>F-06 F-07 F-11 F-12 F-13 F-14 F-15 ✅"]
     W3 --> W4["Phase 4 — deps, dead code, CI<br/>F-10 F-16 F-17 F-18 F-19 F-22 F-27 ✅"]
-    W4 --> W5["Open backlog<br/>F-20 F-21 F-23 F-24<br/>F-25 F-26 F-28 F-29"]
+    W4 --> W5["Consolidation refactor<br/>F-24 F-25 F-26 ✅"]
+    W5 --> W6["Open backlog<br/>F-20 F-21 F-23<br/>F-28 F-29"]
 ```
 
 Delivered as four independent commits on `docs/architecture-audit`:
@@ -676,6 +682,8 @@ on change. For the static lists, add a dated comment and a CI reminder, or drop 
 
 ## F-24 · Four near-identical proxy loops in `service.py`
 
+> **RESOLVED (`a4c8893`…HEAD, branch `claude/refactor-f24-f26-consolidation`, plan [refactor/plan-f24-f26.md](refactor/plan-f24-f26.md) Phases 0–10)** — the five loops are one loop. `service/engine.py`'s `run_with_failover` (non-streaming) and `open_stream`/`StreamSession` (streaming) are the only failover loops in the codebase; the per-surface variance that used to justify a copy is now the `SurfaceAdapter` protocol in `service/surfaces/`. `AttemptRecorder` (`service/accounting.py`) is the sole caller of `mark_success`/`_mark_backend_failure`/`REQUESTS_TOTAL`/latency/token counters, which closes the specific divergence quoted below. A permanent CI gate (`scripts/check-engine-erosion.py`, `tests/contract/test_engine_erosion.py`) forbids `engine.py` from referencing `Surface` members or importing any `surfaces/*` module except `base`, so a future per-surface need must extend the protocol rather than re-branch the loop. Pinned by 141 golden vectors in `tests/contract/vectors` under a divergence-ID lint, plus `tests/contract/test_metrics_parity.py`, which drives one identical scenario through all seven paths and asserts field-identical pool/metrics/admission deltas. Behavior changes are enumerated in [refactor/RELEASE-NOTES.md](refactor/RELEASE-NOTES.md) and evidenced cell-by-cell in [refactor/behavior-matrix.md](refactor/behavior-matrix.md).
+
 `proxy_chat_completion`, `proxy_chat_completion_stream`, `proxy_embeddings`, and
 `proxy_messages`/`proxy_messages_stream` each reimplement the same ~70-line sequence:
 attribute source → classify scenario → rewrite model → resolve routing → check capacity →
@@ -695,21 +703,23 @@ methods become thin wrappers. This is the single highest-leverage refactor in th
 
 ## F-25 · Overlapping mechanisms doing the same job
 
-> **PARTIAL (`3b6ec71`) — the duplicate cloud-injection mechanism is gone (legacy rows are request-scoped, registry rows stay pooled). The model-name overlap and the `config.py`/`install_detect` shims are **open**.**
+> **RESOLVED (`3b6ec71` + `a4c8893`…HEAD, plan [refactor/plan-f24-f26.md](refactor/plan-f24-f26.md) Phase 8)** — the two overlaps that were actual *mechanisms* are gone. The two remaining rows are pure module-naming re-export shims with no behavioural overlap; they were never a routing concern and are carried forward as **F-55** rather than held open under this ID.
 
-| Overlap | Members | Direction |
-|---------|---------|-----------|
-| Model-name resolution | `model_aliases`, `model_pools`, `sources[].model_rewrites`, `sources[].scenarios[].model` — and a planned `model_groups` | `routing-hardening-plan.md` §Phase 4 already states `model_pools` should fold into `model_groups` rather than coexist |
-| Cloud backend injection | legacy env/caller-key inject (`openai-cloud`, `anthropic-cloud`) **and** registry materialisation (`cloud-<id>`) | retire the legacy path (also fixes F-04) |
-| Config module naming | `netllm_core.config` (re-export) and `netllm_core.models` | collapse |
-| Install detection | `netllm_core.install_detect` and `netllm_cli.install_detect` (pure re-export) | collapse |
-| Routing precedence | globals → policies → source → scenario → headers, five layers that can each set `strategy`/`local_only`/`allow_cloud` | document a single precedence table in the config reference; the logic is correct but only discoverable by reading `resolve_routing` |
+| Overlap | Members | Direction | Status |
+|---------|---------|-----------|--------|
+| Model-name resolution | `model_aliases`, `model_pools`, `sources[].model_rewrites`, `sources[].scenarios[].model` — and a planned `model_groups` | `routing-hardening-plan.md` §Phase 4 already states `model_pools` should fold into `model_groups` rather than coexist | ✅ `netllm_core.model_resolution.ModelResolver` is the single matcher. `RouterPool.model_names_for`, `_serves_model`, `pool_models_for_backend` and `resolve_via_pool` are deleted, and `AgentService._model_for_backend` is a one-line delegator: candidacy (`resolver.serves`), invocation (`resolver.upstream_model`) and 404 hints (`resolver.known_models`) are now three answers derived from **one** walk instead of two disagreeing algorithms. `model_pools` parses into `ModelGroup` at construction, so a future `routing.model_groups` is a second *parser*, not a second mechanism — "fold, don't coexist" satisfied at the data-model level. Divergence **D18**; see [refactor/RELEASE-NOTES.md](refactor/RELEASE-NOTES.md). |
+| Cloud backend injection | legacy env/caller-key inject (`openai-cloud`, `anthropic-cloud`) **and** registry materialisation (`cloud-<id>`) | retire the legacy path (also fixes F-04) | ✅ `3b6ec71` — legacy rows are request-scoped, registry rows stay pooled |
+| Config module naming | `netllm_core.config` (re-export) and `netllm_core.models` | collapse | → **F-55** (still a shim; 9 live importers, no behavioural overlap) |
+| Install detection | `netllm_core.install_detect` and `netllm_cli.install_detect` (pure re-export) | collapse | → **F-55** (still a shim; 10 live importers) |
+| Routing precedence | globals → policies → source → scenario → headers, five layers that can each set `strategy`/`local_only`/`allow_cloud` | document a single precedence table in the config reference; the logic is correct but only discoverable by reading `resolve_routing` | ✅ documented in [../config-reference.md](../config-reference.md) and pinned against `resolve_routing` by `tests/test_routing_precedence_table.py` |
 
 **Fix.** Each is small individually; sequence them behind F-24 so the refactor lands once.
 
 ---
 
 ## F-26 · Two 2 kLOC modules concentrate the complexity
+
+> **RESOLVED (`6ddcc47` for the CLI, `a4c8893`…HEAD for the service, plan [refactor/plan-f24-f26.md](refactor/plan-f24-f26.md) Phases 1 and 6–9)** — both monoliths are dissolved. `service.py` (2,363 lines at the branch point) is now the `service/` package: 16 modules, 3,570 lines including the new engine/adapter layer, largest module `surfaces/base.py` at 486. `main.py` is **80 lines** of Typer wiring plus a `commands/` package of 10 modules totalling 2,303 lines, largest `observe.py` at 468. The largest first-party Python module in the repo is now `netllm_core/models.py` at 690 lines; **no module in either former monolith's lineage exceeds 500**. Measured coupling across the split, using `scripts/analyze-module-graph.py --layout service-plan` on the monolith versus `scripts/measure-asbuilt-coupling.py` on the as-built package (the same `analyze()`, so the two are comparable): cross-module call edges **129 → 33** (−74%), multi-writer shared-state groups **12 → 0**, and both projected cycles (`backends.py`↔`status.py`, `messages.py`↔`surfaces/messages.py`) eliminated — the plan's seams held. Both commands are in that script's docstring. `dashboard.js` is untouched by design and is carried forward as **F-54**.
 
 `netllm_agent/service.py` (2,149 lines, 9 distinct responsibilities — see
 [02](02-component-architecture.md)) and `netllm_cli/main.py` (2,119 lines, 24 commands plus
@@ -812,9 +822,9 @@ has an obvious shape.
 | F-21 | S3 | `config_schema.py` + clients | — | L | open |
 | F-22 | S3 | 9 modules | — | M | ✅ `bb3eae0` |
 | F-23 | S3 | `swarm.py:185` | — | M | open |
-| F-24 | S3 | `service.py` ×4 paths | — | L | open (scoped out) |
-| F-25 | S3 | 5 overlaps | — | L | ◐ partial |
-| F-26 | S3 | `service.py`, `main.py` | — | L | open (scoped out) |
+| F-24 | S3 | `service.py` ×4 paths | — | L | ✅ `a4c8893`…HEAD |
+| F-25 | S3 | 5 overlaps | — | L | ✅ `3b6ec71` + `a4c8893`…HEAD (2 naming shims → F-55) |
+| F-26 | S3 | `service.py`, `main.py` | — | L | ✅ `6ddcc47` + `a4c8893`…HEAD (dashboard.js → F-54) |
 | F-27 | S3 | `scripts/ci.sh`, workflows | — | M | ✅ `bb3eae0` |
 | F-28 | S3 | `packaging/` | — | M | open |
 | F-29 | S3 | `local.py` | — | M | open |

@@ -7,13 +7,13 @@ import logging
 import time
 from dataclasses import dataclass
 
-from netllm_core.capabilities import model_capability
 from netllm_core.health import (
     is_online,
     probe_agent_health_sync,
     probe_anthropic_compat_sync,
     probe_openai_compat_sync,
 )
+from netllm_core.model_resolution import ModelResolver
 from netllm_core.models import Backend, ModelPool, RoutingStrategy
 
 logger = logging.getLogger(__name__)
@@ -92,6 +92,18 @@ class RouterPool:
         self.routed_counts: dict[str, int] = {}
         # Capacity rejections per backend id (backend full, not broken).
         self.capacity_rejections: dict[str, int] = {}
+
+    @property
+    def resolver(self) -> ModelResolver:
+        """The single alias/group/catalog matcher (F-25).
+
+        Built per access: it only holds a reference to the live alias map
+        plus a parsed snapshot of the groups, so construction is cheap and
+        a config reload can never be observed through a stale cache.
+        """
+        return ModelResolver(
+            model_aliases=self.model_aliases, model_pools=self.model_pools
+        )
 
     @property
     def backends(self) -> list[Backend]:
@@ -383,103 +395,26 @@ class RouterPool:
         """Deprecated alias for `cached_online` — kept for one release."""
         return self.cached_online(backend)
 
-    def model_names_for(self, model: str) -> list[str]:
-        """Requested name plus configured aliases, request name first.
-
-        Alias keys match case-insensitively so clients sending a
-        differently-cased model name still resolve.
-        """
-        aliases = self.model_aliases.get(model)
-        if aliases is None:
-            folded = model.casefold()
-            for key, ids in self.model_aliases.items():
-                if key.casefold() == folded:
-                    aliases = ids
-                    break
-        return [model, *(aliases or [])]
-
-    @staticmethod
-    def _backend_matches_host_ref(backend: Backend, ref: str) -> bool:
-        """Same ref forms as backend_by_id: id, "peer:<agent-id>", bare
-        agent_id, or base_url — so a pool's `hosts` list can name a
-        machine the same way the x-netllm-backend pin header does."""
-        target = ref.strip()
-        if not target:
-            return False
-        return (
-            backend.id == target
-            or backend.id == f"peer:{target}"
-            or (backend.agent_id != "" and backend.agent_id == target)
-            or backend.base_url.rstrip("/") == target.rstrip("/")
-        )
-
-    def pool_models_for_backend(self, backend: Backend) -> list[str]:
-        """Union of allowed models from every enabled pool this backend
-        belongs to (routing.model_pools). Empty when the backend is not a
-        member of any enabled pool."""
-        names: list[str] = []
-        for pool in self.model_pools.values():
-            if not pool.enabled:
-                continue
-            if not any(
-                self._backend_matches_host_ref(backend, ref) for ref in pool.hosts
-            ):
-                continue
-            for m in pool.models:
-                if m not in names:
-                    names.append(m)
-        return names
-
-    def resolve_via_pool(self, backend: Backend, requested_model: str) -> str | None:
-        """Pick the model to actually invoke on a pool-member backend,
-        ignoring the requested name entirely (model_aliases already
-        failed to match by the time callers reach this).
-
-        Returns the first pool-allowed model this backend actually
-        serves, or None if the backend is not a pool member / serves
-        none of its pool's allowed models.
-        """
-        pool_models = self.pool_models_for_backend(backend)
-        if not pool_models:
-            return None
-        served = backend.health.models
-        for m in pool_models:
-            if m in served:
-                return m
-        folded = {m.casefold() for m in pool_models}
-        for served_id in served:
-            if served_id.casefold() in folded:
-                return served_id
-        return None
-
-    @staticmethod
-    def _serves_model(served: list[str], names: list[str]) -> bool:
-        folded = [n.casefold() for n in names]
-        return any(
-            m == n or m.startswith(n + ":")
-            for n in folded
-            for m in (s.casefold() for s in served)
-        )
+    # F-25: model_names_for / _backend_matches_host_ref /
+    # pool_models_for_backend / resolve_via_pool / _serves_model all lived
+    # here and were matcher A (plus half of matcher B). They are gone: the
+    # single walk now lives in netllm_core.model_resolution.ModelResolver,
+    # reachable as `self.resolver`.
 
     def known_models(
         self, *, limit: int = 25, capability: str | None = None
     ) -> list[str]:
         """Distinct model IDs across enabled backends (for 404 messages)."""
-        seen: dict[str, None] = {}
-        for b in self._backends:
-            if not b.enabled:
-                continue
-            for m in b.health.models:
-                if capability is not None and model_capability(m) != capability:
-                    continue
-                seen.setdefault(m)
-        return list(seen)[:limit]
+        return self.resolver.known_models(
+            self._backends, limit=limit, capability=capability
+        )
 
     def backends_for_model(
         self,
         model: str,
         *,
         local_only: bool = False,
+        exact_model_only: bool = False,
         extra_candidates: list[Backend] | None = None,
     ) -> list[Backend]:
         """Candidate backends for `model`.
@@ -489,13 +424,18 @@ class RouterPool:
         backends whose credential came from the calling request, so one
         caller's key can never serve another's (F-04). They participate in
         selection exactly like pooled rows; only their lifetime differs.
+
+        When ``exact_model_only`` is True (agent-hop requests whose model was
+        already resolved upstream), pool catch-all bypass is disabled so the
+        terminating peer routes the forwarded model name literally instead of
+        substituting another pool member model.
         """
-        names = self.model_names_for(model)
+        resolver = self.resolver
         searchable = (
             [*self._backends, *extra_candidates] if extra_candidates else self._backends
         )
 
-        def collect() -> list[Backend]:
+        def collect(*, allow_pool_overflow: bool) -> list[Backend]:
             out: list[Backend] = []
             for b in searchable:
                 if not b.enabled:
@@ -506,42 +446,35 @@ class RouterPool:
                     continue
                 models = b.health.models
                 if not models and self.is_healthy(b):
+                    # A stale row may hydrate its catalog on this probe;
+                    # decide on the snapshot we end up holding, and hand
+                    # that exact snapshot to the resolver.
                     models = b.health.models
-                if not models:
-                    if b.local and b.health.http_status in (401, 403):
-                        # Auth-gated local provider (e.g. LM Studio with
-                        # API auth): probes "online" (reachable) but every
-                        # inference call will 401. As a blind candidate it
-                        # shows in_flight=0 and wins every least_load pick,
-                        # starving real backends. Doctor flags the missing
-                        # key; skip until a valid key unlocks /models.
-                        # (Cloud injects stay blind candidates — their key
-                        # arrives per request, so a 401 probe means
-                        # nothing about the next call.)
-                        continue
-                    # Unknown catalog (unprobed, cloud inject): keep as
-                    # a candidate rather than guessing wrong.
-                    out.append(b)
-                    continue
-                if self._serves_model(models, names):
-                    out.append(b)
-                    continue
-                # model_pools bypass: a pool-member backend is a candidate
-                # for ANY requested name, as long as it serves one of its
-                # pool's allowed models — independent of model_aliases.
-                pool_models = self.pool_models_for_backend(b)
-                if pool_models and self._serves_model(models, pool_models):
+                # Request-aware pools: phase 1 is alias-only candidacy;
+                # phase 2 (allow_pool_overflow=True) adds group overflow.
+                # Agent hops (exact_model_only) never pool-substitute.
+                group_overflow = allow_pool_overflow and not exact_model_only
+                if resolver.serves(
+                    model,
+                    b,
+                    served=models,
+                    allow_group_overflow=group_overflow,
+                ):
                     out.append(b)
             return out
 
-        candidates = collect()
+        candidates = collect(allow_pool_overflow=False)
+        if not candidates:
+            candidates = collect(allow_pool_overflow=True)
         if not candidates:
             # Catalogs may be stale (model pulled moments ago) — refresh
             # once and rematch instead of spraying every backend.
             for b in self._backends:
                 if b.enabled and b.local:
                     self.is_healthy(b, force_refresh=True)
-            candidates = collect()
+            candidates = collect(allow_pool_overflow=False)
+            if not candidates:
+                candidates = collect(allow_pool_overflow=True)
         if not candidates:
             return []
         healthy = [b for b in candidates if self.is_healthy(b)]
@@ -555,6 +488,7 @@ class RouterPool:
         shard_key: str | None = None,
         attempt: int = 1,
         local_only: bool = False,
+        exact_model_only: bool = False,
         prefer_provider: str | None = None,
         prefer_cloud: bool = False,
         exclude_ids: set[str] | None = None,
@@ -563,16 +497,24 @@ class RouterPool:
     ) -> Backend | None:
         if local_only:
             all_candidates = self.backends_for_model(
-                model, local_only=True, extra_candidates=extra_candidates
+                model,
+                local_only=True,
+                exact_model_only=exact_model_only,
+                extra_candidates=extra_candidates,
             )
         else:
             local = self.backends_for_model(
-                model, local_only=True, extra_candidates=extra_candidates
+                model,
+                local_only=True,
+                exact_model_only=exact_model_only,
+                extra_candidates=extra_candidates,
             )
             remote = [
                 b
                 for b in self.backends_for_model(
-                    model, extra_candidates=extra_candidates
+                    model,
+                    exact_model_only=exact_model_only,
+                    extra_candidates=extra_candidates,
                 )
                 if not b.local
             ]

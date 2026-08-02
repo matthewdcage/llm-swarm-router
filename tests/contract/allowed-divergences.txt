@@ -1,0 +1,18 @@
+# Divergence IDs whose annotated vectors are allowed to change in THIS
+# commit/PR (behavior-matrix.md D1-D18). Empty = no checked-in vector may
+# differ from git HEAD; mechanical phases keep it empty, a semantic phase
+# adds exactly the IDs it declares (e.g. "D2") and removes them on merge.
+# HARNESS-RERECORD declares a canonicalizer-only re-record; it composes with
+# IDs per vector and is re-proved by the lint, not trusted.
+# One ID per line; '#' starts a comment.
+#
+# Phase 10 (close-out) CLEARS this file. Every ID the refactor ever declared
+# — D4-D14 and D17 (Phase 5), D9/D10/D16 (Phase 7), D18 (Phase 8b) — has
+# landed in the branch; leaving them here would pre-authorize future drift
+# against vectors nobody is currently changing, which is the one failure mode
+# the gate exists to prevent. Empty is the strongest form of the gate: from
+# here on ANY vector diff vs git HEAD fails the lint, and re-opening it
+# requires naming the ID and the behavior change in the same commit.
+#
+# See docs/architecture/refactor/RELEASE-NOTES.md for what each ID changed
+# for operators, and behavior-matrix.md for the per-cell evidence.

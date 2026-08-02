@@ -1,0 +1,130 @@
+{
+  "divergence": [
+    "D9",
+    "D10"
+  ],
+  "expected": {
+    "admission_delta": {
+      "request_count": 1,
+      "scenario_counts": {
+        "default:default": 1
+      },
+      "shardless_fallbacks": 0,
+      "source_counts": {
+        "default": 1
+      },
+      "source_in_flight": {
+        "default": 0
+      }
+    },
+    "body_shape": null,
+    "metrics_delta": {
+      "counters": {
+        "netllm_completion_tokens_total{backend=http://ant.farm,model=canon}": 5.0,
+        "netllm_prompt_tokens_total{backend=http://ant.farm,model=canon}": 3.0,
+        "netllm_request_latency_seconds_count{backend=http://ant.farm}": 1.0,
+        "netllm_requests_total{backend=http://ant.farm,model=canon,status=ok}": 1.0,
+        "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
+        "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
+      },
+      "gauges": {
+        "netllm_backend_healthy{backend=http://ant.farm,provider=custom}": 1.0,
+        "netllm_backend_in_flight{backend=http://ant.farm}": 0.0
+      }
+    },
+    "pool_delta": {
+      "capacity_rejections": {},
+      "health_status": {
+        "http://ant.farm": "online"
+      },
+      "in_flight": {
+        "http://ant.farm": 0
+      },
+      "latency_ema_changed": {
+        "http://ant.farm": "<ema>"
+      },
+      "routed_counts": {
+        "http://ant.farm": 1
+      }
+    },
+    "sse_frames": [
+      [
+        "event: message_start",
+        "data: {\"message\": {\"container\": null, \"content\": [], \"id\": \"<id>\", \"model\": \"canon\", \"role\": \"assistant\", \"stop_details\": null, \"stop_reason\": null, \"stop_sequence\": null, \"type\": \"message\", \"usage\": {\"cache_creation\": null, \"cache_creation_input_tokens\": null, \"cache_read_input_tokens\": null, \"inference_geo\": null, \"input_tokens\": 3, \"output_tokens\": 1, \"output_tokens_details\": null, \"server_tool_use\": null, \"service_tier\": null}}, \"type\": \"message_start\"}"
+      ],
+      [
+        "event: content_block_start",
+        "data: {\"content_block\": {\"citations\": null, \"text\": \"\", \"type\": \"text\"}, \"index\": 0, \"type\": \"content_block_start\"}"
+      ],
+      [
+        "event: content_block_delta",
+        "data: {\"delta\": {\"text\": \"farm \", \"type\": \"text_delta\"}, \"index\": 0, \"type\": \"content_block_delta\"}"
+      ],
+      [
+        "event: content_block_delta",
+        "data: {\"delta\": {\"text\": \"reply\", \"type\": \"text_delta\"}, \"index\": 0, \"type\": \"content_block_delta\"}"
+      ],
+      [
+        "event: content_block_stop",
+        "data: {\"index\": 0, \"type\": \"content_block_stop\"}"
+      ],
+      [
+        "event: message_delta",
+        "data: {\"delta\": {\"container\": null, \"stop_details\": null, \"stop_reason\": \"end_turn\", \"stop_sequence\": null}, \"type\": \"message_delta\", \"usage\": {\"cache_creation_input_tokens\": null, \"cache_read_input_tokens\": null, \"input_tokens\": null, \"output_tokens\": 5, \"output_tokens_details\": null, \"server_tool_use\": null}}"
+      ],
+      [
+        "event: message_stop",
+        "data: {\"type\": \"message_stop\"}"
+      ]
+    ],
+    "status": 200,
+    "upstream_calls": [
+      {
+        "backend": "ant",
+        "headers": {
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "farm-key"
+        },
+        "method": "POST",
+        "model": "served-a",
+        "path": "/v1/messages"
+      }
+    ]
+  },
+  "id": "naming-restore-messages-s-anthropic-arm",
+  "note": "Anthropic SSE dialect. PHASE 4b [D10] made the anthropic arm resolve the served id per backend, so 'served-a' goes on the wire (upstream_calls still show it) and message_start briefly carried it too \u2014 M-S was the one surface with no restore step, so the moment the wire name stopped being the canonical name the client saw the difference. PHASE 7 [D9] adds the restore: message_start carries 'canon' again while the upstream call is unchanged. D10's cell did not move.",
+  "request": {
+    "body": {
+      "max_tokens": 16,
+      "messages": [
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "model": "canon"
+    },
+    "headers": {
+      "x-api-key": "caller-key"
+    },
+    "path": "messages_s"
+  },
+  "scenario": {
+    "backends": [
+      {
+        "api_format": "anthropic",
+        "models": [
+          "served-a"
+        ],
+        "name": "ant"
+      }
+    ],
+    "routing": {
+      "model_aliases": {
+        "canon": [
+          "served-a"
+        ]
+      }
+    }
+  }
+}

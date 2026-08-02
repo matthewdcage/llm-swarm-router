@@ -24,6 +24,9 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 - macOS install scripts: `tests/test_bundled_install_scripts.sh`
 - Menubar agent start (quiet + LAN listen): `tests/test_serve_quiet_lan.py` — regression for bundled `serve -q` with `0.0.0.0` listen reaching uvicorn
 - Admin access: `tests/test_agent.py` — remote client 403; same-host LAN IP allowed via `local_admin_client_hosts`
+- **Request-aware model pools:** `tests/test_model_pools.py`, `tests/test_model_resolution_property.py` (D19: overflow deferred to pool two-phase collect)
+- **Agent-hop routing:** `tests/test_agent_hop_routing.py` — `exact_model_only` on terminating peer, peer pin headers
+- **Live mesh smoke (maintainer):** `scripts/live-routing-smoke.sh` — multi-node LAN validation (health, alias, pool isolation, peer pin, pressure); honors `NETLLM_CLUSTER_TOKEN` when secured; clears bundled-app `PYTHONHOME` for telemetry JSON parsing
 
 ## Work Guidance
 
@@ -48,4 +51,4 @@ scripts/verify-before-pr.sh
 
 Fixtures are data only; no per-fixture AGENTS.md unless a fixture tree grows maintenance docs.
 
-Updated: 2026-07-20 (routing hardening tests; coordinator harness local-only)
+Updated: 2026-08-02 (request-aware pools; agent-hop routing; live-routing-smoke)

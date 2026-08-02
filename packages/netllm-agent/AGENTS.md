@@ -8,18 +8,23 @@ FastAPI agent daemon: OpenAI-compatible `/v1/*` (chat, models, embeddings), Anth
 
 ## Ownership
 
-Key modules: `app.py`, `service.py`, `admin.py`, `metrics.py`, `shard.py`. Static UI: `static/` (HTML, JS, CSS, tokens).
+Key modules: `app.py`, `service/` (the `AgentService` mixin composition: `engine.py` is the
+only failover loop, `surfaces/` the per-surface adapters, `accounting.py` the only accounting
+writer), `admin.py`, `metrics.py`, `shard.py`, `request_plan.py`, `candidates.py`,
+`taxonomy.py`, `errors.py`. Static UI: `static/` (HTML, JS, CSS, tokens).
 
 ## Local Contracts
 
 - Default bind: `127.0.0.1:11400`; do not run menubar app and `./netllm serve` together (same port)
+- **`RequestPlan.exact_model_only`**: set when incoming `x-netllm-hops >= 1` (`surfaces/base.py`, `surfaces/messages.py`); threads through `policy.py` → `selection.py` → `engine.py` so the terminating peer serves the pinned model name only — no pool substitution on agent hops
+- **Wire-payload adaptation is SDK-only** (`netllm-sdk-openai/payload.py`): agent/core must not duplicate provider stripping/normalization (no `provider_payload` in core)
 - **`GET /netllm/v1/status`:** cache-fast by default (TTL-cached local scan, no forced health probe); `?scan=1` / `?probe=1` (local backends only) / `?probe_peers=1` (peer reachability via GET `/health`) for explicit Refresh/doctor — macOS Settings and dashboard **Refresh** pass all three; routine 2s polls use no flags
 - Dashboard tokens: edit `apps/netllm-mac/design-tokens.json`, run `scripts/generate-dashboard-tokens.py` (CI `--check`)
 - In-app update API: `GET /netllm/v1/update/check` (macOS menubar proxies this)
 - **Admin routes** (`admin.py`): config save, doctor, version, logs, discover, peers-scan — allowed from **this host** (`local_admin_client_hosts()` in `netllm-core`) or `Authorization: Bearer <cluster_token>`; remote LAN clients get read-only status/models unless token is set
 - **Doctor** (`doctor_payload`): open LAN without `cluster_token` is informational (`notes`), not an `issues` failure; secured pairing is optional via Settings / CLI
 - **Web dashboard** (`static/dashboard.js`): status/models load without admin; doctor/config failures degrade gracefully (warn banner, not fatal); cluster token label shows **open (trusted LAN)** when unset
-- **Models tab & pool pickers parity** (docs/models-ux-plan.md phase D — JS twin of `apps/netllm-mac/Sources/AppView/ModelsTabView.swift`/`CloudSettingsView.swift`, keep the three mirrors in sync): `renderModelsTab` groups `status.backends` by machine (local hostname, peer `hostname (agent_id)`, cloud `cloud_provider` as "<display name> (cloud)" — `state.config.cloud.providers[id].display_name` from `_cloud_provider_export`) with a search filter and per-row `routing.model_pools` badges (`poolInactiveReason` mirrors `pool.py`'s `_backend_matches_host_ref` — keep all three copies in sync) plus an add/remove/new-pool `<select>`, writing the same `configDraft.routing.model_pools` the Routing tab's generic dict-of-objects widget edits. `schemaListStringsRow` accepts `overrides.suggestions` (native `<datalist>`, assist-not-restrict) — wired for the Routing tab's model-pool `hosts`/`models` fields via `knownHostRefs()`/`knownModelIDs()`. Cloud tab's per-provider card gets a "Models" checklist (`renderCloudModelsSection`) fetching `GET /netllm/v1/cloud/providers/{id}/models` and toggling `cloud.providers.<id>.models` (empty = all, matching server materialization). Unlike the Swift build, this dashboard only re-renders the active tab (not on every 2s status poll), so there's no view-model-vs-@State drift concern here.
+- **Models tab & pool pickers parity** (docs/models-ux-plan.md phase D — JS twin of `apps/netllm-mac/Sources/AppView/ModelsTabView.swift`/`CloudSettingsView.swift`, keep the three mirrors in sync): `renderModelsTab` groups `status.backends` by machine (local hostname, peer `hostname (agent_id)`, cloud `cloud_provider` as "<display name> (cloud)" — `state.config.cloud.providers[id].display_name` from `_cloud_provider_export`) with a search filter and per-row `routing.model_pools` badges (`poolInactiveReason` mirrors `ModelResolver._host_matches` in `pool.py` — keep dashboard, macOS, and core in sync) plus an add/remove/new-pool `<select>`, writing the same `configDraft.routing.model_pools` the Routing tab's generic dict-of-objects widget edits. `schemaListStringsRow` accepts `overrides.suggestions` (native `<datalist>`, assist-not-restrict) — wired for the Routing tab's model-pool `hosts`/`models` fields via `knownHostRefs()`/`knownModelIDs()`. Cloud tab's per-provider card gets a "Models" checklist (`renderCloudModelsSection`) fetching `GET /netllm/v1/cloud/providers/{id}/models` and toggling `cloud.providers.<id>.models` (empty = all, matching server materialization). Unlike the Swift build, this dashboard only re-renders the active tab (not on every 2s status poll), so there's no view-model-vs-@State drift concern here.
 - **Loop guard:** every forward to a `peer:` backend sets `x-netllm-local-only: 1` (`AgentService._peer_forward_headers`) so peers serve locally and never re-forward; routing-time peer reachability uses `GET {peer}/health` (not `/v1/models` on the peer); doctor and `?probe_peers=1` refresh peer cache the same way
 - **`POST /v1/embeddings`** (`proxy_embeddings`): same selection/failover loop as chat incl. agent-hop to peers; Anthropic-format backends are excluded (no Anthropic embeddings standard); unknown model 404 lists embedding-capable models first
 - **Capability gate:** chat/Messages requests against non-chat models (`netllm_core.capabilities`) return 400 with a `/v1/embeddings` hint — never burn the retry budget on encoders; `/v1/models` entries carry a `capability` field
@@ -54,6 +59,7 @@ Key modules: `app.py`, `service.py`, `admin.py`, `metrics.py`, `shard.py`. Stati
 ./netllm test --api anthropic
 curl -s http://127.0.0.1:11400/ui/
 curl -s 'http://127.0.0.1:11400/netllm/v1/telemetry?watch=0' | python3 -m json.tool
+scripts/live-routing-smoke.sh   # maintainer LAN mesh (pools, alias, peer pin, pressure)
 ```
 
 ## Child DOX Index

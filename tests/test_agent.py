@@ -87,7 +87,7 @@ _MOCK_PEER_HEALTH = {"status": "online", "http_status": 200}
 
 
 @patch("netllm_core.pool.probe_agent_health_sync", return_value=_MOCK_PEER_HEALTH)
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 def test_status_reprobes_stale_peer_health(
     mock_scan: AsyncMock, mock_probe: object, client: TestClient
 ) -> None:
@@ -138,7 +138,7 @@ def test_netllm_telemetry(client: TestClient) -> None:
     assert len(data["history"]["router_rps"]) <= 60
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 def test_models_list_empty(mock_scan: AsyncMock, client: TestClient) -> None:
     mock_scan.return_value = []
     resp = client.get("/v1/models")
@@ -517,7 +517,7 @@ def test_status_includes_omlx_admin_url(client: TestClient) -> None:
     assert data.get("omlx_admin_url") == "http://127.0.0.1:8088/admin"
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_core.pool.probe_agent_health_sync")
 @patch("netllm_core.pool.probe_openai_compat_sync")
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
@@ -625,7 +625,7 @@ def test_wants_local_only_header() -> None:
     assert not AgentService._wants_local_only({"x-netllm-local-only": "0"})
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_core.pool.probe_agent_health_sync")
 @patch("netllm_core.pool.probe_openai_compat_sync")
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
@@ -733,7 +733,7 @@ async def test_refresh_local_backends_caches_provider_scan() -> None:
     cfg = NetllmConfig()
     service = AgentService(cfg)
     with patch(
-        "netllm_agent.service.scan_local_providers", new_callable=AsyncMock
+        "netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock
     ) as mock_scan:
         mock_scan.return_value = []
         await service.refresh_local_backends()
@@ -767,7 +767,7 @@ async def test_concurrent_refreshes_dedupe_to_single_scan() -> None:
         await aio.sleep(0.05)
         return []
 
-    with patch("netllm_agent.service.scan_local_providers", slow_scan):
+    with patch("netllm_agent.service.backends.scan_local_providers", slow_scan):
         await aio.gather(*(service.refresh_local_backends() for _ in range(6)))
     assert scan_calls == 1
 
@@ -791,7 +791,7 @@ async def test_refresh_merges_new_peers_despite_scan_cache() -> None:
     cfg = NetllmConfig()
     service = AgentService(cfg)
     with patch(
-        "netllm_agent.service.scan_local_providers", new_callable=AsyncMock
+        "netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock
     ) as mock_scan:
         mock_scan.return_value = []
         await service.refresh_local_backends()
@@ -886,7 +886,7 @@ def test_peer_forward_headers_loop_guard() -> None:
     assert service._peer_forward_headers(local) is None
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_core.pool.probe_openai_compat_sync")
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
 def test_peer_hop_sets_local_only_default_header(

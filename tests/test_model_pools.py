@@ -1,5 +1,9 @@
-"""routing.model_pools: host-scoped catch-all pools that bypass alias
-matching entirely for their member backends."""
+"""routing.model_pools: heterogeneous pools with request-aware matching.
+
+Pool members qualify for the requested model when they serve it
+(exact/alias). Pool catch-all substitution applies only when no backend
+in the mesh serves the requested model (overflow).
+"""
 
 from __future__ import annotations
 
@@ -26,7 +30,8 @@ def _backend(
 
 
 @patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
-def test_pool_member_matches_any_requested_name(_mock: object) -> None:
+def test_pool_member_matches_any_requested_name_on_overflow(_mock: object) -> None:
+    """When no backend serves the requested model, pool members substitute."""
     pool = RouterPool(
         model_pools={
             "big": ModelPool(enabled=True, hosts=["mac-studio"], models=POOL_MODELS)
@@ -37,6 +42,28 @@ def test_pool_member_matches_any_requested_name(_mock: object) -> None:
     pool.set_backends([big_host, other])
     matched = pool.backends_for_model("gpt-4o")
     assert [b.id for b in matched] == ["mac-studio"]
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_pool_does_not_steal_when_another_host_serves_requested_model(
+    _mock: object,
+) -> None:
+    """A pool member serving only model A must not take requests for model B
+    when another host serves B literally."""
+    pool = RouterPool(
+        model_pools={
+            "mixed": ModelPool(
+                enabled=True,
+                hosts=["gemma-host", "qwen-host"],
+                models=["gemma4:26b", "qwen3-next-80b"],
+            )
+        }
+    )
+    gemma_host = _backend("gemma-host", "http://a/v1", ["gemma4:26b"])
+    qwen_host = _backend("qwen-host", "http://b/v1", ["qwen3-next-80b"], local=False)
+    pool.set_backends([gemma_host, qwen_host])
+    matched = pool.backends_for_model("qwen3-next-80b")
+    assert [b.id for b in matched] == ["qwen-host"]
 
 
 @patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
@@ -90,7 +117,8 @@ def test_normal_alias_match_still_wins_without_pool_involvement(_mock: object) -
     assert pool.backends_for_model("gpt-4o") == []
 
 
-def test_resolve_via_pool_picks_first_served_pool_model() -> None:
+def test_group_arm_picks_first_served_pool_model() -> None:
+    """Was ``RouterPool.resolve_via_pool``; now the resolver's group arm."""
     pool = RouterPool(
         model_pools={
             "big": ModelPool(enabled=True, hosts=["mac-studio"], models=POOL_MODELS)
@@ -100,17 +128,22 @@ def test_resolve_via_pool_picks_first_served_pool_model() -> None:
         "mac-studio", "http://a/v1", ["llama3.1:70b", "qwen2.5:72b-instruct"]
     )
     # POOL_MODELS order wins: "qwen2.5:72b-instruct" precedes "llama3.1:70b".
-    assert pool.resolve_via_pool(backend, "gpt-4o") == "qwen2.5:72b-instruct"
+    resolution = pool.resolver.resolve("gpt-4o", backend)
+    assert resolution.upstream_model == "qwen2.5:72b-instruct"
+    assert resolution.stage == "group-exact"
 
 
-def test_resolve_via_pool_none_for_non_member() -> None:
+def test_group_arm_does_not_fire_for_non_member() -> None:
     pool = RouterPool(
         model_pools={
             "big": ModelPool(enabled=True, hosts=["mac-studio"], models=POOL_MODELS)
         }
     )
     other = _backend("other", "http://a/v1", ["qwen2.5:72b-instruct"])
-    assert pool.resolve_via_pool(other, "gpt-4o") is None
+    resolution = pool.resolver.resolve("gpt-4o", other)
+    assert resolution.stage == "passthrough"
+    assert resolution.upstream_model == "gpt-4o"
+    assert resolution.serves is False
 
 
 def test_model_for_backend_falls_back_to_pool() -> None:
@@ -140,3 +173,37 @@ def test_model_for_backend_alias_wins_over_pool() -> None:
         "mac-studio", "http://a/v1", ["llama3.1:70b", "qwen2.5:72b-instruct"]
     )
     assert service._model_for_backend("llama3", backend) == "llama3.1:70b"
+
+
+def test_model_pools_parse_into_the_resolver_group_representation() -> None:
+    """Phase 8c: a pool *is* a group, so a future routing.model_groups is a
+    second parser into one representation, not a second mechanism."""
+    from netllm_core.model_resolution import ModelGroup, ModelResolver
+
+    pools = {
+        "big": ModelPool(enabled=True, hosts=["mac-studio"], models=POOL_MODELS),
+        "off": ModelPool(enabled=False, hosts=["other"], models=["x"]),
+    }
+    resolver = ModelResolver(model_pools=pools)
+    assert resolver.groups == (
+        ModelGroup(
+            name="big",
+            hosts=("mac-studio",),
+            models=tuple(POOL_MODELS),
+            enabled=True,
+        ),
+        ModelGroup(name="off", hosts=("other",), models=("x",), enabled=False),
+    )
+    # Groups handed in directly resolve identically to parsed pools — the
+    # schema-only claim, asserted rather than asserted-in-prose.
+    direct = ModelResolver(
+        model_groups=[
+            ModelGroup(name="big", hosts=("mac-studio",), models=tuple(POOL_MODELS))
+        ]
+    )
+    backend = _backend("mac-studio", "http://a/v1", ["llama3.1:70b"])
+    assert (
+        direct.resolve("anything", backend).upstream_model
+        == resolver.resolve("anything", backend).upstream_model
+        == "llama3.1:70b"
+    )

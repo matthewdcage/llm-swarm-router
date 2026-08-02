@@ -108,11 +108,17 @@ async def test_f33_proxy_messages_stream_records_success_accounting() -> None:
     assert service.telemetry._session.completion_tokens == 50
 
 
-async def test_f33_chat_stream_wrapper_captures_openai_usage_chunk() -> None:
-    """F-33: _stream_with_metrics must parse the stream_options
-    include_usage chunk (when present) into token telemetry."""
+async def test_f33_chat_stream_captures_openai_usage_chunk() -> None:
+    """F-33: the chat stream path must parse the stream_options
+    include_usage chunk (when present) into token telemetry.
+
+    [Phase 7] Driven through ``proxy_chat_completion_stream`` rather than
+    the ``_stream_with_metrics`` wrapper it used to poke directly — that
+    wrapper is gone, because its post-loop accounting was the D16 hole.
+    """
     service = _service()
     backend = _backend()
+    service.pool.backends.append(backend)
     model = "llama3"
 
     chat_chunks = [
@@ -130,12 +136,20 @@ async def test_f33_chat_stream_wrapper_captures_openai_usage_chunk() -> None:
                 yield chunk
 
     ok_before = _requests_total_ok(backend, model)
-    out = [
-        c
-        async for c in service._stream_with_metrics(
-            FakeClient(), {"model": model}, backend, model
-        )
-    ]
+    with (
+        patch.object(service, "refresh_local_backends", AsyncMock(return_value=[])),
+        patch.object(
+            service, "_offload_if_probing", AsyncMock(side_effect=[backend, None])
+        ),
+        patch.object(service, "_openai_upstream", lambda *a, **kw: FakeClient()),
+    ):
+        out = [
+            c
+            async for c in service.proxy_chat_completion_stream(
+                {"model": model, "messages": [], "stream": True}
+            )
+        ]
+
     assert out == chat_chunks
     assert _requests_total_ok(backend, model) == ok_before + 1
     assert service.telemetry._session.requests == 1

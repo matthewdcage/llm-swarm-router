@@ -10,6 +10,7 @@ import netllm_cli.main as cli_main
 import pytest
 from fastapi.testclient import TestClient
 from netllm_agent.app import create_app
+from netllm_cli.commands import diagnose as cli_diagnose
 from netllm_core.models import NetllmConfig, save_config
 from typer.testing import CliRunner
 
@@ -21,7 +22,7 @@ def _no_provider_scan(monkeypatch: pytest.MonkeyPatch):
     async def _empty(cfg: NetllmConfig) -> list[dict[str, Any]]:
         return [{"name": "ollama", "status": "online", "models": ["m"]}]
 
-    monkeypatch.setattr(cli_main, "scan_local_providers", _empty)
+    monkeypatch.setattr(cli_diagnose, "scan_local_providers", _empty)
 
 
 def test_doctor_open_lan_ok_json(
@@ -32,7 +33,7 @@ def test_doctor_open_lan_ok_json(
     cfg.agent.listen = "0.0.0.0:11400"
     save_config(cfg, cfg_path)
 
-    monkeypatch.setattr(cli_main, "mdns_available", lambda: True)
+    monkeypatch.setattr(cli_diagnose, "mdns_available", lambda: True)
     monkeypatch.setattr(
         "netllm_discovery.runtime.check_listen_port",
         lambda _cfg: None,
@@ -72,7 +73,9 @@ def test_doctor_endpoint_open_lan_note(monkeypatch: pytest.MonkeyPatch) -> None:
             }
         ]
 
-    monkeypatch.setattr("netllm_agent.service.scan_local_providers", _fake_agent_scan)
+    monkeypatch.setattr(
+        "netllm_agent.service.backends.scan_local_providers", _fake_agent_scan
+    )
     monkeypatch.setattr(
         "netllm_core.pool.probe_openai_compat_sync",
         lambda *a, **k: {"status": "online", "models": ["m"], "model_count": 1},
@@ -126,20 +129,20 @@ def test_no_inference_issue_once_the_flag_is_set() -> None:
 
 def test_secure_swarm_init_requires_token_for_inference() -> None:
     """`init --swarm --secure` must mean what it says."""
-    import netllm_cli.main as cli_main
+    from netllm_cli.commands import init_install as cli_init_install
 
     cfg = NetllmConfig()
-    cli_main._apply_secured_swarm_mode(cfg)
+    cli_init_install._apply_secured_swarm_mode(cfg)
     assert cfg.swarm.cluster_token
     assert cfg.swarm.require_token_for_inference is True
 
 
 def test_open_swarm_init_does_not_require_token_for_inference() -> None:
     """The open trusted-LAN path is unchanged — no token, no gate."""
-    import netllm_cli.main as cli_main
+    from netllm_cli.commands import init_install as cli_init_install
 
     cfg = NetllmConfig()
-    cli_main._apply_open_swarm_mode(cfg)
+    cli_init_install._apply_open_swarm_mode(cfg)
     assert not cfg.swarm.cluster_token
     assert cfg.swarm.require_token_for_inference is False
 

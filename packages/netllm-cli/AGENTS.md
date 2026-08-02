@@ -8,7 +8,11 @@ Typer CLI entry point for init (guided single/swarm), join, swarm-token, serve, 
 
 ## Ownership
 
-Key modules: `main.py`, `ui.py`, `install.py`, `install_detect.py`, `config_json.py`, `oauth_pkce.py`. Platform lifecycle: `lifecycle/darwin.py`, `linux.py`, `windows.py`, `common.py`.
+Key modules: `main.py` (Typer wiring only, ~80 lines), `commands/` (one module per command
+group: `_common`, `init_install`, `join_swarm`, `observe`, `serve_lifecycle`, `diagnose`,
+`config_io`, `cloud`, `sources`), `ui.py`, `install.py`, `install_detect.py`,
+`config_json.py`, `oauth_pkce.py`. Platform lifecycle: `lifecycle/darwin.py`, `linux.py`,
+`windows.py`, `common.py`.
 
 ## Local Contracts
 
@@ -23,7 +27,7 @@ Key modules: `main.py`, `ui.py`, `install.py`, `install_detect.py`, `config_json
 
 ## Work Guidance
 
-- Match Typer/Rich patterns already in `main.py`
+- Match Typer/Rich patterns already in `commands/`; `main.py` is wiring only
 - Lifecycle changes must align with [../../packaging/AGENTS.md](../../packaging/AGENTS.md) install artifacts
 
 ## Verification

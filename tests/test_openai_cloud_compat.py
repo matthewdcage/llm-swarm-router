@@ -20,7 +20,7 @@ def client() -> TestClient:
         yield test_client
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
 def test_openai_cloud_inject_when_no_local_backends(
     mock_openai_cls: MagicMock,
@@ -81,7 +81,7 @@ def _cloud_reply() -> MagicMock:
     return resp
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
 def test_caller_key_cloud_row_never_enters_the_pool(
     mock_openai_cls: MagicMock,
@@ -112,7 +112,7 @@ def test_caller_key_cloud_row_never_enters_the_pool(
     assert not any(b.cloud_provider for b in service.pool.backends)
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
 def test_second_caller_does_not_inherit_the_first_callers_key(
     mock_openai_cls: MagicMock,
@@ -140,7 +140,7 @@ def test_second_caller_does_not_inherit_the_first_callers_key(
     )
 
 
-@patch("netllm_agent.service.scan_local_providers", new_callable=AsyncMock)
+@patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
 def test_keyless_caller_gets_no_cloud_route(
     mock_openai_cls: MagicMock,

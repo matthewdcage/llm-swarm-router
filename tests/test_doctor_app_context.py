@@ -31,17 +31,24 @@ def test_doctor_json_omits_global_path_issue_in_app_bundle(tmp_path) -> None:
     )
     env = {"NETLLM_BUNDLE_PATH": "/Applications/netllm-mac.app"}
     with patch.dict("os.environ", env):
-        with patch("netllm_cli.main.global_netllm_installed", return_value=True):
-            with patch("netllm_cli.main.global_cli_on_path", return_value=False):
+        with patch(
+            "netllm_cli.commands.diagnose.global_netllm_installed", return_value=True
+        ):
+            with patch(
+                "netllm_cli.commands.diagnose.global_cli_on_path", return_value=False
+            ):
                 with patch(
-                    "netllm_cli.main.asyncio.run",
+                    "netllm_cli.commands.diagnose.asyncio.run",
                     return_value=[{"status": "online", "id": "omlx"}],
                 ):
                     with patch(
                         "netllm_discovery.runtime.check_listen_port",
                         return_value=None,
                     ):
-                        with patch("netllm_cli.main.mdns_available", return_value=True):
+                        with patch(
+                            "netllm_cli.commands.diagnose.mdns_available",
+                            return_value=True,
+                        ):
                             result = runner.invoke(
                                 app,
                                 ["doctor", "--json", "--config", str(cfg)],
