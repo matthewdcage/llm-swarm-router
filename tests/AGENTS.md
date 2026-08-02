@@ -54,4 +54,4 @@ scripts/verify-before-pr.sh
 
 Fixtures are data only; no per-fixture AGENTS.md unless a fixture tree grows maintenance docs.
 
-Updated: 2026-08-03 (Phase B closeout: 363 contract vectors incl. B5 pool isolation; connect CLI; Settings statusLabel tests)
+Updated: 2026-08-03 (Phase B closeout: 363 contract vectors incl. B5 pool isolation; connect CLI; Settings statusLabel tests; 1091 CI pytest)

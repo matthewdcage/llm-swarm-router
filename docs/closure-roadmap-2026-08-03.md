@@ -14,7 +14,7 @@ below and reflected in the architecture register where applicable.
 | **Latest tag** | `v0.5.0.0` | Engine consolidation; Phase B not yet on tag |
 | **Open PRs** | 1 pending | Phase B closeout → `main` |
 | **Open GitHub issues** | #10, #16 | See below |
-| **Tests (Phase B tree)** | 1108+ passed | `uv run pytest -q` |
+| **Tests (Phase B tree)** | 1091 passed | `./scripts/ci.sh test` (`tests/`) |
 | **Contract tests** | 363 passed | `uv run pytest tests/contract -q` |
 
 ---

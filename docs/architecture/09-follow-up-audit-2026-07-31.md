@@ -566,9 +566,9 @@ field of the 400 body.
 - **Architecture doc counts drifted** within 2 days (642→647 tests, LOC
   figures): expected decay of frozen snapshots; bump figures on the next
   audit-adjacent PR (per AGENTS.md verification rules) rather than per commit.
-  *(Re-measured 2026-08-03 on main @ `1835c8b` + Phase B: 1,108+ passing via
-  `uv run pytest -q`; 363 contract vectors. Prior v0.5.0.0 tag: 1,108 / 356. Prior
-  2026-08-01 close-out: 1,087
+  *(Re-measured 2026-08-03 on main @ `1835c8b` + Phase B: **1091** passing in
+  `tests/`; **363** contract vectors. Prior v0.5.0.0 tag baseline: 356 contract.
+  Prior 2026-08-01 close-out: 1,087
   passing + 4 skipped; 16,197 lines of first-party Python under
   `packages/*/src`; largest Python module `netllm_core/models.py` at 690.)*
 

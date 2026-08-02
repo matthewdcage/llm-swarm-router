@@ -11,8 +11,8 @@ in [09](09-follow-up-audit-2026-07-31.md). Closure roadmap:
 
 **Baseline health is good.** At audit time `uv run pytest -q` → **584 passed**;
 after remediation → **642 passed**; after the F-24/F-25/F-26 consolidation →
-**1,108+ passed** on main @ `1835c8b` + Phase B (2026-08-03); **363** contract tests.
-Lint is clean.
+**1091 passed** in `tests/` on main @ `1835c8b` + Phase B (2026-08-03); **363** contract
+tests. Lint is clean.
 The SDK isolation boundary holds. The routing hardening work described in
 `docs/routing-hardening-plan.md` is genuinely implemented, and the failover, capacity-error
 classification, and mesh loop guards are better than typical for a project this size.

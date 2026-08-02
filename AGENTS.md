@@ -305,4 +305,4 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 
 Coordinator/outreach DOX (`.cursor/coordinator/`, `.cursor/agents/`, `.cursor/outreach/`) is local maintainer-only and is **not** listed here — it must not ship on the remote repo.
 
-Updated: 2026-08-03 (v0.5.0.0 shipped; Phase B closeout → 0.5.0.1: F-28/F-38/F-56/F-57, connect CLI, scenario Serving UI, Settings statusLabel; 363 contract)
+Updated: 2026-08-03 (v0.5.0.0 shipped; Phase B closeout → 0.5.0.1 PR #45: F-28/F-38/F-56/F-57, connect CLI, scenario Serving UI, Settings statusLabel; 1091 pytest / 363 contract)

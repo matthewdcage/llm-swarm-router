@@ -1,6 +1,6 @@
 # Architecture & audit documentation
 
-Reviewed release: **0.4.5.1** (tag) / **main @ a3cbad9** (unreleased refactor) ·
+Reviewed release: **0.5.0.0** (tag) / **main @ `1835c8b`** · Phase B → **0.5.0.1** (PR #45) ·
 Audit date: **2026-07-29** · Last refreshed: **2026-08-03** · Branch: `main`
 
 > **Remediation landed.** 20 of 29 findings were fixed (all S1 and S2, plus the
@@ -15,8 +15,8 @@ Audit date: **2026-07-29** · Last refreshed: **2026-08-03** · Branch: `main`
 > operator-visible behaviour changes are enumerated in
 > [refactor/RELEASE-NOTES.md](refactor/RELEASE-NOTES.md). Suite: **1,077 passing**
 > on synced main (2026-08-03); **363** golden-vector contract tests (+7 Phase B on
-> v0.5.0.0's 356); **1,108+** full `uv run pytest -q`. Phase B closeout (2026-08-03):
-> F-28/F-38/F-56/F-57, B5 pool vector, `netllm connect`, dashboard scenario counters,
+> v0.5.0.0's 356); **1091** passed in `tests/` (CI gate); **363** contract tests.
+> Phase B closeout (2026-08-03): F-28/F-38/F-56/F-57, B5 pool vector, `netllm connect`, dashboard scenario counters,
 > Settings statusLabel → **0.5.0.1**. Closure roadmap:
 > [../closure-roadmap-2026-08-03.md](../closure-roadmap-2026-08-03.md).
 
@@ -64,7 +64,7 @@ HTML/CSS/JS), `packaging/`, `scripts/`, and CI workflows.
 
 **Verification performed during this audit:**
 
-- Full test suite at audit time: **584 passed**; after remediation: **642 passed**; after the F-24/F-25/F-26 consolidation (2026-08-01): **1,087 passed, 4 skipped**; on main @ `1835c8b` (v0.5.0.0) + Phase B (2026-08-03): **1,108+ passed** (`uv run pytest -q`); **363** contract tests (`uv run pytest tests/contract -q`).
+- Full test suite at audit time: **584 passed**; after remediation: **642 passed**; after the F-24/F-25/F-26 consolidation (2026-08-01): **1,087 passed, 4 skipped**; on main @ `1835c8b` (v0.5.0.0) + Phase B (2026-08-03): **1091 passed** in `tests/` (`./scripts/ci.sh test`); **363** contract tests (`uv run pytest tests/contract -q`).
 - Reproduced 4 defects with executable scripts before fixing (F-01, F-02, F-04, F-11).
 - Cross-checked every "orphan" claim with a repo-wide symbol grep including tests.
 - Re-verified all four S1 findings against `26c45b7` before starting work — none
