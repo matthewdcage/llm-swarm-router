@@ -261,12 +261,18 @@ class ModelResolver:
         backend: _BackendLike,
         *,
         served: Sequence[str] | None = None,
+        allow_group_overflow: bool = True,
     ) -> Resolution:
         """Resolve `requested` against one backend's catalog.
 
         `served` overrides the catalog read off the backend — candidacy has
         already read (and possibly re-probed) it, and must decide on the
         exact snapshot it saw rather than on a racing re-read.
+
+        ``allow_group_overflow=False`` restricts the walk to alias arms only
+        (request-aware pool phase 1). Phase 2 candidacy passes
+        ``allow_group_overflow=True`` so pool members substitute only when
+        no backend in the mesh serves the requested name literally.
 
         Never raises and never returns an empty name: an unmatched request
         passes the requested name through, exactly as the legacy invocation
@@ -284,10 +290,11 @@ class ModelResolver:
             name, arm = hit
             return Resolution(requested, name, f"alias-{arm}")
 
-        hit = _walk(self.group_models_for(backend), served)
-        if hit is not None:
-            name, arm = hit
-            return Resolution(requested, name, f"group-{arm}")
+        if allow_group_overflow:
+            hit = _walk(self.group_models_for(backend), served)
+            if hit is not None:
+                name, arm = hit
+                return Resolution(requested, name, f"group-{arm}")
 
         return Resolution(requested, requested, STAGE_PASSTHROUGH)
 
@@ -297,13 +304,34 @@ class ModelResolver:
         backend: _BackendLike,
         *,
         served: Sequence[str] | None = None,
+        allow_group_overflow: bool = True,
     ) -> bool:
         """Candidacy predicate, derived from the same walk as `resolve`."""
-        return self.resolve(requested, backend, served=served).serves
+        return self.resolve(
+            requested,
+            backend,
+            served=served,
+            allow_group_overflow=allow_group_overflow,
+        ).serves
 
-    def upstream_model(self, requested: str, backend: _BackendLike) -> str:
-        """The model ID to actually send upstream to `backend`."""
-        return self.resolve(requested, backend).upstream_model
+    def upstream_model(
+        self,
+        requested: str,
+        backend: _BackendLike,
+        *,
+        exact_model_only: bool = False,
+    ) -> str:
+        """The model ID to actually send upstream to `backend`.
+
+        Agent-hop requests (``exact_model_only=True``) skip pool/group
+        substitution so the terminating peer invokes the forwarded model
+        name literally.
+        """
+        return self.resolve(
+            requested,
+            backend,
+            allow_group_overflow=not exact_model_only,
+        ).upstream_model
 
     # -- 404 hints --------------------------------------------------------
 

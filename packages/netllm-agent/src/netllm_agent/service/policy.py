@@ -63,19 +63,25 @@ class PolicyMixin:
         # be forwarded again.
         return PolicyMixin._incoming_hops(hdrs) >= MAX_FORWARD_HOPS
 
-    def _model_for_backend(self, model: str, backend: Backend) -> str:
+    def _model_for_backend(
+        self, model: str, backend: Backend, *, exact_model_only: bool = False
+    ) -> str:
         """Resolve the requested (canonical) model name to the ID this
         backend actually serves.
 
         One walk (netllm_core.model_resolution.ModelResolver): alias exact →
         alias tag-prefix → alias casefold → routing.model_pools group arm
-        (same three arms) → catalog passthrough. It is the *same* walk that
-        made this backend a candidate in ``backends_for_model``, which is
-        the F-25 fix: the router can no longer pick a host because its
-        catalog tag-prefix-matches a pool model and then invoke it with a
-        name it does not serve.
+        (same three arms, only on overflow) → catalog passthrough. It is the
+        *same* walk that made this backend a candidate in
+        ``backends_for_model``, which is the F-25 fix.
+
+        Agent-hop requests (``exact_model_only=True``) skip pool/group
+        substitution so the terminating peer routes the forwarded model
+        name literally.
         """
-        return self.pool.resolver.upstream_model(model, backend)
+        return self.pool.resolver.upstream_model(
+            model, backend, exact_model_only=exact_model_only
+        )
 
     @staticmethod
     def _reject_non_chat_model(model: str) -> None:
@@ -335,6 +341,7 @@ class PolicyMixin:
         # to selection today; Phase 5 flips the rest.
         shard = extract_shard_context(payload, hdrs)
         self._source_admit(resolved_source.id, source_cfg)
+        exact_model_only = self._incoming_hops(hdrs) >= 1
         return RequestPlan(
             surface=surface,
             headers=hdrs,
@@ -347,4 +354,5 @@ class PolicyMixin:
             shard=shard,
             payload=payload,
             api_key=api_key,
+            exact_model_only=exact_model_only,
         )

@@ -414,6 +414,7 @@ class RouterPool:
         model: str,
         *,
         local_only: bool = False,
+        exact_model_only: bool = False,
         extra_candidates: list[Backend] | None = None,
     ) -> list[Backend]:
         """Candidate backends for `model`.
@@ -423,13 +424,18 @@ class RouterPool:
         backends whose credential came from the calling request, so one
         caller's key can never serve another's (F-04). They participate in
         selection exactly like pooled rows; only their lifetime differs.
+
+        When ``exact_model_only`` is True (agent-hop requests whose model was
+        already resolved upstream), pool catch-all bypass is disabled so the
+        terminating peer routes the forwarded model name literally instead of
+        substituting another pool member model.
         """
         resolver = self.resolver
         searchable = (
             [*self._backends, *extra_candidates] if extra_candidates else self._backends
         )
 
-        def collect() -> list[Backend]:
+        def collect(*, allow_pool_overflow: bool) -> list[Backend]:
             out: list[Backend] = []
             for b in searchable:
                 if not b.enabled:
@@ -444,23 +450,31 @@ class RouterPool:
                     # decide on the snapshot we end up holding, and hand
                     # that exact snapshot to the resolver.
                     models = b.health.models
-                # One walk decides candidacy: alias arms, then the
-                # model_pools group bypass (a group member is a candidate
-                # for ANY requested name as long as it serves one of the
-                # group's models), then the blind-catalog / auth-gated
-                # catalog rules. See ModelResolver.
-                if resolver.serves(model, b, served=models):
+                # Request-aware pools: phase 1 is alias-only candidacy;
+                # phase 2 (allow_pool_overflow=True) adds group overflow.
+                # Agent hops (exact_model_only) never pool-substitute.
+                group_overflow = allow_pool_overflow and not exact_model_only
+                if resolver.serves(
+                    model,
+                    b,
+                    served=models,
+                    allow_group_overflow=group_overflow,
+                ):
                     out.append(b)
             return out
 
-        candidates = collect()
+        candidates = collect(allow_pool_overflow=False)
+        if not candidates:
+            candidates = collect(allow_pool_overflow=True)
         if not candidates:
             # Catalogs may be stale (model pulled moments ago) — refresh
             # once and rematch instead of spraying every backend.
             for b in self._backends:
                 if b.enabled and b.local:
                     self.is_healthy(b, force_refresh=True)
-            candidates = collect()
+            candidates = collect(allow_pool_overflow=False)
+            if not candidates:
+                candidates = collect(allow_pool_overflow=True)
         if not candidates:
             return []
         healthy = [b for b in candidates if self.is_healthy(b)]
@@ -474,6 +488,7 @@ class RouterPool:
         shard_key: str | None = None,
         attempt: int = 1,
         local_only: bool = False,
+        exact_model_only: bool = False,
         prefer_provider: str | None = None,
         prefer_cloud: bool = False,
         exclude_ids: set[str] | None = None,
@@ -482,16 +497,24 @@ class RouterPool:
     ) -> Backend | None:
         if local_only:
             all_candidates = self.backends_for_model(
-                model, local_only=True, extra_candidates=extra_candidates
+                model,
+                local_only=True,
+                exact_model_only=exact_model_only,
+                extra_candidates=extra_candidates,
             )
         else:
             local = self.backends_for_model(
-                model, local_only=True, extra_candidates=extra_candidates
+                model,
+                local_only=True,
+                exact_model_only=exact_model_only,
+                extra_candidates=extra_candidates,
             )
             remote = [
                 b
                 for b in self.backends_for_model(
-                    model, extra_candidates=extra_candidates
+                    model,
+                    exact_model_only=exact_model_only,
+                    extra_candidates=extra_candidates,
                 )
                 if not b.local
             ]

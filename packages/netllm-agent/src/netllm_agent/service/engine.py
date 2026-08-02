@@ -141,6 +141,7 @@ async def _walk_schedule(
             attempt,
             plan.shard,
             local_only=routing.local_only,
+            exact_model_only=plan.exact_model_only,
             prefer_provider=routing.prefer_provider,
             prefer_cloud=schedule.prefer_cloud,
             exclude_ids=schedule.exclusions(tried),

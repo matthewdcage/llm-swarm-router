@@ -331,7 +331,9 @@ class OpenAIDialectAdapter(BaseAdapter):
         )
 
     def build_invocation(self, plan: RequestPlan, backend: Backend) -> Invocation:
-        upstream_model = self.service._model_for_backend(plan.model, backend)
+        upstream_model = self.service._model_for_backend(
+            plan.model, backend, exact_model_only=plan.exact_model_only
+        )
         payload = (
             {**plan.payload, "model": upstream_model}
             if upstream_model != plan.model

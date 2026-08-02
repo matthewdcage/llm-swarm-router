@@ -73,6 +73,9 @@ class RequestPlan:
     # selection today. Turning it on for EMB/M-NS/M-S is D5, Phase 5.
     shard: ShardContext | None
     payload: dict[str, Any]
+    # Agent-hop requests (x-netllm-hops >= 1): skip pool substitution on
+    # the terminating peer so the forwarded model name is invoked literally.
+    exact_model_only: bool = False
     # Messages only: the resolved Anthropic key, "" when the request had
     # neither an ``x-api-key`` header nor ``ANTHROPIC_API_KEY``. Decides the
     # keyless-401 vs generic exhaustion split (D11).

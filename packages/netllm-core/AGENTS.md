@@ -8,7 +8,7 @@ Shared routing, backend health cache, configuration I/O, model catalog types, an
 
 ## Ownership
 
-Key modules: `config.py`, `routing_policy.py`, `pool.py`, `health.py`, `models.py`, `capabilities.py`, `anthropic_bridge.py`, `update.py`, `platform.py`, `cloud_providers.py`, `config_schema.py`.
+Key modules: `config.py`, `routing_policy.py`, `pool.py`, `model_resolution.py`, `health.py`, `models.py`, `capabilities.py`, `anthropic_bridge.py`, `update.py`, `platform.py`, `cloud_providers.py`, `config_schema.py`.
 
 ## Local Contracts
 
@@ -22,7 +22,9 @@ Key modules: `config.py`, `routing_policy.py`, `pool.py`, `health.py`, `models.p
 - **`prune_peer_rows(keep_urls)`**: callers merging peers must follow with a prune so pool rows track the swarm registry (dead peers must not linger)
 - **`local_spillover`** (swarm default from guided init / LAN mode): serve locally below `routing.spillover_max_local_in_flight` concurrent requests, spill to the least-loaded peer above it; peer load = heartbeat-reported local rows + own active hops (`RouterPool._own_peer_hops` ledger — use `pool.acquire()`/`pool.release()`, never mutate `in_flight` directly)
 - **`merge_backends` keeps local Backend object identity** (updates fields in place): in-flight requests hold a reference across refreshes, so replacing the row would leak `in_flight` counts — peer rows are still rebuilt from heartbeats + hop ledger
-- **Model matching is case-insensitive** (`model_names_for` alias keys, `_serves_model`); `capabilities.model_capability()` classifies model IDs (`chat`/`embedding`/`audio`/`rerank`/`other`, unknown defaults to `chat`) — agent uses it to reject chat against encoders and to filter `known_models(capability=…)`
+- **`model_resolution.py` (`ModelResolver`)**: single source for alias/exact matching (`resolve`, `serves`, `upstream_model`); case-insensitive alias keys; `allow_group_overflow=False` during pool collect phase 1 (exact/alias only on mesh backends); phase 2 overflow runs only when no pool member serves the requested name; `exact_model_only=True` (agent-hop terminating peer) skips pool substitution entirely
+- **`pool.py` request-aware pools**: two-phase `collect()` — phase 1 gathers backends that serve the requested model (exact/alias); phase 2 substitutes another pool allowlist model only when phase 1 is empty and `exact_model_only` is false; host membership uses `ModelResolver._host_matches` (dashboard/macOS `poolInactiveReason` mirrors this — keep all three copies in sync)
+- **`capabilities.model_capability()`** classifies model IDs (`chat`/`embedding`/`audio`/`rerank`/`other`, unknown defaults to `chat`) — agent uses it to reject chat against encoders and to filter `known_models(capability=…)`
 - **`select_backend(exclude_ids=…)`**: retry loops pass the per-request failed-backend set so the attempt budget walks on to untried candidates (e.g. a healthy LAN peer) instead of re-hitting a failing local backend
 - **Capacity vs hard failures** (`is_capacity_error`, `mark_failure(capacity=…)`): 409/429/503/507 and capacity markers in wrapped bodies (`prefill_memory_exceeded`, "is busy", "memory pressure", "rate limit" — peer agents wrap upstream refusals in 502, so match the message too) mean "full now, not broken" — they must never count toward the offline trip; tracked in `pool.capacity_rejections`
 - **`max_in_flight_per_backend`** (config `routing.max_in_flight_per_backend`, 0 = off): every strategy prefers candidates under the cap; all-at-cap falls through to normal selection (never fail a request because of the cap)

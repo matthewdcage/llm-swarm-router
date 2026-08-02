@@ -95,20 +95,20 @@ upstream_read_timeout_s = 120.0
 # so the same weights spread across oMLX / Ollama / LM Studio / vLLM.
 # [routing.model_aliases]
 # "llama3" = ["llama3:8b-instruct-q4_K_M", "Meta-Llama-3-8B-Instruct-GGUF"]
+# "qwen-next-80b" = ["qwen3-next-80b"]   # Cursor / client shorthand → vLLM id
+# "gemma4:26b" = ["gemma-4-26b-a4b-it-4bit", "gemma4:26b"]
 
-# Host-scoped catch-all pools: bypass model_aliases matching entirely for
-# the listed hosts. Any request, for any model name, is a candidate for a
-# pool's hosts as long as the host actually serves one of `models` — the
-# requested name is ignored once a pool backend is picked; whichever
-# pool-allowed model that host has loaded is what actually gets invoked.
-# Useful for a big-model host that should absorb overflow/misnamed
-# requests instead of 404ing. `hosts` accepts the same refs as the
-# x-netllm-backend pin header: backend id, "peer:<agent-id>", bare
-# agent_id, or base_url.
-# [routing.model_pools.big-mac-studio]
+# Heterogeneous model pools: list every model any member may serve, plus all
+# member host refs (backend id, "peer:<agent-id>", bare agent_id, or base_url).
+# Routing is request-aware: a pool member is chosen when it serves the
+# requested model (or alias) literally. Pool substitution (running a different
+# pool model on that host) happens only when no backend in the mesh serves
+# the requested name — overflow/misnamed requests, not stealing qwen traffic
+# onto a gemma-only host. Do not bundle unrelated models under one alias.
+# [routing.model_pools.swarm]
 # enabled = true
-# hosts = ["mac-studio"]
-# models = ["qwen2.5:72b-instruct", "llama3.1:70b"]
+# hosts = ["gateway-id", "peer:linux-box", "peer:macbook-id"]
+# models = ["gemma4:26b", "qwen3-next-80b"]
 
 # Known CLI/harness sources with durable per-caller routing (Phase 1 of
 # docs/cli-source-routing-plan.md). A request is attributed to a source by,

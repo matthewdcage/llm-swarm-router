@@ -1,5 +1,9 @@
-"""routing.model_pools: host-scoped catch-all pools that bypass alias
-matching entirely for their member backends."""
+"""routing.model_pools: heterogeneous pools with request-aware matching.
+
+Pool members qualify for the requested model when they serve it
+(exact/alias). Pool catch-all substitution applies only when no backend
+in the mesh serves the requested model (overflow).
+"""
 
 from __future__ import annotations
 
@@ -26,7 +30,8 @@ def _backend(
 
 
 @patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
-def test_pool_member_matches_any_requested_name(_mock: object) -> None:
+def test_pool_member_matches_any_requested_name_on_overflow(_mock: object) -> None:
+    """When no backend serves the requested model, pool members substitute."""
     pool = RouterPool(
         model_pools={
             "big": ModelPool(enabled=True, hosts=["mac-studio"], models=POOL_MODELS)
@@ -37,6 +42,28 @@ def test_pool_member_matches_any_requested_name(_mock: object) -> None:
     pool.set_backends([big_host, other])
     matched = pool.backends_for_model("gpt-4o")
     assert [b.id for b in matched] == ["mac-studio"]
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_pool_does_not_steal_when_another_host_serves_requested_model(
+    _mock: object,
+) -> None:
+    """A pool member serving only model A must not take requests for model B
+    when another host serves B literally."""
+    pool = RouterPool(
+        model_pools={
+            "mixed": ModelPool(
+                enabled=True,
+                hosts=["gemma-host", "qwen-host"],
+                models=["gemma4:26b", "qwen3-next-80b"],
+            )
+        }
+    )
+    gemma_host = _backend("gemma-host", "http://a/v1", ["gemma4:26b"])
+    qwen_host = _backend("qwen-host", "http://b/v1", ["qwen3-next-80b"], local=False)
+    pool.set_backends([gemma_host, qwen_host])
+    matched = pool.backends_for_model("qwen3-next-80b")
+    assert [b.id for b in matched] == ["qwen-host"]
 
 
 @patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)

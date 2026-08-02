@@ -42,6 +42,7 @@ class SelectionMixin:
         shard: ShardContext | None,
         *,
         local_only: bool = False,
+        exact_model_only: bool = False,
         prefer_provider: str | None = None,
         prefer_cloud: bool = False,
         exclude_ids: set[str] | None = None,
@@ -70,7 +71,9 @@ class SelectionMixin:
         if strategy == "batch_shard":
             if shard and shard.batch_id is not None and shard.index is not None:
                 candidates = self.pool.backends_for_model(
-                    model, extra_candidates=extra_candidates
+                    model,
+                    exact_model_only=exact_model_only,
+                    extra_candidates=extra_candidates,
                 )
                 # [D5/D8/D17] The batch-ledger arm is the one selection
                 # route that never consulted exclude_ids: it handed the raw
@@ -127,6 +130,7 @@ class SelectionMixin:
                     shard_key=shard_key,
                     attempt=attempt,
                     local_only=local_only,
+                    exact_model_only=exact_model_only,
                     prefer_provider=prefer_provider,
                     prefer_cloud=prefer_cloud,
                     exclude_ids=exclude_ids,
@@ -151,6 +155,7 @@ class SelectionMixin:
                     model,
                     "round_robin",
                     local_only=local_only,
+                    exact_model_only=exact_model_only,
                     prefer_provider=prefer_provider,
                     prefer_cloud=prefer_cloud,
                     exclude_ids=exclude_ids,
@@ -162,6 +167,7 @@ class SelectionMixin:
                 "failover",
                 attempt=attempt,
                 local_only=local_only,
+                exact_model_only=exact_model_only,
                 prefer_provider=prefer_provider,
                 prefer_cloud=prefer_cloud,
                 exclude_ids=exclude_ids,
@@ -190,6 +196,7 @@ class SelectionMixin:
             shard_key=shard_key,
             attempt=attempt,
             local_only=local_only,
+            exact_model_only=exact_model_only,
             prefer_provider=prefer_provider,
             prefer_cloud=prefer_cloud,
             exclude_ids=exclude_ids,

@@ -10,9 +10,10 @@ candidacy matcher always had.
 
 Three properties:
 
-1. ``test_candidacy_matches_legacy_oracle`` — ``ModelResolver.serves`` is
-   byte-for-byte the legacy candidacy predicate. No exceptions allowed: the
-   candidate set must not move at all.
+1. ``test_candidacy_matches_legacy_oracle`` — per-backend ``ModelResolver.serves``
+   with ``allow_group_overflow=True`` matches the legacy catch-all candidacy
+   predicate (group overflow is deferred to ``RouterPool``'s two-phase
+   collect — **D19**).
 2. ``test_invocation_matches_legacy_oracle_modulo_d18`` — the invoked name
    equals the legacy one, or the difference is exactly D18-class: the walk
    landed on a ``group-*`` stage and the chosen name is one the backend
@@ -219,11 +220,10 @@ _SETTINGS = settings(
 def test_candidacy_matches_legacy_oracle(case: tuple) -> None:
     aliases, pools, backend, requested = case
     resolver = ModelResolver(model_aliases=aliases, model_pools=pools)
-    assert resolver.serves(requested, backend) == legacy_candidacy(
-        aliases, pools, backend, requested
-    ), (
-        "candidacy moved: the resolver must select exactly the backends "
-        "matcher A selected"
+    assert resolver.serves(
+        requested, backend, allow_group_overflow=True
+    ) == legacy_candidacy(aliases, pools, backend, requested), (
+        "per-backend candidacy with group overflow must match legacy matcher A"
     )
 
 

@@ -48,7 +48,9 @@ class MessagesAdapter(AnthropicDialectAdapter):
         # Invocation honest about what will go on the wire.
         return Invocation(
             backend=backend,
-            upstream_model=self.service._model_for_backend(plan.model, backend),
+            upstream_model=self.service._model_for_backend(
+                plan.model, backend, exact_model_only=plan.exact_model_only
+            ),
             payload=plan.payload,
         )
 
@@ -59,6 +61,7 @@ class MessagesAdapter(AnthropicDialectAdapter):
             plan.model,
             plan.headers,
             plan.api_key,
+            exact_model_only=plan.exact_model_only,
         )
 
     def invoke_stream(
@@ -78,6 +81,7 @@ class MessagesAdapter(AnthropicDialectAdapter):
             plan.model,
             plan.headers,
             plan.api_key,
+            exact_model_only=plan.exact_model_only,
         )
 
     def restore_model(
@@ -189,7 +193,12 @@ class MessagesSurfaceMixin:
             yield chunk
 
     def _anthropic_payload_for_backend(
-        self, payload: dict[str, Any], model: str, backend: Backend
+        self,
+        payload: dict[str, Any],
+        model: str,
+        backend: Backend,
+        *,
+        exact_model_only: bool = False,
     ) -> dict[str, Any]:
         """[D10] Per-backend model resolution for the anthropic-format arm.
 
@@ -200,7 +209,9 @@ class MessagesSurfaceMixin:
         Messages surfaces match chat/embeddings: the payload stays immutable
         and each attempt sends the name *its* backend serves.
         """
-        upstream_model = self._model_for_backend(model, backend)
+        upstream_model = self._model_for_backend(
+            model, backend, exact_model_only=exact_model_only
+        )
         if upstream_model == payload.get("model"):
             return payload
         return {**payload, "model": upstream_model}
@@ -212,6 +223,8 @@ class MessagesSurfaceMixin:
         model: str,
         headers: Mapping[str, str],
         fallback_api_key: str,
+        *,
+        exact_model_only: bool = False,
     ) -> dict[str, Any]:
         if backend.api_format == "anthropic":
             key = backend.resolve_api_key() or fallback_api_key
@@ -228,10 +241,14 @@ class MessagesSurfaceMixin:
                 read_timeout=self.config.routing.upstream_read_timeout_s,
             )
             return await client.messages_create(
-                self._anthropic_payload_for_backend(payload, model, backend)
+                self._anthropic_payload_for_backend(
+                    payload, model, backend, exact_model_only=exact_model_only
+                )
             )
         oai_payload = anthropic_to_openai_request(payload)
-        oai_payload["model"] = self._model_for_backend(model, backend)
+        oai_payload["model"] = self._model_for_backend(
+            model, backend, exact_model_only=exact_model_only
+        )
         client = self._openai_upstream(backend, headers)
         result = await client.chat_completion(oai_payload)
         return openai_to_anthropic_response(result, model=model)
@@ -243,6 +260,8 @@ class MessagesSurfaceMixin:
         model: str,
         headers: Mapping[str, str],
         fallback_api_key: str,
+        *,
+        exact_model_only: bool = False,
     ) -> AsyncIterator[str]:
         if backend.api_format == "anthropic":
             key = backend.resolve_api_key() or fallback_api_key
@@ -259,12 +278,16 @@ class MessagesSurfaceMixin:
                 read_timeout=self.config.routing.upstream_read_timeout_s,
             )
             async for chunk in client.messages_stream(
-                self._anthropic_payload_for_backend(payload, model, backend)
+                self._anthropic_payload_for_backend(
+                    payload, model, backend, exact_model_only=exact_model_only
+                )
             ):
                 yield chunk
             return
         oai_payload = anthropic_to_openai_request(payload)
-        oai_payload["model"] = self._model_for_backend(model, backend)
+        oai_payload["model"] = self._model_for_backend(
+            model, backend, exact_model_only=exact_model_only
+        )
         client = self._openai_upstream(backend, headers)
         async for chunk in translate_openai_stream_to_anthropic(
             client.chat_completion_stream(oai_payload),
