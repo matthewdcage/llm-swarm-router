@@ -95,7 +95,9 @@ final class MenubarAppModel {
     }
 
     var statusTitle: String {
-        switch serverState {
+        // Read live supervisor state — cached serverState can lag one frame
+        // behind server.isRunning when adoptHealthyListener races menu rebuild.
+        switch server.state {
         case .running, .unresponsive:
             var line = "Agent running · :\(config.port)"
             if stats.peerCount > 0 {
@@ -193,7 +195,7 @@ final class MenubarAppModel {
                 queue: .main
             ) { [weak self] _ in
                 guard let self else { return }
-                Task { @MainActor in
+                MainActor.assumeIsolated {
                     self.serverState = self.server.state
                     self.syncPollerRunning()
                 }
