@@ -215,7 +215,7 @@ token configured nothing is gated — the zero-config path is unchanged.
 | ↳ largest: `SettingsWindowView.swift` | 1 | 1,237 |
 | Bundled dashboard (JS/CSS/HTML) | 4 | 3,613 |
 | ↳ largest first-party source file in the repo: `dashboard.js` | 1 | 2,825 |
-| Tests (`tests/` + SDK package tests) | 87 | 1,087 passing, 4 skipped |
+| Tests (`tests/` + SDK package tests) | 87 | 1,108 passing on main @ `a3cbad9` (2026-08-03); 356 contract vectors |
 
 Both 2 kLOC Python modules are gone (F-24/F-26 RESOLVED): the request path is one engine
 plus four surface adapters, and no module in either former monolith's lineage exceeds 500

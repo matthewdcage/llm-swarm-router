@@ -17,6 +17,7 @@ User-facing install, troubleshoot, editor wiring, platform matrix, CI/release, a
 | SDK maintenance | `sdk-versions.md` |
 | Routing audit & hardening | `routing-hardening-plan.md`, `routing-live-validation-2026-07-31.md` |
 | Architecture & audit | `architecture/` (diagrams, dependency map, findings register) |
+| Closure / release planning | `closure-roadmap-2026-08-03.md` (open items, adversarial PR reviews, merge path) |
 
 Parent rail: [../AGENTS.md](../AGENTS.md).
 
@@ -36,6 +37,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 - New platform behavior: update install + troubleshooting + platform-matrix together
 - SDK bumps: update `sdk-versions.md` in same PR as package dep change
 - Release notes go under `release-notes/` with version in filename; macOS blocks follow v0.3.0.1 pattern (in-app → bundled installer → optional repo script); menubar agent-start fixes: [release-notes/v0.3.0.2.md](release-notes/v0.3.0.2.md); open-LAN swarm default: [release-notes/v0.4.0.1.md](release-notes/v0.4.0.1.md); telemetry + menubar stats: [release-notes/v0.4.5.0.md](release-notes/v0.4.5.0.md)
+- **Closure / release planning:** dated snapshots at `closure-roadmap-YYYY-MM-DD.md` — open findings, adversarial PR reviews, phased merge/release checklist; refresh or supersede on release boundaries (see [closure-roadmap-2026-08-03.md](closure-roadmap-2026-08-03.md))
 - macOS signing/notarization changes: update `macos-code-signing.md`, `ci-and-release.md`, and install/troubleshooting Gatekeeper sections together
 - macOS install/update/troubleshooting: update install + troubleshooting + platform-matrix together; menubar telemetry/Serving Stats behavior: [macos-troubleshooting.md#menubar-stats-or-serving-tab-empty](macos-troubleshooting.md#menubar-stats-or-serving-tab-empty), [telemetry-api.md](telemetry-api.md)
 - Web dashboard / admin-access behavior: document in `macos-troubleshooting.md` (Swarm or dashboard section) when agent `admin.py` or `static/dashboard.js` contracts change

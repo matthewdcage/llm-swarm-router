@@ -226,7 +226,11 @@ explicitly, add the case to `tests/test_payload_adaptation.py`.
 
 ## F-38 · `/v1/*` error bodies are FastAPI `{"detail"}`, not OpenAI/Anthropic error shapes
 
-> **RESOLVED (2026-07-31, remediation on this branch)** — red-green regression test included; independently verified.
+> **PARTIAL (2026-08-03 adversarial review of merged PR #41)** — `HTTPException` paths
+> on `/v1/*` now render OpenAI/Anthropic-native envelopes (red-green tests included).
+> Remaining gaps: malformed JSON and framework validation errors still return raw
+> 500/422; upstream 401/429 on OpenAI routes still collapse to 502 (only 400/404
+> forward). See [closure-roadmap-2026-08-03.md](../closure-roadmap-2026-08-03.md).
 
 **Verdict** CONFIRMED · **NEW**
 
@@ -553,7 +557,8 @@ field of the 400 body.
 - **Architecture doc counts drifted** within 2 days (642→647 tests, LOC
   figures): expected decay of frozen snapshots; bump figures on the next
   audit-adjacent PR (per AGENTS.md verification rules) rather than per commit.
-  *(Re-measured 2026-08-01 at the close of the consolidation refactor: 1,087
+  *(Re-measured 2026-08-03 on synced main @ `a3cbad9`: 1,108 passing via
+  `uv run pytest -q`; 356 contract vectors. Prior 2026-08-01 close-out: 1,087
   passing + 4 skipped; 16,197 lines of first-party Python under
   `packages/*/src`; largest Python module `netllm_core/models.py` at 690.)*
 

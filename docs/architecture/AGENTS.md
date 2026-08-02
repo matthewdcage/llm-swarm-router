@@ -25,6 +25,7 @@ Index: [README.md](README.md). Parent rail: [../AGENTS.md](../AGENTS.md).
 | `07-findings-register.md` | F-01…F-29 with severity, evidence, and fix |
 | `08-feature-integration-status.md` | shipped / partial / orphaned per client surface; product decisions |
 | `09-follow-up-audit-2026-07-31.md` | F-30…F-53 with severity, evidence, and fix (same contracts as 07; IDs continue the register namespace), plus a **Post-audit entries** tail (F-54…) for IDs opened after this audit closed |
+| `../closure-roadmap-2026-08-03.md` | Open-item inventory, adversarial merged-PR reviews, phased closure path to 0.5.0.0 release |
 
 ## Local Contracts
 
@@ -45,6 +46,9 @@ Index: [README.md](README.md). Parent rail: [../AGENTS.md](../AGENTS.md).
 
 - **Re-audit on a release boundary**, not per PR. Update the header line in
   [README.md](README.md) (release, date, commit) whenever any doc here is refreshed.
+- **Release close-out:** refresh or supersede the latest `../closure-roadmap-*.md`
+  (open findings, test counts, adversarial review residue) in the same pass as register
+  header updates.
 - Fixing a finding: change its entry to `RESOLVED`, update the traceability matrix row, and
   update the matching row in `08-feature-integration-status.md` if a surface changed.
 - Adding a config field, endpoint, strategy, or package: update the owning table in 01–06 in
@@ -61,3 +65,9 @@ Index: [README.md](README.md). Parent rail: [../AGENTS.md](../AGENTS.md).
 - Mermaid blocks parse (no unescaped `|` inside node labels, no bare `[]` in text).
 - Counts stated in prose (findings, packages, LOC, test count) match reality — re-run
   `uv run pytest -q` and the LOC counts rather than carrying them forward.
+
+## Child DOX Index
+
+| Path | Contract |
+|------|----------|
+| [`refactor/`](refactor/) | F-24/F-25/F-26 consolidation artifacts (plan, behavior matrix, release notes) — no AGENTS.md; README document index is the rail |

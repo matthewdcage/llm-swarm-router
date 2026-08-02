@@ -3,18 +3,16 @@
 29 findings from a source-level audit of `main` @ `a3ec16a` (release 0.4.5.0), 2026-07-29.
 Four were reproduced with executable scripts; the rest carry `file:line` evidence.
 
-**24 resolved, 1 partial, 4 open** as of the F-24/F-25/F-26 consolidation branch
-(`a4c8893`…HEAD). Each fixed finding carries a `RESOLVED (<commit>)` note under its
-heading; IDs are never renumbered, so commit messages and the traceability matrix keep
-pointing at the same thing. F-24, F-25 and F-26 — the two large refactors this register
-originally scoped out — closed together; the residue they did not cover is tracked as
-F-54 (dashboard.js split) and F-55 (two re-export module shims) in
-[09](09-follow-up-audit-2026-07-31.md), never by re-opening a closed ID.
+**24 resolved, 2 partial, 4 open** as of **main @ `a3cbad9`** (2026-08-03, PR #42
+merged). F-24, F-25 and F-26 closed on that commit. F-38 reclassified **PARTIAL**
+after adversarial review of merged PR #41 (envelope shaping done; status passthrough
+and parse errors incomplete). Residue from the consolidation: F-54, F-55, F-56, F-57
+in [09](09-follow-up-audit-2026-07-31.md). Closure roadmap:
+[../closure-roadmap-2026-08-03.md](../closure-roadmap-2026-08-03.md).
 
 **Baseline health is good.** At audit time `uv run pytest -q` → **584 passed**;
 after remediation → **642 passed**; after the F-24/F-25/F-26 consolidation →
-**1,087 passed, 4 skipped** (356 of them the contract suite, which did not exist
-before). Lint is clean.
+**1,108 passed** on synced main @ `a3cbad9` (356 contract vectors). Lint is clean.
 The SDK isolation boundary holds. The routing hardening work described in
 `docs/routing-hardening-plan.md` is genuinely implemented, and the failover, capacity-error
 classification, and mesh loop guards are better than typical for a project this size.
@@ -26,12 +24,13 @@ Nothing below contradicts that; these are the remaining edges.
 |----------|-------|-------|-------|
 | **S1** — production-affecting correctness or security | 4 | **4** | silent config data loss, a bypassed security guard, event-loop blocking, credential reuse across callers |
 | **S2** — real user-visible defect or meaningful risk | 12 | **12** | restart-required config, TLS off, billable probes, races, IPv6 crash, LAN exposure, log growth |
-| **S3** — maintenance, clarity, latent risk | 13 | **8 + 1 partial** | dead code, duplicated logic, CI gate gaps, packaging limits |
+| **S3** — maintenance, clarity, latent risk | 13 | **8 + 2 partial** | dead code, duplicated logic, CI gate gaps, packaging limits |
 
-**Still open (all S3):** F-20 (admin allowlist scoping), F-21 (config schema
-mirror), F-23 (N×N heartbeat catalogs), F-28 (packaging limits), F-29 (oMLX in
-discovery). F-24/F-25/F-26 were deliberately excluded from the original
-remediation and were closed later by the consolidation refactor.
+**Still open / partial / deferred:** F-20, F-21, F-23, F-28, F-29 (S3 open); F-38,
+F-39 (S3 partial); F-34 (S2 deferred); F-54–F-57 (S3, post-consolidation residue in
+[09](09-follow-up-audit-2026-07-31.md)). F-24/F-25/F-26 closed on main @ `a3cbad9`
+(PR #42). Full inventory and release path:
+[../closure-roadmap-2026-08-03.md](../closure-roadmap-2026-08-03.md).
 
 ## Recommended order of work
 
@@ -41,7 +40,8 @@ flowchart LR
     W2 --> W3["Phase 3 — exposure<br/>F-06 F-07 F-11 F-12 F-13 F-14 F-15 ✅"]
     W3 --> W4["Phase 4 — deps, dead code, CI<br/>F-10 F-16 F-17 F-18 F-19 F-22 F-27 ✅"]
     W4 --> W5["Consolidation refactor<br/>F-24 F-25 F-26 ✅"]
-    W5 --> W6["Open backlog<br/>F-20 F-21 F-23<br/>F-28 F-29"]
+    W5 --> W6["Open backlog<br/>F-20 F-21 F-23 F-28 F-29<br/>F-38 F-39 partial · F-54–F-57"]
+    W6 --> W7["Release close-out<br/>see closure-roadmap-2026-08-03"]
 ```
 
 Delivered as four independent commits on `docs/architecture-audit`:

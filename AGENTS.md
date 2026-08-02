@@ -290,6 +290,7 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - Coordinator Telegram: outbound `notify-telegram.sh` → DreamsofsoaringAiBot DM (token in hermes `.env` outside repo); inbound bot agent via `telegram-agent-poll.sh` when `TELEGRAM_AGENT=1` (start with `telegram-agent-ensure.sh` or `install-telegram-agent.sh install`; **Approve/Deny on screenshot cards requires poller**); `/coordinator` runs full pass including **`coordinator-dispatch.sh --try-cursor`** (Cursor SDK monitor when bridge + `CURSOR_API_KEY`); `/packages` retries dispatch when harvest fresh but no monitor summary; state in `state/coordinator-dispatch.json`; sessionStart hook nudges pending dispatch when Cursor opens
 - **Unified engagement monitoring:** posted comments auto-register in `threads.json` via `register-engagement-watch.sh` (browse-submit + Telegram Approve); twice-daily brief harvests GitHub/Reddit/HN/forum/YouTube; `state/reply-queue.json` items include `recommended_action` (`reply`, `watch`, `do_nothing`, `escalate`, `outbound_remind`, `defer`); schema in `.cursor/coordinator/schemas/platform.schema.json`
 - **Telemetry + menu stats:** `GET /netllm/v1/telemetry?scopes=router,omlx&watch=1&history=60` unifies router counters (persisted in `~/.config/netllm/stats.json`) with lazy oMLX admin probes; web **Serving** tab (router-first: tokens, routed-by-backend, source harness counts, in-flight) + macOS **Serving Stats** submenu (same router fields via `ServingStatsMenuBuilder`; menubar HTTP uses `AgentHTTP.url`, not `appendingPathComponent` for query strings) and **System Stats**; optional gauge NSStatusItems (`ui.menubar_show_*`, `ui.model_favorites`); per-model request metrics are not tracked — see Models tab AGENTS note; release notes [docs/release-notes/v0.4.5.0.md](docs/release-notes/v0.4.5.0.md)
+- **Main @ `a3cbad9` (2026-08-03):** F-24/F-25/F-26 consolidation + request-aware pools merged (#42); latest tag still `v0.4.5.1` (menubar fix #43 only). Open-item inventory and 0.5.0.0 release path: [docs/closure-roadmap-2026-08-03.md](docs/closure-roadmap-2026-08-03.md). F-38 reclassified **PARTIAL** after adversarial review of merged PR #41.
 
 ## Child DOX Index
 
@@ -304,4 +305,4 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 
 Coordinator/outreach DOX (`.cursor/coordinator/`, `.cursor/agents/`, `.cursor/outreach/`) is local maintainer-only and is **not** listed here — it must not ship on the remote repo.
 
-Updated: 2026-08-02 (request-aware pools; SDK-only payload; live-routing-smoke; menubar status sync)
+Updated: 2026-08-03 (closure roadmap; main synced to a3cbad9; F-38 partial; adversarial PR reviews)
