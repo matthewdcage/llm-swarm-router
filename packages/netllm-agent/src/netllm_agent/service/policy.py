@@ -129,9 +129,7 @@ class PolicyMixin:
         )
 
     @staticmethod
-    def _reject_non_embedding_model(
-        model: str, reported_as: str | None = None
-    ) -> None:
+    def _reject_non_embedding_model(model: str, reported_as: str | None = None) -> None:
         """[D4] The embeddings surface's capability guard — new in Phase 4c.
 
         /v1/embeddings had no guard of any kind: a chat model sent here was
