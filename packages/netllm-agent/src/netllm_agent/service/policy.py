@@ -84,12 +84,18 @@ class PolicyMixin:
         )
 
     @staticmethod
-    def _reject_non_chat_model(model: str) -> None:
+    def _reject_non_chat_model(model: str, reported_as: str | None = None) -> None:
         """Refuse chat requests against models that cannot chat.
 
         Encoders and audio models otherwise fail upstream with confusing
         errors ("tokenizer.chat_template is not set") after burning the
         whole retry budget. Unknown names pass through unchanged.
+
+        [F-57] ``model`` is the post-rewrite name, because that is what
+        would actually run and so determines the capability. ``reported_as``
+        is the name the caller sent, and is what the error body echoes: an
+        operator whose ``model_rewrites`` map a public name onto an internal
+        one must not have that internal id leaked back to their users.
         """
         cap = model_capability(model)
         if cap == "chat":
@@ -100,23 +106,30 @@ class PolicyMixin:
             else ""
         )
         raise OpenAIUpstreamError(
-            f"Model '{model}' (capability: {cap}) cannot serve chat completions.{hint}",
+            f"Model '{reported_as or model}' (capability: {cap}) cannot serve "
+            f"chat completions.{hint}",
             status_code=400,
         )
 
     @staticmethod
-    def _reject_non_chat_messages_model(model: str) -> None:
-        """Messages API variant of the non-chat model guard."""
+    def _reject_non_chat_messages_model(
+        model: str, reported_as: str | None = None
+    ) -> None:
+        """Messages API variant of the non-chat model guard.
+
+        [F-57] Classifies the post-rewrite name, reports the requested one.
+        """
         cap = model_capability(model)
         if cap == "chat":
             return
         raise AnthropicUpstreamError(
-            f"Model '{model}' (capability: {cap}) cannot serve the Messages API.",
+            f"Model '{reported_as or model}' (capability: {cap}) cannot serve "
+            "the Messages API.",
             status_code=400,
         )
 
     @staticmethod
-    def _reject_non_embedding_model(model: str) -> None:
+    def _reject_non_embedding_model(model: str, reported_as: str | None = None) -> None:
         """[D4] The embeddings surface's capability guard — new in Phase 4c.
 
         /v1/embeddings had no guard of any kind: a chat model sent here was
@@ -141,7 +154,8 @@ class PolicyMixin:
             " Use POST /v1/chat/completions for chat models." if cap == "chat" else ""
         )
         raise OpenAIUpstreamError(
-            f"Model '{model}' (capability: {cap}) cannot serve embeddings.{hint}",
+            f"Model '{reported_as or model}' (capability: {cap}) cannot serve "
+            f"embeddings.{hint}",
             status_code=400,
         )
 
@@ -319,7 +333,9 @@ class PolicyMixin:
         # is `SurfaceAdapter.guard`, so the three-way branch that used to
         # stand here is gone: the surface→adapter map in surfaces/__init__
         # is the one place the question is answered.
-        adapter_for(self, surface).guard(model)
+        # [F-57] Classify the rewritten name (that is what runs), but report
+        # the name the caller actually sent.
+        adapter_for(self, surface).guard(model, reported_as=requested_model)
         # [D10] The Messages surfaces used to rewrite payload["model"] here,
         # up-front and once, which pinned every later attempt to the first
         # backend's idea of the name. The payload is now immutable on every

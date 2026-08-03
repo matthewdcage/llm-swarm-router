@@ -38,8 +38,8 @@ __all__ = ["MessagesAdapter", "MessagesSurfaceMixin"]
 class MessagesAdapter(AnthropicDialectAdapter):
     log_label: str = "messages backend"
 
-    def guard(self, model: str) -> None:
-        self.service._reject_non_chat_messages_model(model)
+    def guard(self, model: str, reported_as: str | None = None) -> None:
+        self.service._reject_non_chat_messages_model(model, reported_as)
 
     def build_invocation(self, plan: RequestPlan, backend: Backend) -> Invocation:
         # The payload stays immutable and both arms re-derive the served
