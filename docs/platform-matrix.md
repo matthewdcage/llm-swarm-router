@@ -29,7 +29,7 @@ Cross-platform: [editor-integration.md](editor-integration.md) · Agent help: `.
 | **macOS** | [Build from source](macos-install.md#build-from-source--install-script-recommended-on-macos-26) + `macos-app-install.sh --source` | Menubar app supervises agent | App control socket or Homebrew `brew services` |
 | **macOS** | Homebrew `brew install netllm` | `brew services start netllm` | Homebrew |
 | **Linux** | `.deb` / `.rpm` from Releases | systemd user unit `netllm` | `linux-systemd` when package installed |
-| **Windows** | `netllm-*-windows-x64.zip` | `NetllmAgent` Windows service | `windows-service` after `install-service.ps1` |
+| **Windows** | `netllm-*-windows-x64.zip` | `netllm serve` in a terminal (the `NetllmAgent` service cannot start — F-34) | `windows-service` after `install-service.ps1` |
 | **All** | Source: `uv sync` + `./netllm serve` | Foreground terminal | N/A: use `netllm serve` |
 
 Install details: links in the table above.

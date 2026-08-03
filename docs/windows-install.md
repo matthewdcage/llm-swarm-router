@@ -1,6 +1,19 @@
 # Windows install: netllm
 
-Run the mesh router as a **Windows service** or in a foreground terminal.
+Run the mesh router in a terminal with `netllm serve`.
+
+> **Known issue (F-34): the `NetllmAgent` Windows service does not start.**
+> `install-service.ps1` registers `netllm.exe serve` directly with `sc.exe`, but
+> a Win32 service must complete a Service Control Manager handshake
+> (`StartServiceCtrlDispatcher`) within ~30 seconds of launch, and netllm does
+> not implement one. Both `netllm start` and `sc start NetllmAgent` therefore
+> fail with **error 1053**. The service is also registered without an `obj=`
+> account, so it would run as LocalSystem — more privilege than the agent needs.
+>
+> **Use `netllm serve` instead** (Task Scheduler → "At log on" if you want it
+> automatic). The rest of the Windows package — PATH setup, CLI, dashboard,
+> mesh — is unaffected. Tracked as F-34 in
+> [architecture/09-follow-up-audit-2026-07-31.md](architecture/09-follow-up-audit-2026-07-31.md).
 
 **Troubleshooting:** [windows-troubleshooting.md](windows-troubleshooting.md) · **All platforms:** [platform-matrix.md](platform-matrix.md)
 
@@ -10,8 +23,9 @@ Download `netllm-<version>-windows-x64.zip` from [GitHub Releases](https://githu
 
 1. Extract to a folder (e.g. `%LOCALAPPDATA%\netllm`).
 2. Open PowerShell **as Administrator** in that folder.
-3. Run `.\install-service.ps1` to register the `NetllmAgent` service.
-4. From any terminal: `netllm init` then `netllm start`.
+3. Run `.\install-service.ps1` (sets up PATH; the service it registers cannot
+   start — see the note above).
+4. From any terminal: `netllm init` then `netllm serve`.
 
 Logs: `%LOCALAPPDATA%\netllm\logs\agent.log` (and service stdout).
 

@@ -173,8 +173,17 @@ Full steps: [docs/linux-install.md](docs/linux-install.md) · Issues: [docs/linu
 
 1. Extract to a folder (e.g. `%LOCALAPPDATA%\netllm`).
 2. Open PowerShell **as Administrator** in that folder.
-3. Run `.\install-service.ps1` (registers the `NetllmAgent` service and adds `Scripts\` to user PATH).
-4. `netllm init` then `netllm start`.
+3. Run `.\install-service.ps1` (adds `Scripts\` to user PATH; also registers the `NetllmAgent` service, see the caveat below).
+4. `netllm init`, then start the agent with `netllm serve`.
+
+> **Known issue (F-34): the `NetllmAgent` service does not start.** It is
+> registered as a plain console program, with none of the Windows Service
+> Control Manager handshake a real service needs, so `netllm start` and
+> `sc start NetllmAgent` both fail with **error 1053** ("the service did not
+> respond in a timely fashion"). Until this is fixed, run the agent with
+> **`netllm serve`** in a terminal (add it to Task Scheduler at logon if you
+> want it to start automatically). PATH setup from the install script is
+> unaffected, and everything else on Windows works normally.
 
 `netllm status` · dashboard http://127.0.0.1:11400/ui/
 

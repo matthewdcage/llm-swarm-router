@@ -20,8 +20,8 @@ From a repo checkout, use `.\netllm` in PowerShell from the project root.
 
 | Symptom | Fix |
 |---------|-----|
-| `curl` to `/health` fails | **Service install:** `netllm start` (after `install-service.ps1` as Admin) |
-| Service won’t start | Run `sc query NetllmAgent`: re-run `install-service.ps1` from extract folder |
+| `curl` to `/health` fails | Start the agent: `netllm serve` (the `NetllmAgent` service cannot start — F-34) |
+| Service won’t start (**error 1053**) | **Known issue F-34 — expected.** netllm implements no Service Control Manager handshake, so the registered service can never start. Run `netllm serve` in a terminal instead (Task Scheduler → "At log on" to automate). See [windows-install.md](windows-install.md). |
 | **Source install** | `.\netllm serve` in a terminal |
 | Port 11400 in use | `netstat -ano \| findstr 11400`: stop duplicate with `netllm stop` |
 
