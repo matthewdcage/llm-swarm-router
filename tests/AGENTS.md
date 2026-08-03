@@ -42,7 +42,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 ```bash
 ./scripts/ci.sh test
 ./scripts/ci.sh              # lint + test
-uv run pytest tests/contract -q   # 363 golden vectors
+uv run pytest tests/contract -q   # 373 golden vectors
 scripts/verify-before-pr.sh
 ```
 

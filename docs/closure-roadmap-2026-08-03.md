@@ -15,7 +15,7 @@ below and reflected in the architecture register where applicable.
 | **Open PRs** | 1 pending | Phase B closeout → `main` |
 | **Open GitHub issues** | #10, #16 | See below |
 | **Tests (Phase B tree)** | 1091 passed | `./scripts/ci.sh test` (`tests/`) |
-| **Contract tests** | 363 passed | `uv run pytest tests/contract -q` |
+| **Contract tests** | 373 passed | `uv run pytest tests/contract -q` |
 
 ---
 
@@ -46,7 +46,7 @@ below and reflected in the architecture register where applicable.
 | MEDIUM | F-57 capability guard leaks rewritten model id in 400 body | **Closed Phase B** — 400 quotes `requested_model`; vector `guards-rewrite-capability-400-chat-s` |
 | MEDIUM | ModelResolver oracles don't cover pool two-phase candidacy | **Closed Phase B** — `naming-model-pools-isolation-multi-host` |
 
-Contract suite: **363 passed** on Phase B tree (356 @ v0.5.0.0 tag; +1 B5 pool-isolation vector). `allowed-divergences.txt` empty (strong gate).
+Contract suite: **373 passed** on Phase B tree (366 @ main before merge; +7 Phase B). `allowed-divergences.txt` empty (strong gate).
 
 ### PR #43 — menubar status sync + v0.4.5.1
 
@@ -152,7 +152,7 @@ Contract suite: **363 passed** on Phase B tree (356 @ v0.5.0.0 tag; +1 B5 pool-i
 git checkout main && git pull origin main
 ./scripts/ci.sh
 ./scripts/verify-before-pr.sh --full   # menubar touched
-uv run pytest tests/contract -q      # 363 tests
+uv run pytest tests/contract -q      # 373 tests
 scripts/live-routing-smoke.sh        # maintainer LAN
 ./netllm doctor && ./netllm test
 ```
