@@ -24,6 +24,8 @@ TSV=0
 ALL=0
 ROOT=""
 TARGETS=()
+NTARGETS=0   # tracked separately: bash 3.2 (still the system bash on macOS)
+             # errors on ${#arr[@]} for an empty array under `set -u`.
 
 usage() {
   sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
@@ -36,7 +38,7 @@ while [ $# -gt 0 ]; do
     --tsv)  TSV=1; shift ;;
     -h|--help) usage 0 ;;
     -*)     echo "unknown flag: $1" >&2; exit 2 ;;
-    *)      TARGETS+=("$1"); shift ;;
+    *)      TARGETS+=("$1"); NTARGETS=$((NTARGETS+1)); shift ;;
   esac
 done
 
@@ -128,9 +130,14 @@ triage_one() {
   # ---------- risk ----------------------------------------------------------
   # Unbounded lower-bound pins are the single most dangerous state: a fresh
   # install silently resolves to 2.0.0 and the server stops working.
+  #
+  # Note the asymmetry between ecosystems. A python `mcp>=1.2` accepts 2.0.0 and
+  # will break on the next clean install. An npm caret range like ^1.30.0 does
+  # NOT cross a major, and in any case the v2 TypeScript SDK ships under new
+  # package names (@modelcontextprotocol/core, /server, /client), so npm cannot
+  # drift into v2 by accident. Only the python side is flagged here.
   local unbounded=0
-  echo "$py_pin" | grep -qE '(mcp|fastmcp)[[:space:]]*>=' && unbounded=1
-  echo "$ts_pin" | grep -qE ':\^?[0-9]' && echo "$ts_pin" | grep -qE ':\^' && unbounded=$((unbounded))
+  echo "$py_pin" | grep -qE '(mcp|fastmcp)[[:space:]]*(\[[a-z,]+\])?[[:space:]]*>' && unbounded=1
 
   local risk=0
   [ "$unbounded" -eq 1 ]     && risk=$((risk+4))
@@ -188,14 +195,15 @@ BANNER
   if [ "$ALL" -eq 1 ]; then
     while IFS= read -r g; do dirs+=("$(dirname "$g")"); done \
       < <(find "$ROOT" -maxdepth 4 -type d -name .git 2>/dev/null | sort)
-  elif [ "${#TARGETS[@]}" -gt 0 ]; then
+  elif [ "$NTARGETS" -gt 0 ]; then
     dirs=("${TARGETS[@]}")
   else
     dirs=(".")
   fi
 
   local n=0 skipped=0
-  for d in "${dirs[@]}"; do
+  # ${arr[@]+"${arr[@]}"} is the portable empty-safe expansion under `set -u`.
+  for d in ${dirs[@]+"${dirs[@]}"}; do
     if triage_one "$d"; then n=$((n+1)); else skipped=$((skipped+1)); fi
   done
 
