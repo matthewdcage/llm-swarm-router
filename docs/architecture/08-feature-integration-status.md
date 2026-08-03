@@ -49,6 +49,7 @@ detail is in [refactor/RELEASE-NOTES.md](refactor/RELEASE-NOTES.md).
 |---------|--------|-----|-----------|-----------|-------|
 | Source attribution (header → key → UA → default) | ✅ | ✅ (`sources list`) | ✅ | ✅ | |
 | `sources toggle <id>` one-click registration | ✅ | ✅ | ✅ | ✅ | Never auto-installs a CLI — deliberate |
+| `connect <id>` harness wiring guide | ✅ | ✅ | ⬚ | ⬚ | Copy-paste env + optional `--toggle`; never edits editor configs |
 | Harness registry + PATH detection + icons | ✅ | ✅ | ✅ | ✅ | 3 of 6 `cli_commands` entries are unverified guesses (flagged in-code) |
 | Per-source `strategy` / `local_only` / `allow_cloud` / `prefer_provider` | ✅ | ⬚ | ✅ | ✅ | |
 | Per-source `cloud_providers` allowlist | ✅ | ⬚ | ◐ | ◐ | Rendered generically; no picker |
@@ -73,11 +74,11 @@ ever written for them. This is the schema-driven UI work of
 those three fields on purpose — `SchemaFormView`'s fallback widget is a plain text field bound to
 `.stringValue`, which is `nil` for a dict/object, so rendering them would let a user silently
 overwrite a structured value with a string. That decision, and the in-app caption pointing users
-to the dashboard, are documented in `cli-source-routing-plan.md` Phase 4b. What is genuinely
-missing is **the feedback loop**: nothing on any surface displays `scenario_requests` or
-`source_requests`, so a user who writes a scenario rule in the dashboard has no way to see
-whether it ever fires. The plan itself records this — Phase 3's live-validation gate was
-deferred to Phase 5 and never closed.
+to the dashboard, are documented in `cli-source-routing-plan.md` Phase 4b. The web
+dashboard **Serving** tab shows `source_requests` and `scenario_requests` (from
+`GET /netllm/v1/status`) alongside router telemetry; macOS menubar **Serving Stats**
+still omits scenario keys. What remains open is **live validation** — whether rules
+fire under real Claude Code / Codex traffic (Phase 3 gate, deferred to Phase 5).
 
 ## Cloud providers
 
@@ -121,7 +122,7 @@ deferred to Phase 5 and never closed.
 | Per-backend `routed_requests` counters | ✅ | ✅ | ✅ | ◐ | Answers "peer discovered but idle" |
 | `capacity_rejections` counters | ✅ | ⬚ | ✅ | ⬚ | |
 | `shardless_fallbacks` counter | ✅ | ⬚ | ✅ | ⬚ | |
-| **`source_requests` / `scenario_requests` counters** | ✅ | ⬚ | ⬚ | ⬚ | In status + Prometheus, **no UI** |
+| **`source_requests` / `scenario_requests` counters** | ✅ | ⬚ | ⬚ | ⬚ | Web **Serving** tab (status poll); Prometheus + `/metrics`; macOS menubar omits scenario keys |
 | Agent log tail | ✅ | ⬚ | ✅ | ✅ | Rotates at 10 MB × 3 (F-15 fixed, `15ac9c7`) |
 | Doctor | ✅ | ✅ (full) | ◐ (subset) | ◐ (subset) | |
 
@@ -160,7 +161,7 @@ procedure — this is a credentials and release-process task, not engineering wo
 
 | # | Decision needed | Why now |
 |---|-----------------|---------|
-| 1 | **Close the scenario-routing feedback loop** | Rules are configurable in the dashboard, but `scenario_requests` / `source_requests` are displayed nowhere, so nobody can tell whether a rule fires. Phase 3's own validation gate is still open. A counters panel is small work with high payoff on the product's most differentiated capability. |
+| 1 | **Live scenario-routing validation** | Dashboard Serving tab now surfaces `source_requests` / `scenario_requests`; Phase 3's live-validation gate (real Claude Code / Codex sessions) remains open. |
 | 2 | ~~Decide whether the LAN swarm default is "open" or "secured"~~ | **Decided and done** (`15ac9c7`) — a cluster token now gates reads *and* inference; `--secure` sets both. Open trusted-LAN (no token) is unchanged. |
 | 3 | ~~Retire the caller-key cloud inject~~ | **Done** (`3b6ec71`) — request-scoped, never pooled. The registry path is now the only pooled cloud mechanism. |
 | 4 | **Surface drain in the dashboard and menubar** | Both offer "Restart Agent"; drain is the safe pre-restart step and only the CLI has it. |

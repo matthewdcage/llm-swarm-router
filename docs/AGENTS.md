@@ -13,7 +13,7 @@ User-facing install, troubleshoot, editor wiring, platform matrix, CI/release, a
 | Cross-platform | `platform-matrix.md`, `editor-integration.md`, `honcho-integration.md` |
 | macOS signing | `macos-code-signing.md` |
 | Release / CI | `ci-and-release.md`, `release-notes/` |
-| Learnings | `solutions/` |
+| Learnings | `solutions/` — manual smoke gates: [menubar-adopt-smoke.md](solutions/menubar-adopt-smoke.md), [codex-responses-smoke.md](solutions/codex-responses-smoke.md) |
 | SDK maintenance | `sdk-versions.md` |
 | Routing audit & hardening | `routing-hardening-plan.md`, `routing-live-validation-2026-07-31.md` |
 | Architecture & audit | `architecture/` (diagrams, dependency map, findings register) |

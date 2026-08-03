@@ -684,6 +684,7 @@ function renderServingTab() {
   appendKeyValueCard(root, "Routed requests (by backend id)", router.routed_requests);
   appendKeyValueCard(root, "Capacity rejections", router.capacity_rejections);
   appendKeyValueCard(root, "Requests by source (harness)", state.status?.source_requests);
+  appendKeyValueCard(root, "Requests by scenario", state.status?.scenario_requests);
 
   if (omlx.available) {
     root.appendChild(textEl("div", "section-label", "oMLX live throughput"));

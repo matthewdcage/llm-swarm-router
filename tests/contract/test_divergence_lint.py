@@ -7,7 +7,9 @@ vs git HEAD without a matching declared ID fails here — a machine check,
 not reviewer judgment.
 
 Brand-new vector files (absent from HEAD) are baseline recordings and pass
-unconditionally; deleting a vector that HEAD has always fails.
+unconditionally unless their stable ``id`` already existed at HEAD under
+another path (F-56 rename detection). Deleting a vector that HEAD has
+always fails unless the same ``id`` reappears elsewhere (rename).
 """
 
 from __future__ import annotations
@@ -107,29 +109,53 @@ def _head_vector_names() -> set[str]:
     return {line for line in proc.stdout.splitlines() if line.endswith(".json")}
 
 
-def _head_vectors_by_id() -> dict[str, tuple[str, dict]]:
-    """Every HEAD vector keyed on its stable ``id`` field.
-
-    [F-56] The lint used to key only on path, so a rename presented as a
-    brand-new file ("always allowed") and BOTH content changes and
-    divergence-annotation removals made in the same commit slipped through
-    unchecked. Every vector carries a unique ``id``, so a renamed vector can
-    be matched back to its HEAD self and held to the same comparison as an
-    in-place edit.
-    """
-    out: dict[str, tuple[str, dict]] = {}
-    for rel in _head_vector_names():
-        raw = _git_show(rel)
-        if raw is None:
+def _head_id_to_path() -> dict[str, str]:
+    """Stable vector ``id`` -> repo-relative path at HEAD (F-56)."""
+    mapping: dict[str, str] = {}
+    for rel_path in _head_vector_names():
+        head_bytes = _git_show(rel_path)
+        if head_bytes is None:
             continue
-        try:
-            doc = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
+        doc = json.loads(head_bytes)
         vid = doc.get("id")
         if isinstance(vid, str) and vid:
-            out[vid] = (rel, doc)
-    return out
+            mapping[vid] = rel_path
+    return mapping
+
+
+def _rename_head_path(
+    doc: dict[str, object], cur_path: str, head_id_to_path: dict[str, str]
+) -> str | None:
+    """If ``doc``'s id lived at HEAD under another path, return that path."""
+    vid = doc.get("id")
+    if not isinstance(vid, str) or not vid:
+        return None
+    old_path = head_id_to_path.get(vid)
+    if old_path and old_path != cur_path:
+        return old_path
+    return None
+
+
+def _vector_change_violation(
+    name: str,
+    head_doc: dict[str, object],
+    cur_doc: dict[str, object],
+    *,
+    allowed: set[str],
+    harness_rerecord: bool,
+) -> str | None:
+    """Return a violation message, or None if the change is allowed."""
+    if harness_rerecord and not _differs_beyond_volatile(head_doc, cur_doc):
+        return None
+    ids = set(cur_doc.get("divergence", []))
+    if not ids:
+        return f"{name}: changed vs HEAD but carries no divergence IDs"
+    if not ids <= allowed:
+        return (
+            f"{name}: changed vs HEAD with IDs {sorted(ids)} but "
+            f"allowed-divergences.txt declares only {sorted(allowed)}"
+        )
+    return None
 
 
 def load_allowed_divergences() -> set[str]:
@@ -163,57 +189,90 @@ def test_changed_vectors_carry_declared_divergence_ids() -> None:
         p.relative_to(REPO_ROOT).as_posix(): p for p in VECTORS_DIR.rglob("*.json")
     }
 
-    head_by_id = _head_vectors_by_id()
-    working_ids = {
-        doc_id: p
-        for p in working.values()
-        if isinstance(doc_id := json.loads(p.read_text()).get("id"), str)
-    }
+    head_id_to_path = _head_id_to_path()
+    working_id_to_path: dict[str, str] = {}
+    for name, path in working.items():
+        vid = json.loads(path.read_text()).get("id")
+        if isinstance(vid, str) and vid:
+            working_id_to_path[vid] = name
 
-    # [F-56] A path that vanished is only a deletion if its vector id also
-    # vanished; if the id resurfaced elsewhere the vector was renamed, and it
-    # is checked below exactly like an in-place edit.
-    deleted = {
-        rel
-        for rel in _head_vector_names() - set(working)
-        if not any(rel == head_by_id.get(vid, ("", {}))[0] for vid in working_ids)
-    }
-    assert not deleted, (
-        f"vectors deleted vs HEAD: {sorted(deleted)} — a checked-in contract "
+    deleted = _head_vector_names() - set(working)
+    silent_deletes: list[str] = []
+    for rel in sorted(deleted):
+        head_bytes = _git_show(rel)
+        if head_bytes is None:
+            silent_deletes.append(rel)
+            continue
+        vid = json.loads(head_bytes).get("id")
+        if (
+            isinstance(vid, str)
+            and vid
+            and working_id_to_path.get(vid) not in (None, rel)
+        ):
+            continue  # same id at a new path — rename, not a drop
+        silent_deletes.append(rel)
+    assert not silent_deletes, (
+        f"vectors deleted vs HEAD: {silent_deletes} — a checked-in contract "
         "vector must never be silently dropped"
     )
 
     violations: list[str] = []
     for name, path in sorted(working.items()):
+        doc = json.loads(path.read_text())
         head_bytes = _git_show(name)
         if head_bytes is None:
-            # [F-56] Not automatically a new baseline: if this vector's id
-            # exists at another path in HEAD it is a rename, and its content
-            # and annotations must still justify themselves.
-            doc_id = json.loads(path.read_text()).get("id")
-            renamed_from = head_by_id.get(doc_id) if isinstance(doc_id, str) else None
-            if renamed_from is None:
-                continue  # genuinely new: baseline recording, always allowed
-            head_bytes = json.dumps(renamed_from[1], indent=2).encode()
-            if json.loads(path.read_text()) == renamed_from[1]:
-                continue  # pure rename, content and annotations untouched
-        if head_bytes == path.read_bytes():
-            continue  # unchanged
-        doc = json.loads(path.read_text())
-        # A harness re-record and a semantic phase can land in the same PR, so
-        # the two channels compose per vector: a vector whose diff is entirely
-        # volatile is covered by the declaration, and anything else still has
-        # to justify itself with divergence IDs below.
-        if harness_rerecord and not _differs_beyond_volatile(
-            json.loads(head_bytes), doc
-        ):
-            continue
-        ids = set(doc.get("divergence", []))
-        if not ids:
-            violations.append(f"{name}: changed vs HEAD but carries no divergence IDs")
-        elif not ids <= allowed:
-            violations.append(
-                f"{name}: changed vs HEAD with IDs {sorted(ids)} but "
-                f"allowed-divergences.txt declares only {sorted(allowed)}"
-            )
+            rename_from = _rename_head_path(doc, name, head_id_to_path)
+            if rename_from is None:
+                continue  # new id: baseline recording
+            head_bytes = _git_show(rename_from)
+            if head_bytes is None:
+                continue
+        elif head_bytes == path.read_bytes():
+            continue  # unchanged at same path
+        head_doc = json.loads(head_bytes)
+        msg = _vector_change_violation(
+            name,
+            head_doc,
+            doc,
+            allowed=allowed,
+            harness_rerecord=harness_rerecord,
+        )
+        if msg:
+            violations.append(msg)
     assert not violations, "\n".join(violations)
+
+
+def test_rename_with_dropped_divergence_is_not_baseline() -> None:
+    """F-56: a path rename must not launder content or annotation changes."""
+    head_doc = {
+        "id": "example-vector",
+        "divergence": ["D7"],
+        "expected": {"status": 502},
+    }
+    cur_doc = {
+        "id": "example-vector",
+        "divergence": [],
+        "expected": {"status": 404},
+    }
+    msg = _vector_change_violation(
+        "tests/contract/vectors/group/new-name.json",
+        head_doc,
+        cur_doc,
+        allowed=set(),
+        harness_rerecord=False,
+    )
+    assert msg is not None
+    assert "no divergence IDs" in msg
+
+
+def test_rename_with_harness_only_volatile_diff_is_allowed() -> None:
+    head_doc = {"id": "v", "divergence": [], "expected": {"latency": "<latency>"}}
+    cur_doc = {"id": "v", "divergence": [], "expected": {"latency": 0}}
+    msg = _vector_change_violation(
+        "new.json",
+        head_doc,
+        cur_doc,
+        allowed=set(),
+        harness_rerecord=True,
+    )
+    assert msg is None

@@ -155,6 +155,33 @@ def test_f38_netllm_routes_keep_fastapi_detail() -> None:
     assert "error" not in resp.json()
 
 
+def test_f38_openai_shape_on_malformed_json_400() -> None:
+    with TestClient(create_app(_base_cfg())) as client:
+        resp = client.post(
+            "/v1/chat/completions",
+            content=b"{not-json",
+            headers={"Content-Type": "application/json"},
+        )
+    assert resp.status_code == 400
+    err = resp.json()["error"]
+    assert err["type"] == "invalid_request_error"
+    assert "Invalid JSON" in err["message"]
+
+
+def test_f38_anthropic_shape_on_malformed_json_400() -> None:
+    with TestClient(create_app(_base_cfg())) as client:
+        resp = client.post(
+            "/v1/messages",
+            content=b"{not-json",
+            headers={"Content-Type": "application/json"},
+        )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["type"] == "error"
+    assert body["error"]["type"] == "invalid_request_error"
+    assert "Invalid JSON" in body["error"]["message"]
+
+
 # --- F-32: streaming pre-flight status codes --------------------------------
 
 

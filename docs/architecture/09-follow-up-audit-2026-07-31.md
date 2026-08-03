@@ -226,11 +226,10 @@ explicitly, add the case to `tests/test_payload_adaptation.py`.
 
 ## F-38 · `/v1/*` error bodies are FastAPI `{"detail"}`, not OpenAI/Anthropic error shapes
 
-> **PARTIAL (2026-08-03 adversarial review of merged PR #41)** — `HTTPException` paths
-> on `/v1/*` now render OpenAI/Anthropic-native envelopes (red-green tests included).
-> Remaining gaps: malformed JSON and framework validation errors still return raw
-> 500/422; upstream 401/429 on OpenAI routes still collapse to 502 (only 400/404
-> forward). See [closure-roadmap-2026-08-03.md](../closure-roadmap-2026-08-03.md).
+> **RESOLVED (2026-08-03, Phase B → 0.5.0.1)** — `HTTPException` on `/v1/*` renders
+> native envelopes; malformed JSON is a shaped **400** (`parse_inference_json`).
+> Upstream 401/429 on OpenAI routes remain **502** by design — documented in
+> [03-request-lifecycle.md](03-request-lifecycle.md#client-visible-http-status-on-v1-f-38-documented-2026-08-03).
 
 **Verdict** CONFIRMED · **NEW**
 
@@ -489,7 +488,10 @@ shim.
 
 ## F-56 · Divergence lint launders renames: content and annotation changes inside a rename are invisible
 
-> **RESOLVED (2026-08-03, PR #45)** — the lint indexes HEAD vectors by their stable `id`, so a renamed vector is matched back to its HEAD self and held to the same content and annotation comparison as an in-place edit. Proved by renaming a real vector while dropping its `["D7"]` annotation and changing its status: the lint now names the file and fails.
+> **RESOLVED (2026-08-03, Phase B / PR #47)** — `test_divergence_lint.py` maps stable
+> vector `id` → HEAD path (`_head_id_to_path`, `_rename_head_path`); renames compare
+> content/divergence like in-place edits. Proved by renaming a real vector while dropping
+> its `["D7"]` annotation: the lint names the file and fails (`test_lint_rename_channel.py`).
 
 **Severity** S3 · **Area** contract-test tooling · **Verdict** CONFIRMED (final merge-readiness verifier, 2026-08-01)
 
@@ -512,7 +514,10 @@ as an in-place edit.
 
 ## F-57 · Capability guard reports the post-rewrite model name, leaking internal ids
 
-> **RESOLVED (2026-08-03, PR #45)** — capability is still classified on the post-rewrite name (that is the model that would run), but the 400 body now echoes the requested name. Six regression tests cover all three surfaces plus the no-rewrite fallback.
+> **RESOLVED (2026-08-03, Phase B / PR #47)** — guards classify on the effective
+> (post-rewrite) model but quote ``requested_model`` in 400 bodies. Unit tests in
+> ``test_guard_reports_requested_name.py`` cover all three surfaces plus the no-rewrite
+> fallback; contract vector ``guards-rewrite-capability-400-chat-s`` pins end-to-end behavior.
 
 **Severity** S3 · **Area** request path / naming · **Verdict** CONFIRMED (independently reproduced)
 
@@ -561,8 +566,9 @@ field of the 400 body.
 - **Architecture doc counts drifted** within 2 days (642→647 tests, LOC
   figures): expected decay of frozen snapshots; bump figures on the next
   audit-adjacent PR (per AGENTS.md verification rules) rather than per commit.
-  *(Re-measured 2026-08-03 on synced main @ `a3cbad9`: 1,108 passing via
-  `uv run pytest -q`; 356 contract vectors. Prior 2026-08-01 close-out: 1,087
+  *(Re-measured 2026-08-03 on main @ `1835c8b` + Phase B: 1,108+ passing via
+  `uv run pytest -q`; 363 contract vectors. Prior v0.5.0.0 tag: 1,108 / 356. Prior
+  2026-08-01 close-out: 1,087
   passing + 4 skipped; 16,197 lines of first-party Python under
   `packages/*/src`; largest Python module `netllm_core/models.py` at 690.)*
 

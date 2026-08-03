@@ -476,3 +476,23 @@ final class ServerProcess: @unchecked Sendable {
         return pid
     }
 }
+
+extension ServerProcess.State {
+    /// Settings hero label — always derive from live `server.state`, not cached copies.
+    var settingsStatusLabel: String {
+        switch self {
+        case .running:
+            return "Running"
+        case .starting:
+            return "Starting…"
+        case .stopping:
+            return "Stopping…"
+        case .unresponsive:
+            return "Unresponsive"
+        case .failed(let message):
+            return "Failed — \(message)"
+        case .stopped:
+            return "Stopped"
+        }
+    }
+}

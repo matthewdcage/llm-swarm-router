@@ -24,7 +24,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 - macOS install scripts: `tests/test_bundled_install_scripts.sh`
 - Menubar agent start (quiet + LAN listen): `tests/test_serve_quiet_lan.py` — regression for bundled `serve -q` with `0.0.0.0` listen reaching uvicorn
 - Admin access: `tests/test_agent.py` — remote client 403; same-host LAN IP allowed via `local_admin_client_hosts`
-- **Request-aware model pools:** `tests/test_model_pools.py`, `tests/test_model_resolution_property.py` (D19: overflow deferred to pool two-phase collect)
+- **Request-aware model pools:** `tests/test_model_pools.py`, `tests/test_model_resolution_property.py` (D19: overflow deferred to pool two-phase collect); contract vector `naming-model-pools-isolation-multi-host` (B5 multi-host isolation)
 - **Agent-hop routing:** `tests/test_agent_hop_routing.py` — `exact_model_only` on terminating peer, peer pin headers
 - **Live mesh smoke (maintainer):** `scripts/live-routing-smoke.sh` — multi-node LAN validation (health, alias, pool isolation, peer pin, pressure); honors `NETLLM_CLUSTER_TOKEN` when secured; clears bundled-app `PYTHONHOME` for telemetry JSON parsing
 
@@ -32,14 +32,17 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 
 - Agent or routing changes should extend `tests/` before merge
 - SDK bumps must pass `./scripts/ci.sh sdk` and contract tests in sdk packages
-- Dashboard telemetry UI contract: `tests/test_dashboard_telemetry.py` (Serving tab + `routerScopeBlock` markers)
-- Menubar e2e lives in `scripts/test-menubar-e2e.sh` (not pytest); includes bundled **quiet + 0.0.0.0 listen** smoke on Stage `.app` before DMG attach
+- Dashboard telemetry UI contract: `tests/test_dashboard_telemetry.py` (Serving tab source + scenario counters + `routerScopeBlock` markers)
+- **`netllm connect` CLI:** `tests/test_cli_connect.py` (env/json/toggle wiring; mocked health)
+- **Contract lint renames:** `tests/contract/test_divergence_lint.py` — stable vector `id` → HEAD path (F-56)
+- Menubar e2e: `scripts/test-menubar-e2e.sh` (bundled quiet + 0.0.0.0 listen on Stage `.app`); lifecycle: `scripts/test-menubar-lifecycle.sh` (L5b adopt + `settingsStatusLabel`); Settings/menubar strings: `NetllmMacTests.AgentSupervisorStatusLabelTests`, `MenubarStatusTitleTests`; manual adopt: [docs/solutions/menubar-adopt-smoke.md](../docs/solutions/menubar-adopt-smoke.md)
 
 ## Verification
 
 ```bash
 ./scripts/ci.sh test
 ./scripts/ci.sh              # lint + test
+uv run pytest tests/contract -q   # 363 golden vectors
 scripts/verify-before-pr.sh
 ```
 
@@ -51,4 +54,4 @@ scripts/verify-before-pr.sh
 
 Fixtures are data only; no per-fixture AGENTS.md unless a fixture tree grows maintenance docs.
 
-Updated: 2026-08-02 (request-aware pools; agent-hop routing; live-routing-smoke)
+Updated: 2026-08-03 (Phase B closeout: 363 contract vectors incl. B5 pool isolation; connect CLI; Settings statusLabel tests)

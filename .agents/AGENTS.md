@@ -25,7 +25,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md). Editor reference: [../docs/editor-int
 ## Work Guidance
 
 - Skill descriptions must include trigger phrases for reliable agent routing
-- Keep setup/connect/swarm/doctor flows aligned with `./netllm` CLI behavior (v0.4.0.1: open trusted-LAN swarm by default; secured token optional via `--secure`, `--create`, or menubar toggle)
+- Keep setup/connect/swarm/doctor flows aligned with `./netllm` CLI behavior (v0.4.0.1: open trusted-LAN swarm by default; secured token optional via `--secure`, `--create`, or menubar toggle); `netllm-connect-editor` step 0 points at `./netllm connect <id>`
 
 ## Verification
 

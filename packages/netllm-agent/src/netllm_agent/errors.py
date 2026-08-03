@@ -17,6 +17,9 @@ upstream statuses (429/401/404) keep doing so; only the body is shaped.
 
 from __future__ import annotations
 
+import json
+from typing import Any
+
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, Response
@@ -72,6 +75,23 @@ def openai_error_body(status_code: int, message: str) -> dict[str, object]:
 
 def _is_messages_path(path: str) -> bool:
     return path == "/v1/messages" or path.startswith("/v1/messages/")
+
+
+async def parse_inference_json(request: Request) -> dict[str, Any]:
+    """Parse a /v1/* inference body; malformed JSON becomes a shaped 400 (F-38)."""
+    try:
+        body = await request.json()
+    except json.JSONDecodeError as exc:
+        raise StarletteHTTPException(
+            status_code=400,
+            detail=f"Invalid JSON in request body: {exc.msg}",
+        ) from exc
+    if not isinstance(body, dict):
+        raise StarletteHTTPException(
+            status_code=400,
+            detail="Request body must be a JSON object",
+        )
+    return body
 
 
 def install_error_handlers(app: FastAPI) -> None:

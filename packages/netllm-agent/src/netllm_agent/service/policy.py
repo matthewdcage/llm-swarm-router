@@ -84,20 +84,14 @@ class PolicyMixin:
         )
 
     @staticmethod
-    def _reject_non_chat_model(model: str, reported_as: str | None = None) -> None:
+    def _reject_non_chat_model(requested_model: str, effective_model: str) -> None:
         """Refuse chat requests against models that cannot chat.
 
-        Encoders and audio models otherwise fail upstream with confusing
-        errors ("tokenizer.chat_template is not set") after burning the
-        whole retry budget. Unknown names pass through unchanged.
-
-        [F-57] ``model`` is the post-rewrite name, because that is what
-        would actually run and so determines the capability. ``reported_as``
-        is the name the caller sent, and is what the error body echoes: an
-        operator whose ``model_rewrites`` map a public name onto an internal
-        one must not have that internal id leaked back to their users.
+        Capability is classified on ``effective_model`` (post-rewrite); the
+        400 quotes ``requested_model`` so operators never see internal ids
+        (F-57).
         """
-        cap = model_capability(model)
+        cap = model_capability(effective_model)
         if cap == "chat":
             return
         hint = (
@@ -106,30 +100,31 @@ class PolicyMixin:
             else ""
         )
         raise OpenAIUpstreamError(
-            f"Model '{reported_as or model}' (capability: {cap}) cannot serve "
-            f"chat completions.{hint}",
+            (
+                f"Model '{requested_model}' (capability: {cap}) "
+                f"cannot serve chat completions.{hint}"
+            ),
             status_code=400,
         )
 
     @staticmethod
     def _reject_non_chat_messages_model(
-        model: str, reported_as: str | None = None
+        requested_model: str, effective_model: str
     ) -> None:
-        """Messages API variant of the non-chat model guard.
-
-        [F-57] Classifies the post-rewrite name, reports the requested one.
-        """
-        cap = model_capability(model)
+        """Messages API variant of the non-chat model guard."""
+        cap = model_capability(effective_model)
         if cap == "chat":
             return
         raise AnthropicUpstreamError(
-            f"Model '{reported_as or model}' (capability: {cap}) cannot serve "
-            "the Messages API.",
+            (
+                f"Model '{requested_model}' (capability: {cap}) "
+                "cannot serve the Messages API."
+            ),
             status_code=400,
         )
 
     @staticmethod
-    def _reject_non_embedding_model(model: str, reported_as: str | None = None) -> None:
+    def _reject_non_embedding_model(requested_model: str, effective_model: str) -> None:
         """[D4] The embeddings surface's capability guard — new in Phase 4c.
 
         /v1/embeddings had no guard of any kind: a chat model sent here was
@@ -147,15 +142,17 @@ class PolicyMixin:
         rename the served model, or map it with a ``[routing.model_aliases]``
         entry whose *request* name carries an embedding token.
         """
-        cap = model_capability(model)
+        cap = model_capability(effective_model)
         if cap == "embedding":
             return
         hint = (
             " Use POST /v1/chat/completions for chat models." if cap == "chat" else ""
         )
         raise OpenAIUpstreamError(
-            f"Model '{reported_as or model}' (capability: {cap}) cannot serve "
-            f"embeddings.{hint}",
+            (
+                f"Model '{requested_model}' (capability: {cap}) "
+                f"cannot serve embeddings.{hint}"
+            ),
             status_code=400,
         )
 
@@ -333,9 +330,7 @@ class PolicyMixin:
         # is `SurfaceAdapter.guard`, so the three-way branch that used to
         # stand here is gone: the surface→adapter map in surfaces/__init__
         # is the one place the question is answered.
-        # [F-57] Classify the rewritten name (that is what runs), but report
-        # the name the caller actually sent.
-        adapter_for(self, surface).guard(model, reported_as=requested_model)
+        adapter_for(self, surface).guard(requested_model, model)
         # [D10] The Messages surfaces used to rewrite payload["model"] here,
         # up-front and once, which pinned every later attempt to the first
         # backend's idea of the name. The payload is now immutable on every

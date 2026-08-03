@@ -151,7 +151,7 @@ def test_guard_rejects_the_wrong_capability_in_the_right_dialect(
     service: Any, adapter_cls: type, bad_model: str, expected_exc: type
 ) -> None:
     with pytest.raises(expected_exc) as caught:
-        adapter_cls(service).guard(bad_model)
+        adapter_cls(service).guard(bad_model, bad_model)
     assert caught.value.status_code == 400
 
 

@@ -103,10 +103,13 @@ For cloud Anthropic failover, set a real `ANTHROPIC_API_KEY` and add an `[[routi
   `codex` block from [config.example.toml](../config.example.toml).
 - Verify: `curl -s http://127.0.0.1:11400/v1/responses -H "Authorization: Bearer netllm-local" -H "Content-Type: application/json" -d '{"model":"<id>","input":"hi"}'`
   before pointing the real CLI at it.
-- The streaming half of the Responses bridge is implemented but not yet
-  validated against a live Codex session — if Codex's TUI misbehaves,
-  check `./netllm doctor` and the agent log first; see
-  [cli-source-routing-plan.md](cli-source-routing-plan.md) Phase 5.
+- **Offline tests pass** for request/response translation and streaming event
+  sequencing (`tests/test_codex_responses_bridge.py`). **Live validation**
+  (curl + Codex TUI, streaming, tool calls, `source_requests` attribution) uses
+  the manual checklist:
+  [solutions/codex-responses-smoke.md](solutions/codex-responses-smoke.md)
+  (F-39). If Codex's TUI misbehaves, check `./netllm doctor` and the agent log
+  first; see [cli-source-routing-plan.md](cli-source-routing-plan.md) Phase 3.5.
 
 ## Pi Agent ([earendil-works/pi](https://github.com/earendil-works/pi))
 

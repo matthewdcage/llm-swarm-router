@@ -13,7 +13,7 @@ existing Python agent on port **11400**, it does not replace oMLX inference on p
 
 Works on Tahoe without Gatekeeper blocks. Uses the same installer CI validates before release.
 
-**Requirements:** macOS 15+, Apple Silicon, [uv](https://docs.astral.sh/uv/), git, Xcode command-line tools (`xcode-select --install`).
+**Requirements:** macOS 15+, **Apple Silicon** ([platform limits](platform-matrix.md#platform-limits) — no Intel menubar or DMG artifact), [uv](https://docs.astral.sh/uv/), git, Xcode command-line tools (`xcode-select --install`).
 
 ```bash
 git clone https://github.com/matthewdcage/llm-swarm-router.git

@@ -272,4 +272,19 @@ health_ok || fail "L5: health after replace start"
 [[ -n "$(port_pids)" ]] || fail "L5: no listener on port ${PORT}"
 ok "L5 --replace leaves healthy listener on port"
 
+echo "==> L5b control status matches settings label after adopt"
+resp="$(app_control status 0)"
+echo "$resp" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+state = d.get('state', '')
+label = d.get('settingsStatusLabel')
+assert state == 'running', f'expected state running, got {state!r}: {d}'
+assert label is not None, f'settingsStatusLabel missing from control status: {d}'
+assert label == 'Running', f'expected settingsStatusLabel Running, got {label!r}: {d}'
+stopped_markers = ('Stopped', 'Stopping', 'Failed')
+assert not any(m in label for m in stopped_markers), f'label suggests stopped while running: {label!r}'
+" || fail "L5b status/settingsStatusLabel: $resp"
+ok "L5b control status running with settingsStatusLabel aligned"
+
 echo "ALL LIFECYCLE CHECKS PASSED"
