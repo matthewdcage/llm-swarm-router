@@ -489,6 +489,8 @@ shim.
 
 ## F-56 · Divergence lint launders renames: content and annotation changes inside a rename are invisible
 
+> **RESOLVED (2026-08-03, PR #45)** — the lint indexes HEAD vectors by their stable `id`, so a renamed vector is matched back to its HEAD self and held to the same content and annotation comparison as an in-place edit. Proved by renaming a real vector while dropping its `["D7"]` annotation and changing its status: the lint now names the file and fails.
+
 **Severity** S3 · **Area** contract-test tooling · **Verdict** CONFIRMED (final merge-readiness verifier, 2026-08-01)
 
 `tests/contract/test_divergence_lint.py` keys vectors on their repo-relative path
@@ -509,6 +511,8 @@ vector) and hold a renamed vector to the same content and annotation comparison
 as an in-place edit.
 
 ## F-57 · Capability guard reports the post-rewrite model name, leaking internal ids
+
+> **RESOLVED (2026-08-03, PR #45)** — capability is still classified on the post-rewrite name (that is the model that would run), but the 400 body now echoes the requested name. Six regression tests cover all three surfaces plus the no-rewrite fallback.
 
 **Severity** S3 · **Area** request path / naming · **Verdict** CONFIRMED (independently reproduced)
 

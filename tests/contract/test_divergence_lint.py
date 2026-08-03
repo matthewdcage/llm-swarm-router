@@ -107,6 +107,31 @@ def _head_vector_names() -> set[str]:
     return {line for line in proc.stdout.splitlines() if line.endswith(".json")}
 
 
+def _head_vectors_by_id() -> dict[str, tuple[str, dict]]:
+    """Every HEAD vector keyed on its stable ``id`` field.
+
+    [F-56] The lint used to key only on path, so a rename presented as a
+    brand-new file ("always allowed") and BOTH content changes and
+    divergence-annotation removals made in the same commit slipped through
+    unchecked. Every vector carries a unique ``id``, so a renamed vector can
+    be matched back to its HEAD self and held to the same comparison as an
+    in-place edit.
+    """
+    out: dict[str, tuple[str, dict]] = {}
+    for rel in _head_vector_names():
+        raw = _git_show(rel)
+        if raw is None:
+            continue
+        try:
+            doc = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        vid = doc.get("id")
+        if isinstance(vid, str) and vid:
+            out[vid] = (rel, doc)
+    return out
+
+
 def load_allowed_divergences() -> set[str]:
     allowed: set[str] = set()
     for raw in ALLOWED_FILE.read_text().splitlines():
@@ -138,7 +163,21 @@ def test_changed_vectors_carry_declared_divergence_ids() -> None:
         p.relative_to(REPO_ROOT).as_posix(): p for p in VECTORS_DIR.rglob("*.json")
     }
 
-    deleted = _head_vector_names() - set(working)
+    head_by_id = _head_vectors_by_id()
+    working_ids = {
+        doc_id: p
+        for p in working.values()
+        if isinstance(doc_id := json.loads(p.read_text()).get("id"), str)
+    }
+
+    # [F-56] A path that vanished is only a deletion if its vector id also
+    # vanished; if the id resurfaced elsewhere the vector was renamed, and it
+    # is checked below exactly like an in-place edit.
+    deleted = {
+        rel
+        for rel in _head_vector_names() - set(working)
+        if not any(rel == head_by_id.get(vid, ("", {}))[0] for vid in working_ids)
+    }
     assert not deleted, (
         f"vectors deleted vs HEAD: {sorted(deleted)} — a checked-in contract "
         "vector must never be silently dropped"
@@ -148,7 +187,16 @@ def test_changed_vectors_carry_declared_divergence_ids() -> None:
     for name, path in sorted(working.items()):
         head_bytes = _git_show(name)
         if head_bytes is None:
-            continue  # new file: baseline recording, always allowed
+            # [F-56] Not automatically a new baseline: if this vector's id
+            # exists at another path in HEAD it is a rename, and its content
+            # and annotations must still justify themselves.
+            doc_id = json.loads(path.read_text()).get("id")
+            renamed_from = head_by_id.get(doc_id) if isinstance(doc_id, str) else None
+            if renamed_from is None:
+                continue  # genuinely new: baseline recording, always allowed
+            head_bytes = json.dumps(renamed_from[1], indent=2).encode()
+            if json.loads(path.read_text()) == renamed_from[1]:
+                continue  # pure rename, content and annotations untouched
         if head_bytes == path.read_bytes():
             continue  # unchanged
         doc = json.loads(path.read_text())
