@@ -19,6 +19,7 @@ final class AppControlServer: @unchecked Sendable {
         let host: String
         let port: Int
         let message: String?
+        let settingsStatusLabel: String?
 
         static func success(
             status: String,
@@ -33,7 +34,8 @@ final class AppControlServer: @unchecked Sendable {
                 pid: server?.pid,
                 host: server?.host ?? "127.0.0.1",
                 port: server?.port ?? 11400,
-                message: message
+                message: message,
+                settingsStatusLabel: state.settingsStatusLabel
             )
         }
 
@@ -50,7 +52,8 @@ final class AppControlServer: @unchecked Sendable {
                 pid: server?.pid,
                 host: server?.host ?? "127.0.0.1",
                 port: server?.port ?? 11400,
-                message: message
+                message: message,
+                settingsStatusLabel: state.settingsStatusLabel
             )
         }
     }

@@ -29,8 +29,8 @@ __all__ = ["EmbeddingsAdapter", "EmbeddingsSurfaceMixin"]
 class EmbeddingsAdapter(OpenAIDialectAdapter):
     log_label: str = "embeddings backend"
 
-    def guard(self, model: str, reported_as: str | None = None) -> None:
-        self.service._reject_non_embedding_model(model, reported_as)
+    def guard(self, requested_model: str, effective_model: str) -> None:
+        self.service._reject_non_embedding_model(requested_model, effective_model)
 
     async def invoke(self, plan: RequestPlan, invocation: Invocation) -> Any:
         return await invocation.client.embeddings(invocation.payload)

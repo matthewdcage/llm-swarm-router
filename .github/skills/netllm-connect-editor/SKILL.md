@@ -36,6 +36,12 @@ Load detailed per-editor steps from [references/editor-settings.md](references/e
 
 ## Workflow
 
+0. **Quick path** — when the user names a harness, run `./netllm connect <id>` (or
+   `./netllm connect <id> --json` for agents). It checks agent health, prints
+   copy-paste env wiring, optional Codex TOML, and suggests
+   `./netllm sources toggle <id>`. Use `--toggle` only when the user wants
+   registration in config.toml; never auto-edit editor configs.
+
 1. **Confirm agent is up**
    ```bash
    curl -sf http://127.0.0.1:11400/health && echo ok

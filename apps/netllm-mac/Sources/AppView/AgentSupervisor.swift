@@ -24,22 +24,7 @@ final class AgentSupervisor {
 
     var isRunning: Bool { server.isRunning }
 
-    var statusLabel: String {
-        switch state {
-        case .running:
-            return "Running"
-        case .starting:
-            return "Starting…"
-        case .stopping:
-            return "Stopping…"
-        case .unresponsive:
-            return "Unresponsive"
-        case .failed(let message):
-            return "Failed — \(message)"
-        case .stopped:
-            return "Stopped"
-        }
-    }
+    var statusLabel: String { server.state.settingsStatusLabel }
 
     func start() {
         Task {

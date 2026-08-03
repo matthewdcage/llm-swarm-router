@@ -3,16 +3,16 @@
 29 findings from a source-level audit of `main` @ `a3ec16a` (release 0.4.5.0), 2026-07-29.
 Four were reproduced with executable scripts; the rest carry `file:line` evidence.
 
-**24 resolved, 2 partial, 4 open** as of **main @ `a3cbad9`** (2026-08-03, PR #42
-merged). F-24, F-25 and F-26 closed on that commit. F-38 reclassified **PARTIAL**
-after adversarial review of merged PR #41 (envelope shaping done; status passthrough
-and parse errors incomplete). Residue from the consolidation: F-54, F-55, F-56, F-57
+**26 resolved, 1 partial, 2 open** as of **main @ `1835c8b` (v0.5.0.0)** + Phase B
+(2026-08-03). F-24, F-25 and F-26 closed on PR #42. F-38, F-56, F-57 closed Phase B
+2026-08-03. F-28 closed B7 docs. Residue from the consolidation: F-54, F-55
 in [09](09-follow-up-audit-2026-07-31.md). Closure roadmap:
 [../closure-roadmap-2026-08-03.md](../closure-roadmap-2026-08-03.md).
 
 **Baseline health is good.** At audit time `uv run pytest -q` → **584 passed**;
 after remediation → **642 passed**; after the F-24/F-25/F-26 consolidation →
-**1,108 passed** on synced main @ `a3cbad9` (356 contract vectors). Lint is clean.
+**1091 passed** in `tests/` on main @ `1835c8b` + Phase B (2026-08-03); **363** contract
+tests. Lint is clean.
 The SDK isolation boundary holds. The routing hardening work described in
 `docs/routing-hardening-plan.md` is genuinely implemented, and the failover, capacity-error
 classification, and mesh loop guards are better than typical for a project this size.
@@ -24,12 +24,13 @@ Nothing below contradicts that; these are the remaining edges.
 |----------|-------|-------|-------|
 | **S1** — production-affecting correctness or security | 4 | **4** | silent config data loss, a bypassed security guard, event-loop blocking, credential reuse across callers |
 | **S2** — real user-visible defect or meaningful risk | 12 | **12** | restart-required config, TLS off, billable probes, races, IPv6 crash, LAN exposure, log growth |
-| **S3** — maintenance, clarity, latent risk | 13 | **8 + 2 partial** | dead code, duplicated logic, CI gate gaps, packaging limits |
+| **S3** — maintenance, clarity, latent risk | 13 | **10 + 1 partial** | dead code, duplicated logic, CI gate gaps, packaging limits |
 
-**Still open / partial / deferred:** F-20, F-21, F-23, F-28, F-29 (S3 open); F-38,
-F-39 (S3 partial); F-34 (S2 deferred); F-54–F-57 (S3, post-consolidation residue in
-[09](09-follow-up-audit-2026-07-31.md)). F-24/F-25/F-26 closed on main @ `a3cbad9`
-(PR #42). Full inventory and release path:
+**Still open / partial / deferred:** F-20, F-21, F-23, F-29 (S3 open); F-39
+(S3 partial); F-34 (S2 deferred); F-54–F-55 (S3, post-consolidation residue in
+[09](09-follow-up-audit-2026-07-31.md)). F-24/F-25/F-26 closed on v0.5.0.0 (PR #42).
+F-38, F-56, F-57 closed Phase B (2026-08-03 → 0.5.0.1). F-28 closed B7 docs. Full
+inventory and release path:
 [../closure-roadmap-2026-08-03.md](../closure-roadmap-2026-08-03.md).
 
 ## Recommended order of work
@@ -40,7 +41,7 @@ flowchart LR
     W2 --> W3["Phase 3 — exposure<br/>F-06 F-07 F-11 F-12 F-13 F-14 F-15 ✅"]
     W3 --> W4["Phase 4 — deps, dead code, CI<br/>F-10 F-16 F-17 F-18 F-19 F-22 F-27 ✅"]
     W4 --> W5["Consolidation refactor<br/>F-24 F-25 F-26 ✅"]
-    W5 --> W6["Open backlog<br/>F-20 F-21 F-23 F-28 F-29<br/>F-38 F-39 partial · F-54–F-57"]
+    W5 --> W6["Open backlog<br/>F-20 F-21 F-23 F-29<br/>F-39 partial · F-54–F-55"]
     W6 --> W7["Release close-out<br/>see closure-roadmap-2026-08-03"]
 ```
 
@@ -759,6 +760,12 @@ scope. Add `swift format --lint` on the macOS job.
 
 ## F-28 · Packaging and platform limits worth stating explicitly
 
+> **RESOLVED (docs, 0.5.0.0) — user-facing limits documented in
+> [platform-matrix.md](../platform-matrix.md#platform-limits) with cross-links from
+> [macos-install.md](../macos-install.md) and
+> [macos-troubleshooting.md](../macos-troubleshooting.md#subnet-scan-and-corporate-ids).
+> Intel-only UX and `make clean` remain out of scope for this doc pass.**
+
 - **macOS artifacts are arm64-only.** `packaging/venvstacks.toml` declares
   `platforms = ["macosx_arm64"]` and a matching `[tool.uv] environments` marker. There is no
   Intel-Mac path, and no error message tells an Intel user that.
@@ -826,5 +833,5 @@ has an obvious shape.
 | F-25 | S3 | 5 overlaps | — | L | ✅ `3b6ec71` + `a4c8893`…HEAD (2 naming shims → F-55) |
 | F-26 | S3 | `service.py`, `main.py` | — | L | ✅ `6ddcc47` + `a4c8893`…HEAD (dashboard.js → F-54) |
 | F-27 | S3 | `scripts/ci.sh`, workflows | — | M | ✅ `bb3eae0` |
-| F-28 | S3 | `packaging/` | — | M | open |
+| F-28 | S3 | `packaging/` | — | M | ✅ docs (0.5.0.0) |
 | F-29 | S3 | `local.py` | — | M | open |

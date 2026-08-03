@@ -236,6 +236,19 @@ observability fix for a real field incident.
   a failure emits an SSE error frame and ends the stream rather than replaying a second
   response into the same stream. Correct, and non-obvious.
 
+### Client-visible HTTP status on `/v1/*` (F-38, documented 2026-08-03)
+
+| Source | Typical status | Body shape |
+|--------|----------------|------------|
+| Malformed JSON / non-object body | **400** | OpenAI or Anthropic envelope via `errors.install_error_handlers` |
+| Router source admission (`max_concurrency`) | **429** | Same envelopes; this is the router's own rate limit, not upstream |
+| Upstream **400/404** on OpenAI surfaces | **400/404** forwarded | OpenAI envelope |
+| Upstream **401/429/5xx** on OpenAI surfaces | **502** (not forwarded) | OpenAI envelope — upstream auth/rate-limit from a backend is treated as a routing failure; contract vectors `errors-capacity-429-not-forwarded-*` pin this |
+| Messages native path | Upstream status forwarded when `AnthropicUpstreamError`; translated OpenAI backends forward **400/404** only (same as chat) | Anthropic envelope |
+| Keyless Messages exhaustion (D11) | **401** on Messages, **404** on OpenAI paths | Per-surface envelope |
+
+`/netllm/*` admin routes keep FastAPI's `{"detail": ...}`.
+
 ## Loop prevention across the mesh
 
 ```mermaid

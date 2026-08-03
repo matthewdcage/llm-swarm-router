@@ -13,6 +13,7 @@ from netllm_core.version import get_version
 from netllm_cli.commands import (
     cloud,
     config_io,
+    connect,
     diagnose,
     init_install,
     join_swarm,
@@ -65,6 +66,7 @@ app.command()(serve_lifecycle.serve)
 app.command()(observe.drain)
 app.command()(observe.status)
 app.command()(diagnose.test)
+app.command("connect")(connect.connect_tool)
 app.command("gateway")(diagnose.gateway_enable)
 app.command()(diagnose.doctor)
 app.add_typer(config_io.config_app, name="config")

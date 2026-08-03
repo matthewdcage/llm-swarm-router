@@ -17,6 +17,8 @@ def test_dashboard_has_serving_tab() -> None:
     assert "function renderServingTab" in js
     assert "routerScopeBlock" in js
     assert "Routed requests (by backend id)" in js
+    assert "Requests by source (harness)" in js
+    assert "Requests by scenario" in js
     assert "loadTelemetry" in js
     assert "startTelemetryPolling" in js
 

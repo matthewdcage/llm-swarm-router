@@ -97,11 +97,23 @@ final class MenubarAppModel {
     var statusTitle: String {
         // Read live supervisor state — cached serverState can lag one frame
         // behind server.isRunning when adoptHealthyListener races menu rebuild.
-        switch server.state {
+        Self.menubarStatusTitle(
+            state: server.state,
+            port: config.port,
+            peerCount: stats.peerCount
+        )
+    }
+
+    static func menubarStatusTitle(
+        state: ServerProcess.State,
+        port: Int,
+        peerCount: Int = 0
+    ) -> String {
+        switch state {
         case .running, .unresponsive:
-            var line = "Agent running · :\(config.port)"
-            if stats.peerCount > 0 {
-                line += " · \(stats.peerCount) peer\(stats.peerCount == 1 ? "" : "s")"
+            var line = "Agent running · :\(port)"
+            if peerCount > 0 {
+                line += " · \(peerCount) peer\(peerCount == 1 ? "" : "s")"
             }
             return line
         case .starting:

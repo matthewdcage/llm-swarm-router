@@ -27,8 +27,8 @@ __all__ = ["ChatAdapter", "ChatSurfaceMixin"]
 class ChatAdapter(OpenAIDialectAdapter):
     log_label: str = "backend"
 
-    def guard(self, model: str, reported_as: str | None = None) -> None:
-        self.service._reject_non_chat_model(model, reported_as)
+    def guard(self, requested_model: str, effective_model: str) -> None:
+        self.service._reject_non_chat_model(requested_model, effective_model)
 
     async def invoke(self, plan: RequestPlan, invocation: Invocation) -> Any:
         return await invocation.client.chat_completion(invocation.payload)
