@@ -1,188 +1,220 @@
 # MCP 2026-07-28 impact inventory: AI-Advantage and matthewdcage
 
-**Status:** partial. Read this section before using the tables.
+Compiled 2026-08-03. Dependency pins below were read from the actual manifest
+contents via GitHub code search match fragments, so **the version pins are
+verified**. What is not verified is runtime behaviour: no AI-Advantage repo could
+be cloned or fully read from this session, so archetype and risk band are inferred
+from pins plus detected code signals, not from reading the server code.
 
-## What this inventory is, and what it is not
+Run `scripts/mcp-v2-triage.sh` locally to confirm and to pick up anything code
+search does not index.
 
-This is a **candidate map**, not a verified per-repo assessment. It was produced from
-GitHub code search across the two accounts on 2026-08-03. Code search returns file
-paths and repository names, so every row below tells you *that* a repo references a
-given MCP construct and *where*. It does not tell you the pinned SDK version, because
-file contents in those repositories were not readable from this session.
+## The headline: the two ecosystems are in completely different danger
 
-Two access constraints produced that gap, and both are worth recording because they
-will recur:
+This is the single most important thing in this document, and it is not what you
+would guess.
 
-1. **Cross-owner repositories cannot be attached.** `add_repo` for any `AI-Advantage/*`
-   repo fails with `cross-tier adds are not supported in v1: requested
-   "ai-advantage/..." but session already has repos from owner(s) [matthewdcage]`. The
-   error explicitly suggests the remedy: start a session whose *initial* source is an
-   AI-Advantage repo.
-2. **File reads are scope-enforced.** `get_file_contents` against an unattached repo
-   returns `Access denied: repository ... is not configured for this session`, even
-   though code search reaches it. So the repo and path lists below are trustworthy,
-   and any claim about pinned versions would not be.
+**Python: 10 of 12 servers have unbounded pins and are already drifting.**
+A pin like `mcp>=1.6.0` or `mcp[cli]>=1.15.0` accepts **mcp 2.0.0**, which shipped
+2026-07-28. Any clean install, fresh CI runner, or rebuilt container pulls v2 and
+the server stops working. No code change on your side is required to break these.
+They may already be broken.
 
-The result: exactly two repositories were fully readable, and they are marked
-**verified** below. Everything else is marked **candidate** and needs one command to
-confirm, which is what `scripts/mcp-v2-triage.sh` is for.
+**TypeScript: all 22 are safe from drift, and none of them can accidentally move.**
+Every one is caret-pinned on `^1.x`. A caret range cannot cross a major, and more
+decisively the v2 TypeScript SDK ships under **new package names**
+(`@modelcontextprotocol/core`, `/server`, `/client`). `@modelcontextprotocol/sdk`
+simply has no 2.x to drift into. These repos are stable indefinitely and migrate
+only when you choose to.
 
-## Completing this inventory
+So the urgent work is Python and it is a dependency-pinning problem, not a protocol
+problem. The protocol migration is the larger but far less urgent body of work, and
+it is concentrated in TypeScript.
 
-Run the triage script over local checkouts. It reproduces the per-repo assessment,
-including the pinned version that could not be read remotely:
+### A second, independent problem found along the way
 
-```bash
-docs/mcp-2026-07-28/scripts/mcp-v2-triage.sh --all ~/code
-docs/mcp-2026-07-28/scripts/mcp-v2-triage.sh --all ~/code --tsv > mcp-impact.tsv
+Most Python repos depend on the **third-party `fastmcp` distribution**, not the
+official SDK. That package is at 3.4.5 stable (4.0.0b1 is beta). Pins like
+`fastmcp>=2.0.0` and `fastmcp>=2.3.1` therefore **already resolve to 3.4.5**, a
+major-version jump that happened silently and has nothing to do with the
+2026-07-28 spec. If any of these repos have failed a fresh install recently, this
+is the more likely cause. Treat it as a separate, earlier-dated incident.
+
+Do not conflate the two packages. `fastmcp` (third-party) and `mcp.server.fastmcp`
+(a module inside the official SDK) are different things with different migration
+paths, and several repos below depend on both at once.
+
+## AI-Advantage, Python
+
+| Repo | `fastmcp` pin | `mcp` pin | State |
+|---|---|---|---|
+| `wine-experience-xero-mcp-py` | `>=2.12.3` | `mcp[cli]>=1.15.0` | **P0** both unbounded, takes mcp 2.0.0 |
+| `wineexperience-xero-mcp-http-server` | `>=2.12.3` | `mcp[cli]>=1.15.0` | **P0** both unbounded, takes mcp 2.0.0 |
+| `mcp-zoho-books` | `>=2.13.0` | `mcp>=1.6.0` | **P0** both unbounded, takes mcp 2.0.0 |
+| `mcp-google-ads` | `>=2.0.0` | `mcp>=0.0.11` | **P0** both unbounded, already on fastmcp 3.x |
+| `mcp-google-search-console` | `==3.0.0b2` | `mcp>=0.0.11` | **P0** pinned to a **beta**, mcp unbounded |
+| `mcp-google-cloud` | `>=3.2.0` | not seen | **P1** unbounded |
+| `mcp-microsoft-365` | `[azure]>=3.2` | not seen | **P1** unbounded, multi-tenant gateway |
+| `mcp-google-workspace` | `>=2.3.3` | not seen | **P1** unbounded, already on fastmcp 3.x |
+| `mcp-google-analytics` | `>=2.3.1` | not seen | **P1** unbounded, already on fastmcp 3.x |
+| `mcp-google-tag-manager` | `>=2.0.0` | not seen | **P1** unbounded, already on fastmcp 3.x |
+| `barcode-qrcode-api-mcp` | `>=2.13.1,<3.0.0` | not seen | **P3** correctly bounded |
+| `mcp-lightspeed-xseries` | `>=3.4.2,<4.0.0` | not seen | **P3** correctly bounded |
+| `mcp-google-shopping` | referenced, pin not captured | | verify locally |
+| `mcp-google-serp` | referenced, pin not captured | | verify locally |
+| `mcp-campaign-monitor` | referenced, pin not captured | | verify locally |
+
+`barcode-qrcode-api-mcp` and `mcp-lightspeed-xseries` are the only two repos in the
+estate that pinned correctly. They are the model to copy: an upper bound on the
+major.
+
+### Immediate mitigation, before any migration work
+
+Bound the majors. This is a one-line change per repo and it stops the bleeding
+without committing you to the protocol migration:
+
+```toml
+# was: "mcp>=1.6.0"          accepts 2.0.0, breaks
+"mcp>=1.6.0,<2.0.0"
+
+# was: "fastmcp>=2.13.0"     already silently moved to 3.4.5
+"fastmcp>=2.13.0,<4.0.0"     # or <3.0.0 to pin back to the 2.x line
 ```
 
-It classifies each repo into an archetype, scores risk, and names the runbook that
-applies. The bands it emits (P0 to P3) are the same ones used below.
+Do this for the five P0 repos first. It buys you the full 12 month deprecation
+window to plan properly.
 
-Alternatively, to reproduce this analysis with full file access for the org, start a
-fresh Claude Code session with an `AI-Advantage` repository as the initial source,
-then attach the rest of the org from within that session.
+## AI-Advantage, TypeScript
 
-## Verified repositories
+All on the `@modelcontextprotocol/sdk` v1 line. None can drift. Ordered by how far
+behind they are, because migration effort scales with that distance.
 
-These two were read in full.
-
-### matthewdcage/mcp-ai-tool-gateway, band P0-critical
-
-The highest-risk shape in the estate: a single process that is **both an MCP server
-and an MCP client**, so it is exposed to the server-side and client-side breaking
-changes simultaneously.
-
-| Signal | Evidence | Consequence under 2026-07-28 |
+| Repo | pin | Note |
 |---|---|---|
-| `mcp>=1.2` unbounded pin | `requirements.txt` | A fresh install today resolves to **mcp 2.0.0** and the server stops working. This is the single most urgent item found. |
-| `from mcp.server.fastmcp import FastMCP` | `gateway_server.py` | `FastMCP` is renamed to `MCPServer` in the official Python SDK v2. |
-| 18 `@mcp.tool()` decorators | `gateway_server.py` | Tool registration surface to review against the v2 API. |
-| `await s.initialize()` in the proxy path | `gateway_server.py` `call()` and `_selftest()` | The `initialize`/`initialized` handshake is **removed**. Both call sites break. |
-| `ClientSession`, `stdio_client`, `streamablehttp_client` | `gateway_server.py` | Client construction changes; the gateway must also bridge v1 and v2 upstreams. |
-| `SESSION = ins.new_session_id()` per process | `gateway_server.py` | Session-per-process assumption for usage logging. Tolerable on stdio, incorrect if ever exposed over HTTP. |
-| Proxies arbitrary downstream servers | `servers.yaml`, `call()` | Mixed-version fleet: it will front both v1 and v2 servers during the migration window. |
+| `bop-chat` (`drug-bot/`) | `^0.5.0` | **pre-1.0**, by far the largest gap |
+| `wineraising-onboarding` | `^1.0.0` | also `mcp-servers/wineraising/` at `^1.0.0` |
+| `wineraising-mcp-standalone` | `^1.4.0` | |
+| `wineraising-admin-mcp-standalone` | `^1.4.0` | |
+| `wineexperience-xero-mcp-http-server` | `^1.8.0` | also carries the Python server above |
+| `hydra-digital-ops` (`agent-hydra-reporting/`) | `^1.10.2` | |
+| `mcp-google-maps` | `^1.11.0` | |
+| `medbill-chat` | `^1.17.0`, `^1.17.1` | LibreChat-derived |
+| `wine-chat` | `^1.17.0` | LibreChat-derived |
+| `bop-chat` (`api/`, `packages/api/`) | `^1.17.1` | LibreChat-derived |
+| `librechat-base` | `^1.17.1` | LibreChat-derived |
+| `BOP-ZDispense-Ai-Server` | `^1.17.3` | |
+| `ncib.gov-mcp` | `^1.17.4` | has an SSE transport factory |
+| `mcp-wine-experience-portal` | `^1.17.5` | has a streamable-http transport |
+| `aus-healthhive` | `^1.18.2` | |
+| `mcp-google-tag-manager` | `^1.18.1` | Cloudflare Workers OAuth provider |
+| `ChatUI-Nov-2025` | `^1.21.0` | LibreChat-derived |
+| `mcp-se-ranking` | `^1.23.0` | |
+| `mcp-pbs-server` | `^1.26.0` | session-bearing, Caddy in front |
+| `mcp-scriptstream` | `^1.26.0` | SSE + backward-compatible transports |
+| `ai-advantage-apps-hub` | `^1.26.0` | |
+| `factory-suite` (`packages/mcp-factory/`) | `>=1.26.0` **peer** | unbounded peer range, see below |
 
-Applicable runbook: `runbooks/04-code-execution-sampling-and-skill-factories.md`,
-gateway section. Do this repo first, because it is the component most likely to mask
-or amplify failures elsewhere.
+`factory-suite` is the one loose range: an unbounded `>=1.26.0` peer dependency. It
+cannot reach v2 (no such package), so it is not a drift risk, but it will float
+across the whole 1.x line in consumers. Bound it.
 
-### matthewdcage/llm-swarm-router, band N/A
+The LibreChat-derived repos (`librechat-base`, `bop-chat`, `wine-chat`,
+`medbill-chat`, `ChatUI-Nov-2025`) are MCP **clients**, and their SDK version is
+largely dictated by upstream LibreChat. Decide per repo whether you are migrating
+them or tracking upstream. They should not be scheduled as your own migration work.
 
-No impact. This is an OpenAI-compatible LLM router, not an MCP server. No
-`@modelcontextprotocol/*` or `mcp` dependency appears in any manifest, and no server
-or client construction code is present. The only MCP touchpoint is a client-side
-`.cursor/mcp.json` referencing an external Honcho server, which is host configuration
-rather than server code.
+## Verified in full
 
-## Candidate repositories: AI-Advantage
+### matthewdcage/mcp-ai-tool-gateway, P0
 
-All rows below are **candidate** status. Bands are provisional, inferred from which
-signals appear rather than from a version pin.
+The only repo read end to end, and the worst shape in the estate: one process that
+is **both an MCP server and an MCP client**, so both sides of the breaking change
+land on it at once.
 
-### Python servers, `fastmcp` present in `pyproject.toml`
+| Signal | Evidence | Consequence |
+|---|---|---|
+| `mcp>=1.2` unbounded | `requirements.txt` | Fresh install resolves to **mcp 2.0.0**, breaks |
+| `from mcp.server.fastmcp import FastMCP` | `gateway_server.py` | `FastMCP` renamed to `MCPServer` in v2 |
+| 18 `@mcp.tool()` decorators | `gateway_server.py` | Registration surface to port |
+| `await s.initialize()` ×2 | `call()` and `_selftest()` | Handshake **removed**; both sites break |
+| `ClientSession`, `stdio_client`, `streamablehttp_client` | `gateway_server.py` | Client construction changes |
+| Proxies arbitrary downstream servers | `servers.yaml`, `call()` | Must bridge v1 and v2 upstreams |
 
-`mcp-google-ads`, `mcp-google-analytics`, `mcp-google-search-console`,
-`mcp-google-shopping`, `mcp-google-serp`, `mcp-google-tag-manager`,
-`mcp-google-cloud`, `mcp-google-workspace`, `mcp-zoho-books`,
-`mcp-campaign-monitor`, `mcp-lightspeed-xseries`, `mcp-microsoft-365`,
-`barcode-qrcode-api-mcp`, `wine-experience-xero-mcp-py`,
-`wineexperience-xero-mcp-http-server` (in `xero-python-mcp-server/`).
+Runbook: `runbooks/04-code-execution-sampling-and-skill-factories.md`, gateway
+section. Do this first, because a gateway failure masks and amplifies failures in
+everything behind it.
 
-Note the naming trap here: `fastmcp` in a manifest is ambiguous. It may mean the
-third-party `fastmcp` distribution (stable 3.4.5, with 4.0.0b1 in beta) or the
-`mcp.server.fastmcp` module inside the official SDK. These have **different**
-migration paths, and the triage script reports the actual pin so you can tell them
-apart. Resolve this per repo before planning any work.
+### matthewdcage/llm-swarm-router, no impact
 
-### TypeScript servers, `@modelcontextprotocol/sdk` in `package.json`
+An OpenAI-compatible LLM router. No MCP dependency in any manifest, no server or
+client construction. The only touchpoint is a client-side `.cursor/mcp.json`
+pointing at an external Honcho server, which is host config, not server code. This
+branch adds documentation only.
 
-`mcp-se-ranking`, `mcp-google-maps`, `mcp-google-tag-manager`, `mcp-pbs-server`,
-`mcp-scriptstream`, `mcp-wine-experience-portal`, `ncib.gov-mcp`, `aus-healthhive`,
-`BOP-ZDispense-Ai-Server`, `wineraising-mcp-standalone`,
-`wineraising-admin-mcp-standalone`, `wineraising-onboarding`,
-`wineexperience-xero-mcp-http-server`, `ai-advantage-apps-hub`, `factory-suite`
-(`packages/mcp-factory/`), `hydra-digital-ops` (`agent-hydra-reporting/`),
-`bop-chat`, `wine-chat`, `medbill-chat`, `ChatUI-Nov-2025`, `chatbox`,
-`librechat-base`, `librechat-fork`.
+## matthewdcage, remaining
 
-Every one of these is on the `@modelcontextprotocol/sdk` v1 line. There is no
-`@modelcontextprotocol/sdk@2`: v2 is a three-package split
-(`@modelcontextprotocol/core`, `/server`, `/client`), so each of these repos faces a
-package rename in addition to any API changes, plus the Node 20+ and ESM-only
-requirement.
-
-### Session-bearing, provisional P1 or P0
-
-Repos referencing `Mcp-Session-Id`, which is removed:
-
-`mcp-pbs-server`, `mcp-scriptstream`, `ai-advantage-apps-hub`, `mcp-microsoft-365`,
-`wine-experience-xero-mcp-py`, `mcp-google-workspace`, `mcp-lightspeed-xseries`,
-`mcp-google-shopping`, `BOP-ZDispense-Ai-Server`, `mcp-google-maps`, `aus-healthhive`,
-`mcp-wine-experience-portal`, `bop-chat`.
-
-Several of these also carry proxy configuration (`Caddyfile`, `Caddyfile.production`,
-`docker-compose.production.yml`). Reverse-proxy config is in scope for this migration,
-because `Mcp-Method` and `Mcp-Name` become required request headers and proxies must
-pass them through. Do not treat the proxy layer as unaffected.
-
-### Legacy HTTP+SSE transport, deprecated with a 12 month offramp
-
-`mcp-scriptstream` (`server/transport/sse-transport.ts` plus
-`backward-compatible-http-transport.ts`), `factory-suite`
-(`packages/mcp-factory/runtime/transport/sse.ts`), `ncib.gov-mcp`
-(`src/transports/transport-factory.ts`), `ai-llm-ops-stack` (vendored litellm),
-and documentation references in `mcp-google-shopping`, `mcp-google-ads`,
-`mcp-google-content-api`, `mcp-google-analytics`.
-
-### Code-execution layers
-
-`bop-chat` (`zdispense-mcp-code-mode/`) and `mcp-microsoft-365`
-(`src/microsoft_365_mcp/server_code_mode_http.py`). These are the servers most
-affected by the loss of bidirectional streams and should move long-running work to
-the Tasks extension. See runbook 04, part (a).
-
-### Tool and skill factories
-
-`factory-suite` (`packages/mcp-factory/`, including a Node/Express adapter and its own
-transport layer) and `ai-advantage-apps-hub`
-(`docs/dev-docs/mcp-factory-maintenance-guide.md`). Dynamic and per-tenant tool
-generation interacts badly with the new cacheable `tools/list`: a shared `cacheScope`
-on a per-tenant tool list is both a correctness bug and a data-leak. See runbook 04,
-part (c).
-
-### Sampling and roots
-
-Only documentation hits were found (`bop-chat` under `mcp-docs/`, `mcp-taiga`
-`MCP_SDK.md`), with no implementation call sites detected. Exposure to the sampling
-and roots deprecations therefore looks **low** across the org, which is the one piece
-of genuinely good news in this inventory. Confirm locally, since code search does not
-index every file type reliably.
-
-## Candidate repositories: matthewdcage
+Pins not read (the session could not attach these repos; `add_repo` required an
+approval that a non-interactive session cannot surface).
 
 TypeScript: `pbs-mcp-server`, `savoir-finance-quickbooks-mcp-server`, `n8n-mcp-node`,
 `vapi-mcp`, `mcp-task-scheduler`, `wineraising-mcp`, `xero-mcp`, `script-stream`,
 `drug-bot`, `mcp-google-maps`, `cursor-mcp-installer`, `cursor-mcp-installer-dev`,
-`librechat-private-beta-features` (including `zdispense-mcp-code-mode/`).
+`librechat-private-beta-features`.
 
-Python: `mcp-ai-tool-gateway` (verified above), `mcp-zoho-books`,
-`google-workspace-mcp`, `minerva-ai`, `ai-browser-use-mcp`,
+Python: `mcp-zoho-books`, `google-workspace-mcp`, `minerva-ai`, `ai-browser-use-mcp`,
 `agent-libreoffice-cli-mcp`, `bop-ui-automation`, `hydra-digital-reporting-ai`.
 
-Several of these did not appear in the session's initial repository listing, which was
-paginated. Treat this list as additive to, not a replacement for, a local sweep.
+Given the AI-Advantage pattern, assume the Python repos here carry the same
+unbounded-pin exposure until the triage script says otherwise.
+
+## Structural signals worth knowing
+
+**Session-bearing** (references `Mcp-Session-Id`, which is removed): `mcp-pbs-server`,
+`mcp-scriptstream`, `ai-advantage-apps-hub`, `mcp-microsoft-365`,
+`wine-experience-xero-mcp-py`, `mcp-google-workspace`, `mcp-lightspeed-xseries`,
+`mcp-google-shopping`, `BOP-ZDispense-Ai-Server`, `mcp-google-maps`, `aus-healthhive`,
+`mcp-wine-experience-portal`, `bop-chat`.
+
+Several ship reverse-proxy config (`Caddyfile`, `Caddyfile.production`,
+`docker-compose.production.yml`). **The proxy layer is in scope**: `Mcp-Method` and
+`Mcp-Name` become required request headers and proxies must pass them through.
+
+**Legacy HTTP+SSE** (deprecated, 12 month offramp): `mcp-scriptstream`
+(`server/transport/sse-transport.ts`, `backward-compatible-http-transport.ts`),
+`factory-suite` (`packages/mcp-factory/runtime/transport/sse.ts`), `ncib.gov-mcp`
+(`src/transports/transport-factory.ts`), plus docs references in several Google
+servers.
+
+**Code-execution layers**: `bop-chat` (`zdispense-mcp-code-mode/`) and
+`mcp-microsoft-365` (`server_code_mode_http.py`). Most affected by the loss of
+bidirectional streams. Runbook 04, part (a).
+
+**Tool and skill factories**: `factory-suite` (`packages/mcp-factory/`, with its own
+transport layer and Express adapter) and `ai-advantage-apps-hub`. Dynamic per-tenant
+tool generation interacts badly with the new cacheable `tools/list`: a shared
+`cacheScope` on a per-tenant tool list is both a correctness bug and a data leak.
+Runbook 04, part (c).
+
+**Sampling and roots**: documentation hits only (`bop-chat/mcp-docs/`,
+`mcp-taiga/MCP_SDK.md`), no implementation call sites detected. Exposure to those
+two deprecations looks **low**, which is the one genuinely good result here.
+
+## Suggested order of work
+
+1. **Bound the majors** on the five Python P0 repos. Hours, not days. Stops active breakage.
+2. **Bound the rest** of the Python repos and the `factory-suite` peer range.
+3. **`mcp-ai-tool-gateway`**, because it fronts everything else.
+4. **Session-bearing HTTP servers**, including their proxy config.
+5. **SSE transports**, within the 12 month offramp.
+6. **The TypeScript fleet**, which is stable and can be scheduled deliberately. Start with the largest gaps (`^0.5.0`, `^1.0.0`).
 
 ## Caveats
 
-- Counts and lists include **archived, vendored and backup paths** (for example
-  `production-copy-may-2026/`, `archived/`, `*-backup/`, vendored `litellm` inside
-  `ai-llm-ops-stack`). These inflate apparent exposure. The triage script prunes such
-  paths; this inventory does not.
-- Forks (`librechat-fork`, `librechat-base`) carry upstream MCP code you probably do
-  not own. Decide per repo whether you are migrating it or tracking upstream.
-- No band here should drive scheduling on its own until the pinned version is known.
-  A repo pinned at `mcp==1.9.0` is stable and can be scheduled; the same repo at
-  `mcp>=1.2` is already broken on the next clean install. That distinction is the
-  whole point of running the triage script.
+- Repo and path lists include archived, vendored and backup directories
+  (`production-copy-may-2026/`, `archived/`, `*-backup/`, vendored litellm inside
+  `ai-llm-ops-stack`), which inflate apparent exposure. The triage script prunes
+  these; this document does not.
+- `librechat-fork` and `librechat-base` are forks carrying upstream MCP code you
+  likely do not own.
+- "not seen" in the tables means the pin did not appear in a search match fragment,
+  not that it is absent. Confirm locally.
