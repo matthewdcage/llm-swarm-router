@@ -10,6 +10,7 @@ enum KeychainStore {
         static let moonshotAPIKey = "moonshot_api_key"
         static let zaiAPIKey = "zai_api_key"
         static let openrouterAPIKey = "openrouter_api_key"
+        static let dashscopeAPIKey = "dashscope_api_key"
     }
 
     /// Maps a cloud provider registry id (from netllm_core.cloud_providers,
@@ -24,6 +25,7 @@ enum KeychainStore {
         case "moonshot": return Account.moonshotAPIKey
         case "zai": return Account.zaiAPIKey
         case "openrouter": return Account.openrouterAPIKey
+        case "dashscope": return Account.dashscopeAPIKey
         default: return "\(providerId)_api_key"
         }
     }

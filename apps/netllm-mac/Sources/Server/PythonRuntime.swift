@@ -83,6 +83,7 @@ struct PythonRuntime: Sendable {
             (KeychainStore.Account.moonshotAPIKey, "MOONSHOT_API_KEY"),
             (KeychainStore.Account.zaiAPIKey, "ZAI_API_KEY"),
             (KeychainStore.Account.openrouterAPIKey, "OPENROUTER_API_KEY"),
+            (KeychainStore.Account.dashscopeAPIKey, "DASHSCOPE_API_KEY"),
         ]
         for (account, envVar) in keychainToEnvVar {
             if env[envVar]?.isEmpty != false,
