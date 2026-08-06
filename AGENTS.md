@@ -68,7 +68,7 @@ Prefer `./netllm` from the repo root, works without global PATH (`uv run` wrappe
 | `./netllm test --api anthropic` | 1-token Messages API probe via agent |
 | `./netllm gateway` | Promote agent role to gateway |
 | `./netllm doctor` | PATH, mDNS, backend misconfig checks |
-| `./netllm cloud list` | Pre-configured cloud providers (Moonshot, Z.ai, OpenAI, Anthropic, OpenRouter) + enabled/key state |
+| `./netllm cloud list` | Pre-configured cloud providers (Moonshot, Z.ai, OpenAI, Anthropic, OpenRouter, DashScope) + enabled/key state |
 | `./netllm cloud enable/disable <id>` | Toggle a cloud provider (`--region`, `--auth`) |
 | `./netllm cloud set-key <id>` | Store an API key (prompt or `--env VAR`) |
 | `./netllm cloud fallback <cloud\|local\|none\|on\|off>` | Cloud fallback direction / toggle |

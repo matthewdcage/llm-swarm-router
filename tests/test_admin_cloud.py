@@ -29,7 +29,14 @@ def test_config_summary_includes_cloud_registry_metadata() -> None:
     assert summary["cloud"]["enabled"] is True
     assert summary["cloud"]["fallback"] == "cloud"
     providers = summary["cloud"]["providers"]
-    assert set(providers) == {"moonshot", "zai", "openai", "anthropic", "openrouter"}
+    assert set(providers) == {
+        "moonshot",
+        "zai",
+        "openai",
+        "anthropic",
+        "openrouter",
+        "dashscope",
+    }
     assert providers["moonshot"]["display_name"] == "Moonshot AI (Kimi)"
     assert providers["moonshot"]["enabled"] is False
     assert providers["moonshot"]["api_key_set"] is False
@@ -193,7 +200,14 @@ def test_cloud_providers_endpoint_serves_registry() -> None:
     assert resp.status_code == 200
     body = resp.json()
     ids = {row["id"] for row in body["providers"]}
-    assert ids == {"moonshot", "zai", "openai", "anthropic", "openrouter"}
+    assert ids == {
+        "moonshot",
+        "zai",
+        "openai",
+        "anthropic",
+        "openrouter",
+        "dashscope",
+    }
     moonshot = next(r for r in body["providers"] if r["id"] == "moonshot")
     assert moonshot["display_name"] == "Moonshot AI (Kimi)"
     assert "global" in moonshot["regions"]

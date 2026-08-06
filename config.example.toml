@@ -227,7 +227,7 @@ check_for_updates_automatically = true
 # local = false
 
 # Pre-configured cloud providers (Moonshot/Kimi, Z.ai/GLM, OpenAI, Anthropic,
-# OpenRouter). See docs/cloud-providers-plan.md for the full design and
+# OpenRouter, Alibaba Cloud DashScope/Qwen). See docs/cloud-providers-plan.md for the full design and
 # provider notes/caveats. Absent [cloud] section == pre-existing behavior:
 # cloud enabled, "cloud" fallback (local first, cloud as a last-resort
 # fallback), no provider pre-enabled.
@@ -277,3 +277,10 @@ fallback_enabled = true
 # api_key_env = "OPENROUTER_API_KEY"
 # # Or run `netllm cloud connect openrouter` for OAuth PKCE sign-in —
 # # the only provider here with a sanctioned third-party OAuth flow.
+#
+# [cloud.providers.dashscope]
+# enabled = true
+# region = "intl"          # "intl" (Singapore) | "cn" | "us" | "hk"
+# api_format = "openai"    # or "anthropic" (/apps/anthropic)
+# api_key_env = "DASHSCOPE_API_KEY"
+# # API keys are region-scoped — match region to where the key was issued.

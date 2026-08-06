@@ -13,7 +13,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-CloudProviderId = Literal["moonshot", "zai", "openai", "anthropic", "openrouter"]
+CloudProviderId = Literal[
+    "moonshot", "zai", "openai", "anthropic", "openrouter", "dashscope"
+]
 AuthMode = Literal["api_key", "oauth_pkce", "plan_token"]
 
 
@@ -152,6 +154,55 @@ CLOUD_PROVIDERS: dict[CloudProviderId, CloudProviderSpec] = {
             "The only provider here with an officially sanctioned "
             "third-party OAuth flow (PKCE, localhost callbacks supported "
             "for CLI tools)."
+        ),
+    ),
+    "dashscope": CloudProviderSpec(
+        id="dashscope",
+        display_name="Alibaba Cloud (DashScope / Qwen)",
+        endpoints={
+            "intl": CloudEndpoint(
+                openai_base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+                anthropic_base_url="https://dashscope-intl.aliyuncs.com/apps/anthropic",
+            ),
+            "cn": CloudEndpoint(
+                openai_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+                anthropic_base_url="https://dashscope.aliyuncs.com/apps/anthropic",
+            ),
+            "us": CloudEndpoint(
+                openai_base_url="https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+                anthropic_base_url="https://dashscope-us.aliyuncs.com/apps/anthropic",
+            ),
+            "hk": CloudEndpoint(
+                openai_base_url=(
+                    "https://cn-hongkong.dashscope.aliyuncs.com/compatible-mode/v1"
+                ),
+                anthropic_base_url=(
+                    "https://cn-hongkong.dashscope.aliyuncs.com/apps/anthropic"
+                ),
+            ),
+        },
+        auth_modes=("api_key",),
+        api_key_env="DASHSCOPE_API_KEY",
+        default_api_format="openai",
+        models_endpoint=True,
+        static_models=(
+            "qwen3-max",
+            "qwen3-plus",
+            "qwen-plus",
+            "qwen-flash",
+            "qwen-turbo",
+            "qwen-max",
+            "qwen3-coder-plus",
+            "qwen-vl-max",
+            "qwen-vl-plus",
+            "text-embedding-v3",
+        ),
+        notes=(
+            "Alibaba Cloud Model Studio (DashScope) Qwen family. API keys are "
+            "region-scoped — pick the region that matches your key (default "
+            "intl/Singapore). OpenAI Chat Completions at /compatible-mode/v1; "
+            "Anthropic Messages at /apps/anthropic. Prefer live GET /models "
+            "over this static list."
         ),
     ),
 }
