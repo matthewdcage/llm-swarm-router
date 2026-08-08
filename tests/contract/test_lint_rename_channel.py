@@ -31,7 +31,11 @@ HEAD_DOC: dict[str, Any] = {
 def head_index(monkeypatch: pytest.MonkeyPatch) -> dict[str, tuple[str, dict]]:
     """A HEAD holding exactly one vector, at its original path."""
     index = {HEAD_DOC["id"]: ("tests/contract/vectors/group/old-name.json", HEAD_DOC)}
-    monkeypatch.setattr(lint, "_head_vectors_by_id", lambda: index)
+    monkeypatch.setattr(
+        lint,
+        "_head_id_to_path",
+        lambda: {HEAD_DOC["id"]: "tests/contract/vectors/group/old-name.json"},
+    )
     monkeypatch.setattr(
         lint,
         "_head_vector_names",

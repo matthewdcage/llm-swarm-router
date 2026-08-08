@@ -220,6 +220,32 @@ def _naming() -> list[tuple[str, dict[str, Any]]]:
             note="disabled pool: no catch-all, falls through to the 404 hint",
         )
     )
+    out.append(
+        vector(
+            g,
+            "naming-model-pools-isolation-multi-host",
+            scenario={
+                "backends": [
+                    _backend("alpha", ["gemma4:26b"]),
+                    _backend("beta", ["qwen3-next-80b"]),
+                ],
+                "routing": {
+                    "model_pools": {
+                        "mixed": {
+                            "hosts": [ALPHA, BETA],
+                            "models": ["gemma4:26b", "qwen3-next-80b"],
+                            "enabled": True,
+                        }
+                    }
+                },
+            },
+            request={"path": "chat_ns", "body": _chat("qwen3-next-80b")},
+            note=(
+                "request-aware pool: literal model on qwen-host must not "
+                "overflow to gemma-host"
+            ),
+        )
+    )
 
     # -- rewrites + scenario stacking ---------------------------------------
     rewrite_scn = {
@@ -912,6 +938,29 @@ def _guards() -> list[tuple[str, dict[str, Any]]]:
             "guards-emb-embedding-model-ok",
             scenario=GUARD_FARM,
             request={"path": "emb", "body": {"model": "bge-m3", "input": "hi"}},
+        )
+    )
+    rewrite_guard_scenario = {
+        **GUARD_FARM,
+        "routing": {
+            "sources": [
+                {
+                    "id": "default",
+                    "model_rewrites": {"public-embed": "bge-m3"},
+                }
+            ]
+        },
+    }
+    out.append(
+        vector(
+            g,
+            "guards-rewrite-capability-400-chat-s",
+            scenario=rewrite_guard_scenario,
+            request={"path": "chat_s", "body": _chat("public-embed")},
+            note=(
+                "F-57: capability guard classifies the rewritten id (bge-m3) "
+                "but the 400 quotes the caller's name (public-embed)."
+            ),
         )
     )
     out.append(

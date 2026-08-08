@@ -653,6 +653,25 @@ def _errors() -> list[tuple[str, dict[str, Any]]]:
             ),
         )
     )
+    for surface, url in (
+        ("openai-chat", "/v1/chat/completions"),
+        ("openai-emb", "/v1/embeddings"),
+        ("anthropic-messages", "/v1/messages"),
+    ):
+        out.append(
+            vector(
+                g,
+                f"errors-envelope-{surface}-400-invalid-json",
+                backends=[oai("alpha")],
+                drive={
+                    "mode": "raw",
+                    "method": "POST",
+                    "url": url,
+                    "content": "{not-json",
+                },
+                note=("F-38: malformed JSON on /v1/* is a shaped 400, not a raw 500"),
+            )
+        )
     out.append(
         vector(
             g,
@@ -951,6 +970,9 @@ def _drive_raw(env: Any, doc: dict[str, Any]) -> DriveResult:
     kwargs: dict[str, Any] = {}
     if "json" in spec:
         kwargs["json"] = spec["json"]
+    if "content" in spec:
+        kwargs["content"] = spec["content"]
+        kwargs.setdefault("headers", {})["Content-Type"] = "application/json"
     resp = env.client.request(spec["method"], spec["url"], **kwargs)
     try:
         body: Any = resp.json()

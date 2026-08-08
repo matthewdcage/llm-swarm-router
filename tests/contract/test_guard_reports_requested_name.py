@@ -25,7 +25,7 @@ PUBLIC = "acme-fast-model"
 
 def test_chat_guard_reports_requested_not_rewritten_name() -> None:
     with pytest.raises(OpenAIUpstreamError) as exc:
-        PolicyMixin._reject_non_chat_model(INTERNAL, PUBLIC)
+        PolicyMixin._reject_non_chat_model(PUBLIC, INTERNAL)
     body = str(exc.value)
     assert PUBLIC in body
     assert INTERNAL not in body, "rewritten upstream id leaked to the caller"
@@ -36,7 +36,7 @@ def test_chat_guard_reports_requested_not_rewritten_name() -> None:
 
 def test_messages_guard_reports_requested_not_rewritten_name() -> None:
     with pytest.raises(AnthropicUpstreamError) as exc:
-        PolicyMixin._reject_non_chat_messages_model(INTERNAL, PUBLIC)
+        PolicyMixin._reject_non_chat_messages_model(PUBLIC, INTERNAL)
     body = str(exc.value)
     assert PUBLIC in body
     assert INTERNAL not in body
@@ -45,7 +45,7 @@ def test_messages_guard_reports_requested_not_rewritten_name() -> None:
 
 def test_embeddings_guard_reports_requested_not_rewritten_name() -> None:
     with pytest.raises(OpenAIUpstreamError) as exc:
-        PolicyMixin._reject_non_embedding_model("acme-chat-70b", PUBLIC)
+        PolicyMixin._reject_non_embedding_model(PUBLIC, "acme-chat-70b")
     body = str(exc.value)
     assert PUBLIC in body
     assert "acme-chat-70b" not in body
@@ -65,5 +65,5 @@ def test_guard_falls_back_to_the_model_when_no_rewrite_happened(
 ) -> None:
     """With no rewrite in play the two names coincide, so nothing changes."""
     with pytest.raises((OpenAIUpstreamError, AnthropicUpstreamError)) as exc:
-        guard(model)
+        guard(model, model)
     assert model in str(exc.value)

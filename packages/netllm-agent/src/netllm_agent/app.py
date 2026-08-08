@@ -31,7 +31,7 @@ from netllm_agent.admin import (
     require_admin_access,
     save_config_patch,
 )
-from netllm_agent.errors import install_error_handlers
+from netllm_agent.errors import install_error_handlers, parse_inference_json
 from netllm_agent.metrics import metrics_bytes
 from netllm_agent.service import AgentService, SourceCapacityExceeded
 
@@ -443,7 +443,7 @@ def create_app(
     @app.post("/v1/chat/completions")
     async def openai_chat_completions(request: Request) -> Any:
         require_inference_access(request)
-        payload = await request.json()
+        payload = await parse_inference_json(request)
         stream = bool(payload.get("stream"))
 
         try:
@@ -472,7 +472,7 @@ def create_app(
         docs/cli-source-routing-plan.md and
         netllm_core.openai_responses_bridge."""
         require_inference_access(request)
-        payload = await request.json()
+        payload = await parse_inference_json(request)
         stream = bool(payload.get("stream"))
 
         try:
@@ -495,7 +495,7 @@ def create_app(
     @app.post("/v1/embeddings")
     async def openai_embeddings(request: Request) -> Any:
         require_inference_access(request)
-        payload = await request.json()
+        payload = await parse_inference_json(request)
         try:
             return await service.proxy_embeddings(payload, headers=request.headers)
         except SourceCapacityExceeded as exc:
@@ -510,7 +510,7 @@ def create_app(
     @app.post("/v1/messages")
     async def anthropic_messages(request: Request) -> Any:
         require_inference_access(request)
-        payload = await request.json()
+        payload = await parse_inference_json(request)
         stream = bool(payload.get("stream"))
         # [D12] The route layer used to lower-case the header keys here
         # before handing them over — the only route that did. Every proxy

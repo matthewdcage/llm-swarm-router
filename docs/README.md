@@ -16,7 +16,7 @@ Overview: [platform-matrix.md](platform-matrix.md)
 
 | Topic | Doc |
 |-------|-----|
-| Latest release | [v0.5.0.0 release notes](release-notes/v0.5.0.0.md) · [v0.4.5.1](release-notes/v0.4.5.1.md) · [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases) |
+| Latest release | [v0.5.0.0 release notes](release-notes/v0.5.0.0.md) · [v0.5.0.1 (Phase B, pending)](release-notes/v0.5.0.1.md) · [GitHub Releases](https://github.com/matthewdcage/llm-swarm-router/releases) |
 | Prior alpha (Linux/Windows) | [v0.2.2 release notes](release-notes/v0.2.2-alpha.md) |
 | Linux/Windows QA checklist | [solutions/linux-windows-alpha-qa.md](solutions/linux-windows-alpha-qa.md) |
 

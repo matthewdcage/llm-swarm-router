@@ -13,7 +13,7 @@ User-facing install, troubleshoot, editor wiring, platform matrix, CI/release, a
 | Cross-platform | `platform-matrix.md`, `editor-integration.md`, `honcho-integration.md` |
 | macOS signing | `macos-code-signing.md` |
 | Release / CI | `ci-and-release.md`, `release-notes/` |
-| Learnings | `solutions/` |
+| Learnings | `solutions/` — manual smoke gates: [menubar-adopt-smoke.md](solutions/menubar-adopt-smoke.md), [codex-responses-smoke.md](solutions/codex-responses-smoke.md) |
 | SDK maintenance | `sdk-versions.md` |
 | Routing audit & hardening | `routing-hardening-plan.md`, `routing-live-validation-2026-07-31.md` |
 | Architecture & audit | `architecture/` (diagrams, dependency map, findings register) |
@@ -36,7 +36,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 
 - New platform behavior: update install + troubleshooting + platform-matrix together
 - SDK bumps: update `sdk-versions.md` in same PR as package dep change
-- Release notes go under `release-notes/` with version in filename; macOS blocks follow v0.3.0.1 pattern (in-app → bundled installer → optional repo script); menubar agent-start fixes: [release-notes/v0.3.0.2.md](release-notes/v0.3.0.2.md); open-LAN swarm default: [release-notes/v0.4.0.1.md](release-notes/v0.4.0.1.md); telemetry + menubar stats: [release-notes/v0.4.5.0.md](release-notes/v0.4.5.0.md)
+- Release notes go under `release-notes/` with version in filename; macOS blocks follow v0.3.0.1 pattern (in-app → bundled installer → optional repo script); menubar agent-start fixes: [release-notes/v0.3.0.2.md](release-notes/v0.3.0.2.md); open-LAN swarm default: [release-notes/v0.4.0.1.md](release-notes/v0.4.0.1.md); telemetry + menubar stats: [release-notes/v0.4.5.0.md](release-notes/v0.4.5.0.md); engine consolidation: [release-notes/v0.5.0.0.md](release-notes/v0.5.0.0.md); Phase B closeout: [release-notes/v0.5.0.1.md](release-notes/v0.5.0.1.md)
 - **Closure / release planning:** dated snapshots at `closure-roadmap-YYYY-MM-DD.md` — open findings, adversarial PR reviews, phased merge/release checklist; refresh or supersede on release boundaries (see [closure-roadmap-2026-08-03.md](closure-roadmap-2026-08-03.md))
 - macOS signing/notarization changes: update `macos-code-signing.md`, `ci-and-release.md`, and install/troubleshooting Gatekeeper sections together
 - macOS install/update/troubleshooting: update install + troubleshooting + platform-matrix together; menubar telemetry/Serving Stats behavior: [macos-troubleshooting.md#menubar-stats-or-serving-tab-empty](macos-troubleshooting.md#menubar-stats-or-serving-tab-empty), [telemetry-api.md](telemetry-api.md)

@@ -171,6 +171,18 @@ DMG/menubar installs: `netllm doctor` does not require a global CLI on PATH.
 
 **Verify:** `netllm peers` and `netllm models --lan`.
 
+### Subnet scan and corporate IDS
+
+Subnet scan probes up to **64 hosts** on the local /24 with concurrent `GET /health` requests. On corporate or guest networks this can trigger intrusion-detection alerts.
+
+| Situation | Fix |
+|-----------|-----|
+| Locked-down LAN | Set `subnet_scan = false` in `~/.config/netllm/config.toml`, or disable **Subnet scan at startup** in menubar Settings → Swarm |
+| mDNS blocked but peers known | Add static entries under `[swarm.peers]` instead of relying on scan |
+| Need one-off discovery | Run `netllm peers --subnet-scan` manually when IT approves, rather than leaving startup scan on |
+
+Subnet scan is **off by default** and only auto-enabled when the agent listens on LAN and mDNS finds no peers within 10 seconds. Full limits: [platform-matrix — Platform limits](platform-matrix.md#platform-limits).
+
 ---
 
 ## Editor connects but requests fail

@@ -22,6 +22,15 @@ Cross-platform: [editor-integration.md](editor-integration.md) · Agent help: `.
 | **Alpha** | Linux, Windows | First deb/rpm/zip packages on each Release; breaking changes and install UX still settling: see release notes |
 | **Core** | All | HTTP API contract at `:11400`: additive changes only |
 
+## Platform limits
+
+Packaging and network constraints worth knowing before install or LAN deployment.
+
+- **macOS menubar / DMG — Apple Silicon only.** Release builds target **arm64**; there is no Intel (x86_64) menubar app or DMG artifact. On Intel Macs use CLI-only `./netllm serve`, or run the agent on Linux or Windows.
+- **GitHub DMGs — ad-hoc signed until notarized.** Release DMGs are ad-hoc signed until [Developer ID notarization](macos-code-signing.md) ships in CI. **macOS 26+** Gatekeeper blocks ad-hoc menubar apps (`no usable signature`). Prefer [build from source + install script](macos-install.md#build-from-source--install-script-recommended-on-macos-26) until notarized DMGs are published.
+- **SHA256 verification — when sidecar present.** In-app and dashboard update checks verify SHA256 only when the release publishes a `.sha256` or `SHA256SUMS` sidecar; releases without sidecars fall back to size-only checking.
+- **Subnet scan — may trigger corporate IDS.** A full /24 subnet scan runs up to **64 concurrent** `GET /health` probes and can look like a port scan on locked networks. Subnet scan is **off by default** and auto-enabled only when the agent binds on LAN and mDNS finds no peers within 10 seconds. On corporate or guest Wi‑Fi, disable `subnet_scan` in config or menubar Settings → Swarm, or use static `swarm.peers` instead. See [macos-troubleshooting — Subnet scan and corporate IDS](macos-troubleshooting.md#subnet-scan-and-corporate-ids).
+
 ## Install and lifecycle
 
 | Platform | Recommended install | Background agent | `netllm start/stop/restart` |

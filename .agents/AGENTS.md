@@ -25,7 +25,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md). Editor reference: [../docs/editor-int
 ## Work Guidance
 
 - Skill descriptions must include trigger phrases for reliable agent routing
-- Keep setup/connect/swarm/doctor flows aligned with `./netllm` CLI behavior (v0.4.0.1: open trusted-LAN swarm by default; secured token optional via `--secure`, `--create`, or menubar toggle)
+- Keep setup/connect/swarm/doctor flows aligned with `./netllm` CLI behavior (v0.4.0.1: open trusted-LAN swarm by default; secured token optional via `--secure`, `--create`, or menubar toggle); `netllm-connect-editor` step 0 points at `./netllm connect <id>`
 
 ## Verification
 
@@ -46,4 +46,4 @@ scripts/sync-agent-skills.sh
 
 Individual skill folders use SKILL.md as their contract; no per-skill AGENTS.md unless a skill grows multi-file maintenance docs.
 
-Updated: 2026-06-12 (coordinator-platform skill; dispatch bridge verification in skill)
+Updated: 2026-08-03 (netllm-connect-editor step 0 → `./netllm connect <id>`; skills synced for Phase B)
