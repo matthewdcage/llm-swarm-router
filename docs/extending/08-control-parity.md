@@ -255,7 +255,8 @@ in its sharpest form.
 
 ```bash
 uv run pytest tests/conformance/kit_config_surfaces.py -q
-uv run pytest tests/conformance/kit_config_surfaces.py -k control-parity
+# the ledger's own health -- reasons, expiries, staleness, the tripwire
+uv run pytest tests/conformance/kit_config_surfaces.py -k ledger
 python3 scripts/generate-registry-artifacts.py --check
 ```
 
