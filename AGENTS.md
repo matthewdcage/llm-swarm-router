@@ -201,7 +201,11 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - Assume `netllm` is on PATH: prefer `./netllm` from repo root in instructions
 - Skip `./netllm doctor` before declaring setup complete
 - Add a config field to `models.py` without a control on the dashboard **and** the macOS app, or a dated row in `tests/conformance/ledgers/control-parity.toml` — `tests/conformance/kit_config_surfaces.py` fails by name (Axis D / F-21)
+<<<<<<< HEAD
 - **Add a provider, surface or harness id literal outside its registry.** `scripts/check-registry-mirrors.py` blocks it in `ci.sh lint`. Adding a row to `tests/conformance/ledgers/mirrors.toml` is **not** a fix — it also turns `tests/extending/test_worked_example_*.py` red until the new mirror is classified. The question is always whether the fact can be derived, generated with `--check`, or projection-tested ([docs/extending/README.md](docs/extending/README.md))
+=======
+- Add a provider, surface or harness id literal outside its registry (`tests/conformance/ledgers/mirrors.toml` blocks it)
+>>>>>>> origin/main
 - Auto-edit user editor `settings.json` without explicit consent
 - macOS menubar in-app install only works from `/Applications/llm-swarm-router.app` or `netllm-mac.app`; web dashboard proxies update checks via `GET /netllm/v1/update/check`
 

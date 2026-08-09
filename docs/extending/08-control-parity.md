@@ -256,6 +256,7 @@ in its sharpest form.
 ```bash
 uv run pytest tests/conformance/kit_config_surfaces.py -q
 # the ledger's own health -- reasons, expiries, staleness, the tripwire
+<<<<<<< HEAD
 uv run pytest tests/conformance/kit_config_surfaces.py -k "ledger or parity"
 python3 scripts/generate-registry-artifacts.py --check
 ```
@@ -266,6 +267,12 @@ The second selector is the ledger half: `-k control-parity` selected **nothing**
 parity"` selects the seven that read it.
 
 
+=======
+uv run pytest tests/conformance/kit_config_surfaces.py -k ledger
+python3 scripts/generate-registry-artifacts.py --check
+```
+
+>>>>>>> origin/main
 Adding a config field with no control fails as:
 
 ```
