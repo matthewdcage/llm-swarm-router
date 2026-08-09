@@ -130,6 +130,19 @@ def collect(source: str, ref: str) -> dict[str, object]:
                 "gate": gates[0] if gates else None,
             }
         )
+
+    if not rows:
+        # Refuse to emit an empty baseline. Pointing --ref at a POST-split
+        # commit finds no inline routes and would otherwise write
+        # `"routes": []` and exit 0 -- a manifest that vacuously "matches"
+        # every possible app. It cannot ship (--check and
+        # test_gate_baseline_is_pre_split both fail), but a footgun that is
+        # only caught two steps downstream is still a footgun.
+        raise SystemExit(
+            f"generate-route-auth-gates: create_app at {ref} registers no "
+            "routes inline, so there is no gate baseline to extract. Point "
+            "--ref at a PRE-split commit (routes declared inside create_app)."
+        )
     rows.sort(key=lambda row: (row["path"], row["method"]))
     return {
         "_comment": (

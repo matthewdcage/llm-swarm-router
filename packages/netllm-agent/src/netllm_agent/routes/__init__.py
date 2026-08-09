@@ -19,8 +19,15 @@ from netllm_agent.routes.gates import AccessGates
 
 Registrar = Callable[[RouteContext], None]
 
-# Order is registration order on the app. Paths are distinct, so it does not
-# affect matching; it is kept in the pre-split order for reviewability.
+# Order is registration order on the app, and it deliberately does NOT match
+# pre-split source order: baseline registered status before telemetry, this
+# registers telemetry first, and /netllm/v1/client-env and /netllm/v1/heartbeat
+# move several indices earlier. That is safe rather than merely assumed --
+# every path is distinct, the only parameterised route
+# (/netllm/v1/cloud/providers/{provider_id}/models) is the sole 6-segment path
+# so nothing can shadow it at any ordering, and the /ui Mount sits ahead of
+# every route in both trees with no route path beginning "/ui".
+# Do not "restore" pre-split order on the belief that it was preserved.
 REGISTRARS: tuple[Registrar, ...] = (
     root.register,
     telemetry.register,

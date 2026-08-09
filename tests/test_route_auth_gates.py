@@ -1,6 +1,7 @@
 """Which auth gate each route applies — held against the PRE-SPLIT app.py.
 
-Phase 5b split ``create_app``'s 559 inline lines into ``netllm_agent/routes/``.
+Phase 5b split ``create_app`` -- 487 lines, inside a 559-line ``app.py`` --
+into ``netllm_agent/routes/``.
 ``tests/contract/routes.json`` proves no route was added or lost. Nothing
 proved the far more dangerous half: that each surviving route still applies
 the *same* gate. F-59 in this repo was exactly that failure — a read gate that
@@ -24,8 +25,11 @@ possible, but only in a diff that says so out loud.
 Second stated limit: this records *which named gate function each route
 calls*, not what that function does. A gate whose body was gutted would still
 be recorded as applied. The gates' own behaviour is covered elsewhere
-(``test_agent.py`` admin-403 tests, ``test_route_layer_hardening.py``,
-``test_swarm_token_gates.py``-style read/inference 401 cases); this test
+(``test_doctor_open_lan.py:162-200`` and ``test_route_layer_hardening.py:41-79``
+for the read/inference 401 and local-client cases,
+``test_routing_hardening.py:400-424``); gutting ``require_read_access`` to a
+bare ``return`` leaves THIS file green and turns 7 tests in those files red,
+which is the division of labour on purpose. This test
 covers the property those tests cannot see: *coverage* across the whole route
 table.
 """
@@ -199,7 +203,7 @@ def test_create_app_stays_assembly_only() -> None:
     """PROGRAM.md §5 Phase 5b: create_app <= 150 lines, and no routes in it.
 
     The budget is the anti-reaccumulation gate: the pre-split function was
-    486 lines and grew one route at a time.
+    487 lines and grew one route at a time.
     """
     node = _create_app_node()
     assert node.end_lineno is not None
