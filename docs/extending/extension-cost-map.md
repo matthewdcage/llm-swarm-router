@@ -226,7 +226,7 @@ To add a genuinely new dialect (not a bridge):
 - Swift builds only on `macos-14` in the `menubar-lifecycle` job; a SwiftUI compile error is caught, a *missing* control is not.
 - `scripts/sync-agent-skills.sh` is not a CI check.
 
-**Verdict: high file count, but ~1100 of the 1268 lines are genuine per-surface work, not duplication.** The tax is that "keep three control surfaces in step" is a convention with no gate. `dashboard.js` at 2826 lines and `SettingsWindowView.swift` at 1237 lines are the two files that will keep absorbing this — both are the pre-split shape that `service.py` and `main.py` already escaped.
+**Verdict: high file count, but ~1100 of the 1268 lines are genuine per-surface work, not duplication.** The tax is that "keep three control surfaces in step" is a convention with no gate. `dashboard.js` at 2826 lines and `SettingsWindowView.swift` at 1237 lines (as measured for this map; 3004 and 1247 by `wc -l` on 2026-08-09) are the two files that will keep absorbing this — both are the pre-split shape that `service.py` and `main.py` already escaped.
 
 ---
 

@@ -41,6 +41,67 @@ Swift menubar application that supervises the netllm Python agent, exposes setti
 - **Settings agent status:** `AgentSupervisor.statusLabel` reads live `server.state.settingsStatusLabel` (not the notification-cached `state` copy) — same adopt/restart race class as menubar PR #43; Swift unit tests in `NetllmMacTests.AgentSupervisorStatusLabelTests`; control socket `status`/`start` responses expose `settingsStatusLabel` for `scripts/test-menubar-lifecycle.sh` L5b
 - **Menubar UX:** AppKit `MenubarController` (not SwiftUI popover) polls `GET /netllm/v1/telemetry?watch=1` while menu open; agent HTTP URLs use `AgentHTTP.url(base:path:)` (never `appendingPathComponent` for query strings); **System Stats** uses native `HostSampler` (delta E/P CPU, IOKit GPU, stacked memory bar); **Serving Stats** shows router session/all-time tokens + per-backend routed counts, plus oMLX rows when admin is reachable (oMLX 0.5.2+); optional CPU/GPU/MEM/LIV gauges toggled under Settings → Appearance (`ui.menubar_*` in config schema)
 
+## Extension contract
+
+**This package consumes registries. It owns none.** Every provider, surface,
+control and harness fact is stated in Python and served over HTTP; the Swift
+copies exist so the app renders before it has ever reached an agent, and they
+are fallbacks, never sources of truth.
+
+- **Consumes:** `GET /netllm/v1/cloud/providers`,
+  `GET /netllm/v1/local-providers`, `GET /netllm/v1/harnesses`,
+  `GET /netllm/v1/config/schema` (which also carries `controls`). Always read
+  the live registry (`model.cloudProviders`), never the static bootstrap
+  list directly.
+- **Generated here, never hand-edited:** `KeychainStore.bootstrapProviderIDs`
+  sits between `netllm:generated:begin/end:cloud-provider-ids` markers and is
+  written by `scripts/generate-registry-artifacts.py`, with `--check` in
+  `./scripts/ci.sh lint`.
+- **Hand-written offline rosters, projection-tested against the Python
+  registry** — these are the two macOS *companions* a new provider needs, and
+  they are hand-written because [PROGRAM.md](../../docs/extending/PROGRAM.md)
+  §6.3 refuses to generate SwiftUI, not because nobody got round to it:
+  - `SettingsViewModel.localProviderBootstrap` — label + first scan port.
+    Guard: `tests/conformance/kit_local.py::test_swift_bootstrap_matches_the_registry`.
+  - `SettingsViewModel.cloudProvidersBootstrap` — display name, notes,
+    regions, auth modes. Guard:
+    `tests/conformance/kit_cloud.py::test_settings_bootstrap_covers_every_provider`.
+- **Never re-hardcode a derived table.** `PythonRuntime.injectCloudAPIKeys`
+  derives every `*_API_KEY` name from the served registry;
+  `tests/conformance/kit_cloud.py::test_no_literal_api_key_table_survives_in_pythonruntime`
+  fails if a literal comes back. That table was the repo's only silent,
+  load-bearing hardcode: a provider added everywhere else stored a key that
+  was never exported, so it 401'd against a credential the UI showed as saved.
+
+### Debt: the typed-struct mirrors
+
+`Sources/Config/NetllmConfigDocument.swift` declares typed Swift structs for
+`AgentSection`, `RoutingPolicy`, `RoutingSection`, `BackendOverride`,
+`CloudProviderConfig` and `CloudSection` that mirror pydantic models in
+`netllm_core.models`. **This is acknowledged debt.**
+
+Why it is dangerous rather than merely redundant: `config_merge` rebuilds
+identityless row types (`RoutingPolicy`) from the model's defaults plus
+whatever the patch sends, so a field the Swift struct does **not** declare is
+**erased on Save**, not left alone. That is how `RoutingPolicy.source` was
+lost, silently widening a source-scoped policy to every caller. It was found
+by an adversarial audit rather than by CI, twice.
+
+- **Guard today:** `tests/conformance/kit_config_surfaces.py` parses these
+  structs from source and compares them against the pydantic models. A missing
+  field fails by name; the only escape is a dated `[[row_field]]` row in
+  `tests/conformance/ledgers/control-parity.toml`.
+- **Removal target:** the sections already migrated to
+  `[String: JSONValue]` + `SchemaFormView` (`ui`, `discovery`, `swarm`) show
+  the shape. `routing`'s remaining fields and all of `cloud` follow, gated on
+  `SchemaFormView` growing the widgets the ledger rows name — those rows are
+  the tracking list. Read [docs/config-schema-rewrite-plan.md](../../docs/config-schema-rewrite-plan.md)
+  before "finishing" that migration; the partial state is deliberate.
+- **Cite these structs by name, never by line number.**
+  [PROGRAM.md](../../docs/extending/PROGRAM.md) §8 cites them at
+  `NetllmConfigDocument.swift:28-35,49-88,99-119,122-150` and every one of
+  those ranges is already stale.
+
 ## Work Guidance
 
 - Build: `uv sync`, `uv pip install venvstacks`, `apps/netllm-mac/Scripts/build.sh release`

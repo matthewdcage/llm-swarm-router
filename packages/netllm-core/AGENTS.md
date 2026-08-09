@@ -40,6 +40,35 @@ Key modules: `config.py`, `routing_policy.py`, `pool.py`, `model_resolution.py`,
 - **`Backend.cloud_provider`/`auth_mode`**: tags on materialized cloud rows (`netllm-agent`'s `_materialize_cloud_provider_backends`) — `cloud_provider` names the registry id (drives `pool.select_backend(prefer_cloud=…)` and pruning), `auth_mode` ("api_key" default, "bearer" for Anthropic `plan_token`) picks the upstream SDK auth kwarg
 - **`resolve_routing(..., cloud=…)`**: `cloud.enabled=False` hard-disables cloud regardless of policy; `cloud.fallback="none"` suppresses the *default* cloud-allowed stance but an explicit `allow_cloud` policy still opts a route in; `cloud.fallback="local"` sets `cloud_leads=True` (cloud tried before local/peer mesh)
 
+## Extension contract
+
+- **Owns:** `CLOUD_PROVIDERS` (`cloud_providers.py`), `LOCAL_PROVIDERS`
+  (`local_providers.py`), `SECTIONS` (`config_schema.py`) and `CONTROLS`
+  (`control_plane.py`) — plus the hand-written `ProviderId` /
+  `CloudProviderId` / `SurfaceName` `Literal`s that annotate them. This
+  package is where a provider, config-section or control fact is **stated
+  once**.
+- **Not owned, because they do not exist:** `MIGRATIONS` and `DEPRECATIONS`
+  are specified in [docs/extending/PROGRAM.md](../../docs/extending/PROGRAM.md)
+  Phase 6, which has **not landed**. Do not write code that assumes a config
+  `schema_version`, a migration rail or a deprecation clock.
+- **Serves:** nothing over HTTP directly — `netllm-agent` projects these
+  registries. Core's contract is that every consumer can `import` the fact
+  rather than restate it.
+- **No new mirrors:** never add a provider, surface or harness id literal
+  outside its registry. `scripts/check-registry-mirrors.py` fails the build,
+  and adding a row to `tests/conformance/ledgers/mirrors.toml` is **not** a
+  fix — see [docs/extending/templates/ledger-entry.md](../../docs/extending/templates/ledger-entry.md).
+- **Hand-written by design, asserted by `get_args` equality:** the three
+  `Literal`s. A derived `Literal` blinds basedpyright. `ProviderId` is
+  compiled into `Backend`'s pydantic schema so its omission raises;
+  `CloudProviderId` is only an annotation, so its omission is **invisible at
+  runtime** and `tests/conformance/kit_cloud.py::test_cloud_provider_id_literal_matches_the_registry`
+  is the only thing that notices.
+- **Adding an entry:** [docs/extending/01-cloud-provider.md](../../docs/extending/01-cloud-provider.md),
+  [02-local-provider.md](../../docs/extending/02-local-provider.md),
+  [04-cli-and-control-plane.md](../../docs/extending/04-cli-and-control-plane.md).
+
 ## Work Guidance
 
 - Keep pydantic models in `models.py`; avoid circular imports with agent/discovery

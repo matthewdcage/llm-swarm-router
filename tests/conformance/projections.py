@@ -135,9 +135,14 @@ def dict_keys_after(rel_path: str, marker: str) -> Projection:
 
     `TAB_RENDERERS` in dashboard.js is the shape this exists for -- a map of
     tab key -> renderer function, which neither `string_array_after` (no
-    brackets) nor `switch_case_labels` (no `case`) can read. Anchored on the
-    identifier, never a line number: PROGRAM.md cites `:2499` for
-    `TAB_RENDERERS` and the real line is `:2524`.
+    brackets) nor `switch_case_labels` (no `case`) can read.
+
+    Anchored on the identifier, never a line number. PROGRAM.md cites
+    `TAB_RENDERERS` at `:2499`; this docstring corrected that to `:2524` in
+    Phase 4; by Phase 8 the symbol had moved again. Both numbers were true
+    when written and neither is now, which is the entire argument for
+    searching for the marker and *reporting* the line rather than asserting
+    one.
     """
     pairs, location = _js_object_after(rel_path, marker)
     return Projection(tuple(pairs), location)

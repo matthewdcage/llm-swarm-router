@@ -41,6 +41,10 @@
 
 ## Checklist
 
+- [ ] **New fact added — is it in a registry?** A provider, surface, control, harness or
+      config-section id belongs in exactly one registry; everything else derives it,
+      generates it with `--check`, or is projection-tested
+      (see [docs/extending/README.md](../docs/extending/README.md))
 - [ ] PR is focused: not mixing unrelated changes
 - [ ] Conventional commit message(s) (`feat:`, `fix:`, `docs:`, etc.)
 - [ ] No secrets, API keys, or `.cursor/mcp.json` committed

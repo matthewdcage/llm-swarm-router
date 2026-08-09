@@ -159,7 +159,7 @@ Gate on every phase: `uv run pytest tests/contract/test_vectors.py` with **zero 
 3. **Generating SwiftUI or dashboard JS from a descriptor.** ~1100 of `bf67238`'s 1268 lines were genuine per-surface UI work. A three-UI generator is a framework project with a bad payoff curve. Generate the *manifest of what must exist*; hand-write the UI.
 4. **Deriving `SURFACE_MEMBERS` in `check-engine-erosion.py`.** Its `:37` no-import-coupling argument is correct. Assert the superset test-side instead.
 5. **Deriving `_FULL_REPLACE_DICT_PATHS`.** Full-replace vs deep-merge is a semantic choice. Gate completeness; do not synthesize the answer.
-6. **Rewriting `dashboard.js` (2826 lines) or `SettingsWindowView.swift` (1237 lines).** Both are pre-split shapes that will keep absorbing axis-D work. Acknowledged debt, not scheduled — the parity gate makes their *gaps* loud without touching their *size*.
+6. **Rewriting `dashboard.js` or `SettingsWindowView.swift`** (2826 / 1237 lines when this program was written; 3004 / 1247 by `wc -l` on 2026-08-09 — the growth is the point). Both are pre-split shapes that will keep absorbing axis-D work. Acknowledged debt, not scheduled — the parity gate makes their *gaps* loud without touching their *size*.
 7. **Live cloud-provider canaries.** Real gap (`docs/cloud-providers-plan.md` flags it: no per-provider validated-date, no canary), but structural conformance cannot catch a wrong `base_url` and this program will not pretend to. Separate follow-on modelled on `sdk-canary.yml`.
 8. **Anthropic SDK param-drift protection (G5).** Real and worth doing; out of scope here because it belongs to the already-excellent SDK-bump pathway, not the extensibility axes. File it, do not bundle it.
 
@@ -173,15 +173,23 @@ Gate on every phase: `uv run pytest tests/contract/test_vectors.py` with **zero 
 - **`config.example.toml` prose and comments.** Only the field skeleton is checked for completeness.
 - **Semantic correctness of any registry entry.** Structural conformance cannot tell you a base URL is wrong.
 
-**Ledger discipline** (the escape hatch, and the thing most likely to erode): every ledger entry requires `reason` + `expires`. Stated tripwire in `docs/architecture/10-extensibility-contracts.md`: **if `local-exceptions.toml` reaches 5 entries, or `intentionally_absent` covers >20% of control descriptors, the spec is wrong — redesign it, do not add entries.**
+**Ledger discipline** (the escape hatch, and the thing most likely to erode): every ledger entry requires `reason` + `expires`. Stated tripwire in `docs/architecture/11-extensibility-contracts.md`: **if `local-exceptions.toml` reaches 5 entries, or `intentionally_absent` covers >20% of control descriptors, the spec is wrong — redesign it, do not add entries.**
 
 ---
 
 ## 8. Documentation and DOX placement
 
-`docs/extending/` — `README.md` (the single rule, the four gates and what each error message means, the decision tree "data, hook, or adapter?"), `01-cloud-provider.md` … `05-config-and-wire-evolution.md`, `templates/` (copy-paste stubs). Plus `docs/compatibility-policy.md`, `docs/versioning.md`, `docs/mesh-upgrade.md`, `docs/deprecations.toml`, `docs/architecture/10-extensibility-contracts.md` (slots after the existing 01-09).
+`docs/extending/` — `README.md` (the single rule, the four gates and what each error message means, the decision tree "data, hook, or adapter?"), `01-cloud-provider.md` … `05-config-and-wire-evolution.md`, `templates/` (copy-paste stubs). Plus `docs/compatibility-policy.md`, `docs/versioning.md`, `docs/mesh-upgrade.md`, `docs/deprecations.toml`, `docs/architecture/11-extensibility-contracts.md` (it slotted in after 10-audit-2026-08-08.md, not at 10- as planned).
 
-Each guide's checklist maps **1:1 to a named kit test**, and each ends with the exact invocation (`uv run pytest tests/conformance/kit_<axis>.py -k <your-id>`). "Proven" is discharged by `tests/extending/test_worked_example_<axis>.py`, which injects a fixture registry entry and asserts it flows end-to-end — discovery URLs → config validation → schema document → projection endpoint → CLI listing → dashboard payload — **with zero source edits beyond the registry entry**. If the guide's central claim stops being true, that test goes red.
+Each guide's checklist maps **1:1 to a named test**, and each ends with the exact invocation. "Proven" is discharged by `tests/extending/test_worked_example_<axis>.py`, which injects a fixture registry entry and asserts it flows end-to-end — discovery URLs → config validation → schema document → projection endpoint → CLI listing → dashboard payload (→ macOS discovery checkboxes, on Axis B).
+
+**Amended (Phase 8/8b).** This section originally promised that flow **"with zero source edits beyond the registry entry"**. Measured against the tree, that is false, and the corrected claim is:
+
+> zero source edits beyond the registry entry **and its declared hand-written companions**, where every companion is enumerated with the reason it cannot be derived.
+
+The companions are not defects; each is a refusal recorded above. Axis A: `CloudProviderId` (§6.2), `cloudProvidersBootstrap` (§6.3), the `[cloud.providers.<id>]` stanza in `config.example.toml`. Axis B: `ProviderId` (§6.2), `localProviderBootstrap` and `SettingsViewModel.providers` (§6.3 — two separate arrays in one file, pinned by two different tests). Two further caveats the original text did not carry: a guide checklist row may name a guard **outside** its axis kit (Axis B row 23 is in `tests/test_contract.py`), and the worked example's sufficiency property is only as strong as its stage list — a surface no stage reads cannot fail it, which is how Axis B's third companion stayed undeclared through Phase 8.
+
+If the corrected claim stops being true, those tests go red.
 
 **DOX rail** (root Child DOX Index + per-folder `AGENTS.md`): index gains `tests/conformance/` and `docs/extending/`. Each package `AGENTS.md` gains an **Extension contract** section naming the registry it owns, the projection it serves, and the no-new-mirrors prohibition — `netllm-core` owns `CLOUD_PROVIDERS` / `LOCAL_PROVIDERS` / `SECTIONS` / `MIGRATIONS` / `DEPRECATIONS`; `netllm-discovery` consumes only; `netllm-agent` owns `SURFACES` and `routes.json`; `netllm-cli` owns `COMMANDS`; `netllm-mac` **consumes only**, with its typed-struct mirrors (`NetllmConfigDocument.swift:28-35,49-88,99-119,122-150`) named as debt with a removal target. Root do-not rule added: *never add a provider/surface id literal outside its registry.* PR template gains one checkbox: "new fact added — is it in a registry?"
 

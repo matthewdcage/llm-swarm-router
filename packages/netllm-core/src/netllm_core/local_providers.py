@@ -206,12 +206,3 @@ def providers_for_platform(sys_platform: str) -> list[str]:
     return [
         spec.id for spec in LOCAL_PROVIDERS.values() if not _is_platform_exclusive(spec)
     ]
-
-
-def _is_platform_exclusive(spec: LocalProviderSpec) -> bool:
-    """True when a provider runs on exactly one platform (oMLX today).
-
-    Such a provider must never be offered on an unknown platform; a
-    cross-platform one is a better guess than an empty list.
-    """
-    return len(spec.platforms) == 1

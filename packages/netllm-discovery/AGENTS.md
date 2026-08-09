@@ -25,6 +25,28 @@ Key modules: `local.py`, `swarm.py`, `mdns.py`, `lan.py`, `runtime.py`, `agent_l
 - `lan.subnet_scan_agents()` returns **one row per agent_id** (`dedupe_agents_by_id`): multi-homed hosts keep the row matching their reported listen_url, other IPs land in `also_reachable_at`; `fetch_agent_status` preserves `reported_listen_url` alongside the probe URL
 - LM Studio auth tokens: `LMSTUDIO_API_KEY` env or `[[routing.backends]]` `api_key` / `api_key_env` (scan uses `netllm_core.backend_credentials.resolve_api_key_for_url` per pinned URL; request paths unchanged)
 
+## Extension contract
+
+- **Owns:** no registry. `KNOWN_PROVIDERS` and `DEFAULT_API_KEYS` in
+  `local.py` keep their public shape but are **comprehensions over**
+  `netllm_core.local_providers.LOCAL_PROVIDERS` — they are derived, not
+  copies, and `tests/conformance/kit_local.py::test_discovery_roster_is_derived_not_mirrored`
+  pins that.
+- **Consumes only.** Discovery reads the local-provider registry; it never
+  states a provider fact of its own. A port, label or env-var name that
+  belongs to a provider belongs on `LocalProviderSpec`.
+- **The one permitted id literal:** `provider != "omlx"` on the admin and
+  telemetry probes. oMLX exposes a proprietary admin API no other local
+  server has, so that literal marks a real **capability**, not a roster. It
+  is ledgered with that reason, and
+  `tests/conformance/kit_cloud.py::test_omlx_admin_probe_is_the_only_provider_specific_branch`
+  pins that it stays the **only** one — a second means the capability belongs
+  on the spec instead.
+- **No new mirrors:** never add a provider id literal here. Generic
+  behaviour keyed on a spec field (`host_env`, `port_env`) is the pattern —
+  it is what deleted `if provider_id == "ollama"`.
+- **Adding a provider:** [docs/extending/02-local-provider.md](../../docs/extending/02-local-provider.md).
+
 ## Work Guidance
 
 - Discovery results feed `netllm-core` routing; keep scan logic side-effect free where possible

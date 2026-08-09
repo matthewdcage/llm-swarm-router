@@ -54,6 +54,7 @@ carries a `file:line` reference and, where practical, a reproduction that was ac
 | 08 | [Feature integration status](08-feature-integration-status.md) | Shipped / partial / orphaned matrix for planning |
 | 09 | [Follow-up audit 2026-07-31](09-follow-up-audit-2026-07-31.md) | F-30…F-53: product-outward audit at `c9bd30a` (wire fidelity, docs alignment, cross-surface consistency), plus post-audit entries F-54… |
 | 10 | [Audit 2026-08-08](10-audit-2026-08-08.md) | F-59…F-96: audit at `243e3dc` (v0.5.0.1) — one S1 credential disclosure, bridge streaming defects, extension-cost findings |
+| 11 | [Extensibility contracts](11-extensibility-contracts.md) | As-built: the single rule and its ladder, registry ownership, the ledgers and their tripwires, what is deliberately *not* derived, the measured extension cost per axis, and where the rail is thin |
 | — | [refactor/](refactor/) | The F-24/F-25/F-26 consolidation: adopted plan, behavior matrix (D1–D18), module inventory, dependency graph, release notes |
 | — | [Closure roadmap 2026-08-03](../closure-roadmap-2026-08-03.md) | Open-item inventory, adversarial merged-PR reviews, phased path to 0.5.0.0 release |
 

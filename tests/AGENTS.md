@@ -51,6 +51,9 @@ scripts/verify-before-pr.sh
 
 | Path | Contract |
 |------|----------|
+| [`conformance/`](conformance/AGENTS.md) | Registry-parameterized kits + reason/expiry ledgers |
+| [`extending/`](extending/) | Worked examples: a fixture registry entry driven end to end, and the exhaustiveness property over its declared hand-written companions (no AGENTS.md — two files, documented in their own module docstrings) |
+| [`contract/`](contract/) | 373 golden vectors, the exact-set route manifest, the divergence ledger |
 | [`fixtures/`](fixtures/) | Shared test payloads |
 
 Fixtures are data only; no per-fixture AGENTS.md unless a fixture tree grows maintenance docs.
