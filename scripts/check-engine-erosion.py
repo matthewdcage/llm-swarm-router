@@ -135,7 +135,90 @@ def check(path: Path = ENGINE) -> list[str]:
     return violations
 
 
+SEAM_LEDGER = REPO_ROOT / "tests/conformance/ledgers/surface-seams.toml"
+AGENT_SRC = REPO_ROOT / "packages/netllm-agent/src/netllm_agent"
+ADAPTER_PACKAGE = AGENT_SRC / "service/surfaces"
+
+
+def _surface_branches() -> list[tuple[str, int, str]]:
+    """Every `Surface`-keyed conditional outside the adapter package.
+
+    Axis C's rule: a surface branch belongs on the outside of the failover
+    loop, in `service/surfaces/`. One anywhere else is a place a new surface
+    can be silently forgotten -- nothing enumerates them, so the omission is
+    a runtime behaviour difference rather than a failed build.
+
+    Comments and docstrings are skipped: prose describing a branch that was
+    REMOVED still names it, and counting that would make the gate fire on its
+    own changelog. (Learned the hard way in Phase 4.)
+    """
+    found: list[tuple[str, int, str]] = []
+    for path in sorted(AGENT_SRC.rglob("*.py")):
+        if ADAPTER_PACKAGE in path.parents or path == ENGINE:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Compare, ast.IfExp, ast.If)):
+                continue
+            segment = ast.dump(node)
+            if "attr='" not in segment:
+                continue
+            for member in SURFACE_MEMBERS:
+                if f"attr='{member}'" in segment and "id='Surface'" in segment:
+                    rel = path.relative_to(REPO_ROOT).as_posix()
+                    found.append((rel, node.lineno, member))
+                    break
+    return sorted(set(found))
+
+
+def check_seams() -> int:
+    import tomllib
+
+    branches = _surface_branches()
+    if not SEAM_LEDGER.exists():
+        print(f"error: {SEAM_LEDGER} not found", file=sys.stderr)
+        return 1
+    ledger = tomllib.loads(SEAM_LEDGER.read_text(encoding="utf-8"))
+    allowed = {(entry["file"], entry["member"]) for entry in ledger.get("seam", [])}
+    unledgered = [
+        f"{rel}:{lineno}: Surface.{member} branch outside service/surfaces/"
+        for rel, lineno, member in branches
+        if (rel, member) not in allowed
+    ]
+    if unledgered:
+        print("surface-seams gate FAILED:", file=sys.stderr)
+        for line in unledgered:
+            print(f"  {line}", file=sys.stderr)
+        print(
+            "\nDeclare the per-surface fact on taxonomy.SurfaceSpec (or as a "
+            "SurfaceAdapter member) so every surface has to answer it, or "
+            f"ledger it in {SEAM_LEDGER.relative_to(REPO_ROOT)} with a reason "
+            "and an expiry.",
+            file=sys.stderr,
+        )
+        return 1
+    stale = [
+        f"{file}:{member}"
+        for (file, member) in allowed
+        if not any(r == file and m == member for r, _, m in branches)
+    ]
+    if stale:
+        print(
+            "surface-seams gate FAILED: ledgered seams that no longer exist "
+            "(delete the entries):\n  " + "\n  ".join(stale),
+            file=sys.stderr,
+        )
+        return 1
+    print(f"OK: surface seams — {len(branches)} ledgered, 0 unledgered")
+    return 0
+
+
 def main() -> int:
+    if "--seams" in sys.argv:
+        return check_seams()
     if not ENGINE.exists():
         print(f"error: {ENGINE} not found", file=sys.stderr)
         return 1

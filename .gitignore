@@ -47,6 +47,9 @@ tests/test_coordinator_dispatch.py
 tests/test_coordinator_engagement_monitor.py
 .agents/skills/coordinator-platform/
 .claude/skills/coordinator-platform/
+# Transient git worktrees created for isolated subagent runs. They are full
+# checkouts of this repo -- committing them would nest the tree inside itself.
+.claude/worktrees/
 .cursor/skills/coordinator-platform/
 .github/skills/coordinator-platform/
 .cursor/rules/pr-coordinator.mdc

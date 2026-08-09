@@ -35,7 +35,7 @@ from netllm_core.scenarios import Scenario
 from netllm_core.source_identity import ResolvedSource
 
 from .shard import ShardContext
-from .taxonomy import Surface
+from .taxonomy import Surface, spec_for
 
 __all__ = ["RequestPlan", "api_format_for"]
 
@@ -48,7 +48,7 @@ def api_format_for(surface: Surface) -> str:
     embedding traffic; Phase 4d gives the classifier a surface input so a
     rule can opt out of that).
     """
-    return "anthropic" if surface is Surface.MESSAGES else "openai"
+    return spec_for(surface).classifier_api_format
 
 
 @dataclass(frozen=True)
