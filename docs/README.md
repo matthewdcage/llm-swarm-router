@@ -34,6 +34,8 @@ Overview: [platform-matrix.md](platform-matrix.md)
 | Topic | Doc |
 |-------|-----|
 | **Architecture, dependencies & audit** | [architecture/](architecture/README.md) — system + component diagrams, request lifecycle, swarm behaviour, dependency map, findings register, feature integration status |
+| **Extending netllm** | [extending/](extending/README.md) — add a cloud provider, a local inference server, an API surface, a control, a harness; each checklist row names its test or is marked unguarded |
+| **Compatibility across versions** | [compatibility-policy.md](compatibility-policy.md) — what netllm promises, and separately what is actually enforced today |
 | **Closure roadmap (open items, release path)** | [closure-roadmap-2026-08-03.md](closure-roadmap-2026-08-03.md) |
 | CI, macOS build, release | [ci-and-release.md](ci-and-release.md) |
 | macOS Developer ID + notarization | [macos-code-signing.md](macos-code-signing.md) |

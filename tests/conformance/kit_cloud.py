@@ -45,6 +45,55 @@ def test_registry_key_matches_spec_id() -> None:
         assert key == value.id, f"registry key {key!r} != spec id {value.id!r}"
 
 
+def test_cloud_provider_id_literal_matches_the_registry() -> None:
+    """`CloudProviderId` stays hand-written; assert it, do not assume it.
+
+    `mirrors.toml` has claimed since Phase 0 that this Literal is "asserted by
+    get_args equality in kit_cloud" -- and it was not: `kit_local` had the
+    assertion for `ProviderId` and this file had no counterpart, so the
+    ledger's stated reason was true of the local axis only.
+
+    It matters more here than on the local axis, not less. `ProviderId` is
+    compiled into `Backend`'s pydantic schema, so omitting an id raises at
+    parse time. `CloudProviderId` is only ever an annotation --
+    `CloudProviderSpec` is a frozen dataclass and `CloudConfig.providers` is
+    keyed by `str` -- so omitting an id changes nothing at runtime and this
+    assertion is the only thing in CI that notices.
+    """
+    from typing import get_args
+
+    from netllm_core.cloud_providers import CloudProviderId
+
+    assert set(get_args(CloudProviderId)) == set(CLOUD_PROVIDERS), (
+        "CloudProviderId and CLOUD_PROVIDERS disagree: "
+        f"{sorted(set(CLOUD_PROVIDERS) ^ set(get_args(CloudProviderId)))}"
+    )
+
+
+def test_config_example_documents_every_provider(spec: CloudProviderSpec) -> None:
+    """Every provider needs a `[cloud.providers.<id>]` stanza in the example.
+
+    The stanzas are hand-written on purpose: each carries per-provider
+    commentary (which auth modes are real, which model ids are sunsetting)
+    that generating would flatten into noise. Only *presence* is asserted --
+    never the prose -- which is what discharges the ledger's `phase-8` expiry
+    on this mirror without pretending the commentary is derivable.
+
+    The headers are commented out (`# [cloud.providers.openai]`), because the
+    example file must parse as a config that changes nothing.
+    """
+    import re
+
+    text = (REPO_ROOT / "config.example.toml").read_text(encoding="utf-8")
+    pattern = re.compile(
+        r"^\s*#?\s*\[cloud\.providers\." + re.escape(spec.id) + r"\]", re.MULTILINE
+    )
+    assert pattern.search(text), (
+        f"config.example.toml has no [cloud.providers.{spec.id}] stanza; a "
+        "provider nobody can find in the example config is one nobody enables"
+    )
+
+
 def test_default_region_resolves_to_a_real_endpoint(spec: CloudProviderSpec) -> None:
     """`default_region()` returns the first endpoint key; if that key were
     ever removed while a stale default lingered, every unqualified request to

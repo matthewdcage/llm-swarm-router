@@ -40,6 +40,74 @@ Every mechanism this uses already exists in the tree — `CloudProviderSpec`, th
 --check`, `check-engine-erosion.py`, and the `allowed-divergences.txt` declare-or-fail
 ledger. Nothing new is invented where something proven already works.
 
+## Start here — the guides
+
+One per axis. **Every checklist row names the test that fails if you skip it,
+or is marked *unguarded*.** There is no third category.
+
+| Guide | Axis | Registry entry + hand-written companions | Kit |
+|---|---|---|---|
+| [01-cloud-provider.md](01-cloud-provider.md) | A — cloud provider | 1 + **3** | `tests/conformance/kit_cloud.py` |
+| [02-local-provider.md](02-local-provider.md) | B — local inference server | 1 + **2** | `tests/conformance/kit_local.py` |
+| [03-api-surface.md](03-api-surface.md) | C — wire dialect | 1 spec + 1 adapter | **none** — `tests/contract/test_surface_adapters.py` |
+| [04-cli-and-control-plane.md](04-cli-and-control-plane.md) | D — CLI / control | 1 descriptor + per-surface UI | `tests/conformance/kit_config_surfaces.py` |
+| [05-config-and-wire-evolution.md](05-config-and-wire-evolution.md) | E — config + wire | additive only today | `tests/test_config_forward_compat.py` |
+| [06-harness-integration.md](06-harness-integration.md) | F — external CLI agent | 1 + **1 shadow roster** | **none** |
+| [07-upstream-absorption.md](07-upstream-absorption.md) | G — upstream change | — | **none** |
+| [08-control-parity.md](08-control-parity.md) | D, as built | — | `tests/conformance/kit_config_surfaces.py` |
+
+Copy-paste stubs: [templates/](templates/README.md).
+As-built contract record: [../architecture/11-extensibility-contracts.md](../architecture/11-extensibility-contracts.md).
+Version promises and what is actually enforced: [../compatibility-policy.md](../compatibility-policy.md).
+
+## What "proven" means here
+
+`tests/extending/test_worked_example_local.py` and
+`test_worked_example_cloud.py` inject a **fixture registry entry** into the
+live registry and drive it end to end — discovery URLs → config validation →
+schema document → projection endpoint → CLI listing → dashboard payload.
+
+The claim they discharge is **not** [PROGRAM.md](PROGRAM.md) §8's "with zero
+source edits beyond the registry entry". That was measured against this tree
+and is false. It is:
+
+> zero source edits beyond the registry entry **and its declared
+> hand-written companions**, where every companion is enumerated with the
+> reason it is hand-written.
+
+Three properties, because one is not enough:
+
+1. **Sufficiency** — the entry plus its declared companions, and nothing
+   else, passes every stage. A *new* hand-edit becoming necessary fails the
+   stage that needs it, by name.
+2. **Necessity** — omitting any companion must break something, so the list
+   cannot rot into a pessimistic over-statement.
+3. **Classification** — every mirror `tests/conformance/ledgers/mirrors.toml`
+   allows must be classified as a companion, a generated block, or a
+   capability branch. A new ledger row fails until the worked example *and*
+   its guide say which.
+
+## The four gates, and what each error message means
+
+| Gate | Fires when | What to do |
+|---|---|---|
+| `scripts/check-registry-mirrors.py` | a registry id literal appears in a file the ledger does not name | derive it, generate it, or projection-test it. A ledger row is the last resort and needs a `reason` + `expires` |
+| `scripts/generate-registry-artifacts.py --check` | a generated block is stale | run the command the error prints |
+| `scripts/check-engine-erosion.py [--seams]` | the failover loop learned about a surface, or a `Surface` branch escaped `service/surfaces/` | move the fact onto `SurfaceSpec` or a `SurfaceAdapter` member |
+| `scripts/check-doc-paths.py` | an instructional doc points at a path that does not exist | fix the path. `docs/extending/` and `docs/architecture/` are exempt because they quote future and dead paths on purpose |
+
+## Data, hook, or adapter?
+
+| Question | Answer |
+|---|---|
+| Do **≥2** entries set it non-default? | a **spec field** |
+| Is it one entrant's quirk? | a **hook callable** on the spec — never squeezed into data |
+| Is it a wire-dialect behaviour? | a **`SurfaceAdapter`** member |
+| Is it a per-surface *widget*? | **hand-written UI**. Generate the manifest of what must exist, never the UI |
+| Is it a genuine capability difference (oMLX's admin API)? | a **literal is allowed**, ledgered with that reason, and it must stay the only one |
+
+Review the spec shape at every **third** entrant.
+
 ## Axes F and G — added after the first pass under-scoped them
 
 The original program's "Axis D" covered adding a *netllm CLI command*; it did **not** cover
@@ -101,6 +169,39 @@ so this is derivable today. No Swift test covers it.
 Axis C scoring cleanest is the consolidation paying off — the `SurfaceAdapter` seam does
 absorb new work. Axis B is the inverse: eleven maps keyed on the same provider id, and not
 one test referencing the roster.
+
+## What has actually landed (2026-08-09)
+
+The phase table below is the *plan*. This is the tree.
+
+| Phase | State |
+|---|---|
+| 0 — mirror gate + cheap fixes | **landed** |
+| 1 — conformance-kit skeleton | **landed** |
+| 2 — config write safety | **landed** |
+| 3 — `LocalProviderSpec` | **landed** |
+| 4 — Axis A close-out + generation rail | **landed** |
+| 5a — Axis C branch absorption | **landed** |
+| 5b — `app.py` → `routes/` | **not landed** |
+| 6 — versioning, migration, mesh | **not landed** |
+| 7 — `ControlDescriptor` + parity | **landed** |
+| 8 — docs, DOX, worked examples | **landed** (this) |
+| F1–F4, G1–G4 (addendum) | **none landed** |
+
+Consequences a reader will otherwise trip over:
+
+- There is no `versioning.md`, no `mesh-upgrade.md` and no `deprecations.toml`
+  in `docs/`. Phase 6 was to write them. What exists instead is
+  [../compatibility-policy.md](../compatibility-policy.md), which states the
+  promises **and** marks which are enforced.
+- `tests/conformance/ledgers/mirrors.toml`'s `current_phase` is `phase-5a`
+  and cannot advance past it, because 5b and 6 have not landed. Ledger rows
+  expiring at `phase-8` are therefore **not** overdue. The clock is honest; it
+  measures refactor phases, not calendar time.
+- Guides [05](05-config-and-wire-evolution.md),
+  [06](06-harness-integration.md) and [07](07-upstream-absorption.md)
+  describe substantial machinery that **does not exist**. Their checklists
+  mark those rows ***not built*** and name the phase that would build them.
 
 ## Phasing
 

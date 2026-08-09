@@ -73,9 +73,14 @@ expires = "never — generated with --check"
 [[fact_class.allowed_mirrors]]
 glob = "config.example.toml"
 reason = """discovery.providers is generated between markers with --check. \
-The [cloud.providers.*] example stanzas are still hand-written prose with \
-per-provider commentary, which is documentation rather than a roster copy"""
-expires = "phase-8 — stanzas fold into the worked example"
+The [cloud.providers.*] example stanzas stay hand-written prose with \
+per-provider commentary, which is documentation rather than a roster copy -- \
+but their PRESENCE is now projection-tested by kit_cloud's \
+test_config_example_documents_every_provider, and the stanza is a declared \
+hand-written companion of the cloud worked example \
+(tests/extending/test_worked_example_cloud.py). Phase 8 discharged the \
+expiry by guarding presence without generating the prose"""
+expires = "never — presence projection-tested, prose deliberately hand-written"
 
 [[fact_class.allowed_mirrors]]
 glob = "packages/netllm-core/src/netllm_core/models.py"

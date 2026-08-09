@@ -26,6 +26,30 @@ group: `_common`, `init_install`, `join_swarm`, `observe`, `serve_lifecycle`, `d
 - **`netllm connect <id>`**: prints per-harness wiring (env exports, Codex TOML snippet); `--json`, `--print-env`, optional `--toggle` to register/enable `routing.sources` — never edits editor configs or shell profiles
 - **`netllm drain [on|off]`**: hits the *running* agent's `POST /netllm/v1/admin/drain` (httpx, like `status`/`test` — not a config edit, no `save_config`). Runtime-only on the agent side; the CLI has nothing to persist
 
+## Extension contract
+
+- **Owns:** the **commands** — the Typer app in `main.py` (wiring only) and
+  the command modules under `commands/`. A `ControlDescriptor`'s `cli` tuple
+  names leaf command paths as Typer renders them, and
+  `tests/conformance/kit_config_surfaces.py::test_action_controls_have_a_real_cli_command`
+  resolves them by real introspection, not by grep.
+- **Consumes only** for provider and harness facts. `ui.py`'s
+  `_PROVIDER_LABELS` and `default_provider_port_hint()` are derived from
+  `LOCAL_PROVIDERS`; the four-arm `elif` chains they replaced were three of
+  Axis B's eleven parallel maps.
+- **No new mirrors:** never add a provider, surface or harness id literal
+  here. A per-provider string belongs on the spec (`short_label`,
+  `offline_hint`), not in an `elif`.
+- **Known thin spot — a second harness roster.** `commands/connect.py`'s
+  `_guides()` is a hand-written dict keyed by the same ids as
+  `KNOWN_HARNESSES`. A registry-only harness addition passes validation and
+  then raises `KeyError` in the primary onboarding command;
+  `tests/test_known_harnesses.py::test_every_known_harness_has_a_connect_guide`
+  is the parity assert that stops it. `HarnessSpec` (which deletes `_guides`)
+  is Phase F1 and has **not landed**.
+- **Adding a command or control:** [docs/extending/04-cli-and-control-plane.md](../../docs/extending/04-cli-and-control-plane.md).
+  Adding a harness: [docs/extending/06-harness-integration.md](../../docs/extending/06-harness-integration.md).
+
 ## Work Guidance
 
 - Match Typer/Rich patterns already in `commands/`; `main.py` is wiring only
