@@ -25,8 +25,11 @@ Overview: [platform-matrix.md](platform-matrix.md)
 | Topic | Doc |
 |-------|-----|
 | Telemetry API (dashboard / menubar) | [telemetry-api.md](telemetry-api.md) |
-| Wire Cursor, Claude Code, Codex, Honcho | [editor-integration.md](editor-integration.md) (start at **Client configuration**) |
+| Wire Cursor, Claude Code, Codex, Honcho, Hermes Agent | [editor-integration.md](editor-integration.md) (start at **Client configuration**) |
+| Version axes, config migrations, deprecations | [versioning.md](versioning.md) · [deprecations.toml](deprecations.toml) |
+| Upgrading a mesh (skew promise, ordering) | [mesh-upgrade.md](mesh-upgrade.md) |
 | Honcho (Docker / deriver / connectors) | [honcho-integration.md](honcho-integration.md) |
+| Hermes Agent (CLI / TUI / gateway) | [hermes-agent-integration.md](hermes-agent-integration.md) |
 | Quick diagnostic | `./netllm doctor` from repo root or global install |
 
 ## Developers & agents

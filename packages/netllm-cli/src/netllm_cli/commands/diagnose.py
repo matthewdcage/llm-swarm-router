@@ -12,7 +12,11 @@ from typing import Any
 import httpx
 import typer
 from netllm_core.config import is_lan_listen, load_config, save_config
-from netllm_core.config_report import unknown_cloud_provider_issues
+from netllm_core.config_report import (
+    deprecated_key_issues,
+    schema_version_issues,
+    unknown_cloud_provider_issues,
+)
 from netllm_core.models import NetllmConfig
 from netllm_discovery.local import scan_local_providers
 
@@ -237,6 +241,17 @@ def doctor(
     # Same helper the dashboard's doctor panel calls.
     issues.extend(
         (issue["title"], issue["fix"]) for issue in unknown_cloud_provider_issues(cfg)
+    )
+
+    # The deprecation clock, read against the file the user actually has --
+    # not the model, which carries every field at its default. Same registry
+    # the DeprecationWarning and the CI expiry gate read
+    # (netllm_core.deprecations).
+    issues.extend(
+        (issue["title"], issue["fix"]) for issue in deprecated_key_issues(cfg_path)
+    )
+    issues.extend(
+        (issue["title"], issue["fix"]) for issue in schema_version_issues(cfg)
     )
 
     if cfg.swarm.mdns and cfg.agent.advertise and not mdns_available():

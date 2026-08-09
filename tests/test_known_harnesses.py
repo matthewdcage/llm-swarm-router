@@ -7,7 +7,15 @@ from netllm_core.known_harnesses import KNOWN_HARNESSES, get_known_harness
 
 def test_registry_ids_match_phase1_deferred_set() -> None:
     ids = {h.id for h in KNOWN_HARNESSES}
-    assert ids == {"claude-code", "codex", "gemini-cli", "cursor", "honcho", "buzz"}
+    assert ids == {
+        "claude-code",
+        "codex",
+        "gemini-cli",
+        "cursor",
+        "honcho",
+        "buzz",
+        "hermes-agent",
+    }
 
 
 def test_registry_ids_unique() -> None:
@@ -30,3 +38,10 @@ def test_get_known_harness_found() -> None:
 
 def test_get_known_harness_unknown_returns_none() -> None:
     assert get_known_harness("does-not-exist") is None
+
+
+def test_hermes_agent_registry_entry() -> None:
+    known = get_known_harness("hermes-agent")
+    assert known is not None
+    assert known.display_name == "Hermes Agent"
+    assert known.cli_commands == ("hermes",)

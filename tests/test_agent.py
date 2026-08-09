@@ -529,6 +529,8 @@ def test_round_robin_routes_to_peer_agent_url(
 ) -> None:
     from unittest.mock import MagicMock
 
+    from wire_mock import wire_mock_chat_json_from_request
+
     cfg = NetllmConfig()
     cfg.swarm.mdns = False
     cfg.agent.advertise = False
@@ -563,24 +565,7 @@ def test_round_robin_routes_to_peer_agent_url(
 
     mock_openai_cls.side_effect = track_openai_client
 
-    async def record_create(**kwargs: object) -> MagicMock:
-        mock_response = MagicMock()
-        mock_response.model_dump.return_value = {
-            "id": "cmpl-test",
-            "object": "chat.completion",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": "ok"},
-                    "finish_reason": "stop",
-                }
-            ],
-            "model": kwargs.get("model", "shared-model"),
-            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-        }
-        return mock_response
-
-    mock_client.chat.completions.create = record_create
+    wire_mock_chat_json_from_request(mock_client)
 
     app = create_app(cfg)
     with TestClient(app) as client:
@@ -639,6 +624,8 @@ def test_messages_api_round_robin_reaches_peer(
     to bypass pool selection entirely and always serve locally)."""
     from unittest.mock import MagicMock
 
+    from wire_mock import wire_mock_chat_json_from_request
+
     cfg = NetllmConfig()
     cfg.swarm.mdns = False
     cfg.agent.advertise = False
@@ -672,24 +659,7 @@ def test_messages_api_round_robin_reaches_peer(
 
     mock_openai_cls.side_effect = track_openai_client
 
-    async def record_create(**kwargs: object) -> MagicMock:
-        mock_response = MagicMock()
-        mock_response.model_dump.return_value = {
-            "id": "cmpl-test",
-            "object": "chat.completion",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": "ok"},
-                    "finish_reason": "stop",
-                }
-            ],
-            "model": kwargs.get("model", "shared-model"),
-            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-        }
-        return mock_response
-
-    mock_client.chat.completions.create = record_create
+    wire_mock_chat_json_from_request(mock_client)
 
     app = create_app(cfg)
     with TestClient(app) as client:
@@ -922,24 +892,9 @@ def test_peer_hop_sets_local_only_default_header(
 
     mock_openai_cls.side_effect = track_openai_client
 
-    async def fake_create(**kwargs: object) -> MagicMock:
-        mock_response = MagicMock()
-        mock_response.model_dump.return_value = {
-            "id": "cmpl-test",
-            "object": "chat.completion",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": "ok"},
-                    "finish_reason": "stop",
-                }
-            ],
-            "model": kwargs.get("model", "shared-model"),
-            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-        }
-        return mock_response
+    from wire_mock import wire_mock_chat_json_from_request
 
-    mock_client.chat.completions.create = fake_create
+    wire_mock_chat_json_from_request(mock_client)
 
     app = create_app(cfg)
     with TestClient(app) as client:

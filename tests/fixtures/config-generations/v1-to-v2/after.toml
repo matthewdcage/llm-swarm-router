@@ -1,0 +1,52 @@
+# Generation 2 of the file above. The ONLY difference is the stamp: the
+# 1 -> 2 migration is an identity function on the document, and this pair is
+# what says so in a form a reviewer can check by eye.
+#
+# Every unknown key and the deprecated key are still here, unchanged and in
+# place. A migration that quietly tidied them would be a migration that
+# deletes a newer machine's settings.
+#
+# Deliberately not tidy. It carries keys this build does not model
+# ([future_section], agent.future_field, cloud.providers.future_provider) so
+# the pair also proves Phase 2's forward-compatibility property survives the
+# migration rail, and a deprecated key so the two clocks are exercised
+# together.
+
+schema_version = 2
+
+[agent]
+agent_id = "8f14e45f-ea8f-4f0a-b4a1-000000000001"
+hostname = "workshop-mini"
+listen = "0.0.0.0:11400"
+role = "gateway"
+future_field = "written by a newer netllm"
+
+[discovery]
+providers = ["omlx", "ollama"]
+
+[swarm]
+mdns = true
+subnet_scan = true
+
+[routing]
+default_strategy = "local_spillover"
+require_same_model_for_shard = false
+
+[[routing.backends]]
+base_url = "http://10.0.0.5:1234/v1"
+provider = "lmstudio"
+
+[cloud]
+enabled = true
+fallback = "cloud"
+
+[cloud.providers.openai]
+enabled = true
+region = ""
+
+[cloud.providers.future_provider]
+enabled = true
+region = "moon-1"
+
+[future_section]
+knob = 3

@@ -14,6 +14,8 @@ unpacks them into its ``(title, fix)`` tuples.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from netllm_core.models import NetllmConfig, unknown_cloud_provider_ids
 
 
@@ -38,5 +40,76 @@ def unknown_cloud_provider_issues(config: NetllmConfig) -> list[dict[str, str]]:
             f"{joined} — the entry is preserved but inert. Upgrade netllm if a "
             "newer release added it, or remove the "
             f"[cloud.providers.{unknown[0]}] section if it is a typo.",
+        }
+    ]
+
+
+def deprecated_key_issues(config_path: Path | None) -> list[dict[str, str]]:
+    """Deprecated keys present in the user's ACTUAL config.toml.
+
+    Takes a path, not a `NetllmConfig`: a validated model carries every field
+    at its default, so it cannot answer "did this user write this key". Only
+    the file can, which is why this is the one report that reads from disk.
+
+    Unreadable or unparseable file -> no findings. Doctor already reports a
+    broken config through the load failure itself, and a second, vaguer
+    message about deprecations would only add noise to it.
+    """
+    import tomllib
+
+    from netllm_core.deprecations import deprecated_keys_in_document
+
+    if config_path is None or not config_path.is_file():
+        return []
+    try:
+        document = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        return []
+
+    issues: list[dict[str, str]] = []
+    for entry in deprecated_keys_in_document(document):
+        replacement = (
+            f"Switch to {entry.replacement}."
+            if entry.replacement
+            else "There is no replacement — delete the key."
+        )
+        issues.append(
+            {
+                "title": (
+                    f"Deprecated config key {entry.config_path} "
+                    f"(removed in netllm {entry.remove_in})"
+                ),
+                "fix": (
+                    f"Deprecated since {entry.deprecated_in}. {replacement} "
+                    f"{entry.notes}"
+                ),
+            }
+        )
+    return issues
+
+
+def schema_version_issues(config: NetllmConfig) -> list[dict[str, str]]:
+    """A config stamped newer than this build understands.
+
+    Not an error: it loads, and unknown keys are preserved. But it means this
+    machine is behind the one that wrote the file, and on a mesh that is worth
+    saying out loud before someone edits it here and wonders what happened.
+    """
+    from netllm_core.config_migrations import CURRENT_SCHEMA_VERSION
+
+    if config.schema_version <= CURRENT_SCHEMA_VERSION:
+        return []
+    return [
+        {
+            "title": (
+                f"config.toml is generation {config.schema_version}; this "
+                f"netllm understands generation {CURRENT_SCHEMA_VERSION}"
+            ),
+            "fix": (
+                "It was written by a newer netllm. This build loads it "
+                "unchanged and preserves keys it does not model, but it "
+                "cannot apply migrations it does not have. Upgrade this "
+                "machine before making it the one that manages this config."
+            ),
         }
     ]

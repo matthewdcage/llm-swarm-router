@@ -1,0 +1,46 @@
+# Generation 1: a config.toml written before `schema_version` existed.
+# Absence of the key IS generation 1 — that is the definition, and this file
+# is the fixture for it.
+#
+# Deliberately not tidy. It carries keys this build does not model
+# ([future_section], agent.future_field, cloud.providers.future_provider) so
+# the pair also proves Phase 2's forward-compatibility property survives the
+# migration rail, and a deprecated key so the two clocks are exercised
+# together.
+
+[agent]
+agent_id = "8f14e45f-ea8f-4f0a-b4a1-000000000001"
+hostname = "workshop-mini"
+listen = "0.0.0.0:11400"
+role = "gateway"
+future_field = "written by a newer netllm"
+
+[discovery]
+providers = ["omlx", "ollama"]
+
+[swarm]
+mdns = true
+subnet_scan = true
+
+[routing]
+default_strategy = "local_spillover"
+require_same_model_for_shard = false
+
+[[routing.backends]]
+base_url = "http://10.0.0.5:1234/v1"
+provider = "lmstudio"
+
+[cloud]
+enabled = true
+fallback = "cloud"
+
+[cloud.providers.openai]
+enabled = true
+region = ""
+
+[cloud.providers.future_provider]
+enabled = true
+region = "moon-1"
+
+[future_section]
+knob = 3

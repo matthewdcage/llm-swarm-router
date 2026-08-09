@@ -12,7 +12,7 @@ import asyncio
 from typing import Any
 
 from netllm_core.capabilities import model_capability
-from netllm_core.update import compare_versions
+from netllm_core.update import compare_versions, is_version_like, mesh_skew
 from netllm_core.version import get_version
 from netllm_discovery.local import find_omlx_admin_url, probe_omlx_admin_for_backends
 
@@ -84,10 +84,30 @@ class StatusMixin:
                 )
             if not peer.version:
                 continue
+            if not is_version_like(peer.version):
+                # A version string this build cannot read is NOT version 0.
+                # It used to be treated as one, so a peer sending anything
+                # unparseable produced a confident "more than two minors of
+                # skew, the mesh is not expected to work" about a version
+                # nobody is running. Say what was actually observed and stop.
+                warnings.append(
+                    f"peer {name} reports an unreadable netllm version "
+                    f"{peer.version!r} — version skew cannot be assessed for "
+                    "this peer; check what is running on it"
+                )
+                continue
             # String inequality flagged "0.5.0.1" against "v0.5.0.1" as drift
             # and told the operator to "update the older machine" without
             # saying which one — advice that is wrong half the time. Order
             # them with the same comparator the updater uses.
+            #
+            # That comparator was itself wrong about prereleases until Phase 6
+            # (netllm_core.update._version_key): it read "0.5.0rc1" as
+            # [0,5,0,1], so a peer on a release candidate looked NEWER than one
+            # on the final release and identical to one on 0.5.0.1. This is the
+            # exposed caller for that bug — `fetch_latest_release` filters
+            # prereleases out, this does not. Ordering is now pinned by
+            # tests/contract/version-ordering.json.
             order = compare_versions(my_version, peer.version)
             if order == 0:
                 continue
@@ -96,10 +116,11 @@ class StatusMixin:
                 if order > 0
                 else ("this agent", f"peer {name}")
             )
+            skew = mesh_skew(my_version, peer.version)
             warnings.append(
                 f"peer {name} runs netllm {peer.version} but this agent "
                 f"runs {my_version} — {older} is older than {newer}; "
-                "update it"
+                f"{skew.advice}"
             )
         return warnings
 

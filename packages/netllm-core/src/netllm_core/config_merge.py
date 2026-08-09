@@ -39,6 +39,7 @@ from __future__ import annotations
 from typing import Any
 
 from netllm_core.models import (
+    NON_SECTION_FIELDS,
     BackendOverride,
     NetllmConfig,
     RoutingPolicy,
@@ -46,7 +47,10 @@ from netllm_core.models import (
 
 # The six editable sections. Derived, not restated: a seventh section added
 # to NetllmConfig must not need a second edit here to become savable.
-_CONFIG_SECTIONS = frozenset(NetllmConfig.model_fields)
+# `schema_version` is a top-level scalar owned by the migration runner, not a
+# section, so it is subtracted rather than silently treated as an unknown
+# section that a patch could merge into.
+_CONFIG_SECTIONS = frozenset(NetllmConfig.model_fields) - NON_SECTION_FIELDS
 
 # (top-level section, key within it) pairs handled by case 2 above.
 _FULL_REPLACE_DICT_PATHS: tuple[tuple[str, str], ...] = (

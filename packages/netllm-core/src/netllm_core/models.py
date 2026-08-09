@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Literal
@@ -11,6 +12,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from netllm_core.cloud_providers import CloudProviderId
+from netllm_core.config_migrations import (
+    CURRENT_SCHEMA_VERSION,
+    LEGACY_SCHEMA_VERSION,
+    document_schema_version,
+    migrate_document,
+)
 from netllm_core.platform import (
     default_discovery_providers,
     default_hostname,
@@ -502,6 +509,18 @@ class CloudConfig(ConfigModel):
 
 
 class NetllmConfig(ConfigModel):
+    # The on-disk generation of config.toml, NOT an app version and NOT
+    # `config_schema.get_version()` (which is the app-version ETag on
+    # GET /netllm/v1/config/schema). Different axes; see
+    # netllm_core.config_migrations, which owns this number. Absent in a file
+    # means generation 1.
+    #
+    # Declared first so tomli_w emits it before any [section] table, and
+    # deliberately NOT a section: `NON_SECTION_FIELDS` keeps it out of the
+    # editable-section roster, and `config_merge.apply_config_patch` ignores
+    # top-level scalars, so no client Save can set it. The migration runner is
+    # the only writer.
+    schema_version: int = CURRENT_SCHEMA_VERSION
     agent: AgentConfig = Field(default_factory=AgentConfig)
     discovery: DiscoveryLocalConfig = Field(default_factory=DiscoveryLocalConfig)
     swarm: DiscoverySwarmConfig = Field(default_factory=DiscoverySwarmConfig)
@@ -513,6 +532,14 @@ class NetllmConfig(ConfigModel):
         if self.ui.log_dir:
             return Path(self.ui.log_dir).expanduser()
         return default_log_dir()
+
+
+# Top-level fields of NetllmConfig that are NOT editable sections. Every other
+# field of NetllmConfig is a section, and that identity is asserted three ways
+# (config_schema.SECTIONS, config_merge._CONFIG_SECTIONS,
+# tests/test_config_forward_compat.py) so a seventh section cannot be added in
+# one place only.
+NON_SECTION_FIELDS: frozenset[str] = frozenset({"schema_version"})
 
 
 def unknown_cloud_provider_ids(config: NetllmConfig) -> list[str]:
@@ -721,6 +748,26 @@ def ensure_lan_mesh_defaults(cfg: NetllmConfig) -> bool:
     return True
 
 
+def _warn_deprecated_config_keys(document: dict[str, object], where: Path) -> None:
+    """One DeprecationWarning per deprecated key actually present on disk.
+
+    Driven off the parsed document rather than the validated model: a model
+    carries every field at its default, so "did the user set this" is only
+    answerable from the file. Warnings, never errors -- the key still works
+    until its `remove_in`, and that is the whole promise.
+    """
+    import warnings
+
+    from netllm_core.deprecations import deprecated_keys_in_document
+
+    for entry in deprecated_keys_in_document(document):
+        warnings.warn(
+            f"{where}: {entry.message()}",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+
+
 def load_config(path: Path | None = None) -> NetllmConfig:
     import tomllib
 
@@ -728,7 +775,31 @@ def load_config(path: Path | None = None) -> NetllmConfig:
     if not cfg_path.is_file():
         return NetllmConfig()
     raw = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
-    return NetllmConfig.model_validate(raw)
+    # The single chokepoint. Migrations run here -- after parsing, before
+    # validation -- and nowhere else, so there is no path by which a config
+    # reaches a model without them (netllm_core.config_migrations).
+    migrated = migrate_document(raw)
+    if migrated.from_the_future:
+        logger.warning(
+            "%s declares config schema_version %d but this netllm understands "
+            "%d. Loading it unchanged: no migration is invented and the stamp "
+            "is not lowered. Unknown keys are preserved on save; upgrade this "
+            "machine if it is meant to manage this config.",
+            cfg_path,
+            migrated.from_version,
+            CURRENT_SCHEMA_VERSION,
+        )
+    elif migrated.changed:
+        logger.info(
+            "%s migrated from config schema_version %d to %d (%s). A copy of "
+            "the original is written alongside it on the next save.",
+            cfg_path,
+            migrated.from_version,
+            migrated.to_version,
+            "; ".join(m.notes for m in migrated.applied),
+        )
+    _warn_deprecated_config_keys(migrated.document, cfg_path)
+    return NetllmConfig.model_validate(migrated.document)
 
 
 def _drop_none_values(obj: object) -> object:
@@ -741,11 +812,108 @@ def _drop_none_values(obj: object) -> object:
     return obj
 
 
+_SCHEMA_VERSION_LINE = re.compile(r"^\s*schema_version\s*=\s*(\d+)", re.MULTILINE)
+
+
+def pre_migration_backup(cfg_path: Path) -> Path | None:
+    """Copy an older-generation config aside before it is overwritten.
+
+    Called by `save_config` before the write, so the backup exists *before*
+    the first migrated write rather than after it. Returns the backup path, or
+    None when there was nothing to protect.
+
+    Only the FIRST such write makes a copy: after it the file on disk is
+    already current, and an existing `.bak-v<n>` is never overwritten. That
+    ordering matters more than it looks -- taking the backup on every save
+    would eventually overwrite the pristine pre-migration copy with a migrated
+    one, which is the same as having no backup at all.
+
+    A file this build cannot parse is copied anyway. Its version label falls
+    back to a line scan and then to generation 1, which may mislabel it; a
+    mislabelled copy of a config someone hand-broke is strictly better than
+    overwriting it, which is what happened before this function existed.
+    """
+    import tomllib
+
+    if not cfg_path.is_file():
+        return None
+    try:
+        payload = cfg_path.read_bytes()
+    except OSError:  # pragma: no cover - unreadable file; the write will fail too
+        return None
+    try:
+        on_disk = document_schema_version(tomllib.loads(payload.decode("utf-8")))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+        match = _SCHEMA_VERSION_LINE.search(payload.decode("utf-8", "replace"))
+        on_disk = int(match.group(1)) if match else LEGACY_SCHEMA_VERSION
+    if on_disk >= CURRENT_SCHEMA_VERSION:
+        return None
+    backup = cfg_path.with_name(f"{cfg_path.name}.bak-v{on_disk}")
+    if backup.exists():
+        return None
+    backup.write_bytes(payload)
+    # Same secrets as the config it copies.
+    if os.name == "posix":
+        os.chmod(backup, 0o600)
+    logger.warning(
+        "Config %s is generation %d and this netllm writes generation %d. "
+        "The pre-migration file has been copied to %s.",
+        cfg_path,
+        on_disk,
+        CURRENT_SCHEMA_VERSION,
+        backup,
+    )
+    return backup
+
+
+def _prune_defaulted_deprecated_keys(payload: object) -> object:
+    """Stop re-emitting a deprecated key the user never chose.
+
+    `save_config` rewrites the whole file from `model_dump()`, so a deprecated
+    field with a default is written back into every config on every save.
+    That makes the DeprecationWarning fire on a key the user cannot get rid of
+    -- our own writer puts it back -- and an unactionable warning is worse than
+    none, because it trains people to ignore the channel.
+
+    So: drop the key **only when its value equals the model default**, which is
+    the case where writing it says nothing. A value the user explicitly changed
+    is kept verbatim, warning and all; that one IS actionable, and silently
+    deleting a setting somebody deliberately made is exactly the data loss this
+    phase exists to prevent.
+    """
+    from netllm_core.deprecations import CONFIG_KEY_DEPRECATIONS
+
+    if not isinstance(payload, dict):  # pragma: no cover - defensive
+        return payload
+    defaults = NetllmConfig().model_dump(mode="json")
+    for entry in CONFIG_KEY_DEPRECATIONS:
+        parts = entry.config_path.split(".")
+        node: object = payload
+        default_node: object = defaults
+        for part in parts[:-1]:
+            if not isinstance(node, dict) or not isinstance(default_node, dict):
+                node = None
+                break
+            node = node.get(part)
+            default_node = default_node.get(part)
+        leaf = parts[-1]
+        if not isinstance(node, dict) or not isinstance(default_node, dict):
+            continue
+        if leaf not in node or leaf not in default_node:
+            continue
+        if node[leaf] == default_node[leaf]:
+            del node[leaf]
+    return payload
+
+
 def save_config(config: NetllmConfig, path: Path | None = None) -> Path:
     import tomli_w
 
     cfg_path = path or default_config_path()
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    # BEFORE the write, not after: this is the only copy of the user's
+    # pre-migration config that will ever exist.
+    pre_migration_backup(cfg_path)
     # One line naming everything being carried through, not one per key:
     # this fires on every save of a config written by a newer netllm, and
     # a per-key loop would bury the rest of the serve log.
@@ -759,6 +927,7 @@ def save_config(config: NetllmConfig, path: Path | None = None) -> Path:
             ", ".join(extras),
         )
     payload = _drop_none_values(config.model_dump(mode="json"))
+    payload = _prune_defaulted_deprecated_keys(payload)
     cfg_path.write_text(
         tomli_w.dumps(payload),  # type: ignore[arg-type]
         encoding="utf-8",

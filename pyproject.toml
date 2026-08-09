@@ -53,6 +53,7 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+pythonpath = ["tests"]
 # tests/contract/scenarios_*.py hold the contract-vector suites; without this
 # they are silently uncollected and the corpus never runs.
 python_files = ["test_*.py", "scenarios_*.py", "kit_*.py"]
