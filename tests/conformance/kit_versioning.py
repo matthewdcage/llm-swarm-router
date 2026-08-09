@@ -266,6 +266,22 @@ def test_mesh_skew_never_raises_on_a_peer_reported_version() -> None:
 # --- peer-controlled input: containment, found by adversarial review --------
 
 
+def _hostile_id(value: object) -> str:
+    """A short, stable id for each payload.
+
+    pytest's generated id is the payload itself, and pytest exports the full
+    node id in ``PYTEST_CURRENT_TEST``. On Windows an environment variable is
+    capped at 32767 characters, so the 100000-character case errored at setup
+    AND teardown -- a green suite everywhere else and a red one on
+    windows-latest. Naming the cases keeps the payloads intact and the ids
+    small.
+    """
+    if isinstance(value, str):
+        head = value[:12].encode("unicode_escape").decode("ascii")
+        return f"str[{len(value)}]:{head}" if len(value) > 12 else f"str:{head!r}"
+    return f"{type(value).__name__}:{value!r}"[:40]
+
+
 @pytest.mark.parametrize(
     "hostile",
     [
@@ -286,6 +302,7 @@ def test_mesh_skew_never_raises_on_a_peer_reported_version() -> None:
         42,
         3.14,
     ],
+    ids=_hostile_id,
 )
 def test_a_peer_cannot_raise_out_of_the_version_comparator(hostile: object) -> None:
     """`version` comes verbatim from another machine's heartbeat JSON.
