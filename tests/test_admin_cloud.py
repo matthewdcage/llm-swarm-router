@@ -29,14 +29,16 @@ def test_config_summary_includes_cloud_registry_metadata() -> None:
     assert summary["cloud"]["enabled"] is True
     assert summary["cloud"]["fallback"] == "cloud"
     providers = summary["cloud"]["providers"]
-    assert set(providers) == {
-        "moonshot",
-        "zai",
-        "openai",
-        "anthropic",
-        "openrouter",
-        "dashscope",
-    }
+    # Registry-derived, not a hardcoded roster: a seventh provider must not
+    # turn this red (docs/extending/01-cloud-provider.md, "Test files you edit:
+    # 0"). Exact set-equality against a non-empty registry still catches a
+    # provider silently dropping out of the summary, which is what this line
+    # is here for.
+    assert CLOUD_PROVIDERS, "the cloud registry is empty"
+    assert set(providers) == set(CLOUD_PROVIDERS), (
+        f"config_summary omits or invents cloud providers: "
+        f"{set(providers) ^ set(CLOUD_PROVIDERS)}"
+    )
     assert providers["moonshot"]["display_name"] == "Moonshot AI (Kimi)"
     assert providers["moonshot"]["enabled"] is False
     assert providers["moonshot"]["api_key_set"] is False
@@ -200,14 +202,15 @@ def test_cloud_providers_endpoint_serves_registry() -> None:
     assert resp.status_code == 200
     body = resp.json()
     ids = {row["id"] for row in body["providers"]}
-    assert ids == {
-        "moonshot",
-        "zai",
-        "openai",
-        "anthropic",
-        "openrouter",
-        "dashscope",
-    }
+    # Same rationale as test_config_summary_includes_cloud_registry_metadata:
+    # the served roster is pinned to the registry, not to a hardcoded six, so
+    # adding a provider costs no test edit while a provider vanishing from the
+    # route still fails.
+    assert CLOUD_PROVIDERS, "the cloud registry is empty"
+    assert ids == set(CLOUD_PROVIDERS), (
+        f"GET /netllm/v1/cloud/providers disagrees with the registry: "
+        f"{ids ^ set(CLOUD_PROVIDERS)}"
+    )
     moonshot = next(r for r in body["providers"] if r["id"] == "moonshot")
     assert moonshot["display_name"] == "Moonshot AI (Kimi)"
     assert "global" in moonshot["regions"]

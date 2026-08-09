@@ -20,16 +20,26 @@ from netllm_core.models import (
 )
 
 
-def test_registry_has_all_six_providers() -> None:
+def test_every_registry_provider_is_exposed_and_usable() -> None:
+    """`all_provider_ids()` is exactly `CLOUD_PROVIDERS`, and every spec works.
+
+    This used to assert set-equality against a hardcoded roster of six, under
+    the name `test_registry_has_all_six_providers` -- which made
+    `docs/extending/01-cloud-provider.md`'s "Test files you edit: 0" false: a
+    seventh provider turned this red with no defect to fix. The roster now
+    comes from the registry, per the program's registry-first rule.
+
+    It is not weakened into a tautology. `all_provider_ids()` is a separate
+    function from the dict, so a provider that vanishes from the projection
+    while staying in the registry (or the reverse) still fails here, and the
+    non-empty assertion stops an emptied registry from passing vacuously.
+    """
     ids = set(all_provider_ids())
-    assert ids == {
-        "moonshot",
-        "zai",
-        "openai",
-        "anthropic",
-        "openrouter",
-        "dashscope",
-    }
+    assert ids, "the cloud registry is empty"
+    assert ids == set(CLOUD_PROVIDERS), (
+        "all_provider_ids() disagrees with CLOUD_PROVIDERS: "
+        f"{ids ^ set(CLOUD_PROVIDERS)}"
+    )
     for provider_id in ids:
         spec = get_provider_spec(provider_id)
         assert spec is not None
