@@ -23,7 +23,7 @@ From a repo checkout, use `./netllm` from the project root.
 | `curl` to `/health` fails | **Packaged:** `systemctl --user enable --now netllm` then `netllm status` |
 | Service not running | `journalctl --user -u netllm -f` for errors |
 | **Source install** | `./netllm serve` in a terminal (foreground) |
-| Port 11400 in use | `ss -ltnp \| grep 11400` or `netllm doctor`: stop duplicate agent with `netllm stop` or kill stale process |
+| Port 11400 in use | `ss -ltnp \| grep 11400` or `netllm doctor`: stop duplicate agent with `netllm stop`, `netllm serve --replace`, or kill stale process. Lock file: `~/.local/state/netllm/agent.lock` — see [dev-docs/agent-singleton-hardening-plan.md](dev-docs/agent-singleton-hardening-plan.md) |
 
 Logs: `journalctl --user -u netllm -f` and `~/.local/state/netllm/logs/agent.log`.
 
