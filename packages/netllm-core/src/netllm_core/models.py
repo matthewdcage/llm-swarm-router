@@ -458,10 +458,10 @@ class CloudConfig(BaseModel):
     @field_validator("providers", mode="before")
     @classmethod
     def _drop_unknown_provider_ids(cls, v: Any) -> Any:
-        """`cloud.providers` keys are always one of the five code-owned
+        """`cloud.providers` keys are always one of the code-owned
         CLOUD_PROVIDERS ids (enforced everywhere a key is created: `netllm
         cloud enable/set-key` validate against the registry, the dashboard
-        and macOS app only ever render/save those five rows) -- there is
+        and macOS app only ever render/save those registry rows) -- there is
         no supported way to add an arbitrary provider id. A stray key
         (hand-edited config.toml, a future registry removal) would
         otherwise be unremovable through the normal save/merge path (see

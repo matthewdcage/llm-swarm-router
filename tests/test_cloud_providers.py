@@ -20,9 +20,16 @@ from netllm_core.models import (
 )
 
 
-def test_registry_has_all_five_providers() -> None:
+def test_registry_has_all_six_providers() -> None:
     ids = set(all_provider_ids())
-    assert ids == {"moonshot", "zai", "openai", "anthropic", "openrouter"}
+    assert ids == {
+        "moonshot",
+        "zai",
+        "openai",
+        "anthropic",
+        "openrouter",
+        "dashscope",
+    }
     for provider_id in ids:
         spec = get_provider_spec(provider_id)
         assert spec is not None
@@ -45,6 +52,23 @@ def test_openrouter_supports_oauth_pkce() -> None:
 def test_anthropic_supports_plan_token_opt_in() -> None:
     spec = CLOUD_PROVIDERS["anthropic"]
     assert "plan_token" in spec.auth_modes
+
+
+def test_dashscope_has_openai_and_anthropic_endpoints() -> None:
+    spec = CLOUD_PROVIDERS["dashscope"]
+    assert spec.models_endpoint is True
+    assert spec.api_key_env == "DASHSCOPE_API_KEY"
+    intl = spec.endpoints["intl"]
+    assert intl.openai_base_url == (
+        "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    )
+    assert intl.anthropic_base_url == (
+        "https://dashscope-intl.aliyuncs.com/apps/anthropic"
+    )
+    assert "intl" in spec.endpoints
+    assert "cn" in spec.endpoints
+    assert "us" in spec.endpoints
+    assert "hk" in spec.endpoints
 
 
 def test_zai_has_no_models_endpoint_but_static_catalog() -> None:

@@ -43,7 +43,14 @@ def test_dashboard_js_serves_cloud_tab_renderer(client: TestClient) -> None:
     assert "renderCloudTab" in body
     assert "cloud: renderCloudTab" in body
     assert "buildCloudPatch" in body
-    for provider_id in ("moonshot", "zai", "openai", "anthropic", "openrouter"):
+    for provider_id in (
+        "moonshot",
+        "zai",
+        "openai",
+        "anthropic",
+        "openrouter",
+        "dashscope",
+    ):
         assert provider_id in body
 
 
