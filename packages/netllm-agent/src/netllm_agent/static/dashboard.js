@@ -15,6 +15,7 @@ const CLOUD_PROVIDER_IDS_BOOTSTRAP = [
   "openai",
   "anthropic",
   "openrouter",
+  "dashscope",
 ];
 
 const state = {

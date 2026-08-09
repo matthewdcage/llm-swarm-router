@@ -137,6 +137,13 @@ final class SettingsViewModel {
             regions: ["global"],
             keychainAccount: KeychainStore.accountForCloudProvider("openrouter")
         ),
+        CloudProviderInfo(
+            id: "dashscope",
+            displayName: "Alibaba Cloud (DashScope / Qwen)",
+            notes: "API keys are region-scoped — pick intl/cn/us/hk to match your key.",
+            regions: ["intl", "cn", "us", "hk"],
+            keychainAccount: KeychainStore.accountForCloudProvider("dashscope")
+        ),
     ]
 
     /// The provider list to render: live registry when available, offline

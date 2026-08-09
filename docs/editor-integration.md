@@ -219,10 +219,10 @@ curl -s http://127.0.0.1:11400/v1/chat/completions \
 
 When no local backend serves a model, netllm can route to a cloud backend if a **real** API key is available (environment variable, config, or macOS Keychain via the menubar app). The placeholder `netllm-local` never enables cloud routing.
 
-**Pre-configured providers** — Moonshot AI (Kimi), Z.ai (GLM), OpenAI, Anthropic, and OpenRouter each have a base URL, model catalog, and auth mode built in (see [config.example.toml](../config.example.toml) `[cloud]` section for the full reference):
+**Pre-configured providers** — Moonshot AI (Kimi), Z.ai (GLM), OpenAI, Anthropic, OpenRouter, and Alibaba Cloud DashScope (Qwen) each have a base URL, model catalog, and auth mode built in (see [config.example.toml](../config.example.toml) `[cloud]` section for the full reference):
 
 ```bash
-netllm cloud list                       # all five providers + enabled/key state
+netllm cloud list                       # all pre-configured providers + enabled/key state
 netllm cloud enable moonshot            # enable one
 netllm cloud set-key moonshot           # prompt for a key (hidden input)
 netllm cloud set-key moonshot --env MOONSHOT_API_KEY   # reference an env var instead
