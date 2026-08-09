@@ -31,6 +31,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CLOUD_REGISTRY = ROOT / "packages/netllm-core/src/netllm_core/cloud_providers.py"
 LOCAL_REGISTRY = ROOT / "packages/netllm-core/src/netllm_core/local_providers.py"
+DEPRECATIONS_TOML = ROOT / "docs/deprecations.toml"
+DEPRECATIONS_PY = ROOT / "packages/netllm-core/src/netllm_core/deprecations.py"
 
 BEGIN = "netllm:generated:begin"
 END = "netllm:generated:end"
@@ -80,9 +82,104 @@ class Block:
         return text[:line_end] + self.render + text[text.rindex("\n", 0, end_at) + 1 :]
 
 
+_DEPRECATION_FIELDS = (
+    "id",
+    "kind",
+    "config_path",
+    "symbol",
+    "deprecated_in",
+    "remove_in",
+    "replacement",
+    "notes",
+)
+
+
+def _dataclass_rows(source: Path, name: str) -> list[dict[str, str]]:
+    """String kwargs of every constructor call in a module-level tuple.
+
+    Same AST-only technique as `_dict_keys` — this script may not import the
+    workspace packages (it runs under bare python3 in `run_lint`). Implicitly
+    concatenated string literals are joined, because that is how a long `notes`
+    is written in the registry.
+    """
+
+    def _const(node: ast.expr) -> str | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.BinOp):  # not used today; fail loudly if it is
+            return None
+        return None
+
+    tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+    for node in ast.walk(tree):
+        target = None
+        value = None
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            target, value = node.target.id, node.value
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+            first = node.targets[0]
+            if isinstance(first, ast.Name):
+                target, value = first.id, node.value
+        if target != name or not isinstance(value, ast.Tuple):
+            continue
+        rows: list[dict[str, str]] = []
+        for element in value.elts:
+            if not isinstance(element, ast.Call):
+                continue
+            row: dict[str, str] = {}
+            for keyword in element.keywords:
+                if keyword.arg is None:
+                    continue
+                text = _const(keyword.value)
+                if text is None:
+                    text = ast.literal_eval(keyword.value)
+                row[keyword.arg] = str(text)
+            rows.append(row)
+        return rows
+    raise SystemExit(f"generate-registry-artifacts: {source}: no tuple named {name}")
+
+
+def _toml_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _wrap(value: str, width: int = 74) -> list[str]:
+    words = value.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if len(candidate) > width and current:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
+def _render_deprecations(rows: list[dict[str, str]]) -> str:
+    out: list[str] = []
+    for row in rows:
+        out.append("[[deprecation]]\n")
+        for field in _DEPRECATION_FIELDS:
+            value = row.get(field, "")
+            if field == "notes":
+                wrapped = _wrap(value)
+                out.append('notes = """\n')
+                out.extend(f"{_toml_escape(line)}\n" for line in wrapped)
+                out.append('"""\n')
+            else:
+                out.append(f'{field} = "{_toml_escape(value)}"\n')
+        out.append("\n")
+    return "".join(out)
+
+
 def _blocks() -> list[Block]:
     cloud = _dict_keys(CLOUD_REGISTRY, "CLOUD_PROVIDERS")
     local = _dict_keys(LOCAL_REGISTRY, "LOCAL_PROVIDERS")
+    deprecations = _dataclass_rows(DEPRECATIONS_PY, "DEPRECATIONS")
 
     def js_array(ids: list[str], indent: str = "  ") -> str:
         return "".join(f'{indent}"{i}",\n' for i in ids)
@@ -110,6 +207,15 @@ def _blocks() -> list[Block]:
             ROOT / "config.example.toml",
             "local-provider-ids",
             "providers = [" + ", ".join(f'"{i}"' for i in local) + "]\n",
+        ),
+        # The deprecation clock, rendered for humans. The registry is the
+        # frozen dataclass tuple (same shape as CLOUD_PROVIDERS) because that
+        # is what ships in the wheel and what load_config/doctor read; this
+        # file is where a person looks up "when does this key go away".
+        Block(
+            DEPRECATIONS_TOML,
+            "deprecations",
+            _render_deprecations(deprecations),
         ),
     ]
 

@@ -42,7 +42,7 @@ def register(ctx: RouteContext) -> None:
         # doctor_payload force-probes every local backend and all peers, so
         # it must not run on the event loop — same treatment netllm_status
         # gives its probe pass.
-        return await asyncio.to_thread(doctor_payload, cfg, service)
+        return await asyncio.to_thread(doctor_payload, cfg, service, config_path)
 
     @app.get("/netllm/v1/version")
     async def netllm_version(request: Request) -> dict[str, Any]:
