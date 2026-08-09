@@ -2,18 +2,27 @@
 
 Discharges the central claim of `docs/extending/02-local-provider.md`:
 
-    a fifth local provider costs one registry entry plus **two** declared
+    a fifth local provider costs one registry entry plus **three** declared
     hand-written companions, and reaches discovery URLs, config validation,
-    the config schema document, the served projection, the CLI listing and
-    the dashboard payload with no other source edit.
+    the config schema document, the served projection, the CLI listing, the
+    dashboard payload and the macOS discovery checkboxes with no other source
+    edit.
 
 PROGRAM.md §8 wrote that claim without the companions ("zero source edits
 beyond the registry entry"). Measured against this tree it is false, and the
-two things it is false about are both *deliberate refusals* recorded in
-PROGRAM.md itself -- §6.2 keeps `ProviderId` a hand-written `Literal`, and
-§6.3 refuses to generate SwiftUI. Neither is a defect. Pretending they do not
-exist would be, because the first contributor to add a provider would hit
-both within a minute of trusting the guide.
+things it is false about are all *deliberate refusals* recorded in PROGRAM.md
+itself -- §6.2 keeps `ProviderId` a hand-written `Literal`, and §6.3 refuses
+to generate SwiftUI (twice over: `localProviderBootstrap` and the `providers`
+roster are two separate hand-written arrays in one file). None is a defect.
+Pretending they do not exist would be, because the first contributor to add a
+provider would hit them within a minute of trusting the guide.
+
+The count was **two** until Phase 8b. `SettingsViewModel.providers` was
+missing not because anyone judged it derived, but because no stage read it --
+the sufficiency property can only fail on a fact some stage asserts, so an
+unread surface is invisible to it. `stage_macos_discovery_checkboxes` closes
+that hole; adding a genuine local provider without the roster edit now fails
+here as well as in `tests/test_contract.py`.
 
 See `_worked_example.py` for the three properties this file asserts and why
 one of them is not enough.
@@ -58,6 +67,9 @@ FIXTURE = LocalProviderSpec(
 #: The registry entry as a contributor would write it, for the temp tree the
 #: generator runs against. Deliberately the same facts as FIXTURE above: the
 #: two halves of this test (in-process and on-disk) must describe one entry.
+#: `test_the_two_halves_describe_one_entry` asserts that, rather than trusting
+#: this comment -- which was false until Phase 8b (`host_env`,
+#: `default_host_port` and the hint's markup were only on the in-process half).
 FIXTURE_SOURCE = f'''    "{FIXTURE_ID}": LocalProviderSpec(
         id="{FIXTURE_ID}",
         display_name="Fixture Local Server",
@@ -66,7 +78,9 @@ FIXTURE_SOURCE = f'''    "{FIXTURE_ID}": LocalProviderSpec(
         platforms=("darwin", "linux", "win32"),
         port_env="FIXTUREPROV_PORT",
         api_key_env="FIXTUREPROV_API_KEY",
-        offline_hint="run fixture serve",
+        host_env="FIXTUREPROV_HOST",
+        default_host_port={FIXTURE_PORT},
+        offline_hint="run [cyan]fixture serve[/]",
     ),
 '''
 
@@ -117,6 +131,45 @@ def _apply_swift_bootstrap(workspace: Workspace) -> None:
     )
 
 
+# --- companion 3: the macOS discovery-checkbox roster ---------------------
+
+#: The single-line Swift array `SettingsViewModel.providers` is built from, and
+#: the text a contributor edits. Kept as a literal so the substitution below
+#: fails loudly if the roster is ever reformatted.
+SWIFT_PROVIDERS_MARKER = "static let providers = ["
+
+
+def _apply_swift_providers_roster(workspace: Workspace) -> None:
+    from netllm_core.local_providers import providers_for_platform
+
+    # The roster on disk, before the fixture entry: the real registry's darwin
+    # roster. Rebuilt rather than hardcoded so this edit tracks the registry.
+    real = [pid for pid in providers_for_platform("darwin") if pid != FIXTURE_ID]
+    old = SWIFT_PROVIDERS_MARKER + ", ".join(f'"{pid}"' for pid in real) + "]"
+    new = (
+        SWIFT_PROVIDERS_MARKER
+        + ", ".join(f'"{pid}"' for pid in [*real, FIXTURE_ID])
+        + "]"
+    )
+    workspace.substitutions.append((SWIFT_SETTINGS, old, new))
+
+
+def swift_providers_roster(swift: str) -> list[str]:
+    """Parse `static let providers = [...]` out of Swift source text.
+
+    Deliberately the same shape as the parse in
+    `tests/test_contract.py::test_swift_default_providers_match_python`, which
+    is the guard for this companion in the real tree.
+    """
+    for line in swift.splitlines():
+        stripped = line.strip()
+        if SWIFT_PROVIDERS_MARKER not in stripped:
+            continue
+        inner = stripped.split(SWIFT_PROVIDERS_MARKER, 1)[1].split("]", 1)[0]
+        return [part.strip().strip('"') for part in inner.split(",") if part.strip()]
+    raise AssertionError(f"{SWIFT_SETTINGS} has no {SWIFT_PROVIDERS_MARKER!r}")
+
+
 COMPANIONS: tuple[Companion, ...] = (
     Companion(
         name="ProviderId",
@@ -145,6 +198,23 @@ COMPANIONS: tuple[Companion, ...] = (
         enforcement="projection",
         guard="tests/conformance/kit_local.py::test_swift_bootstrap_matches_the_registry",
         apply=_apply_swift_bootstrap,
+    ),
+    Companion(
+        name="SettingsViewModel.providers",
+        path=SWIFT_SETTINGS,
+        reason=(
+            "a SECOND hand-written roster in the same file as companion 2, and "
+            "not a duplicate of it: `localProviderBootstrap` carries labels and "
+            "ports for the offline prefill, while `providers` is the list the "
+            "Settings discovery-checkbox loop iterates. PROGRAM.md §6.3 refuses "
+            "to generate SwiftUI, so it stays hand-written and is pinned to "
+            "`default_discovery_providers()` instead. It was invisible to this "
+            "worked example until Phase 8b: no stage read it, so the "
+            "sufficiency property could not fail on it"
+        ),
+        enforcement="projection",
+        guard="tests/test_contract.py::test_swift_default_providers_match_python",
+        apply=_apply_swift_providers_roster,
     ),
 )
 
@@ -220,12 +290,24 @@ def stage_discovery_urls(_: Workspace) -> None:
 def stage_config_validation(_: Workspace) -> None:
     """The stage `ProviderId` gates. Without the companion this is a
     ValidationError naming the Literal, which is the whole point of listing
-    it as a companion rather than pretending it is not there."""
+    it as a companion rather than pretending it is not there.
+
+    It gates the *registry entry* too. Until Phase 8b this stage appended
+    `FIXTURE_ID` to `discovery.providers` itself and then asserted the string
+    survived -- which passes with no registry entry at all, so the stage was
+    vacuous on the half it was named after. It now asserts the default config
+    already carries the provider, which only a registry entry can produce.
+    """
     from netllm_core.config_merge import apply_config_patch
     from netllm_core.models import Backend, NetllmConfig
 
     config = NetllmConfig()
-    config.discovery.providers = [*config.discovery.providers, FIXTURE_ID]
+    assert FIXTURE_ID in config.discovery.providers, (
+        "a default NetllmConfig does not enable the new provider. "
+        "discovery.providers defaults to default_discovery_providers(), which "
+        "is derived from the registry's `platforms` field -- so this fails if "
+        "the entry is missing or does not name this platform"
+    )
     merged = apply_config_patch(config, {"agent": {"port": 11400}})
     assert FIXTURE_ID in merged.discovery.providers, (
         "a config round-trip dropped the provider from discovery.providers"
@@ -313,6 +395,31 @@ def stage_dashboard_payload(workspace: Workspace) -> None:
     assert f"port: {FIXTURE_PORT}" in block
 
 
+def stage_macos_discovery_checkboxes(workspace: Workspace) -> None:
+    """The stage companion 3 gates.
+
+    `SettingsViewModel.providers` is what the macOS Settings discovery section
+    iterates to draw one checkbox per provider. A provider missing from it is
+    not renderable in the macOS app at all -- no error, just an absent row --
+    which is why the roster is pinned to `default_discovery_providers()` by
+    `tests/test_contract.py::test_swift_default_providers_match_python`.
+
+    Pinned here against the darwin roster specifically: the guard monkeypatches
+    `sys.platform` to darwin for the same reason, since the checked-in Swift
+    file only ever ships to macOS and oMLX is Apple-Silicon only.
+    """
+    from netllm_core.local_providers import providers_for_platform
+
+    roster = swift_providers_roster(workspace.read(SWIFT_SETTINGS))
+    assert roster == providers_for_platform("darwin"), (
+        f"{SWIFT_SETTINGS}'s `providers` roster is {roster}, but the registry's "
+        f"darwin roster is {providers_for_platform('darwin')}. The macOS "
+        "Settings discovery section draws one checkbox per entry in that "
+        "array, so a provider missing from it cannot be enabled from the app. "
+        "Guard: tests/test_contract.py::test_swift_default_providers_match_python"
+    )
+
+
 STAGES = {
     "discovery-urls": stage_discovery_urls,
     "config-validation": stage_config_validation,
@@ -320,6 +427,7 @@ STAGES = {
     "projection-endpoint": stage_projection_endpoint,
     "cli-listing": stage_cli_listing,
     "dashboard-payload": stage_dashboard_payload,
+    "macos-discovery-checkboxes": stage_macos_discovery_checkboxes,
 }
 
 ALL_COMPANIONS = {companion.name for companion in COMPANIONS}
@@ -332,9 +440,9 @@ ALL_COMPANIONS = {companion.name for companion in COMPANIONS}
 def test_registry_entry_plus_declared_companions_flows_end_to_end(
     stage_name: str, workspace: Workspace
 ) -> None:
-    """One registry entry, two declared companions, nothing else.
+    """One registry entry, three declared companions, nothing else.
 
-    If a *sixth* hand-edit ever becomes necessary, the stage that needs it
+    If a *fourth* hand-edit ever becomes necessary, the stage that needs it
     fails here by name -- which is the guarantee worth having, and the reason
     this test is not just a happy-path smoke test.
     """
@@ -377,6 +485,22 @@ def test_every_declared_companion_is_still_necessary(
         "required hand-edit, but every stage passes without it. Either the "
         "machinery now derives it -- delete it from COMPANIONS and from "
         f"{GUIDE} -- or a stage that depends on it is missing from STAGES."
+    )
+
+
+def test_the_two_halves_describe_one_entry() -> None:
+    """`FIXTURE` (in-process) and `FIXTURE_SOURCE` (on-disk) are one entry.
+
+    The stages split across both: pure-Python stages read the injected
+    `FIXTURE`, while the generation rail parses `FIXTURE_SOURCE` out of a temp
+    tree. If they drift, the two halves of the worked example stop being about
+    the same provider and each half silently proves less than it claims.
+    """
+    parsed = eval(  # noqa: S307 - fixture source this module itself authored
+        "{" + FIXTURE_SOURCE + "}", {"LocalProviderSpec": LocalProviderSpec}
+    )
+    assert parsed == {FIXTURE_ID: FIXTURE}, (
+        "FIXTURE and FIXTURE_SOURCE describe different registry entries"
     )
 
 

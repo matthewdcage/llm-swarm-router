@@ -152,6 +152,16 @@ class Workspace:
     text_edits: list[tuple[str, str, str]] = field(default_factory=list)
     """(path, anchor marker, line) inserted before the array terminator."""
 
+    substitutions: list[tuple[str, str, str]] = field(default_factory=list)
+    """(path, exact old text, new text) replaced once.
+
+    `text_edits` only reaches multi-line arrays terminated by `\\n    ]`. A
+    companion that lives inside a *single-line* Swift array -- as
+    `SettingsViewModel.providers` does -- has no such terminator, so it is
+    edited by exact substitution instead. The substring must occur exactly
+    once; anything else is an ambiguous edit and raises.
+    """
+
     _tree: Path | None = None
 
     def tree(self) -> Path:
@@ -179,6 +189,15 @@ class Workspace:
                 ),
                 encoding="utf-8",
             )
+        for rel, old, new in self.substitutions:
+            dest = root / rel
+            source = dest.read_text(encoding="utf-8")
+            count = source.count(old)
+            assert count == 1, (
+                f"substitution anchor {old!r} occurs {count} times in {rel}; "
+                "it must occur exactly once"
+            )
+            dest.write_text(source.replace(old, new), encoding="utf-8")
         _run_generator(root)
         self._tree = root
         return root
