@@ -10,7 +10,7 @@ the LAN.
 
 The expected mapping is therefore not written here and not read out of the
 current tree. ``scripts/generate-route-auth-gates.py`` parses it out of
-``app.py`` at the pinned pre-split commit (via ``git show``) into
+``app.py`` at the pinned pre-split commit (vendored as a fixture) into
 ``tests/contract/route-auth-gates.json``; this module asserts the *running*
 app against that file by recording real gate calls.
 
@@ -52,6 +52,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 GATES_MANIFEST = REPO_ROOT / "tests/contract/route-auth-gates.json"
 ROUTES_MANIFEST = REPO_ROOT / "tests/contract/routes.json"
 APP_PY = REPO_ROOT / "packages/netllm-agent/src/netllm_agent/app.py"
+FIXTURE = REPO_ROOT / "tests/contract/fixtures/app-pre-split.py.txt"
 
 GATE_NAMES = (
     "require_admin_access",
@@ -168,23 +169,21 @@ def test_gate_baseline_is_pre_split() -> None:
     """
     manifest = _manifest()
     ref = manifest["source_commit"]
-    try:
-        source = subprocess.run(
-            ["git", "show", f"{ref}:{manifest['source_path']}"],
-            cwd=REPO_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-    except (OSError, subprocess.CalledProcessError) as exc:  # pragma: no cover
-        pytest.fail(f"cannot read the pinned baseline {ref}: {exc}")
+    # Read the VENDORED baseline, not `git show <ref>`. CI shallow-clones, so
+    # the object is absent (exit 128), and `ref` is a squash-merged branch tip
+    # that stops being reachable from main once its PR lands. The fixture is
+    # byte-identical to that blob and
+    # test_the_vendored_baseline_matches_the_pinned_commit proves it, so this
+    # assertion is unchanged in strength and no longer depends on git.
+    source = FIXTURE.read_text(encoding="utf-8")
 
     assert "@app.get(" in source and "@app.post(" in source, (
-        f"{ref} does not register routes inline — it is not a pre-split app.py"
+        f"{FIXTURE.name} (pinned {ref[:12]}) does not register routes inline "
+        "— it is not a pre-split app.py"
     )
     assert "netllm_agent.routes" not in source, (
-        f"{ref} already imports the routes package — the baseline has been "
-        "re-pinned onto the post-split tree and proves nothing"
+        f"{FIXTURE.name} already imports the routes package — the baseline "
+        "has been replaced with post-split code and proves nothing"
     )
     for name in GATE_NAMES:
         assert name in source
