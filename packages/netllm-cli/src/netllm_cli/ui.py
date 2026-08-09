@@ -6,6 +6,11 @@ import sys
 from typing import Any
 
 import httpx
+from netllm_core.local_providers import (
+    LOCAL_PROVIDERS,
+    NON_DISCOVERABLE_LABELS,
+    get_local_provider_spec,
+)
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -13,12 +18,14 @@ from rich.text import Text
 
 console = Console()
 
+# Derived from the single roster (PROGRAM.md Axis B). Note the asymmetry that
+# is real rather than an oversight: `custom` is labelled here but is not a
+# discoverable provider -- it has no ports, no probe and no key -- so labels
+# parameterize over LOCAL_PROVIDERS | NON_DISCOVERABLE_LABELS while port and
+# probe logic parameterizes over LOCAL_PROVIDERS alone.
 _PROVIDER_LABELS: dict[str, str] = {
-    "omlx": "oMLX",
-    "ollama": "Ollama",
-    "lmstudio": "LM Studio",
-    "vllm": "vLLM",
-    "custom": "custom endpoints",
+    **{spec.id: spec.short_label for spec in LOCAL_PROVIDERS.values()},
+    **NON_DISCOVERABLE_LABELS,
 }
 
 
@@ -33,9 +40,22 @@ def enabled_provider_summary(providers: list[str]) -> str:
 
 
 def default_provider_port_hint() -> str:
-    if sys.platform == "darwin":
-        return "Start oMLX (:8080), Ollama (:11434), LM Studio (:1234), or vLLM (:8000)"
-    return "Start Ollama (:11434), LM Studio (:1234), or vLLM (:8000)"
+    """ "Start X (:port), Y (:port), or Z (:port)" for this platform.
+
+    Derived from the roster, so the platform branch and the four hardcoded
+    port numbers are both gone -- they were two of Axis B's eleven maps, and
+    the ports were free to drift from the ones actually scanned.
+    """
+    parts = [
+        f"{spec.short_label} (:{spec.hint_port()})"
+        for spec in LOCAL_PROVIDERS.values()
+        if sys.platform in spec.platforms
+    ]
+    if not parts:
+        return "Start a local inference server"
+    if len(parts) == 1:
+        return f"Start {parts[0]}"
+    return "Start " + ", ".join(parts[:-1]) + f", or {parts[-1]}"
 
 
 def mdns_platform_hint() -> str:
@@ -215,39 +235,35 @@ def providers_table(results: list[dict[str, Any]], *, title: str) -> None:
 
 
 def offline_provider_hints(results: list[dict[str, Any]]) -> list[str]:
+    """One "here is how to start it" line per offline provider.
+
+    Was a four-arm `elif` chain, each arm restating the provider's label, its
+    env var and (for oMLX) its default ports -- three more of Axis B's
+    parallel maps, and the port list was free to drift from the one actually
+    scanned. The prose now comes from `spec.offline_hint`; everything around
+    it is derived, so a fifth provider gets a correct hint for free.
+    """
     hints: list[str] = []
     offline = [r for r in results if r.get("status") != "online"]
     if not offline:
         return hints
     for r in offline:
-        pid = r.get("id", "")
-        if pid == "omlx" and sys.platform != "darwin":
+        spec = get_local_provider_spec(str(r.get("id", "")))
+        if spec is None or sys.platform not in spec.platforms:
             continue
-        if pid == "omlx":
-            probed = r.get("probed_urls") or []
-            port_hint = ", ".join(
-                str(u).split(":")[-1].split("/")[0] for u in probed[:4]
-            )
-            hints.append(
-                "oMLX: start the server or set "
-                "[cyan]discovery.provider_urls.omlx[/] in config "
-                f"(scanned ports: {port_hint or '8080, 8088, 8081'})"
-            )
-        elif pid == "ollama":
-            hints.append(
-                "Ollama: run [cyan]ollama serve[/] or set "
-                "[cyan]OLLAMA_HOST[/] / [cyan]discovery.provider_urls.ollama[/]"
-            )
-        elif pid == "lmstudio":
-            hints.append(
-                "LM Studio: enable the local API server or set "
-                "[cyan]discovery.provider_urls.lmstudio[/]"
-            )
-        elif pid == "vllm":
-            hints.append(
-                "vLLM: run [cyan]vllm serve --host 0.0.0.0 --port 8000[/] or set "
-                "[cyan]discovery.provider_urls.vllm[/] / [cyan]VLLM_PORT[/]"
-            )
+        pointers = [f"[cyan]discovery.provider_urls.{spec.id}[/]"]
+        if spec.host_env:
+            pointers.insert(0, f"[cyan]{spec.host_env}[/]")
+        elif spec.port_env:
+            pointers.append(f"[cyan]{spec.port_env}[/]")
+        line = f"{spec.short_label}: {spec.offline_hint} or set " + " / ".join(pointers)
+        probed = r.get("probed_urls") or []
+        ports = ", ".join(str(u).split(":")[-1].split("/")[0] for u in probed[:4])
+        if not ports:
+            ports = ", ".join(str(p) for p in spec.default_ports)
+        if len(spec.default_ports) > 1:
+            line += f" (scanned ports: {ports})"
+        hints.append(line)
     return list(dict.fromkeys(hints))
 
 

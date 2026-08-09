@@ -608,13 +608,9 @@ class Backend(BaseModel):
     def resolve_api_key(self) -> str:
         if self.api_key:
             return self.api_key
-        env_map = {
-            "omlx": "OMLX_API_KEY",
-            "ollama": "OLLAMA_API_KEY",
-            "lmstudio": "LMSTUDIO_API_KEY",
-            "vllm": "VLLM_API_KEY",
-        }
-        env_name = env_map.get(self.provider, "")
+        from netllm_core.local_providers import api_key_env_for, default_api_key_for
+
+        env_name = api_key_env_for(self.provider)
         if not env_name and self.cloud_provider:
             from netllm_core.cloud_providers import get_provider_spec
 
@@ -625,8 +621,7 @@ class Backend(BaseModel):
             from_env = os.environ.get(env_name, "")
             if from_env:
                 return from_env
-        defaults: dict[str, str] = {"omlx": "omlx-local"}
-        return defaults.get(self.provider, "")
+        return default_api_key_for(self.provider)
 
 
 DEFAULT_AGENT_PORT = 11400

@@ -13,6 +13,7 @@ from netllm_core.cloud_providers import CLOUD_PROVIDERS, get_provider_spec
 from netllm_core.config_report import unknown_cloud_provider_issues
 from netllm_core.harness_detection import detect as detect_harness
 from netllm_core.known_harnesses import KNOWN_HARNESSES
+from netllm_core.local_providers import api_key_env_for
 from netllm_core.models import (
     NetllmConfig,
     is_lan_listen,
@@ -92,13 +93,11 @@ def doctor_payload(cfg: NetllmConfig, service: AgentService) -> dict[str, Any]:
 
     for b in enabled:
         if b.health.http_status in (401, 403) and not b.api_key:
-            env_hints = {
-                "lmstudio": "LMSTUDIO_API_KEY",
-                "omlx": "OMLX_API_KEY",
-                "ollama": "OLLAMA_API_KEY",
-                "vllm": "VLLM_API_KEY",
-            }
-            hint = env_hints.get(b.provider, "")
+            # Empty for `custom`, `peer:*` and cloud ids, which must fall
+            # through to the generic message rather than be told to set a
+            # CUSTOM_API_KEY nothing reads. That miss is why this map was
+            # never derivable from `provider.upper()_API_KEY` alone.
+            hint = api_key_env_for(b.provider)
             fix = (
                 f"Set {hint} or add api_key under [[routing.backends]] for {b.base_url}"
                 if hint

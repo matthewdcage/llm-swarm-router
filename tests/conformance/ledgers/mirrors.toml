@@ -65,9 +65,11 @@ expires = "phase-4"
 
 [[fact_class]]
 id = "local-provider-id"
-source = "packages/netllm-discovery/src/netllm_discovery/local.py"
-# Ids are the first element of each KNOWN_PROVIDERS tuple.
-extract = "tuple-heads:KNOWN_PROVIDERS"
+# Phase 3 moved the source of truth: `local.py`'s KNOWN_PROVIDERS is now a
+# comprehension over this registry, not a literal, so it can no longer be the
+# thing the checker reads. Eleven parallel maps collapsed into this one.
+source = "packages/netllm-core/src/netllm_core/local_providers.py"
+extract = "dict-keys:LOCAL_PROVIDERS"
 
 [[fact_class.allowed_mirrors]]
 glob = "packages/netllm-agent/src/netllm_agent/static/dashboard.js"
@@ -85,28 +87,19 @@ reason = "discovery.providers example plus provider_urls stanzas"
 expires = "phase-3"
 
 [[fact_class.allowed_mirrors]]
-glob = "packages/netllm-cli/src/netllm_cli/ui.py"
-reason = "PROVIDER_LABELS / offline hints; LocalProviderSpec absorbs both"
-expires = "phase-3"
-
-[[fact_class.allowed_mirrors]]
-glob = "packages/netllm-core/src/netllm_core/platform.py"
-reason = "default_discovery_providers per-platform lists; spec.platforms absorbs"
-expires = "phase-3"
-
-[[fact_class.allowed_mirrors]]
 glob = "packages/netllm-core/src/netllm_core/models.py"
 reason = """ProviderId Literal (stays hand-written, asserted by get_args \
 equality), plus the id -> *_API_KEY env map in Backend.resolve_api_key -- \
-one of the three copies of that map, all absorbed by LocalProviderSpec"""
-expires = "phase-3"
+the ProviderId Literal is the ONLY hand-written local-provider fact left \
+after Phase 3 -- a derived Literal blinds basedpyright, so it is asserted by \
+kit_local's get_args equality instead"""
+expires = "never — see reason"
 
 [[fact_class.allowed_mirrors]]
-glob = "packages/netllm-agent/src/netllm_agent/admin.py"
-reason = """doctor's 401/403 env-var hint map -- the third copy of the same \
-id -> *_API_KEY fact (local.py:163 and models.py:596 are the others). Every \
-entry is mechanically PROVIDER.upper()_API_KEY, but it is NOT derivable by \
-that rule alone: the .get(..., "") miss is load-bearing, since a `custom` or \
-`peer:*` backend must produce no hint rather than a CUSTOM_API_KEY that \
-nothing reads. Needs spec membership, i.e. Axis B"""
-expires = "phase-3"
+glob = "packages/netllm-discovery/src/netllm_discovery/local.py"
+reason = """oMLX's admin/telemetry probes (probe_omlx_admin and friends) test \
+`provider != "omlx"`. This is NOT a roster mirror: oMLX exposes a proprietary \
+admin API no other local server has, so the literal marks a genuine \
+capability, not a copy of the id list. Absorbed when LocalProviderSpec gains \
+its optional probe hook"""
+expires = "phase-4"
