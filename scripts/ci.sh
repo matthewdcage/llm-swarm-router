@@ -31,6 +31,7 @@ run_lint() {
   python3 scripts/check-engine-erosion.py
   # No-new-mirrors gate (docs/extending/PROGRAM.md §2): a provider id may not
   # appear in a file the ledger does not already name.
+  python3 scripts/check-engine-erosion.py --seams
   python3 scripts/check-registry-mirrors.py
   python3 scripts/generate-registry-artifacts.py --check
   # Instructional docs may not point at paths that do not exist.
@@ -40,6 +41,9 @@ run_lint() {
   # The HTTP surface is an exact set, not a presence check — a deleted
   # /v1/* route has to fail here, not ship.
   uv run python scripts/generate-routes-json.py --check
+  # And which auth gate each of those routes applies — derived from the
+  # pre-split app.py, so a route that loses its gate fails here (F-59).
+  uv run python scripts/generate-route-auth-gates.py --check
 }
 
 # Non-blocking for now: basedpyright is configured in pyproject.toml but has

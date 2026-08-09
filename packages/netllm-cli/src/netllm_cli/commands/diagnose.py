@@ -302,6 +302,7 @@ def doctor(
                 )
             )
 
+    from netllm_discovery.agent_lock import agent_lock_path, read_lock_info
     from netllm_discovery.lan import local_lan_ip
     from netllm_discovery.mdns import parse_listen_host_port
     from netllm_discovery.runtime import check_listen_port, port_owner_pid
@@ -340,6 +341,13 @@ def doctor(
                 pass
         if not skip_port:
             pid_hint = f" (pid {conflict.pid})" if conflict.pid else ""
+            lock_path = agent_lock_path(cfg)
+            lock_info = read_lock_info(lock_path)
+            lock_hint = ""
+            if lock_info is not None and lock_info.pid:
+                lock_hint = f"; singleton lock {lock_path} (holder pid {lock_info.pid})"
+            elif lock_path.is_file():
+                lock_hint = f"; singleton lock file at {lock_path}"
             if conflict.occupied_by_netllm:
                 if control_socket_path().exists():
                     fix = (
@@ -351,16 +359,18 @@ def doctor(
                         f"Run {suggested_cli('serve --replace')} or "
                         f"{suggested_cli('restart')}"
                     )
-                issues.append(
-                    (
-                        f"Port {conflict.port} in use by netllm agent{pid_hint}",
-                        fix,
-                    )
+                msg = (
+                    f"Port {conflict.port} in use by netllm agent{pid_hint}{lock_hint}"
                 )
+                issues.append((msg, fix))
             else:
+                msg = (
+                    f"Port {conflict.port} in use by another process"
+                    f"{pid_hint}{lock_hint}"
+                )
                 issues.append(
                     (
-                        f"Port {conflict.port} in use by another process{pid_hint}",
+                        msg,
                         "Free the port or use netllm serve --port <other>",
                     )
                 )

@@ -1,0 +1,24 @@
+# Surface-branch ledger — consumed by scripts/check-engine-erosion.py --seams
+# (docs/extending/PROGRAM.md §3 Axis C).
+#
+# The rule: a `Surface`-keyed conditional belongs on the OUTSIDE of the
+# failover loop, in service/surfaces/. One anywhere else is a place a new
+# surface is silently forgotten, because nothing enumerates them — the
+# omission shows up as a behaviour difference at runtime, not a failed build.
+#
+# Phase 5a moved the four that had escaped (candidates.py, request_plan.py,
+# policy.py, taxonomy.py) onto `taxonomy.SurfaceSpec`, where adding a surface
+# means answering each question rather than inheriting whichever branch
+# happened to be the `else`. This ledger starts EMPTY as a result, which is
+# the strongest possible statement of the invariant: any new entry is a
+# regression that has to be argued for in writing.
+#
+# If you are here because the gate failed, the question is whether the fact
+# can become a SurfaceSpec field or a SurfaceAdapter member — see PROGRAM.md
+# §3. Adding an entry is not a fix.
+
+# [[seam]]
+# file = "packages/netllm-agent/src/netllm_agent/example.py"
+# member = "MESSAGES"
+# reason = "why this cannot be a SurfaceSpec field"
+# expires = "phase-N — what closes it"

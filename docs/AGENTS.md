@@ -16,6 +16,7 @@ User-facing install, troubleshoot, editor wiring, platform matrix, CI/release, a
 | Learnings | `solutions/` — manual smoke gates: [menubar-adopt-smoke.md](solutions/menubar-adopt-smoke.md), [codex-responses-smoke.md](solutions/codex-responses-smoke.md) |
 | SDK maintenance | `sdk-versions.md` |
 | Routing audit & hardening | `routing-hardening-plan.md`, `routing-live-validation-2026-07-31.md` |
+| Developer plans | `dev-docs/` — phased intent docs (e.g. agent singleton hardening) |
 | Architecture & audit | `architecture/` (diagrams, dependency map, findings register) |
 | Closure / release planning | `closure-roadmap-2026-08-03.md` (open items, adversarial PR reviews, merge path) |
 
@@ -55,5 +56,6 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 | [`architecture/`](architecture/AGENTS.md) | Architecture reference + point-in-time audit; every claim carries `file:line` evidence |
 | [`release-notes/`](release-notes/) | Versioned release notes (no AGENTS.md — filenames are the index) |
 | [`solutions/`](solutions/) | Durable QA and workflow learnings |
+| [`dev-docs/`](dev-docs/) | Developer plans (phased intent; update status when phases land) |
 
 Nested folders are content collections; add child AGENTS.md only if a subtree gains its own release or editorial workflow.

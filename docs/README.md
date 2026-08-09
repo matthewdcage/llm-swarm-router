@@ -36,6 +36,7 @@ Overview: [platform-matrix.md](platform-matrix.md)
 | Topic | Doc |
 |-------|-----|
 | **Architecture, dependencies & audit** | [architecture/](architecture/README.md) — system + component diagrams, request lifecycle, swarm behaviour, dependency map, findings register, feature integration status |
+| **Developer plans** | [dev-docs/](dev-docs/README.md) — phased hardening and feature intent docs |
 | **Closure roadmap (open items, release path)** | [closure-roadmap-2026-08-03.md](closure-roadmap-2026-08-03.md) |
 | CI, macOS build, release | [ci-and-release.md](ci-and-release.md) |
 | macOS Developer ID + notarization | [macos-code-signing.md](macos-code-signing.md) |

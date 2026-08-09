@@ -56,8 +56,8 @@ Index: [README.md](README.md). Parent rail: [../AGENTS.md](../AGENTS.md).
   the same PR (the tables are the reason this folder exists).
 - Plan docs (`../routing-hardening-plan.md`, `../cloud-providers-plan.md`,
   `../cli-source-routing-plan.md`, `../config-schema-rewrite-plan.md`,
-  `../models-ux-plan.md`) hold *intent*; this folder holds *as-built*. When they disagree,
-  fix the plan doc and note it in `08`'s roadmap table.
+  `../models-ux-plan.md`, `../dev-docs/`) hold *intent*; this folder holds *as-built*.
+  When they disagree, fix the plan doc and note it in `08`'s roadmap table.
 
 ## Verification
 

@@ -9,10 +9,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+from netllm_core.backend_credentials import resolve_api_key_for_url
 from netllm_core.health import diagnose_backend, probe_openai_compat
 from netllm_core.local_providers import (
     LOCAL_PROVIDERS,
-    api_key_env_for,
     default_api_key_for,
     get_local_provider_spec,
 )
@@ -183,14 +183,13 @@ def _auth_hint(provider_id: str, api_key: str) -> str:
 
 
 def _api_key_for_provider(provider_id: str, config: NetllmConfig) -> str:
-    for override in config.routing.backends:
-        if override.provider == provider_id:
-            return override.resolve_api_key()
-    env_name = api_key_env_for(provider_id)
-    default = default_api_key_for(provider_id)
-    if env_name:
-        return os.environ.get(env_name, default)
-    return default
+    """Provider-wide fallback when no specific URL is known.
+
+    Prefer ``resolve_api_key_for_url`` when probing a concrete base URL.
+    """
+    from netllm_core.backend_credentials import _api_key_for_provider_id
+
+    return _api_key_for_provider_id(provider_id)
 
 
 async def _probe_url(
@@ -222,7 +221,7 @@ async def _probe_provider(
     display_name: str,
     candidate_urls: list[str],
     client: httpx.AsyncClient,
-    api_key: str = "",
+    config: NetllmConfig,
     *,
     diagnose: bool = False,
 ) -> dict[str, Any]:
@@ -237,11 +236,20 @@ async def _probe_provider(
         }
 
     hits = await asyncio.gather(
-        *[_probe_url(url, client, api_key, diagnose=diagnose) for url in candidate_urls]
+        *[
+            _probe_url(
+                url,
+                client,
+                resolve_api_key_for_url(url, provider_id, config),
+                diagnose=diagnose,
+            )
+            for url in candidate_urls
+        ]
     )
     for url, hit in zip(candidate_urls, hits, strict=True):
         if hit is None:
             continue
+        api_key = resolve_api_key_for_url(url, provider_id, config)
         return {
             "id": provider_id,
             "name": display_name,
@@ -295,10 +303,9 @@ async def scan_local_providers(
             if pid not in enabled:
                 continue
             urls = candidate_urls_for_provider(pid, cfg)
-            key = _api_key_for_provider(pid, cfg)
             # Provider scans only ever target loopback candidates.
             tasks.append(
-                _probe_provider(pid, pname, urls, local_client, key, diagnose=diagnose)
+                _probe_provider(pid, pname, urls, local_client, cfg, diagnose=diagnose)
             )
         if include_custom:
             for url in cfg.discovery.custom_endpoints:
@@ -309,7 +316,7 @@ async def scan_local_providers(
                         "Custom",
                         [norm],
                         client_for(norm),
-                        "",
+                        cfg,
                         diagnose=diagnose,
                     )
                 )
@@ -322,7 +329,7 @@ async def scan_local_providers(
                         override.provider,
                         [norm],
                         client_for(norm),
-                        override.resolve_api_key(),
+                        cfg,
                         diagnose=diagnose,
                     )
                 )
@@ -354,7 +361,7 @@ def scan_results_to_backends(
             continue
         url = r["base_url"]
         pid = r.get("id", "custom")
-        api_key = r.get("api_key") or _api_key_for_provider(str(pid), cfg)
+        api_key = r.get("api_key") or resolve_api_key_for_url(url, str(pid), cfg)
         provider = pid  # type: ignore[arg-type]
         backends.append(
             Backend(
