@@ -171,6 +171,12 @@ upstream_read_timeout_s = 120.0
 # [[routing.sources]]
 # id = "antigravity"
 # description = "Google Antigravity (OpenAI-compatible custom model)"
+#
+# Hermes Agent (NousResearch) -- litellm provider in ~/.hermes/config.yaml
+# (recommended; custom probes can hang on netllm). CLI, TUI, gateway share model block.
+# [[routing.sources]]
+# id = "hermes-agent"
+# description = "Hermes Agent CLI/TUI"
 
 # Optional routing policies (first match wins). Cloud paths require allow_cloud = true.
 # [[routing.policies]]

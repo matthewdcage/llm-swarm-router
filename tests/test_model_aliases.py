@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 from fastapi.testclient import TestClient
 from netllm_agent.app import create_app
 from netllm_core.models import Backend, BackendHealth, NetllmConfig
@@ -127,25 +129,18 @@ def test_canonical_request_rewrites_payload_and_response(
 
     mock_openai_cls.side_effect = make_client
 
-    async def fake_create(**kwargs: object) -> MagicMock:
-        sent_models.append(str(kwargs.get("model")))
-        mock_response = MagicMock()
-        mock_response.model_dump.return_value = {
-            "id": "cmpl-1",
-            "object": "chat.completion",
-            "model": kwargs.get("model"),
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": "ok"},
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-        }
-        return mock_response
+    from wire_mock import wire_mock_chat_json_from_request
 
-    mock_client.chat.completions.create = fake_create
+    send = wire_mock_chat_json_from_request(mock_client)
+
+    async def _track_send(
+        request: httpx.Request, stream: bool = False
+    ) -> httpx.Response:
+        payload = json.loads(request.content or b"{}")
+        sent_models.append(str(payload.get("model")))
+        return await send(request, stream=stream)
+
+    mock_client._client.send = AsyncMock(side_effect=_track_send)
 
     with TestClient(create_app(cfg)) as client:
         resp = client.post(

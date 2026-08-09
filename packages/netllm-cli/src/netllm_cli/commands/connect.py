@@ -25,6 +25,8 @@ class _HarnessGuide:
     env: tuple[str, ...]
     notes: tuple[str, ...] = ()
     codex_toml: str | None = None
+    client_config_path: str | None = None
+    client_config: str | None = None
 
 
 def _guides(
@@ -111,6 +113,29 @@ def _guides(
                 "Anthropic provider: use Messages surface at port root (no /v1).",
             ),
         ),
+        "hermes-agent": _HarnessGuide(
+            "hermes-agent",
+            "openai",
+            (),
+            (
+                "Hermes uses ~/.hermes/config.yaml — not OPENAI_BASE_URL env vars.",
+                "Recommended provider: litellm (not custom — probes break on netllm).",
+                "TUI: hermes --tui (requires Node.js ≥ 20; run hermes doctor).",
+                "Or: hermes model → Custom endpoint (self-hosted / VLLM / etc.).",
+                "Verify: ./netllm test --model <id> then hermes chat.",
+                "Full guide: docs/hermes-agent-integration.md",
+            ),
+            client_config_path="~/.hermes/config.yaml",
+            client_config=(
+                "model:\n"
+                "  default: <model id from ./netllm models>\n"
+                "  provider: litellm\n"
+                f"  base_url: {base_v1}\n"
+                f"  api_key: {virtual_key}\n"
+                "display:\n"
+                "  show_reasoning: true\n"
+            ),
+        ),
     }
 
 
@@ -189,6 +214,8 @@ def _build_payload(
         "env": list(guide.env),
         "notes": list(guide.notes),
         "codex_toml": guide.codex_toml,
+        "client_config_path": guide.client_config_path,
+        "client_config": guide.client_config,
         "docs_url": known.docs_url,
         "sources_toggle": f"netllm sources toggle {harness_id}",
         "toggle_result": toggle_result,
@@ -197,7 +224,11 @@ def _build_payload(
 
 def connect_tool(
     tool: str = typer.Argument(
-        ..., help="Harness id: claude-code, codex, cursor, gemini-cli, honcho, buzz"
+        ...,
+        help=(
+            "Harness id: claude-code, codex, cursor, gemini-cli, "
+            "honcho, buzz, hermes-agent"
+        ),
     ),
     url: str | None = typer.Option(
         None,
@@ -279,12 +310,20 @@ def connect_tool(
         )
 
     console.print("\n[bold]Environment[/]")
-    for line in guide.env:
-        console.print(f"  {line}")
+    if guide.env:
+        for line in guide.env:
+            console.print(f"  {line}")
+    else:
+        console.print("  [dim](no env vars — see client config below)[/]")
 
     if guide.codex_toml:
         console.print("\n[bold]~/.codex/config.toml[/]")
         console.print(guide.codex_toml)
+
+    if guide.client_config:
+        label = guide.client_config_path or "Client config"
+        console.print(f"\n[bold]{label}[/]")
+        console.print(guide.client_config)
 
     for note in guide.notes:
         console.print(f"[dim]• {note}[/]")
