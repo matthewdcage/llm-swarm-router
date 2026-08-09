@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from netllm_core.cloud_providers import CloudProviderId
 from netllm_core.platform import (
@@ -566,7 +566,16 @@ class Backend(BaseModel):
     base_url: str
     provider: ProviderId = "custom"
     api_format: ApiFormat = "openai"
-    api_key: str = ""
+    # [F-59] Never serialized. Every payload that dumps a Backend --
+    # GET /netllm/v1/backends, the status body, and the heartbeat that
+    # body is gossiped as -- would otherwise carry the raw key, and
+    # require_read_access is a no-op while swarm.cluster_token is empty
+    # (the default even on a LAN bind). The field stays readable in
+    # process for resolve_api_key(); `api_key_set` is the wire-visible
+    # form, matching _backend_override_export's existing convention.
+    # Safe on the write path: config_merge treats keys as write-only, so
+    # an omitted key preserves the stored one rather than blanking it.
+    api_key: str = Field(default="", exclude=True)
     enabled: bool = True
     local: bool = True
     agent_id: str = ""
@@ -586,6 +595,12 @@ class Backend(BaseModel):
     # anyone but its own config. For a local/manual row it comes from
     # BackendOverride.max_concurrency.
     max_concurrency: int = Field(default=0, ge=0)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def api_key_set(self) -> bool:
+        """Wire-visible replacement for the redacted key (F-59)."""
+        return bool(self.api_key)
 
     def cache_key(self) -> str:
         return f"{self.provider}:{self.base_url}"
