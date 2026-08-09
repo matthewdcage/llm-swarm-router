@@ -48,17 +48,10 @@ def test_model_favorites_survives_a_dashboard_round_trip() -> None:
     assert merged.ui.model_favorites == ["qwen3-coder", "gpt-oss-120b"]
 
 
-def test_drain_has_a_control_on_the_dashboard() -> None:
-    """POST /netllm/v1/admin/drain shipped with no UI on either surface.
-
-    The only dashboard path to take an agent out of rotation was stopping it,
-    which kills in-flight requests — the exact thing drain exists to avoid.
-    """
-    html = (STATIC / "index.html").read_text(encoding="utf-8")
-    js = (STATIC / "dashboard.js").read_text(encoding="utf-8")
-    assert 'id="btn-drain"' in html, "no drain control in the dashboard"
-    assert "btn-drain" in js, "drain control is not bound to a handler"
-    assert "/netllm/v1/admin/drain" in js, "drain handler calls no endpoint"
+# test_drain_has_a_control_on_the_dashboard moved to
+# tests/conformance/kit_config_surfaces.py as
+# test_drain_is_wired_end_to_end_on_the_dashboard, next to the `drain`
+# ControlDescriptor whose dashboard leg it proves (Axis D).
 
 
 def test_status_json_link_points_at_the_status_endpoint() -> None:

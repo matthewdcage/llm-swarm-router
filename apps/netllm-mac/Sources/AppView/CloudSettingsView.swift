@@ -105,6 +105,16 @@ private struct CloudProviderCard: View {
                 Text("openai").tag("openai")
                 Text("anthropic").tag("anthropic")
             }
+            // api_key_env and base_url had no control on either surface.
+            // The agent already honours both (service/cloud.py resolves
+            // provider_cfg.api_key_env ahead of the registry env var and
+            // provider_cfg.base_url ahead of the registry endpoint), so
+            // their absence was an oversight, not a policy — closed in the
+            // Axis D phase (docs/extending/08-control-parity.md).
+            TextField("API key env var", text: binding.api_key_env)
+                .textFieldStyle(.roundedBorder)
+            TextField("Base URL override", text: binding.base_url)
+                .textFieldStyle(.roundedBorder)
             SecureField("API key", text: keyBinding)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit { model.saveCloudKey(provider) }

@@ -626,6 +626,25 @@ plus explicitly configured addresses. If the broad set stays, recompute it on a 
 
 ## F-21 · The config schema mirror is reduced, not eliminated
 
+> **RESOLVED (Axis D / Phase 7).** The prescribed drift test exists and is
+> executable: `tests/conformance/kit_config_surfaces.py` requires every one of
+> the 99 config schema keys to be `schema_rendered`, `hand_rendered`, `derived`
+> (`read_only`, dropped by both generic renderers) or ledgered with a reason
+> and an expiry in `tests/conformance/ledgers/control-parity.toml`. Adding a
+> Python field now forces a conscious client decision, by name, on both
+> surfaces. Day one: 18 of 188 (field, surface) pairs ledgered = 9.6%, under
+> the 20% tripwire, which is itself a test. The hand-written renderers are
+> unchanged in size, per PROGRAM.md §6.6 — the gate makes their *gaps* loud
+> without touching their *bulk*. See
+> [docs/extending/08-control-parity.md](../extending/08-control-parity.md).
+>
+> Four of the gaps it found were closed rather than ledgered
+> (`routing.upstream_{connect,read}_timeout_s`, `agent.max_concurrency`,
+> `routing.model_aliases`, `cloud.providers.*.{api_key_env,base_url}`); two
+> were judged correctly absent (`routing.require_same_model_for_shard`, which
+> F-17 deliberately removed, and `cloud.providers.*.auth`, which is the
+> outcome of a CLI flow).
+
 `config_schema.py` was built to end the Python ↔ Swift ↔ JS triple-mirror, and it works — but
 only the `ui` section is schema-driven in the macOS app, and `routing`'s non-`model_pools`
 fields plus all of `cloud` remain hand-typed Swift structs (documented in
@@ -645,6 +664,8 @@ and fields exist in clients that Python has deprecated.
 ## F-22 · Timing constants are inconsistently configurable
 
 > **RESOLVED (`bb3eae0`) for the part that mattered — upstream connect/read timeouts are now `[routing]` knobs. The remaining constants are unchanged and still scattered.**
+>
+> **Axis D follow-up:** those two knobs shipped with a control on no surface and were not even exported by `config_summary`, so the 120 s read timeout stayed effectively source-only — the case flagged below as most likely to bite. Both are now exported and editable on the dashboard's Routing tab and in the macOS Settings routing tab.
 
 Configurable: `heartbeat_interval_s`, `peer_stale_after_s`, `rediscover_interval_s`,
 `health_ttl_s`, `offline_retry_s`, `max_backend_failures`.

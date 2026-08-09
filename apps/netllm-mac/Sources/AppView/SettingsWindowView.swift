@@ -529,6 +529,18 @@ struct SettingsWindowView: View {
             }
             Text("Consecutive request failures before a backend is marked offline; health TTL / offline retry control how fast it's re-probed.")
                 .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text("Upstream connect timeout (s)")
+                TextField("5", value: $model.document.routing.upstream_connect_timeout_s, format: .number)
+                    .frame(width: 80)
+            }
+            HStack {
+                Text("Upstream read timeout (s)")
+                TextField("120", value: $model.document.routing.upstream_read_timeout_s, format: .number)
+                    .frame(width: 80)
+            }
+            Text("How long the agent waits for an upstream backend to connect and to finish generating. Raise the read timeout for large local models on slow hosts.")
+                .font(.caption).foregroundStyle(.secondary)
             sectionHeader("Routing policies")
             Text(
                 "First matching policy applies. Cloud routing requires allow_cloud on an explicit policy row."

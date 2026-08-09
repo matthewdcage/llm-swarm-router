@@ -18,13 +18,16 @@
 # The phase this tree has completed. Any entry whose `expires` names this
 # phase or an earlier one is overdue and fails the ledger test -- otherwise an
 # expiry is decoration. (PROGRAM.md §5 phase order: 0,1,2,3,4,5a,5b,6,7,8.)
-# Phase 4 is HALF done and this stays at phase-3 until it is not. The local
-# half landed (GET /netllm/v1/local-providers, both UIs derive from it). The
-# cloud half -- generate-registry-artifacts.py --check, deleting
-# KeychainStore's switch cases, generating the 5 doc rosters and the
-# config.example.toml stanzas -- has not. Setting this to "phase-4" lists
-# exactly the seven mirrors that remain, which is the honest to-do list.
-current_phase = "phase-4"
+# Bumped 4 -> 5a in the Axis D phase. The prose above it used to argue for
+# "phase-3" while the value read "phase-4", so the file disagreed with itself
+# and `test_no_ledger_entry_is_overdue` was answering a question nobody had
+# chosen. Both halves of Phase 4 have since landed
+# (generate-registry-artifacts.py --check is in ci.sh:36, KeychainStore's
+# switch cases are a generated block), and `39f0d5e` landed Phase 5a. 5b and
+# 6 have not, so this stops at 5a. Every surviving entry expires at "never"
+# with a stated reason or at "phase-8", so the bump lists nothing new as
+# overdue -- it makes the clock honest rather than moving a deadline.
+current_phase = "phase-5a"
 files = [
   "packages/netllm-agent/src/netllm_agent/static/dashboard.js",
   "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift",

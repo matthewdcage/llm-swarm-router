@@ -1451,12 +1451,30 @@ function schemaListStringsRow(field, draft, onDirty, overrides) {
 // known key). Unlike schemaDictRow below, keys here come from
 // overrides.keys (a fixed, known set — e.g. the provider id list), not
 // from user-typed row keys.
+// `overrides.keys` pins the key set (discovery.provider_urls: one row per
+// known provider, no add/remove). Without it the keys are user-typed
+// (routing.model_aliases) and the widget grows a name field, an add button
+// and a per-key remove — otherwise an alias that does not already exist in
+// config.toml could never be created from this surface, which is a control
+// that is present but unusable.
 function schemaDictListStringsRow(field, draft, onDirty, overrides) {
   const wrap = el("div");
   if (!draft[field.name]) draft[field.name] = {};
   const dict = draft[field.name];
-  (overrides?.keys || Object.keys(dict)).forEach((key) => {
-    wrap.appendChild(textEl("div", "section-label", overrides?.keyLabels?.[key] || key));
+  const fixedKeys = overrides?.keys;
+  (fixedKeys || Object.keys(dict)).forEach((key) => {
+    const heading = el("div", "section-label");
+    heading.appendChild(document.createTextNode(overrides?.keyLabels?.[key] || key));
+    if (!fixedKeys) {
+      const removeKey = textEl("button", "secondary", "Remove");
+      removeKey.onclick = () => {
+        delete dict[key];
+        onDirty();
+        render();
+      };
+      heading.appendChild(removeKey);
+    }
+    wrap.appendChild(heading);
     const rowWrap = el("div", "card string-list");
     const list = el("div", "string-list");
     function sync() {
@@ -1480,11 +1498,27 @@ function schemaDictListStringsRow(field, draft, onDirty, overrides) {
       list.appendChild(item);
     }
     (dict[key] || []).forEach(addRow);
-    const add = textEl("button", "secondary", "+ Add URL");
+    const add = textEl("button", "secondary", `+ Add ${overrides?.itemLabel || "URL"}`);
     add.onclick = () => addRow();
     rowWrap.append(list, add);
     wrap.appendChild(rowWrap);
   });
+  if (!fixedKeys) {
+    const newKeyWrap = el("div", "card string-list");
+    const newKey = document.createElement("input");
+    newKey.type = "text";
+    newKey.placeholder = overrides?.keyPlaceholder || "new key";
+    const addKey = textEl("button", "secondary", "+ Add");
+    addKey.onclick = () => {
+      const name = newKey.value.trim();
+      if (!name || Object.prototype.hasOwnProperty.call(dict, name)) return;
+      dict[name] = [];
+      onDirty();
+      render();
+    };
+    newKeyWrap.append(newKey, addKey);
+    wrap.appendChild(newKeyWrap);
+  }
   return wrap;
 }
 
@@ -1764,6 +1798,26 @@ function renderAgentTab() {
     })
   );
 
+  // agent.max_concurrency had a control on the macOS app and none here —
+  // a real cross-surface gap, closed in the Axis D phase rather than
+  // ledgered (docs/extending/08-control-parity.md §"gaps closed").
+  const agentFields = state.configSchema?.sections?.agent?.fields || [];
+  const agentByName = Object.fromEntries(agentFields.map((f) => [f.name, f]));
+  if (agentByName.max_concurrency) {
+    card.appendChild(
+      renderSchemaField(agentByName.max_concurrency, state.configDraft.agent, markDirty, {
+        label: "Max concurrency (this machine)",
+      })
+    );
+    card.appendChild(
+      textEl(
+        "p",
+        "empty",
+        "Self-declared ceiling on this machine's own concurrent requests, broadcast to peers so least_load/local_spillover selection respects it. 0 = unlimited."
+      )
+    );
+  }
+
   appendInfoRow(card, "Agent ID", state.configDraft.agent.agent_id);
   appendInfoRow(card, "Hostname", state.configDraft.agent.hostname);
   appendInfoRow(card, "Listen", state.configDraft.agent.listen);
@@ -1898,6 +1952,12 @@ function renderRoutingTab() {
   const draft = state.configDraft.routing;
 
   const card = el("div", "card");
+  // The two upstream_* timeouts were promoted to config (F-22, bb3eae0)
+  // and never given a control on any surface. Closed here rather than
+  // ledgered — an unreachable knob is a bug, not a policy. NOT
+  // require_same_model_for_shard: that one is deprecated and inert (F-17)
+  // and is ledgered as correctly absent
+  // (docs/extending/08-control-parity.md).
   [
     "default_strategy",
     "allow_remote",
@@ -1907,10 +1967,30 @@ function renderRoutingTab() {
     "health_ttl_s",
     "offline_retry_s",
     "max_backend_failures",
+    "upstream_connect_timeout_s",
+    "upstream_read_timeout_s",
   ].forEach((name) => {
     if (byName[name]) card.appendChild(renderSchemaField(byName[name], draft, markDirty));
   });
   root.appendChild(card);
+
+  root.appendChild(textEl("div", "section-label", "Model aliases"));
+  root.appendChild(
+    textEl(
+      "p",
+      "empty",
+      "Canonical model name → provider-specific IDs, so mixed fleets (oMLX vs Ollama vs LM Studio naming) can serve one requested name."
+    )
+  );
+  if (byName.model_aliases) {
+    root.appendChild(
+      renderSchemaField(byName.model_aliases, draft, markDirty, {
+        keyPlaceholder: "canonical model name",
+        placeholder: "provider-specific model id",
+        itemLabel: "served id",
+      })
+    );
+  }
 
   root.appendChild(textEl("div", "section-label", "Routing policies"));
   root.appendChild(
@@ -2191,17 +2271,37 @@ function renderCloudProviderCard(pid, cloudDraft, summary, itemSchema) {
   const byName = Object.fromEntries(itemSchema.map((f) => [f.name, f]));
   const regions = summary.regions && summary.regions.length ? summary.regions : [""];
   const keyLabel = summary.api_key_set ? "API key (set — enter to replace)" : "API key";
-  ["enabled", "region", "api_format", "api_key"].forEach((name) => {
+  // api_key_env and base_url had no control on either UI. Both are real
+  // operator knobs the server already honours (service/cloud.py resolves
+  // provider_cfg.api_key_env before the registry env var, and
+  // provider_cfg.base_url overrides the registry endpoint), and both are
+  // already generically rendered for routing.backends rows — so their
+  // absence here was an oversight, not a policy. `auth` stays absent and
+  // is ledgered instead: see tests/conformance/ledgers/control-parity.toml.
+  const CLOUD_PROVIDER_FIELD_OVERRIDES = {
+    enabled: { label: `Enable ${title}` },
+    region: { label: "Region / profile", options: regions, optionLabels: { "": "default" } },
+    api_format: {
+      optionLabels: { "": `default (${summary.default_api_format || "openai"})` },
+    },
+    api_key: {
+      label: keyLabel,
+      placeholder: summary.api_key_set ? "•••••••• (unchanged if left blank)" : "sk-...",
+    },
+    api_key_env: {
+      label: "API key env var",
+      placeholder: "leave blank for the provider default env var",
+    },
+    base_url: {
+      label: "Base URL override",
+      placeholder: "leave blank for the registry endpoint",
+    },
+  };
+  ["enabled", "region", "api_format", "api_key", "api_key_env", "base_url"].forEach((name) => {
     if (!byName[name]) return;
-    const overrides =
-      name === "enabled"
-        ? { label: `Enable ${title}` }
-        : name === "region"
-          ? { label: "Region / profile", options: regions, optionLabels: { "": "default" } }
-          : name === "api_format"
-            ? { optionLabels: { "": `default (${summary.default_api_format || "openai"})` } }
-            : { label: keyLabel, placeholder: summary.api_key_set ? "•••••••• (unchanged if left blank)" : "sk-..." };
-    card.appendChild(renderSchemaField(byName[name], entry, markDirty, overrides));
+    card.appendChild(
+      renderSchemaField(byName[name], entry, markDirty, CLOUD_PROVIDER_FIELD_OVERRIDES[name])
+    );
   });
   card.appendChild(renderCloudModelsSection(pid, entry));
   return card;
