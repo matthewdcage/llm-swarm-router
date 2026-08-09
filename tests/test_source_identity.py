@@ -68,6 +68,14 @@ def test_user_agent_heuristic_fallback() -> None:
     assert resolved.resolved_via == "user_agent"
 
 
+def test_hermes_agent_virtual_key_resolves() -> None:
+    sources = [SourceConfig(id="hermes-agent", known_id="hermes-agent")]
+    headers = {"authorization": "Bearer netllm-hermes-agent"}
+    resolved = resolve_source(headers=headers, sources=sources)
+    assert resolved.id == "hermes-agent"
+    assert resolved.resolved_via == "key"
+
+
 def test_netllm_local_always_resolves_to_default() -> None:
     sources = [SourceConfig(id="claude-code")]
     headers = {"authorization": "Bearer netllm-local"}

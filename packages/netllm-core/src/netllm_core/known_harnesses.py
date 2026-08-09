@@ -74,6 +74,13 @@ KNOWN_HARNESSES: tuple[KnownHarness, ...] = (
         install_hint="See the agent-buzz-slack workspace README",
         docs_url=None,
     ),
+    KnownHarness(
+        id="hermes-agent",
+        display_name="Hermes Agent",
+        cli_commands=("hermes",),
+        install_hint="pip install hermes-agent",
+        docs_url="https://hermes-agent.nousresearch.com/docs/integrations/providers",
+    ),
 )
 
 _BY_ID: dict[str, KnownHarness] = {h.id: h for h in KNOWN_HARNESSES}

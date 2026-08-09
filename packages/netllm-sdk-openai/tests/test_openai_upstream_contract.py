@@ -10,16 +10,17 @@ from netllm_sdk_openai.client import OpenAIUpstream, OpenAIUpstreamError
 
 
 @pytest.mark.asyncio
+@patch("netllm_sdk_openai.client.read_chat_completion_json", new_callable=AsyncMock)
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
-async def test_chat_completion_passes_payload(mock_cls: MagicMock) -> None:
+async def test_chat_completion_passes_payload(
+    mock_cls: MagicMock, mock_read: AsyncMock
+) -> None:
     mock_client = MagicMock()
     mock_cls.return_value = mock_client
-    mock_resp = MagicMock()
-    mock_resp.model_dump.return_value = {
+    mock_read.return_value = {
         "id": "chatcmpl-1",
         "object": "chat.completion",
     }
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_resp)
 
     upstream = OpenAIUpstream("http://127.0.0.1:11434/v1")
     payload = {
@@ -29,17 +30,21 @@ async def test_chat_completion_passes_payload(mock_cls: MagicMock) -> None:
     }
     result = await upstream.chat_completion(payload)
     assert result == {"id": "chatcmpl-1", "object": "chat.completion"}
-    mock_client.chat.completions.create.assert_awaited_once_with(**payload)
+    mock_read.assert_awaited_once()
+    passed = mock_read.await_args.args[1]
+    assert passed["model"] == "llama3"
+    assert passed["messages"] == [{"role": "user", "content": "hi"}]
+    assert passed["max_tokens"] == 10
 
 
 @pytest.mark.asyncio
+@patch("netllm_sdk_openai.client.read_chat_completion_json", new_callable=AsyncMock)
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
-async def test_chat_completion_wraps_errors(mock_cls: MagicMock) -> None:
-    mock_client = MagicMock()
-    mock_cls.return_value = mock_client
-    err = Exception("rate limited")
-    err.status_code = 429  # type: ignore[attr-defined]
-    mock_client.chat.completions.create = AsyncMock(side_effect=err)
+async def test_chat_completion_wraps_errors(
+    mock_cls: MagicMock, mock_read: AsyncMock
+) -> None:
+    mock_cls.return_value = MagicMock()
+    mock_read.side_effect = OpenAIUpstreamError("rate limited", status_code=429)
 
     upstream = OpenAIUpstream("http://127.0.0.1:11434/v1")
     with pytest.raises(OpenAIUpstreamError) as exc_info:
@@ -48,24 +53,28 @@ async def test_chat_completion_wraps_errors(mock_cls: MagicMock) -> None:
 
 
 @pytest.mark.asyncio
+@patch("netllm_sdk_openai.client.iter_chat_completion_sse_lines")
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
-async def test_chat_completion_stream_sse_format(mock_cls: MagicMock) -> None:
-    mock_client = MagicMock()
-    mock_cls.return_value = mock_client
+async def test_chat_completion_stream_sse_format(
+    mock_cls: MagicMock, mock_iter: MagicMock
+) -> None:
+    mock_cls.return_value = MagicMock()
 
-    chunk = MagicMock()
-    chunk.model_dump.return_value = {
-        "id": "chatcmpl-1",
-        "object": "chat.completion.chunk",
-        "choices": [{"delta": {"content": "hi"}}],
-    }
+    async def _lines():
+        yield (
+            "data: "
+            + json.dumps(
+                {
+                    "id": "chatcmpl-1",
+                    "object": "chat.completion.chunk",
+                    "choices": [{"delta": {"content": "hi"}}],
+                }
+            )
+            + "\n\n"
+        )
+        yield "data: [DONE]\n\n"
 
-    async def _aiter():
-        yield chunk
-
-    mock_stream = MagicMock()
-    mock_stream.__aiter__ = lambda self: _aiter()
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
+    mock_iter.return_value = _lines()
 
     upstream = OpenAIUpstream("http://127.0.0.1:11434/v1")
     payload = {
@@ -85,16 +94,73 @@ async def test_chat_completion_stream_sse_format(mock_cls: MagicMock) -> None:
 
 
 @pytest.mark.asyncio
+@patch("netllm_sdk_openai.client.read_chat_completion_json", new_callable=AsyncMock)
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
-async def test_chat_completion_moves_top_k_to_extra_body(mock_cls: MagicMock) -> None:
-    mock_client = MagicMock()
-    mock_cls.return_value = mock_client
-    mock_resp = MagicMock()
-    mock_resp.model_dump.return_value = {
-        "id": "chatcmpl-1",
-        "object": "chat.completion",
+async def test_chat_completion_preserves_reasoning_content(
+    mock_cls: MagicMock, mock_read: AsyncMock
+) -> None:
+    mock_cls.return_value = MagicMock()
+    mock_read.return_value = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "answer",
+                    "reasoning_content": "chain of thought",
+                }
+            }
+        ]
     }
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_resp)
+
+    upstream = OpenAIUpstream("http://127.0.0.1:11434/v1")
+    result = await upstream.chat_completion(
+        {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    )
+    assert result["choices"][0]["message"]["reasoning_content"] == "chain of thought"
+
+
+@pytest.mark.asyncio
+@patch("netllm_sdk_openai.client.iter_chat_completion_sse_lines")
+@patch("netllm_sdk_openai.client.AsyncOpenAI")
+async def test_chat_completion_stream_preserves_reasoning_content(
+    mock_cls: MagicMock, mock_iter: MagicMock
+) -> None:
+    mock_cls.return_value = MagicMock()
+
+    async def _lines():
+        yield (
+            "data: "
+            + json.dumps(
+                {
+                    "object": "chat.completion.chunk",
+                    "choices": [{"delta": {"reasoning_content": "thinking"}}],
+                }
+            )
+            + "\n\n"
+        )
+        yield "data: [DONE]\n\n"
+
+    mock_iter.return_value = _lines()
+
+    upstream = OpenAIUpstream("http://127.0.0.1:11434/v1")
+    lines = []
+    async for line in upstream.chat_completion_stream(
+        {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+    ):
+        lines.append(line)
+
+    payload = json.loads(lines[0].removeprefix("data: ").strip())
+    assert payload["choices"][0]["delta"]["reasoning_content"] == "thinking"
+
+
+@pytest.mark.asyncio
+@patch("netllm_sdk_openai.client.read_chat_completion_json", new_callable=AsyncMock)
+@patch("netllm_sdk_openai.client.AsyncOpenAI")
+async def test_chat_completion_moves_top_k_to_extra_body(
+    mock_cls: MagicMock, mock_read: AsyncMock
+) -> None:
+    mock_cls.return_value = MagicMock()
+    mock_read.return_value = {"id": "chatcmpl-1", "object": "chat.completion"}
 
     upstream = OpenAIUpstream("http://127.0.0.1:8012/v1")
     payload = {
@@ -103,9 +169,9 @@ async def test_chat_completion_moves_top_k_to_extra_body(mock_cls: MagicMock) ->
         "top_k": 40,
     }
     await upstream.chat_completion(payload)
-    call_kwargs = mock_client.chat.completions.create.await_args.kwargs
-    assert "top_k" not in call_kwargs
-    assert call_kwargs["extra_body"] == {"top_k": 40}
+    passed = mock_read.await_args.args[1]
+    assert "top_k" not in passed
+    assert passed["extra_body"] == {"top_k": 40}
 
 
 @pytest.mark.asyncio
@@ -148,14 +214,14 @@ async def test_embeddings_moves_extension_fields_to_extra_body(
 
 
 @pytest.mark.asyncio
+@patch("netllm_sdk_openai.client.read_chat_completion_json", new_callable=AsyncMock)
 @patch("netllm_sdk_openai.client.AsyncOpenAI")
-async def test_chat_completion_strips_sdk_control_kwargs(mock_cls: MagicMock) -> None:
+async def test_chat_completion_strips_sdk_control_kwargs(
+    mock_cls: MagicMock, mock_read: AsyncMock
+) -> None:
     """F-42: wire extra_headers/extra_query/timeout never become SDK kwargs."""
-    mock_client = MagicMock()
-    mock_cls.return_value = mock_client
-    mock_resp = MagicMock()
-    mock_resp.model_dump.return_value = {"id": "c1", "object": "chat.completion"}
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_resp)
+    mock_cls.return_value = MagicMock()
+    mock_read.return_value = {"id": "c1", "object": "chat.completion"}
 
     upstream = OpenAIUpstream("http://127.0.0.1:11434/v1")
     payload = {
@@ -166,10 +232,10 @@ async def test_chat_completion_strips_sdk_control_kwargs(mock_cls: MagicMock) ->
         "timeout": 0.001,
     }
     await upstream.chat_completion(payload)
-    call_kwargs = mock_client.chat.completions.create.await_args.kwargs
-    assert "extra_headers" not in call_kwargs
-    assert "extra_query" not in call_kwargs
-    assert "timeout" not in call_kwargs
+    passed = mock_read.await_args.args[1]
+    assert "extra_headers" not in passed
+    assert "extra_query" not in passed
+    assert "timeout" not in passed
 
 
 @pytest.mark.asyncio

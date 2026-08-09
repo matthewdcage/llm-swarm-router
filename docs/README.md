@@ -25,8 +25,9 @@ Overview: [platform-matrix.md](platform-matrix.md)
 | Topic | Doc |
 |-------|-----|
 | Telemetry API (dashboard / menubar) | [telemetry-api.md](telemetry-api.md) |
-| Wire Cursor, Claude Code, Codex, Honcho | [editor-integration.md](editor-integration.md) (start at **Client configuration**) |
+| Wire Cursor, Claude Code, Codex, Honcho, Hermes Agent | [editor-integration.md](editor-integration.md) (start at **Client configuration**) |
 | Honcho (Docker / deriver / connectors) | [honcho-integration.md](honcho-integration.md) |
+| Hermes Agent (CLI / TUI / gateway) | [hermes-agent-integration.md](hermes-agent-integration.md) |
 | Quick diagnostic | `./netllm doctor` from repo root or global install |
 
 ## Developers & agents
