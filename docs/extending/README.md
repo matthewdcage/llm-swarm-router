@@ -20,6 +20,8 @@ archaeology exercise.
 | [PROGRAM.md](PROGRAM.md) | The adopted program: per-axis contracts, phases, what is *not* worth doing |
 | [extension-cost-map.md](extension-cost-map.md) | Measured cost of each extension axis today, with `file:line` for every duplicated fact |
 | [lifecycle-inventory.md](lifecycle-inventory.md) | Versioning, deprecation, migration, release and mesh-upgrade pathways — documented? tested? enforced? |
+| [harness-integration-map.md](harness-integration-map.md) | Axis F evidence: per-harness detected/attributed/wired/routed/capability-modelled/tested matrix |
+| [upstream-absorption-map.md](upstream-absorption-map.md) | Axis G evidence: upstream-change class x how and when it is detected, ranked by "silently reaches production" |
 
 Method: two parallel mapping agents measured the real cost against landed commits, three
 competing designs were produced independently, and a judge panel scored and synthesized
@@ -36,6 +38,26 @@ Every mechanism this uses already exists in the tree — `CloudProviderSpec`, th
 `admin.cloud_provider_registry_payload()` runtime projection, `generate-dashboard-tokens.py
 --check`, `check-engine-erosion.py`, and the `allowed-divergences.txt` declare-or-fail
 ledger. Nothing new is invented where something proven already works.
+
+## Axes F and G — added after the first pass under-scoped them
+
+The original program's "Axis D" covered adding a *netllm CLI command*; it did **not** cover
+integrating an **external CLI agent** into the router, which is the more strategic axis. It
+also deferred SDK-drift hardening. Both are now designed in [PROGRAM.md](PROGRAM.md)'s
+addendum (spec-registry 8.6 adopted over canary-contract 7.7 and capability-negotiation 6.4).
+
+**The harness extension path has an unguarded second roster.** `connect.py:225` validates a
+harness against `KNOWN_HARNESSES`, then `connect.py:241` indexes a *separate* hand-written
+`_guides()` dict. The two rosters happen to agree today, so nothing is broken — but
+`grep -rn "_guides" tests/` returns **zero**, and a registry-only addition raises `KeyError`
+(reproduced). The identical guard already exists for the icon convention at
+`test_admin_harnesses.py:37-38`; it was simply never applied here. One assertion closes it.
+
+**No harness has a machine-readable requirement.** Claude Code needs the Messages surface
+and streams by default; Codex needs `/v1/responses` because it dropped `wire_api=chat`.
+Both facts live only as English prose, in `connect.py`'s guide dict and
+`editor-integration.md`. A routing change that breaks a harness produces a runtime failure,
+not a red test. Axis F makes the requirement a declared field with a conformance kit.
 
 ## Two findings worth acting on before any refactor
 
