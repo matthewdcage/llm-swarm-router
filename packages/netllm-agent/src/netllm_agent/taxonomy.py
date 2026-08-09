@@ -29,7 +29,15 @@ from netllm_core.pool import RouterPool
 from netllm_sdk_anthropic.client import AnthropicUpstreamError
 from netllm_sdk_openai.client import OpenAIUpstreamError
 
-__all__ = ["Surface", "ExhaustionContext", "exhaustion_error", "model_not_found_error"]
+__all__ = [
+    "Surface",
+    "SurfaceSpec",
+    "SURFACE_SPECS",
+    "spec_for",
+    "ExhaustionContext",
+    "exhaustion_error",
+    "model_not_found_error",
+]
 
 
 class Surface(StrEnum):
@@ -38,6 +46,85 @@ class Surface(StrEnum):
     CHAT = "chat"
     EMBEDDINGS = "embeddings"
     MESSAGES = "messages"
+
+
+@dataclass(frozen=True)
+class SurfaceSpec:
+    """Per-surface facts that used to be `Surface` branches out in the tree.
+
+    Axis C's rule (PROGRAM.md §3) is that a `Surface` branch may exist only
+    on the outside of the failover loop, in the adapter package. Four had
+    escaped into `candidates.py`, `request_plan.py`, `policy.py` and this
+    module -- each a place a fifth surface could be silently forgotten,
+    because nothing enumerates them.
+
+    They live *here*, beside `Surface` itself, rather than on the adapters:
+    `surfaces/base.py` imports `CandidateSchedule` from `candidates.py`, so
+    `candidates.py` importing the adapters would be a cycle. The adapters
+    expose the same values as protocol members, so the seam is still the
+    adapter from the loop's point of view; this is where the values are
+    *stated once*.
+    """
+
+    surface: Surface
+
+    excluded_api_formats: frozenset[str] = frozenset()
+    """Wire dialects this surface's strategy loop must never select (D8)."""
+
+    classifier_api_format: str = "openai"
+    """Dialect the scenario classifier and routing policy see (D14)."""
+
+    reads_anthropic_credentials: bool = False
+    """Whether a request on this surface carries an `x-api-key` Anthropic
+    credential that participates in routing (`policy.py`'s header read)."""
+
+    missing_credential_message: str = ""
+    """What "nothing matched, and you gave me no key" means on this surface.
+
+    D11: Messages reads exhaustion-with-no-key as a 401 telling the caller to
+    supply a cloud credential, where every OpenAI surface answers
+    404-model-not-found. Empty means the surface has no such reading and falls
+    through to model-not-found."""
+
+    exhaustion_message: str = ""
+    """What exhaustion means when a credential *was* supplied. Empty means
+    model-not-found, which is the OpenAI surfaces' answer."""
+
+
+SURFACE_SPECS: dict[Surface, SurfaceSpec] = {
+    # CHAT excludes nothing: it has always been willing to select an
+    # anthropic-format row and talk OpenAI to it (`_openai_upstream` is used
+    # for every row regardless of `api_format`). Preserved verbatim, divergent
+    # or not.
+    Surface.CHAT: SurfaceSpec(surface=Surface.CHAT),
+    # EMBEDDINGS excludes anthropic because the Anthropic API has no
+    # embeddings endpoint -- those rows are unservable, full stop, with no
+    # fallback tier to catch them. It still classifies as "openai" (D14).
+    Surface.EMBEDDINGS: SurfaceSpec(
+        surface=Surface.EMBEDDINGS,
+        excluded_api_formats=frozenset({"anthropic"}),
+    ),
+    # MESSAGES excludes anthropic from *selection* only: those rows are not
+    # unservable, they are deferred into the ordered fallback tier so the
+    # cloud never shadows the local mesh in a rotation.
+    Surface.MESSAGES: SurfaceSpec(
+        surface=Surface.MESSAGES,
+        excluded_api_formats=frozenset({"anthropic"}),
+        classifier_api_format="anthropic",
+        reads_anthropic_credentials=True,
+        missing_credential_message=(
+            "ANTHROPIC_API_KEY required for cloud Messages API"
+        ),
+        exhaustion_message="No healthy backends available for model",
+    ),
+}
+
+
+def spec_for(surface: Surface) -> SurfaceSpec:
+    """The spec for a surface. KeyError is deliberate: a new `Surface` member
+    with no spec must fail loudly at first use rather than inherit defaults
+    that happen to be the OpenAI ones."""
+    return SURFACE_SPECS[surface]
 
 
 @dataclass(frozen=True)
@@ -93,16 +180,17 @@ def exhaustion_error(
     """
     if last_error is not None:
         return last_error
-    if context.surface is Surface.MESSAGES:
-        # D11: the Messages surface reads "nothing matched" as "you did
-        # not give me a cloud key" and answers 401, where every OpenAI
-        # surface answers 404-model-not-found.
-        if not context.api_key:
+    spec = spec_for(context.surface)
+    # D11 as declared data rather than a branch: a surface either has a
+    # reading of "exhausted with no credential" or it does not, and a new
+    # surface has to answer that on its spec instead of inheriting whichever
+    # side of an `is Surface.MESSAGES` test it happens to land on.
+    if spec.exhaustion_message:
+        if spec.missing_credential_message and not context.api_key:
             return AnthropicUpstreamError(
-                "ANTHROPIC_API_KEY required for cloud Messages API",
-                status_code=401,
+                spec.missing_credential_message, status_code=401
             )
-        return AnthropicUpstreamError("No healthy backends available for model")
+        return AnthropicUpstreamError(spec.exhaustion_message)
     return model_not_found_error(
         context.pool, context.requested_model, capability=context.capability
     )

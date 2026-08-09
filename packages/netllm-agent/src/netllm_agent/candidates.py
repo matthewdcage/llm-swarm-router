@@ -33,7 +33,7 @@ from dataclasses import dataclass
 
 from netllm_core.pool import Backend
 
-from .taxonomy import Surface
+from .taxonomy import Surface, spec_for
 
 __all__ = ["CandidateSchedule", "excluded_api_formats"]
 
@@ -55,7 +55,7 @@ def excluded_api_formats(surface: Surface) -> frozenset[str]:
       fallback tier so the cloud never shadows the local mesh in a
       rotation.
     """
-    return frozenset() if surface is Surface.CHAT else frozenset({"anthropic"})
+    return spec_for(surface).excluded_api_formats
 
 
 @dataclass(frozen=True)

@@ -30,7 +30,7 @@ from netllm_sdk_openai.client import OpenAIUpstreamError
 from netllm_agent.metrics import SCENARIO_REQUESTS_TOTAL, SOURCE_REQUESTS_TOTAL
 from netllm_agent.request_plan import RequestPlan, api_format_for
 from netllm_agent.shard import extract_shard_context
-from netllm_agent.taxonomy import Surface
+from netllm_agent.taxonomy import Surface, spec_for
 
 from .core import SourceCapacityExceeded
 from .surfaces import adapter_for
@@ -338,7 +338,11 @@ class PolicyMixin:
         # (_messages_on_backend / _messages_stream_on_backend), so a retry
         # onto a backend with a different alias sends *that* backend's
         # served ID.
-        api_key = self._anthropic_api_key(hdrs) if surface is Surface.MESSAGES else ""
+        api_key = (
+            self._anthropic_api_key(hdrs)
+            if spec_for(surface).reads_anthropic_credentials
+            else ""
+        )
 
         routing = self._resolved_routing(
             model,
