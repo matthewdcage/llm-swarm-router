@@ -34,10 +34,6 @@ SWIFT_DOC = "apps/netllm-mac/Sources/Config/NetllmConfigDocument.swift"
 # Fields a client legitimately does not carry, with the reason. Anything not
 # listed here must appear in the Swift struct -- "we forgot" is not a reason.
 INTENTIONALLY_ABSENT: dict[tuple[str, str], str] = {
-    ("BackendOverride", "api_key"): (
-        "write-only; the Swift app sends it through the Keychain path and "
-        "config_merge preserves the stored value when it is omitted"
-    ),
     ("SourceConfig", "secret"): (
         "write-only, same contract as BackendOverride.api_key -- "
         "ConfigStore.blankSourceSecret relies on empty-preserves-stored"
