@@ -203,14 +203,12 @@ expires = "phase-8 — either SchemaFormView grows the widget or the exclusion i
 # already guard every other ledger; a dict in a test module could carry a
 # reason but never a date, and nothing read one.
 
-[[row_field]]
-model = "BackendOverride"
-field = "api_key"
-reason = """
-Write-only; the Swift app sends it through the Keychain path and \
-config_merge preserves the stored value when it is omitted.\
-"""
-expires = "never — write-only secrets are deliberately not round-tripped through a client"
+# BackendOverride.api_key had an entry here claiming the Swift struct does not
+# carry it. NetllmConfigDocument.swift declares `var api_key: String = ""`, so
+# the excuse was simply false — and nothing read it, because row_field was
+# only consulted for the models in IDENTITYLESS. Deleted rather than reworded:
+# the field IS carried, and BackendOverride rows merge onto the prior row by
+# base_url, so an omitted key is preserved anyway.
 
 [[row_field]]
 model = "SourceConfig"

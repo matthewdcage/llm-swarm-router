@@ -186,7 +186,7 @@ Both are asserted, not asserted-about:
 
 ## 7. What the day-one gaps were, and what was done with each
 
-Six candidate gaps were examined. Four were closed, two were judged correctly
+Six candidate gaps were examined. Four were closed, three were judged correctly
 absent and ledgered. Closing them **first** is why the gate is green by fixing
 things rather than by writing excuses — the gate was not designed around the
 gaps.
@@ -242,7 +242,7 @@ in its sharpest form.
   call, not the widget. If `SchemaFormView` silently dropped a widget kind,
   every field it covers would still read as present. This is the price of the
   disposition existing at all, and it is cheaper than the alternative (which
-  is calling all 19 generically-rendered fields absent).
+  is calling all 87 generically-rendered (field, surface) pairs absent).
 - **Anything about a third surface.** The CLI is asserted as a round-trip and
   an action roster, not field by field, on purpose (§4).
 - **Region boundaries beyond the anchors.** Regions are delimited by
