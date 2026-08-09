@@ -1,9 +1,9 @@
 ---
 name: netllm-connect-editor
 description: |
-  Wire AI coding tools (Cursor, Claude Code, Codex, VS Code Copilot, Honcho)
-  to a running netllm agent at http://127.0.0.1:11400/v1. Use when the user
-  asks to connect Cursor to netllm, use local LLM in Claude Code or Codex,
+  Wire AI coding tools (Cursor, Claude Code, Codex, VS Code Copilot, Honcho,
+  Hermes Agent) to a running netllm agent at http://127.0.0.1:11400/v1. Use when
+  the user asks to connect Cursor to netllm, use local LLM in Claude Code or Codex,
   point an editor at the swarm router, or invokes /netllm-connect. Requires
   netllm serve running and a model name from ./netllm models.
 version: 1.0.0
@@ -23,7 +23,7 @@ allowed-tools:
 
 ## When to use this skill
 
-- User wants Cursor, Claude Code, Codex, or Honcho to use local models via netllm
+- User wants Cursor, Claude Code, Codex, Honcho, or Hermes Agent to use local models via netllm
 - After `/netllm-setup` or when agent is already running
 - User invokes `/netllm-connect`
 
@@ -38,7 +38,7 @@ Load detailed per-editor steps from [references/editor-settings.md](references/e
 
 0. **Quick path** — when the user names a harness, run `./netllm connect <id>` (or
    `./netllm connect <id> --json` for agents). It checks agent health, prints
-   copy-paste env wiring, optional Codex TOML, and suggests
+   copy-paste env wiring, optional Codex TOML or Hermes `config.yaml`, and suggests
    `./netllm sources toggle <id>`. Use `--toggle` only when the user wants
    registration in config.toml; never auto-edit editor configs.
 
@@ -52,13 +52,13 @@ Load detailed per-editor steps from [references/editor-settings.md](references/e
    an agent older than the harness-detection feature — that's fine, just
    fall back to step 3's static instructions unchanged.
 
-2. **Ask which editor**, Cursor, Claude Code, Codex, VS Code Copilot, or Honcho. If user already named one, skip.
+2. **Ask which editor**, Cursor, Claude Code, Codex, VS Code Copilot, Honcho, or Hermes Agent. If user already named one, skip.
 
 3. **Apply editor-specific config**, follow [references/editor-settings.md](references/editor-settings.md). Never auto-edit `settings.json` without explicit user consent; show copy-paste instructions instead.
 
    If step 1's `/netllm/v1/harnesses` call succeeded, tailor this step with
    the matching entry (match by id: `claude-code`, `codex`, `cursor`,
-   `gemini-cli`, `honcho`; Copilot has no registry entry, use the static
+   `gemini-cli`, `honcho`, `hermes-agent`; Copilot has no registry entry, use the static
    flow):
    - `"detected": true, "enabled": false` (or no matching entry at all) —
      the CLI is on PATH but not registered as a source. After finishing
@@ -111,6 +111,7 @@ Load detailed per-editor steps from [references/editor-settings.md](references/e
 | Agent not running | Run `netllm-setup` skill or `./netllm serve` |
 | Empty model list | Start Ollama/oMLX; `./netllm discover`; restart serve |
 | Dockerized Honcho | Use `http://host.docker.internal:11400/v1`: see [docs/honcho-integration.md](../../../docs/honcho-integration.md) |
+| Hermes Agent | `provider: litellm` in `~/.hermes/config.yaml` (not env vars): `./netllm connect hermes-agent` — [docs/hermes-agent-integration.md](../../../docs/hermes-agent-integration.md) |
 | Remote swarm gateway | Point client at gateway URL from `./netllm peers` |
 
 ## Do not

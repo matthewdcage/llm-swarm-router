@@ -19,7 +19,7 @@ export OPENAI_API_KEY=netllm-local
 
 ## Client configuration (all tools)
 
-Use the same pattern for **Cursor, Claude Code, Codex, Honcho, Continue, Cline, curl, and custom apps**:
+Use the same pattern for **Cursor, Claude Code, Codex, Honcho, Hermes Agent, Continue, Cline, curl, and custom apps**:
 
 | Setting | Value |
 |---------|--------|
@@ -35,7 +35,7 @@ Verify after wiring: `./netllm test --model <your-model>` (add `--api anthropic`
 
 Non-standard sampling knobs (`top_k`, `min_p`, `repeat_penalty`, …) are accepted on the OpenAI-compatible routes and forwarded to backends that support them — netllm normalizes the payload for the upstream (including aliasing `repeat_penalty` to `repetition_penalty` for OpenAI-format backends such as vLLM), so tools that send Ollama/LM Studio-style options keep working through the router.
 
-Per-tool UI steps below; Honcho-specific connector sharding: [honcho-integration.md](honcho-integration.md).
+Per-tool UI steps below; Honcho-specific connector sharding: [honcho-integration.md](honcho-integration.md). Hermes Agent (CLI/TUI): [hermes-agent-integration.md](hermes-agent-integration.md).
 
 ## Cursor
 
@@ -173,6 +173,32 @@ api_key = "netllm-local"
 ```
 
 Connectors: single `LLM_OPENAI_COMPATIBLE_BASE_URL` (not comma-separated URLs) plus `CONNECTOR_LLM_ROUTING_STRATEGY=batch_shard` when running parallel workers. See the Honcho guide for shard headers.
+
+## Hermes Agent (NousResearch)
+
+Full guide: [hermes-agent-integration.md](hermes-agent-integration.md). Hermes uses **`~/.hermes/config.yaml`**, not `OPENAI_BASE_URL`, for custom endpoints.
+
+```bash
+./netllm connect hermes-agent
+```
+
+```yaml
+# ~/.hermes/config.yaml
+model:
+  default: "<model id from ./netllm models>"
+  provider: litellm
+  base_url: "http://127.0.0.1:11400/v1"
+  api_key: "netllm-local"
+
+display:
+  show_reasoning: true
+```
+
+Use `provider: custom` only as a fallback — it may probe endpoints netllm does not implement (blank chat). See [hermes-agent-integration.md](hermes-agent-integration.md#provider-litellm-vs-custom).
+
+Classic CLI (`hermes chat`), TUI (`hermes --tui`), and `hermes gateway` all read the same block. TUI needs Node.js ≥ 20 (`hermes doctor`).
+
+**Known source** (optional): use `api_key: "netllm-hermes-agent"` and the `hermes-agent` block from [config.example.toml](../config.example.toml).
 
 ## LAN / swarm gateway
 

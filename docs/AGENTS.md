@@ -10,7 +10,7 @@ User-facing install, troubleshoot, editor wiring, platform matrix, CI/release, a
 |------|-----------|
 | Platform install | `macos-install.md`, `linux-install.md`, `windows-install.md` |
 | Troubleshooting | `macos-troubleshooting.md`, `linux-troubleshooting.md`, `windows-troubleshooting.md` |
-| Cross-platform | `platform-matrix.md`, `editor-integration.md`, `honcho-integration.md` |
+| Cross-platform | `platform-matrix.md`, `editor-integration.md`, `honcho-integration.md`, `hermes-agent-integration.md` |
 | macOS signing | `macos-code-signing.md` |
 | Release / CI | `ci-and-release.md`, `release-notes/` |
 | Learnings | `solutions/` — manual smoke gates: [menubar-adopt-smoke.md](solutions/menubar-adopt-smoke.md), [codex-responses-smoke.md](solutions/codex-responses-smoke.md) |
@@ -25,7 +25,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 ## Local Contracts
 
 - User docs stay plain and actionable; agent commands use `./netllm` from repo root
-- **Client wiring:** [editor-integration.md](editor-integration.md) **Client configuration (all tools)** is canonical (one netllm URL per client, model IDs unchanged, backends in netllm config); [honcho-integration.md](honcho-integration.md) adds Honcho-only connector sharding and **Embeddings** (gateway `default_strategy = auto`, multi-peer BGE)
+- **Client wiring:** [editor-integration.md](editor-integration.md) **Client configuration (all tools)** is canonical (one netllm URL per client, model IDs unchanged, backends in netllm config); [honcho-integration.md](honcho-integration.md) adds Honcho-only connector sharding and **Embeddings**; [hermes-agent-integration.md](hermes-agent-integration.md) adds Hermes Agent `config.yaml` custom-provider wiring (CLI, TUI, gateway)
 - Release tag must match root `pyproject.toml` version
 - Do not commit `.cursor/plans/`, `.cursor/outreach/`, or coordinator drafts here
 - User-facing command examples use placeholders (`/path/to/llm-swarm-router`, `~/Downloads/…`); never maintainer machine paths (`/Volumes/…`, named dev hardware)

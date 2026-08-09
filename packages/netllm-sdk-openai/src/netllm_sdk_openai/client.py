@@ -2,24 +2,20 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncIterator
 from typing import Any
 
 from openai import AsyncOpenAI, OpenAI
 
+from netllm_sdk_openai.errors import OpenAIUpstreamError
 from netllm_sdk_openai.payload import (
     adapt_chat_payload_for_sdk,
     adapt_embeddings_payload_for_sdk,
 )
-
-
-class OpenAIUpstreamError(Exception):
-    """Normalized upstream failure."""
-
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
-        super().__init__(message)
-        self.status_code = status_code
+from netllm_sdk_openai.wire import (
+    iter_chat_completion_sse_lines,
+    read_chat_completion_json,
+)
 
 
 class OpenAIUpstream:
@@ -60,8 +56,7 @@ class OpenAIUpstream:
             if payload.get("stream"):
                 raise OpenAIUpstreamError("Use chat_completion_stream for stream=True")
             sdk_payload = adapt_chat_payload_for_sdk(payload)
-            resp = await self._async.chat.completions.create(**sdk_payload)
-            return resp.model_dump()
+            return await read_chat_completion_json(self._async, sdk_payload)
         except Exception as exc:
             raise _wrap(exc) from exc
 
@@ -72,10 +67,8 @@ class OpenAIUpstream:
         payload = {**payload, "stream": True}
         try:
             sdk_payload = adapt_chat_payload_for_sdk(payload)
-            stream = await self._async.chat.completions.create(**sdk_payload)
-            async for chunk in stream:
-                yield f"data: {json.dumps(chunk.model_dump())}\n\n"
-            yield "data: [DONE]\n\n"
+            async for line in iter_chat_completion_sse_lines(self._async, sdk_payload):
+                yield line
         except Exception as exc:
             raise _wrap(exc) from exc
 

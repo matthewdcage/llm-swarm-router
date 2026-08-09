@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from netllm_agent.app import create_app
 from netllm_core.models import NetllmConfig
+from wire_mock import chat_completion_body, wire_mock_chat_json
 
 
 @pytest.fixture
@@ -30,21 +31,10 @@ def test_openai_cloud_inject_when_no_local_backends(
     mock_scan.return_value = []
     mock_client = MagicMock()
     mock_openai_cls.return_value = mock_client
-    mock_response = MagicMock()
-    mock_response.model_dump.return_value = {
-        "id": "chatcmpl-cloud",
-        "object": "chat.completion",
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": "cloud reply"},
-                "finish_reason": "stop",
-            }
-        ],
-        "model": "gpt-4",
-        "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
-    }
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+    wire_mock_chat_json(
+        mock_client,
+        chat_completion_body("cloud reply", model="gpt-4", id="chatcmpl-cloud"),
+    )
 
     resp = client.post(
         "/v1/chat/completions",
@@ -56,29 +46,15 @@ def test_openai_cloud_inject_when_no_local_backends(
     )
     assert resp.status_code == 200
     assert resp.json()["choices"][0]["message"]["content"] == "cloud reply"
-    call_kwargs = mock_client.chat.completions.create.await_args.kwargs
-    assert call_kwargs["model"] == "gpt-4"
+    sent = mock_client._build_request.call_args.args[0].json_data
+    assert sent["model"] == "gpt-4"
 
 
 # --- F-04: a caller's key must never become shared pool state ---------------
 
 
-def _cloud_reply() -> MagicMock:
-    resp = MagicMock()
-    resp.model_dump.return_value = {
-        "id": "chatcmpl-cloud",
-        "object": "chat.completion",
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": "cloud reply"},
-                "finish_reason": "stop",
-            }
-        ],
-        "model": "gpt-4",
-        "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
-    }
-    return resp
+def _cloud_body() -> dict:
+    return chat_completion_body("cloud reply", model="gpt-4", id="chatcmpl-cloud")
 
 
 @patch("netllm_agent.service.backends.scan_local_providers", new_callable=AsyncMock)
@@ -95,7 +71,7 @@ def test_caller_key_cloud_row_never_enters_the_pool(
     mock_scan.return_value = []
     mock_client = MagicMock()
     mock_openai_cls.return_value = mock_client
-    mock_client.chat.completions.create = AsyncMock(return_value=_cloud_reply())
+    wire_mock_chat_json(mock_client, _cloud_body())
 
     resp = client.post(
         "/v1/chat/completions",
@@ -122,7 +98,7 @@ def test_second_caller_does_not_inherit_the_first_callers_key(
     mock_scan.return_value = []
     mock_client = MagicMock()
     mock_openai_cls.return_value = mock_client
-    mock_client.chat.completions.create = AsyncMock(return_value=_cloud_reply())
+    wire_mock_chat_json(mock_client, _cloud_body())
 
     for key in ("sk-caller-one", "sk-caller-two"):
         resp = client.post(
@@ -153,14 +129,14 @@ def test_keyless_caller_gets_no_cloud_route(
     mock_scan.return_value = []
     mock_client = MagicMock()
     mock_openai_cls.return_value = mock_client
-    mock_client.chat.completions.create = AsyncMock(return_value=_cloud_reply())
+    wire_mock_chat_json(mock_client, _cloud_body())
 
     client.post(
         "/v1/chat/completions",
         json={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]},
         headers={"Authorization": "Bearer sk-caller-one"},
     )
-    mock_client.chat.completions.create.reset_mock()
+    mock_client._client.send.reset_mock()
 
     resp = client.post(
         "/v1/chat/completions",
@@ -168,4 +144,4 @@ def test_keyless_caller_gets_no_cloud_route(
         headers={"Authorization": "Bearer netllm-local"},
     )
     assert resp.status_code != 200
-    mock_client.chat.completions.create.assert_not_awaited()
+    mock_client._client.send.assert_not_awaited()

@@ -235,7 +235,7 @@ export ANTHROPIC_BASE_URL=http://127.0.0.1:11400
 export ANTHROPIC_API_KEY=netllm-local
 ```
 
-Pick a model ID from `./netllm models` (or the app **Settings → Models** tab). Full client table and per-editor steps: [docs/editor-integration.md](docs/editor-integration.md). Honcho connectors: [docs/honcho-integration.md](docs/honcho-integration.md).
+Pick a model ID from `./netllm models` (or the app **Settings → Models** tab). Full client table and per-editor steps: [docs/editor-integration.md](docs/editor-integration.md). Honcho connectors: [docs/honcho-integration.md](docs/honcho-integration.md). Hermes Agent: [docs/hermes-agent-integration.md](docs/hermes-agent-integration.md).
 
 ---
 

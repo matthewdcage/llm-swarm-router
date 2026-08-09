@@ -11,6 +11,7 @@ from netllm_agent.service import AgentService
 from netllm_core.models import Backend, CloudProviderConfig, NetllmConfig, RoutingPolicy
 from netllm_core.pool import RouterPool
 from netllm_core.routing_policy import resolve_routing
+from wire_mock import chat_completion_body, wire_mock_chat_json
 
 _MOCK_ONLINE = {"status": "online", "models": ["m"], "model_count": 1}
 
@@ -407,21 +408,10 @@ def test_registry_provider_serves_chat_completion(
     mock_scan.return_value = []
     mock_client = MagicMock()
     mock_openai_cls.return_value = mock_client
-    mock_response = MagicMock()
-    mock_response.model_dump.return_value = {
-        "id": "chatcmpl-moonshot",
-        "object": "chat.completion",
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": "kimi reply"},
-                "finish_reason": "stop",
-            }
-        ],
-        "model": "kimi-k3",
-        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-    }
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+    wire_mock_chat_json(
+        mock_client,
+        chat_completion_body("kimi reply", model="kimi-k3", id="chatcmpl-moonshot"),
+    )
 
     cfg = NetllmConfig()
     cfg.cloud.providers["moonshot"] = CloudProviderConfig(enabled=True)
@@ -469,21 +459,12 @@ def test_fallback_local_prefers_cloud_over_local_mesh(
     ]
     mock_client = MagicMock()
     mock_openai_cls.return_value = mock_client
-    mock_response = MagicMock()
-    mock_response.model_dump.return_value = {
-        "id": "chatcmpl-cloud-leads",
-        "object": "chat.completion",
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": "cloud-primary reply"},
-                "finish_reason": "stop",
-            }
-        ],
-        "model": "kimi-k3",
-        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-    }
-    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+    wire_mock_chat_json(
+        mock_client,
+        chat_completion_body(
+            "cloud-primary reply", model="kimi-k3", id="chatcmpl-cloud-leads"
+        ),
+    )
 
     cfg = NetllmConfig()
     cfg.cloud.fallback = "local"

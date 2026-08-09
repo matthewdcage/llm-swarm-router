@@ -35,7 +35,7 @@ When an upstream release adds or changes API behavior, classify the work:
 
 | Layer | Path | Examples |
 |-------|------|----------|
-| 1 — Adapter | `packages/netllm-sdk-*/src/*/client.py` | SDK constructor, `create`/`stream` calls, `model_dump()`, SSE wire format |
+| 1 — Adapter | `packages/netllm-sdk-*/src/*/client.py`, `netllm_sdk_openai/wire.py` | SDK constructor, raw HTTP wire passthrough (`reasoning_content` etc.), `model_dump()`, SSE format |
 | 2 — Bridge | `packages/netllm-core/src/netllm_core/anthropic_bridge.py` | Messages ↔ Chat Completions mapping, tools, stream events |
 | 3 — Agent | `packages/netllm-agent/src/netllm_agent/service/` | Routing, failover, headers, backend selection |
 | Probes | `packages/netllm-core/src/netllm_core/health.py` | Discovery compat signals |
