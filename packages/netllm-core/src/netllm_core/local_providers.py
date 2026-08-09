@@ -179,7 +179,39 @@ def default_api_key_for(provider_id: str) -> str:
     return spec.default_api_key if spec else ""
 
 
+def _is_platform_exclusive(spec: LocalProviderSpec) -> bool:
+    """True when a provider runs on exactly one platform (oMLX today).
+
+    Such a provider must never be offered on an unknown platform; a
+    cross-platform one is a better guess than an empty list.
+    """
+    return len(spec.platforms) == 1
+
+
 def providers_for_platform(sys_platform: str) -> list[str]:
-    return [
+    """Providers enabled by default on `sys_platform`.
+
+    The fallback matters. `platforms` is an allowlist, but the behaviour it
+    replaced was "everything except oMLX unless darwin" -- an else-branch that
+    covered *any* platform, including ones nobody enumerated (freebsd, aix,
+    cygwin). A bare allowlist silently returns nothing there, which turns an
+    unusual platform from "works, minus oMLX" into "discovers nothing at all".
+    Anything not enumerated therefore gets the cross-platform providers.
+    """
+    enabled = [
         spec.id for spec in LOCAL_PROVIDERS.values() if sys_platform in spec.platforms
     ]
+    if enabled:
+        return enabled
+    return [
+        spec.id for spec in LOCAL_PROVIDERS.values() if not _is_platform_exclusive(spec)
+    ]
+
+
+def _is_platform_exclusive(spec: LocalProviderSpec) -> bool:
+    """True when a provider runs on exactly one platform (oMLX today).
+
+    Such a provider must never be offered on an unknown platform; a
+    cross-platform one is a better guess than an empty list.
+    """
+    return len(spec.platforms) == 1

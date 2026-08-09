@@ -65,8 +65,16 @@ def test_provider_id_literal_matches_the_registry() -> None:
     from netllm_core.models import ProviderId
 
     literal = set(get_args(ProviderId))
-    assert set(LOCAL_PROVIDERS) <= literal, (
-        f"ProviderId is missing {sorted(set(LOCAL_PROVIDERS) - literal)}"
+    missing = set(LOCAL_PROVIDERS) - literal
+    assert not missing, f"ProviderId is missing {sorted(missing)}"
+    # Equality, not containment, over the discoverable half: ProviderId also
+    # carries routing-only ids (custom, anthropic, openai) that are not local
+    # servers, so the exact contract is "every extra is declared somewhere".
+    routing_only = literal - set(LOCAL_PROVIDERS)
+    declared = set(NON_DISCOVERABLE_LABELS) | {"anthropic", "openai"}
+    assert routing_only <= declared, (
+        f"ProviderId has undeclared ids {sorted(routing_only - declared)} -- "
+        "add them to the registry or to the declared routing-only set"
     )
 
 
@@ -219,3 +227,60 @@ def test_discovery_roster_is_derived_not_mirrored() -> None:
     assert DEFAULT_API_KEYS == {
         s.id: s.default_api_key for s in SPECS if s.default_api_key
     }
+
+
+# --- regressions caught by the Phase 1+3 validation swarm -----------------
+
+
+def test_offline_hint_does_not_repeat_a_port(spec: LocalProviderSpec) -> None:
+    """Every port is probed on BOTH 127.0.0.1 and localhost.
+
+    A naive slice of `probed_urls` therefore rendered
+    "(scanned ports: 1234, 1234, 41334, 41334)" to the operator. This was
+    shipped and had zero coverage -- the whole hint function did, which is why
+    the rewrite was invisible.
+    """
+    from netllm_cli.ui import offline_provider_hints
+
+    if sys.platform not in spec.platforms or len(spec.default_ports) <= 1:
+        pytest.skip(f"{spec.id} renders no port list on this platform")
+    probed = [
+        f"http://{host}:{port}/v1"
+        for port in spec.default_ports
+        for host in ("127.0.0.1", "localhost")
+    ]
+    hints = offline_provider_hints(
+        [{"id": spec.id, "status": "offline", "probed_urls": probed}]
+    )
+    assert hints, f"{spec.id}: offline provider produced no hint at all"
+    listed = hints[0].split("scanned ports: ")[-1].rstrip(")").split(", ")
+    assert listed == list(dict.fromkeys(listed)), (
+        f"{spec.id}: duplicate ports in operator output: {hints[0]}"
+    )
+
+
+def test_offline_hint_falls_back_to_registry_ports(spec: LocalProviderSpec) -> None:
+    """With no probe record, the hint still quotes the real scan ports."""
+    from netllm_cli.ui import offline_provider_hints
+
+    if sys.platform not in spec.platforms or len(spec.default_ports) <= 1:
+        pytest.skip(f"{spec.id} renders no port list on this platform")
+    hints = offline_provider_hints([{"id": spec.id, "status": "offline"}])
+    for port in spec.default_ports:
+        assert str(port) in hints[0]
+
+
+def test_an_unknown_platform_still_gets_cross_platform_providers() -> None:
+    """The allowlist must not strand an unenumerated platform.
+
+    The behaviour this replaced was "everything except oMLX unless darwin" --
+    an else-branch covering freebsd, aix, cygwin and anything else. A bare
+    allowlist silently returns [], turning "works, minus oMLX" into
+    "discovers nothing", with no error to explain why.
+    """
+    for exotic in ("freebsd14", "aix", "cygwin", "sunos5"):
+        got = providers_for_platform(exotic)
+        assert got, f"{exotic} was stranded with no default providers"
+        assert "omlx" not in got, (
+            f"{exotic} was offered oMLX, which is Apple-Silicon only"
+        )

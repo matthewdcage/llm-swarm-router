@@ -131,7 +131,28 @@ Plus client mirrors: `dashboard.js:3` (`const PROVIDERS`), `SettingsViewModel.sw
 
 **Payload adaptation needs no work at all.** `packages/netllm-sdk-openai/src/netllm_sdk_openai/payload.py` is provider-agnostic: `_adapt_payload_for_sdk` splits on an allowlist of SDK-typed params (`_SDK_CHAT_PARAMS`, `_SDK_EMBEDDINGS_PARAMS`) and routes everything else to `extra_body`. The only provider-shaped item is `_FIELD_ALIASES = {"repeat_penalty": "repetition_penalty"}` (`payload.py:74-77`). Capability detection (`netllm_core/capabilities.py:53-62`) is token-based on the model id, not provider-based. **A new provider costs zero lines in both.**
 
-**Verdict: Axis B is the real friction.** Highest duplication of any axis, and the only axis with literally zero registry tests.
+**Verdict: Axis B is the real friction.** Highest duplication of any axis, and the
+only axis with literally zero registry tests.
+
+> **RESOLVED in Phase 3.** The maps below collapsed into
+> `netllm_core/local_providers.py` (`LocalProviderSpec`), and
+> `tests/conformance/kit_local.py` parameterizes over it. The inventory is kept
+> as the *measurement that justified the work*, not as a description of the
+> current tree.
+>
+> Two corrections to the count, recorded because an inflated number is its own
+> defect. By this table's own numbering, **10 of 11** collapsed: item #6, the
+> `ProviderId` Literal, is retained by design (a derived Literal blinds
+> basedpyright) and is asserted by `kit_local` instead. This table also missed a
+> map — `admin.py`'s doctor env-var hints — so the true pre-refactor count was
+> **12**, of which 11 collapsed.
+>
+> The consolidation is complete on the **Python** side only. `dashboard.js`,
+> `config.example.toml`, `AppConfig.swift` and `SettingsViewModel.swift` still
+> hand-mirror the roster; those are ledgered in
+> `tests/conformance/ledgers/mirrors.toml` and close in Phase 4, which needs a
+> server-side local-provider registry route the Swift app can fetch — there is
+> no such endpoint in `routes.json` today.
 
 ---
 

@@ -15,6 +15,10 @@
 # detector, not the refactor. Doc rosters join in Phase 3 when they become
 # generated; surface-name fact classes join in Phase 5a.
 [scan]
+# The phase this tree has completed. Any entry whose `expires` names this
+# phase or an earlier one is overdue and fails the ledger test -- otherwise an
+# expiry is decoration. (PROGRAM.md §5 phase order: 0,1,2,3,4,5a,5b,6,7,8.)
+current_phase = "phase-3"
 files = [
   "packages/netllm-agent/src/netllm_agent/static/dashboard.js",
   "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift",
@@ -73,18 +77,23 @@ extract = "dict-keys:LOCAL_PROVIDERS"
 
 [[fact_class.allowed_mirrors]]
 glob = "packages/netllm-agent/src/netllm_agent/static/dashboard.js"
-reason = "discovery provider checkbox roster"
-expires = "phase-3"
+reason = """discovery provider checkbox roster. NOT closed by phase 3: that \
+phase consolidated the Python side, and there is no local-provider registry \
+route in routes.json for a client to fetch (contrast the cloud side, which \
+derives from GET /netllm/v1/cloud/providers). Phase 4 adds the route"""
+expires = "phase-4"
 
 [[fact_class.allowed_mirrors]]
 glob = "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift"
-reason = "SettingsViewModel.providers checkbox roster"
-expires = "phase-3"
+reason = """SettingsViewModel.providers checkbox roster, plus a second copy \
+in AppConfig.swift and inline default ports in SettingsWindowView. Same \
+blocker as dashboard.js: no local-provider route exists to derive from"""
+expires = "phase-4"
 
 [[fact_class.allowed_mirrors]]
 glob = "config.example.toml"
-reason = "discovery.providers example plus provider_urls stanzas"
-expires = "phase-3"
+reason = "discovery.providers example plus provider_urls stanzas; generated in phase 4"
+expires = "phase-4"
 
 [[fact_class.allowed_mirrors]]
 glob = "packages/netllm-core/src/netllm_core/models.py"

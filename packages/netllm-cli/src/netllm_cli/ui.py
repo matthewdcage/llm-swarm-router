@@ -257,10 +257,14 @@ def offline_provider_hints(results: list[dict[str, Any]]) -> list[str]:
         elif spec.port_env:
             pointers.append(f"[cyan]{spec.port_env}[/]")
         line = f"{spec.short_label}: {spec.offline_hint} or set " + " / ".join(pointers)
-        probed = r.get("probed_urls") or []
-        ports = ", ".join(str(u).split(":")[-1].split("/")[0] for u in probed[:4])
-        if not ports:
-            ports = ", ".join(str(p) for p in spec.default_ports)
+        # Dedupe: every port is probed on BOTH 127.0.0.1 and localhost, so a
+        # naive slice of probed_urls renders "1234, 1234, 41334, 41334".
+        seen: list[str] = []
+        for url in r.get("probed_urls") or []:
+            port = str(url).split(":")[-1].split("/")[0]
+            if port and port not in seen:
+                seen.append(port)
+        ports = ", ".join(seen[:4]) or ", ".join(str(p) for p in spec.default_ports)
         if len(spec.default_ports) > 1:
             line += f" (scanned ports: {ports})"
         hints.append(line)
