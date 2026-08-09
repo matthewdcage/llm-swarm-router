@@ -39,6 +39,18 @@ class CloudProviderSpec:
     models_endpoint: bool
     static_models: tuple[str, ...] = ()
     notes: str = ""
+    keychain_account: str = ""
+    """macOS Keychain account holding this provider's key.
+
+    Empty means the convention `f"{id}_api_key"`, which every provider uses
+    today. Declared rather than hardcoded so a provider that must deviate (a
+    renamed account, a shared credential) is a registry edit instead of a new
+    branch in KeychainStore -- whose per-provider switch cases were deleted in
+    Phase 4 because all six were byte-identical to the default arm.
+    """
+
+    def resolved_keychain_account(self) -> str:
+        return self.keychain_account or f"{self.id}_api_key"
 
     def default_region(self) -> str:
         return next(iter(self.endpoints))
