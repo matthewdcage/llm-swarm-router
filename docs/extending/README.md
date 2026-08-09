@@ -92,7 +92,7 @@ so this is derivable today. No Swift test covers it.
 | Axis | Files to add one | Duplicated facts | Enforcement | Verdict |
 |---|---|---|---|---|
 | **A** cloud provider | 13 (measured, `08946b6` DashScope) | 8 fact-classes | 3 roster tests trip; Swift + docs unguarded | Medium friction, one sharp edge |
-| **B** local backend | ~14 (no example exists) | **11 parallel maps** on the same id | **zero tests** reference `KNOWN_PROVIDERS` | **Worst axis** |
+| **B** local backend | ~14 (no example exists) | ~~11 parallel maps~~ → **1 registry** | ~~zero tests~~ → `kit_local` (Phase 3) | **RESOLVED** |
 | **C** API surface | 1–3 for a dialect bridge | 4 escaped `Surface` branches | real AST gate in CI | **Cleanest by a wide margin** |
 | **D** CLI + control plane | 32 (measured, `bf67238`) | 3-surface parity manual | per-surface tests; **no parity test** | High volume, mostly genuine work |
 | **E** config evolution | 1–6 | 2 hand-maintained allowlists | strong schema tests; **no version, no migration** | Structurally missing |

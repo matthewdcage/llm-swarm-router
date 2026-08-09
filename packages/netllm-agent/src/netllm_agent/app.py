@@ -26,6 +26,7 @@ from netllm_agent.admin import (
     config_summary,
     doctor_payload,
     harness_registry_payload,
+    local_provider_registry_payload,
     logs_payload,
     peers_scan_payload,
     require_admin_access,
@@ -313,6 +314,16 @@ def create_app(
         admin.cloud_provider_registry_payload)."""
         require_admin_access(request, cfg)
         return {"providers": cloud_provider_registry_payload()}
+
+    @app.get("/netllm/v1/local-providers")
+    async def netllm_local_providers(request: Request) -> dict[str, Any]:
+        """Registry metadata for the discoverable local providers — the twin
+        of /netllm/v1/cloud/providers, and the thing whose absence forced the
+        dashboard and macOS app to hand-mirror the roster (and to drift:
+        vLLM was prefilled on LM Studio's port). See
+        admin.local_provider_registry_payload."""
+        require_admin_access(request, cfg)
+        return {"providers": local_provider_registry_payload()}
 
     @app.get("/netllm/v1/harnesses")
     async def netllm_harnesses(request: Request) -> dict[str, Any]:

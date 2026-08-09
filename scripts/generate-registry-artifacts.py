@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Generate the registry rosters that clients cannot import (PROGRAM.md §1).
+
+Four surfaces need a provider roster and none of them can `import
+netllm_core`: the dashboard's JavaScript, two Swift bootstrap lists, and the
+example TOML. Each kept a hand-written copy, and the copies drifted — that is
+Axis A/B's whole cost story.
+
+The middle rung of PROGRAM.md's ladder (derive > **generate with --check** >
+projection-test > mirror) applies: the block between the markers is written
+from the registry, and `--check` in `run_lint` fails when it is stale. The
+lists stay real literals in the file, so the dashboard still renders offline
+and the Swift app still compiles with no network.
+
+    python3 scripts/generate-registry-artifacts.py           # rewrite
+    python3 scripts/generate-registry-artifacts.py --check   # exit 1 if stale
+
+No imports of the workspace packages: this runs under bare python3 in lint,
+alongside the other gates, so the registries are read by AST exactly as
+check-registry-mirrors.py reads them.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+CLOUD_REGISTRY = ROOT / "packages/netllm-core/src/netllm_core/cloud_providers.py"
+LOCAL_REGISTRY = ROOT / "packages/netllm-core/src/netllm_core/local_providers.py"
+
+BEGIN = "netllm:generated:begin"
+END = "netllm:generated:end"
+
+
+def _dict_keys(source: Path, name: str) -> list[str]:
+    tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+    for node in tree.body:
+        target = None
+        value = None
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            target, value = node.target.id, node.value
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+            first = node.targets[0]
+            if isinstance(first, ast.Name):
+                target, value = first.id, node.value
+        if target != name or not isinstance(value, ast.Dict):
+            continue
+        return [
+            key.value
+            for key in value.keys
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        ]
+    raise SystemExit(f"generate-registry-artifacts: {source}: no dict named {name}")
+
+
+@dataclass(frozen=True)
+class Block:
+    """One generated region, addressed by a marker id inside a file."""
+
+    path: Path
+    marker: str
+    render: str
+
+    def rewrite(self, text: str) -> str:
+        begin = f"{BEGIN}:{self.marker}"
+        end = f"{END}:{self.marker}"
+        start_at = text.find(begin)
+        end_at = text.find(end)
+        if start_at == -1 or end_at == -1:
+            raise SystemExit(
+                f"generate-registry-artifacts: {self.path.relative_to(ROOT)}: "
+                f"missing marker pair for {self.marker!r}. Add\n"
+                f"  <comment> {begin}\n  ...\n  <comment> {end}"
+            )
+        line_end = text.index("\n", start_at) + 1
+        return text[:line_end] + self.render + text[text.rindex("\n", 0, end_at) + 1 :]
+
+
+def _blocks() -> list[Block]:
+    cloud = _dict_keys(CLOUD_REGISTRY, "CLOUD_PROVIDERS")
+    local = _dict_keys(LOCAL_REGISTRY, "LOCAL_PROVIDERS")
+
+    def js_array(ids: list[str], indent: str = "  ") -> str:
+        return "".join(f'{indent}"{i}",\n' for i in ids)
+
+    def swift_array(ids: list[str], indent: str = "            ") -> str:
+        return indent + ", ".join(f'"{i}"' for i in ids) + ",\n"
+
+    return [
+        Block(
+            ROOT / "packages/netllm-agent/src/netllm_agent/static/dashboard.js",
+            "cloud-provider-ids",
+            js_array(cloud),
+        ),
+        Block(
+            ROOT / "packages/netllm-agent/src/netllm_agent/static/dashboard.js",
+            "local-provider-ids",
+            js_array(local),
+        ),
+        Block(
+            ROOT / "apps/netllm-mac/Sources/Config/KeychainStore.swift",
+            "cloud-provider-ids",
+            swift_array(cloud),
+        ),
+        Block(
+            ROOT / "config.example.toml",
+            "local-provider-ids",
+            "providers = [" + ", ".join(f'"{i}"' for i in local) + "]\n",
+        ),
+    ]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="exit 1 if any generated block is stale, without rewriting",
+    )
+    args = parser.parse_args()
+
+    stale: list[str] = []
+    by_path: dict[Path, str] = {}
+    for block in _blocks():
+        text = by_path.get(block.path)
+        if text is None:
+            text = block.path.read_text(encoding="utf-8")
+        updated = block.rewrite(text)
+        if updated != text:
+            stale.append(f"{block.path.relative_to(ROOT)} [{block.marker}]")
+        by_path[block.path] = updated
+
+    if args.check:
+        if stale:
+            print(
+                "generate-registry-artifacts: generated blocks are stale:\n  "
+                + "\n  ".join(stale)
+                + "\n\nRun: python3 scripts/generate-registry-artifacts.py",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"OK: generate-registry-artifacts — {len(_blocks())} generated blocks "
+            "match the registries"
+        )
+        return 0
+
+    for path, text in by_path.items():
+        path.write_text(text, encoding="utf-8")
+    if stale:
+        print("regenerated:\n  " + "\n  ".join(stale))
+    else:
+        print("already up to date")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

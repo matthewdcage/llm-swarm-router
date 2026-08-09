@@ -13,6 +13,7 @@ from netllm_core.cloud_providers import CLOUD_PROVIDERS, get_provider_spec
 from netllm_core.config_report import unknown_cloud_provider_issues
 from netllm_core.harness_detection import detect as detect_harness
 from netllm_core.known_harnesses import KNOWN_HARNESSES
+from netllm_core.local_providers import api_key_env_for
 from netllm_core.models import (
     NetllmConfig,
     is_lan_listen,
@@ -92,13 +93,11 @@ def doctor_payload(cfg: NetllmConfig, service: AgentService) -> dict[str, Any]:
 
     for b in enabled:
         if b.health.http_status in (401, 403) and not b.api_key:
-            env_hints = {
-                "lmstudio": "LMSTUDIO_API_KEY",
-                "omlx": "OMLX_API_KEY",
-                "ollama": "OLLAMA_API_KEY",
-                "vllm": "VLLM_API_KEY",
-            }
-            hint = env_hints.get(b.provider, "")
+            # Empty for `custom`, `peer:*` and cloud ids, which must fall
+            # through to the generic message rather than be told to set a
+            # CUSTOM_API_KEY nothing reads. That miss is why this map was
+            # never derivable from `provider.upper()_API_KEY` alone.
+            hint = api_key_env_for(b.provider)
             fix = (
                 f"Set {hint} or add api_key under [[routing.backends]] for {b.base_url}"
                 if hint
@@ -224,6 +223,39 @@ def _cloud_provider_export(cfg: NetllmConfig) -> dict[str, Any]:
     return out
 
 
+def local_provider_registry_payload() -> list[dict[str, Any]]:
+    """Static registry data for every discoverable local provider.
+
+    The local-side twin of `cloud_provider_registry_payload`. It did not
+    exist, and its absence was the whole reason the clients hand-mirrored the
+    roster: the cloud tab could derive itself from
+    `GET /netllm/v1/cloud/providers`, while the discovery tab had nothing to
+    fetch, so `dashboard.js`, `SettingsViewModel.swift`, `AppConfig.swift` and
+    `SettingsWindowView.swift` each kept their own copy. Those copies had
+    already drifted -- the Swift app prefilled vLLM on :1234, which is LM
+    Studio's port -- and `.capitalized` rendered "Omlx"/"Lmstudio"/"Vllm".
+
+    Serving the facts is what lets those copies become a degraded-mode
+    fallback rather than the source of truth (PROGRAM.md Axis B / Phase 4).
+    """
+    from netllm_core.local_providers import LOCAL_PROVIDERS
+
+    return [
+        {
+            "id": spec.id,
+            "display_name": spec.display_name,
+            "short_label": spec.short_label,
+            "default_ports": list(spec.default_ports),
+            "platforms": list(spec.platforms),
+            "port_env": spec.port_env,
+            "api_key_env": spec.api_key_env,
+            "host_env": spec.host_env,
+            "offline_hint": spec.offline_hint,
+        }
+        for spec in LOCAL_PROVIDERS.values()
+    ]
+
+
 def cloud_provider_registry_payload() -> list[dict[str, Any]]:
     """Static registry data for every pre-configured cloud provider.
 
@@ -333,10 +365,17 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
             "sources": _source_export(cfg),
             "source_count": len(cfg.routing.sources),
         },
+        # Every UiConfig field, not a hand-picked three. The dashboard renders
+        # this section straight from the schema, so a field the schema
+        # declares but this export omits rendered against `undefined`: the six
+        # menubar_* toggles showed CHECKED against a stored False, and
+        # touching the model_favorites editor POSTed [] -- which, because
+        # lists are full-replace, wiped favourites set from the macOS app.
+        # Derived from model_fields so a new UiConfig field cannot be
+        # forgotten here; log_dir keeps its resolved-path substitution.
         "ui": {
-            "auto_start_on_launch": cfg.ui.auto_start_on_launch,
+            **cfg.ui.model_dump(mode="json"),
             "log_dir": cfg.ui.log_dir or str(cfg.resolved_log_dir()),
-            "check_for_updates_automatically": cfg.ui.check_for_updates_automatically,
         },
         "cloud": {
             "enabled": cfg.cloud.enabled,

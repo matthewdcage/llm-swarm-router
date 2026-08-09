@@ -60,6 +60,13 @@ def default_log_dir() -> Path:
 
 
 def default_discovery_providers() -> list[str]:
-    if is_darwin():
-        return ["omlx", "ollama", "lmstudio", "vllm"]
-    return ["ollama", "lmstudio", "vllm"]
+    """Providers enabled by default on this platform.
+
+    Derived from each spec's `platforms` (PROGRAM.md Axis B). The darwin
+    branch this replaced existed solely because oMLX is Apple-Silicon only;
+    that fact now lives on the oMLX spec, so a provider with different
+    platform support costs a registry field rather than a branch here.
+    """
+    from netllm_core.local_providers import providers_for_platform
+
+    return providers_for_platform(sys.platform)

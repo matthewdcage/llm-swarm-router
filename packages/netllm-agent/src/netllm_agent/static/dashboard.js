@@ -1,6 +1,38 @@
 /* llm-swarm-router web dashboard — native Settings parity */
 
-const PROVIDERS = ["omlx", "ollama", "lmstudio", "vllm"];
+// Degraded-mode fallback only. The live roster comes from
+// GET /netllm/v1/local-providers (the local twin of /netllm/v1/cloud/providers,
+// added in Phase 4); this list is what renders before that call returns or if
+// the agent is unreachable. Pinned to netllm_core.local_providers by
+// tests/conformance/kit_local.py, so drift fails CI rather than silently
+// omitting a provider from the discovery checkboxes.
+const PROVIDERS_BOOTSTRAP = [
+  // netllm:generated:begin:local-provider-ids
+  "omlx",
+  "ollama",
+  "lmstudio",
+  "vllm",
+  // netllm:generated:end:local-provider-ids
+];
+let PROVIDERS = [...PROVIDERS_BOOTSTRAP];
+/** Provider id -> display label, filled from the registry once fetched. */
+let PROVIDER_LABELS = {};
+
+async function loadLocalProviderRegistry() {
+  try {
+    const res = await fetch("/netllm/v1/local-providers");
+    if (!res.ok) return;
+    const rows = (await res.json()).providers || [];
+    if (!rows.length) return;
+    PROVIDERS = rows.map((r) => r.id);
+    PROVIDER_LABELS = Object.fromEntries(
+      rows.map((r) => [r.id, r.short_label || r.display_name || r.id])
+    );
+  } catch (err) {
+    // Keep the bootstrap roster; the discovery tab still works offline.
+    console.warn("local-provider registry unavailable, using bootstrap", err);
+  }
+}
 // STRATEGIES was hand-maintained here; routing.default_strategy's options
 // now come from the schema's Literal introspection (phase 3) instead.
 const ROLES = ["peer", "gateway"];
@@ -10,12 +42,14 @@ const ROLES = ["peer", "gateway"];
 // single source of truth for the provider set + all display metadata —
 // see admin.cloud_provider_registry_payload / GET /netllm/v1/cloud/providers).
 const CLOUD_PROVIDER_IDS_BOOTSTRAP = [
+  // netllm:generated:begin:cloud-provider-ids
   "moonshot",
   "zai",
   "openai",
   "anthropic",
   "openrouter",
   "dashscope",
+  // netllm:generated:end:cloud-provider-ids
 ];
 
 const state = {
@@ -1753,7 +1787,7 @@ function renderDiscoveryTab() {
   const card = el("div", "card");
   PROVIDERS.forEach((p) => {
     card.appendChild(
-      checkboxRow(p, (state.configDraft.discovery.providers || []).includes(p), (v) => {
+      checkboxRow(PROVIDER_LABELS[p] || p, (state.configDraft.discovery.providers || []).includes(p), (v) => {
         const list = new Set(state.configDraft.discovery.providers || []);
         if (v) list.add(p);
         else list.delete(p);
@@ -2702,6 +2736,7 @@ async function refresh() {
     loadHarnessRegistry(),
   ]);
   render();
+  renderDrainButton();
 }
 
 function startUpdatePolling() {
@@ -2803,6 +2838,44 @@ document.getElementById("btn-env").addEventListener("click", async () => {
 
 document.getElementById("btn-save").addEventListener("click", saveConfig);
 
+// Drain: POST /netllm/v1/admin/drain was shipped, surfaced in the status
+// payload as `draining`, and reachable from `netllm drain` -- but no UI
+// control existed on either surface, so the only way to take an agent out of
+// rotation from the dashboard was to stop it, killing in-flight requests.
+const btnDrain = document.getElementById("btn-drain");
+function renderDrainButton() {
+  if (!btnDrain) return;
+  const draining = Boolean(state.status && state.status.draining);
+  btnDrain.textContent = draining ? "Undrain" : "Drain";
+  btnDrain.classList.toggle("danger", draining);
+  btnDrain.title = draining
+    ? "Rejoin routing: peers will send this agent work again."
+    : "Stop peers routing new work here. In-flight requests finish; "
+      + "nothing is cancelled. Runtime-only, resets on restart.";
+}
+if (btnDrain) {
+  btnDrain.addEventListener("click", async () => {
+    const next = !(state.status && state.status.draining);
+    btnDrain.disabled = true;
+    try {
+      const res = await fetch("/netllm/v1/admin/drain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draining: next }),
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status + " from /admin/drain");
+      showToast(next ? "Draining — peers will stop routing here" : "Rejoined routing");
+      await refresh();
+    } catch (err) {
+      setBanner("Drain failed — " + err.message, "error");
+      showToast(err.message);
+    } finally {
+      btnDrain.disabled = false;
+      renderDrainButton();
+    }
+  });
+}
+
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
     startPolling();
@@ -2815,7 +2888,11 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-refresh()
+// Fetch the local-provider registry before the first render so the discovery
+// tab shows the agent's real roster and labels rather than the bootstrap.
+// Failure is non-fatal -- loadLocalProviderRegistry keeps the bootstrap.
+loadLocalProviderRegistry()
+  .then(refresh)
   .then(() => {
     startPolling();
     startUpdatePolling();

@@ -230,6 +230,13 @@ def test_swift_cloud_bootstrap_roster_matches_registry() -> None:
     _, _, rest = text.partition(marker)
     assert rest, f"{marker} not found — did the roster move?"
     inner, _, _ = rest.partition("]")
+    # Skip the generation markers: the roster is now written between
+    # `netllm:generated:begin/end` comments by
+    # scripts/generate-registry-artifacts.py, so a naive split picks the
+    # comment lines up as ids.
+    inner = "\n".join(
+        line for line in inner.splitlines() if "netllm:generated:" not in line
+    )
     swift_ids = [part.strip().strip('"') for part in inner.split(",") if part.strip()]
     assert set(swift_ids) == set(CLOUD_PROVIDERS)
 

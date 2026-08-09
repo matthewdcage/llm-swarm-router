@@ -42,6 +42,14 @@ struct NetllmConfigDocument: Codable, Sendable {
         var prefer_provider: String?
         var allow_cloud: Bool = false
         var enabled: Bool = true
+        // Scopes the policy to one caller (a `[[routing.sources]]` id).
+        // Policies have no identity key, so config_merge rebuilds each row
+        // from RoutingPolicy() defaults plus whatever the patch sends -- a
+        // field this struct does not carry is therefore not "left alone" on
+        // Save, it is ERASED. Omitting `source` silently widened a
+        // source-scoped policy to every caller: F-01 reintroduced through the
+        // Swift surface. Guarded by tests/conformance/kit_config_surfaces.py.
+        var source: String?
     }
 
     struct RoutingSection: Codable, Sendable {

@@ -10,18 +10,28 @@ from urllib.parse import urlparse
 
 import httpx
 from netllm_core.health import diagnose_backend, probe_openai_compat
+from netllm_core.local_providers import (
+    LOCAL_PROVIDERS,
+    api_key_env_for,
+    default_api_key_for,
+    get_local_provider_spec,
+)
 from netllm_core.models import Backend, BackendHealth, NetllmConfig, infer_api_format
 
 # Display name + default scan ports (localhost); config provider_urls are tried first.
+#
+# Derived from netllm_core.local_providers -- the single roster (PROGRAM.md
+# Axis B). Kept as a module-level name because it is this package's public
+# shape and external callers import it; the *facts* now live in one place.
 KNOWN_PROVIDERS: list[tuple[str, str, list[int]]] = [
-    ("omlx", "oMLX (Apple Silicon)", [8080, 8088, 8081]),
-    ("ollama", "Ollama", [11434]),
-    ("lmstudio", "LM Studio", [1234, 41334]),
-    ("vllm", "vLLM", [8000, 8001]),
+    (spec.id, spec.display_name, list(spec.default_ports))
+    for spec in LOCAL_PROVIDERS.values()
 ]
 
 DEFAULT_API_KEYS: dict[str, str] = {
-    "omlx": "omlx-local",
+    spec.id: spec.default_api_key
+    for spec in LOCAL_PROVIDERS.values()
+    if spec.default_api_key
 }
 
 
@@ -78,32 +88,38 @@ def _dedupe_preserve_order(urls: list[str]) -> list[str]:
     return out
 
 
-def _ollama_env_candidates() -> list[str]:
-    raw = os.environ.get("OLLAMA_HOST", "").strip()
+def _host_env_candidates(provider_id: str) -> list[str]:
+    """Candidates from a provider's `host_env` (today only `OLLAMA_HOST`).
+
+    Was `_ollama_env_candidates` plus an `if provider_id == "ollama"` at the
+    call site. Declaring `host_env` on the spec makes it generic, so a second
+    provider with the same convention costs a registry field rather than
+    another branch here.
+    """
+    spec = get_local_provider_spec(provider_id)
+    if spec is None or not spec.host_env:
+        return []
+    raw = os.environ.get(spec.host_env, "").strip()
     if not raw:
         return []
     if raw.startswith("http://") or raw.startswith("https://"):
         return [normalize_openai_base_url(raw)]
     host = "127.0.0.1"
-    port = "11434"
+    port = str(spec.default_host_port)
     if raw.startswith(":"):
         port = raw.lstrip(":") or port
     elif ":" in raw:
         host, port = raw.split(":", 1)
         host = host or "127.0.0.1"
-        port = port or "11434"
+        port = port or str(spec.default_host_port)
     else:
         host = raw
     return _urls_for_host_port(host, int(port))
 
 
 def _env_port_candidates(provider_id: str) -> list[str]:
-    env_name = {
-        "omlx": "OMLX_PORT",
-        "ollama": "OLLAMA_PORT",
-        "lmstudio": "LMSTUDIO_PORT",
-        "vllm": "VLLM_PORT",
-    }.get(provider_id, "")
+    spec = get_local_provider_spec(provider_id)
+    env_name = spec.port_env if spec else ""
     if not env_name:
         return []
     raw = os.environ.get(env_name, "").strip()
@@ -122,16 +138,13 @@ def candidate_urls_for_provider(provider_id: str, config: NetllmConfig) -> list[
     """Build probe list: saved overrides, env, then default port scan."""
     urls: list[str] = []
     urls.extend(config.discovery.provider_urls.get(provider_id, []))
-    if provider_id == "ollama":
-        urls.extend(_ollama_env_candidates())
+    urls.extend(_host_env_candidates(provider_id))
     urls.extend(_env_port_candidates(provider_id))
-    for _pid, _name, ports in KNOWN_PROVIDERS:
-        if _pid != provider_id:
-            continue
-        for port in ports:
+    spec = get_local_provider_spec(provider_id)
+    if spec is not None:
+        for port in spec.default_ports:
             urls.extend(_urls_for_host_port("127.0.0.1", port))
             urls.extend(_urls_for_host_port("localhost", port))
-        break
     return _dedupe_preserve_order(urls)
 
 
@@ -156,20 +169,28 @@ def merge_discovered_provider_urls(
     return config
 
 
+def _auth_hint(provider_id: str, api_key: str) -> str:
+    """How the discovery row describes the credential it used.
+
+    A provider still on its own built-in default reports that default by name
+    (oMLX's `omlx-local`) rather than "configured", so the table does not
+    imply the operator supplied a key they never set.
+    """
+    default = default_api_key_for(provider_id)
+    if default and api_key == default:
+        return default
+    return "configured" if api_key else "none"
+
+
 def _api_key_for_provider(provider_id: str, config: NetllmConfig) -> str:
     for override in config.routing.backends:
         if override.provider == provider_id:
             return override.resolve_api_key()
-    env_map = {
-        "omlx": "OMLX_API_KEY",
-        "ollama": "OLLAMA_API_KEY",
-        "lmstudio": "LMSTUDIO_API_KEY",
-        "vllm": "VLLM_API_KEY",
-    }
-    env_name = env_map.get(provider_id, "")
+    env_name = api_key_env_for(provider_id)
+    default = default_api_key_for(provider_id)
     if env_name:
-        return os.environ.get(env_name, DEFAULT_API_KEYS.get(provider_id, ""))
-    return DEFAULT_API_KEYS.get(provider_id, "")
+        return os.environ.get(env_name, default)
+    return default
 
 
 async def _probe_url(
@@ -226,11 +247,7 @@ async def _probe_provider(
             "name": display_name,
             "base_url": url,
             "api_key": api_key,
-            "auth_hint": (
-                "omlx-local"
-                if provider_id == "omlx" and api_key == "omlx-local"
-                else ("configured" if api_key else "none")
-            ),
+            "auth_hint": _auth_hint(provider_id, api_key),
             **hit,
         }
     return {

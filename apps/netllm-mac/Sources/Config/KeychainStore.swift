@@ -4,30 +4,22 @@ import Security
 enum KeychainStore {
     private static let service = "netllm"
 
-    enum Account {
-        static let anthropicAPIKey = "anthropic_api_key"
-        static let openaiAPIKey = "openai_api_key"
-        static let moonshotAPIKey = "moonshot_api_key"
-        static let zaiAPIKey = "zai_api_key"
-        static let openrouterAPIKey = "openrouter_api_key"
-        static let dashscopeAPIKey = "dashscope_api_key"
-    }
-
     /// Maps a cloud provider registry id (from netllm_core.cloud_providers,
     /// served at GET /netllm/v1/cloud/providers) to its Keychain account.
     /// The single place this mapping lives — AgentAPI.cloudProviderRegistry
     /// and SettingsViewModel.cloudProviders (offline bootstrap) both use it
     /// instead of hand-rolling their own id -> account switch.
+    ///
+    /// Every provider's account is `<id>_api_key`. There used to be one
+    /// `case` per provider above the default arm, and all six returned
+    /// exactly what the default arm computes -- so the switch could only ever
+    /// drift, never disagree usefully. Deleted in Phase 4; the registry now
+    /// carries `keychain_account` for a provider that ever needs to deviate,
+    /// and `tests/conformance/kit_cloud.py` pins the convention. The six
+    /// `Account` constants went with it — nothing referenced them once the
+    /// switch was gone.
     static func accountForCloudProvider(_ providerId: String) -> String {
-        switch providerId {
-        case "anthropic": return Account.anthropicAPIKey
-        case "openai": return Account.openaiAPIKey
-        case "moonshot": return Account.moonshotAPIKey
-        case "zai": return Account.zaiAPIKey
-        case "openrouter": return Account.openrouterAPIKey
-        case "dashscope": return Account.dashscopeAPIKey
-        default: return "\(providerId)_api_key"
-        }
+        "\(providerId)_api_key"
     }
 
     /// Which environment variable each stored key has to be exported as when
@@ -56,7 +48,9 @@ enum KeychainStore {
         /// beyond this arrives through the registry, so remembered ∪ bootstrap
         /// is a complete cover of what the Keychain can be holding.
         static let bootstrapProviderIDs = [
+            // netllm:generated:begin:cloud-provider-ids
             "moonshot", "zai", "openai", "anthropic", "openrouter", "dashscope",
+            // netllm:generated:end:cloud-provider-ids
         ]
 
         static func remember(_ providers: [CloudProviderInfo]) {

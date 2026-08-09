@@ -92,6 +92,34 @@ final class SettingsViewModel {
         "least_load", "latency_weighted", "batch_shard",
     ]
     static let providers = ["omlx", "ollama", "lmstudio", "vllm"]
+
+    /// Display label and first scan port per discovery provider.
+    ///
+    /// Mirrors `netllm_core.local_providers.LOCAL_PROVIDERS` and is pinned to
+    /// it by `tests/conformance/kit_local.py`, so drift fails CI rather than
+    /// reaching a user. It replaces two things that were wrong: `.capitalized`
+    /// rendered "Omlx"/"Lmstudio"/"Vllm", and the prefill URL was built by a
+    /// ternary that gave every provider except oMLX and Ollama port 1234 --
+    /// so vLLM was prefilled on LM Studio's port.
+    ///
+    /// A bootstrap, not the source of truth: the agent serves the same facts
+    /// at GET /netllm/v1/local-providers, the local twin of
+    /// /netllm/v1/cloud/providers.
+    static let localProviderBootstrap: [(id: String, label: String, port: Int)] = [
+        (id: "omlx", label: "oMLX", port: 8080),
+        (id: "ollama", label: "Ollama", port: 11434),
+        (id: "lmstudio", label: "LM Studio", port: 1234),
+        (id: "vllm", label: "vLLM", port: 8000),
+    ]
+
+    static func localProviderLabel(_ id: String) -> String {
+        localProviderBootstrap.first { $0.id == id }?.label ?? id
+    }
+
+    static func localProviderDefaultURL(_ id: String) -> String {
+        let port = localProviderBootstrap.first { $0.id == id }?.port ?? 8080
+        return "http://127.0.0.1:\(port)/v1"
+    }
     static let roles = ["peer", "gateway"]
 
     // Offline-only fallback (agent unreachable / GET /netllm/v1/cloud/providers

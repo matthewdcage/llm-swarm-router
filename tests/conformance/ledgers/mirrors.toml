@@ -15,6 +15,16 @@
 # detector, not the refactor. Doc rosters join in Phase 3 when they become
 # generated; surface-name fact classes join in Phase 5a.
 [scan]
+# The phase this tree has completed. Any entry whose `expires` names this
+# phase or an earlier one is overdue and fails the ledger test -- otherwise an
+# expiry is decoration. (PROGRAM.md §5 phase order: 0,1,2,3,4,5a,5b,6,7,8.)
+# Phase 4 is HALF done and this stays at phase-3 until it is not. The local
+# half landed (GET /netllm/v1/local-providers, both UIs derive from it). The
+# cloud half -- generate-registry-artifacts.py --check, deleting
+# KeychainStore's switch cases, generating the 5 doc rosters and the
+# config.example.toml stanzas -- has not. Setting this to "phase-4" lists
+# exactly the seven mirrors that remain, which is the honest to-do list.
+current_phase = "phase-4"
 files = [
   "packages/netllm-agent/src/netllm_agent/static/dashboard.js",
   "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift",
@@ -37,76 +47,88 @@ extract = "dict-keys:CLOUD_PROVIDERS"
 
 [[fact_class.allowed_mirrors]]
 glob = "packages/netllm-agent/src/netllm_agent/static/dashboard.js"
-reason = "cloud provider bootstrap list; becomes generated between markers"
-expires = "phase-4"
+reason = """cloud + local bootstrap lists, now GENERATED between markers by \
+scripts/generate-registry-artifacts.py with --check in lint. They stay real \
+literals so the dashboard renders offline, but they cannot drift"""
+expires = "never — generated with --check"
 
 [[fact_class.allowed_mirrors]]
 glob = "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift"
-reason = "cloudProvidersBootstrap offline fallback; becomes generated"
-expires = "phase-4"
+reason = """cloudProvidersBootstrap: the Settings offline roster. Carries \
+display name, notes, regions and auth modes, not just ids, so it is \
+projection-tested against the registry by kit_cloud rather than generated -- \
+generating prose would be worse than checking it"""
+expires = "never — offline fallback, projection-tested"
 
 [[fact_class.allowed_mirrors]]
 glob = "apps/netllm-mac/Sources/Config/KeychainStore.swift"
-reason = """accountForCloudProvider switch + bootstrapProviderIDs; the switch \
-cases go away in Axis A (the generic arm is already correct), the id list \
-becomes the generated degraded-mode fallback"""
-expires = "phase-4"
+reason = """bootstrapProviderIDs, now GENERATED between markers with --check \
+in lint. The accountForCloudProvider switch is gone: all six cases returned \
+exactly what the default arm computes"""
+expires = "never — generated with --check"
 
 [[fact_class.allowed_mirrors]]
 glob = "config.example.toml"
-reason = "[cloud.providers.*] example stanzas; become generated"
-expires = "phase-4"
+reason = """discovery.providers is generated between markers with --check. \
+The [cloud.providers.*] example stanzas are still hand-written prose with \
+per-provider commentary, which is documentation rather than a roster copy"""
+expires = "phase-8 — stanzas fold into the worked example"
 
 [[fact_class.allowed_mirrors]]
 glob = "packages/netllm-core/src/netllm_core/models.py"
 reason = """CloudProviderId re-export plus the openai/anthropic api_format \
-Literal, which collides with two provider ids by coincidence of naming"""
-expires = "phase-4"
+Literal, which collides with two provider ids by coincidence of naming. Same \
+rationale as ProviderId: a derived Literal blinds basedpyright, so it stays \
+hand-written and is asserted by get_args equality in kit_cloud"""
+expires = "never — hand-written Literal, get_args-asserted"
 
 [[fact_class]]
 id = "local-provider-id"
-source = "packages/netllm-discovery/src/netllm_discovery/local.py"
-# Ids are the first element of each KNOWN_PROVIDERS tuple.
-extract = "tuple-heads:KNOWN_PROVIDERS"
+# Phase 3 moved the source of truth: `local.py`'s KNOWN_PROVIDERS is now a
+# comprehension over this registry, not a literal, so it can no longer be the
+# thing the checker reads. Eleven parallel maps collapsed into this one.
+source = "packages/netllm-core/src/netllm_core/local_providers.py"
+extract = "dict-keys:LOCAL_PROVIDERS"
 
 [[fact_class.allowed_mirrors]]
 glob = "packages/netllm-agent/src/netllm_agent/static/dashboard.js"
-reason = "discovery provider checkbox roster"
-expires = "phase-3"
+reason = """PROVIDERS_BOOTSTRAP: the degraded-mode roster rendered before \
+GET /netllm/v1/local-providers returns, or when the agent is unreachable. \
+No longer the source of truth (the fetch replaces it at boot) and pinned to \
+the registry by kit_local. Kept because an offline dashboard still has to \
+draw the discovery checkboxes"""
+expires = "never — offline fallback, projection-tested"
 
 [[fact_class.allowed_mirrors]]
 glob = "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift"
-reason = "SettingsViewModel.providers checkbox roster"
-expires = "phase-3"
+reason = """localProviderBootstrap (labels + first scan port) and the \
+`providers` roster, both pinned to the registry by kit_local. This is the \
+copy that had already drifted: vLLM was prefilled on LM Studio's port and \
+labels came from .capitalized. Retained as the offline fallback, same \
+contract as the cloud bootstrap next to it"""
+expires = "never — offline fallback, projection-tested"
 
 [[fact_class.allowed_mirrors]]
 glob = "config.example.toml"
-reason = "discovery.providers example plus provider_urls stanzas"
-expires = "phase-3"
-
-[[fact_class.allowed_mirrors]]
-glob = "packages/netllm-cli/src/netllm_cli/ui.py"
-reason = "PROVIDER_LABELS / offline hints; LocalProviderSpec absorbs both"
-expires = "phase-3"
-
-[[fact_class.allowed_mirrors]]
-glob = "packages/netllm-core/src/netllm_core/platform.py"
-reason = "default_discovery_providers per-platform lists; spec.platforms absorbs"
-expires = "phase-3"
+reason = """discovery.providers is GENERATED between markers with --check in \
+lint; the provider_urls stanzas below it stay hand-written, being example \
+URLs with commentary rather than a roster"""
+expires = "never — generated with --check"
 
 [[fact_class.allowed_mirrors]]
 glob = "packages/netllm-core/src/netllm_core/models.py"
 reason = """ProviderId Literal (stays hand-written, asserted by get_args \
 equality), plus the id -> *_API_KEY env map in Backend.resolve_api_key -- \
-one of the three copies of that map, all absorbed by LocalProviderSpec"""
-expires = "phase-3"
+the ProviderId Literal is the ONLY hand-written local-provider fact left \
+after Phase 3 -- a derived Literal blinds basedpyright, so it is asserted by \
+kit_local's get_args equality instead"""
+expires = "never — see reason"
 
 [[fact_class.allowed_mirrors]]
-glob = "packages/netllm-agent/src/netllm_agent/admin.py"
-reason = """doctor's 401/403 env-var hint map -- the third copy of the same \
-id -> *_API_KEY fact (local.py:163 and models.py:596 are the others). Every \
-entry is mechanically PROVIDER.upper()_API_KEY, but it is NOT derivable by \
-that rule alone: the .get(..., "") miss is load-bearing, since a `custom` or \
-`peer:*` backend must produce no hint rather than a CUSTOM_API_KEY that \
-nothing reads. Needs spec membership, i.e. Axis B"""
-expires = "phase-3"
+glob = "packages/netllm-discovery/src/netllm_discovery/local.py"
+reason = """oMLX's admin/telemetry probes test `provider != "omlx"`. NOT a \
+roster mirror: oMLX exposes a proprietary admin API no other local server \
+has, so the literal marks a genuine capability. kit_cloud pins that it stays \
+the ONLY provider-specific branch in discovery -- a second one means the \
+capability belongs on the spec instead"""
+expires = "never — provider capability, single-branch-asserted"

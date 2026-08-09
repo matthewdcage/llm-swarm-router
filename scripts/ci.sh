@@ -32,6 +32,7 @@ run_lint() {
   # No-new-mirrors gate (docs/extending/PROGRAM.md §2): a provider id may not
   # appear in a file the ledger does not already name.
   python3 scripts/check-registry-mirrors.py
+  python3 scripts/generate-registry-artifacts.py --check
   # Instructional docs may not point at paths that do not exist.
   python3 scripts/check-doc-paths.py
   # The three checked-in skill copies must match .agents/skills/.

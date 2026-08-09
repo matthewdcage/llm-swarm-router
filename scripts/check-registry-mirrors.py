@@ -89,16 +89,73 @@ def _hits(path: Path, ids: list[str]) -> list[tuple[int, str]]:
     """Quoted occurrences of any id, as ``(line_number, id)``.
 
     Quotes are the whole heuristic and that is deliberate: a bare word in a
-    comment is prose, ``"ollama"`` is a fact. No AST, because four of the nine
-    scanned files are not Python.
+    comment is prose, ``"ollama"`` is a fact. No AST for the general case,
+    because four of the scanned files are not Python.
+
+    Python files get one refinement: comments and docstrings are blanked
+    first. A docstring explaining *why* a special case was removed quotes the
+    id it removed, and flagging that is a false positive -- which is worse
+    than useless, because the cheapest way to silence it is a ledger entry,
+    and the ledger is supposed to mean "a real mirror lives here". Prose about
+    a fact is not a copy of it.
     """
     pattern = re.compile("|".join(f"[\"']{re.escape(i)}[\"']" for i in sorted(ids)))
-    found: list[tuple[int, str]] = []
     text = path.read_text(encoding="utf-8")
+    if path.suffix == ".py":
+        text = _blank_python_prose(text)
+    found: list[tuple[int, str]] = []
     for lineno, line in enumerate(text.splitlines(), start=1):
         for match in pattern.finditer(line):
             found.append((lineno, match.group(0)[1:-1]))
     return found
+
+
+def _blank_python_prose(text: str) -> str:
+    """Replace comments and docstrings with blanks, preserving line numbers.
+
+    Uses ``tokenize`` rather than a regex so an id inside a normal string
+    literal still counts -- only COMMENT tokens and STRING tokens standing
+    alone as an expression statement (i.e. docstrings) are removed.
+    """
+    import io
+    import tokenize
+
+    lines = text.splitlines(keepends=True)
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return text  # unparseable: scan it verbatim rather than skip it
+
+    spans: list[tuple[int, int, int, int]] = []
+    prev_meaningful: int | None = None
+    for tok in tokens:
+        if tok.type == tokenize.COMMENT:
+            spans.append((*tok.start, *tok.end))
+            continue
+        if tok.type == tokenize.STRING and prev_meaningful in (
+            None,
+            tokenize.INDENT,
+            tokenize.NEWLINE,
+            tokenize.NL,
+        ):
+            spans.append((*tok.start, *tok.end))
+        if tok.type not in (
+            tokenize.NL,
+            tokenize.COMMENT,
+            tokenize.INDENT,
+            tokenize.DEDENT,
+        ):
+            prev_meaningful = tok.type
+
+    for srow, scol, erow, ecol in spans:
+        for row in range(srow, erow + 1):
+            line = lines[row - 1]
+            start = scol if row == srow else 0
+            end = ecol if row == erow else len(line.rstrip("\n"))
+            keep_nl = "\n" if line.endswith("\n") else ""
+            body = line.rstrip("\n")
+            lines[row - 1] = body[:start] + " " * (end - start) + body[end:] + keep_nl
+    return "".join(lines)
 
 
 def main() -> int:

@@ -82,6 +82,13 @@ jobs:
           REBUILD_DONOR: force
       - name: Install menubar test dependencies
         run: brew install ripgrep
+      # The Swift test target existed but ran nowhere: `swift test` appeared
+      # only in scripts/verify-before-pr.sh, a local pre-push helper. So the
+      # app was COMPILED in CI (build.sh runs `swift build -c release`) while
+      # its assertions -- including the Keychain bootstrap roster check --
+      # never executed. The toolchain and checkout are already here.
+      - name: Swift unit tests
+        run: swift test --package-path apps/netllm-mac
       - run: bash scripts/test-menubar-e2e.sh
       - run: bash scripts/test-menubar-lifecycle.sh
 
