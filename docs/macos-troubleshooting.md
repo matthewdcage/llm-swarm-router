@@ -121,7 +121,7 @@ Maintainers: enable notarized releases per [macos-code-signing.md](macos-code-si
 | Symptom | Fix |
 |---------|-----|
 | `curl` to `/health` fails | Menubar → **Start Agent**, or `netllm start` |
-| Port 11400 in use | Expected while the menubar app runs the agent. Settings → **Restart Agent** or `netllm restart`: not a second `netllm serve`. After upgrade, run [build + install script](macos-install.md#build-from-source--install-script-recommended-on-macos-26) or bundled `macos-app-install.sh` if an old process still holds the port |
+| Port 11400 in use | Expected while the menubar app runs the agent. Settings → **Restart Agent** or `netllm restart` — do not run a second `./netllm serve` alongside the menubar (singleton lock: `~/Library/Application Support/netllm/agent-*-11400.lock` (per listen address)). See [dev-docs/agent-singleton-hardening-plan.md](dev-docs/agent-singleton-hardening-plan.md). After upgrade, run [build + install script](macos-install.md#build-from-source--install-script-recommended-on-macos-26) or bundled `macos-app-install.sh` if an old process still holds the port |
 | DMG app won’t launch | Right-click **llm-swarm-router** in Applications → **Open** once (Gatekeeper) |
 | Homebrew agent down | `brew services restart netllm` · logs: `$(brew --prefix)/var/log/netllm.log` |
 

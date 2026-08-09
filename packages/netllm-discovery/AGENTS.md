@@ -8,7 +8,7 @@ Local LLM provider discovery (oMLX, Ollama, LM Studio, vLLM), LAN peer registry,
 
 ## Ownership
 
-Key modules: `local.py`, `swarm.py`, `mdns.py`, `lan.py`, `runtime.py`, `process_util.py`.
+Key modules: `local.py`, `swarm.py`, `mdns.py`, `lan.py`, `runtime.py`, `agent_lock.py`, `process_util.py`.
 
 ## Local Contracts
 
@@ -21,6 +21,7 @@ Key modules: `local.py`, `swarm.py`, `mdns.py`, `lan.py`, `runtime.py`, `process
 - **`PeerRecord.routing_strategy` / `.version`** ride heartbeats and status fetches for config-drift detection; empty strings mean an older peer — treat as "unknown", never warn on them
 - **`PeerRecord.max_concurrency` / `.draining`** also ride heartbeats/status fetches (`fetch_peer`, `handle_heartbeat` in `netllm-agent`); default `0`/`False` when a peer omits them (older version). `peer_agent_backends()` copies `max_concurrency` onto the peer's routable `Backend` row (checked by `netllm-core`'s capacity guard) and **omits a draining peer's row entirely** — draining removes a peer from every strategy's candidates on every gateway that receives its heartbeat, without touching requests it's already serving
 - `lan.filter_own_peer_urls()` strips this host's agent URL from `swarm.peers` on save/scan
+- **`agent_lock.py`**: flock singleton at `{state_dir}/agent.lock` (parent of log dir); `serve` acquires before port preflight; stale PID reclaim; see [docs/dev-docs/agent-singleton-hardening-plan.md](../../docs/dev-docs/agent-singleton-hardening-plan.md)
 - `lan.subnet_scan_agents()` returns **one row per agent_id** (`dedupe_agents_by_id`): multi-homed hosts keep the row matching their reported listen_url, other IPs land in `also_reachable_at`; `fetch_agent_status` preserves `reported_listen_url` alongside the probe URL
 - LM Studio auth tokens: `LMSTUDIO_API_KEY` env or `[[routing.backends]]` `api_key` (scan + request paths)
 
