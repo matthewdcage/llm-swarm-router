@@ -8,7 +8,9 @@ FastAPI agent daemon: OpenAI-compatible `/v1/*` (chat, models, embeddings), Anth
 
 ## Ownership
 
-Key modules: `app.py`, `service/` (the `AgentService` mixin composition: `engine.py` is the
+Key modules: `app.py` (assembly only — see Local Contracts), `routes/` (one module per route
+group: `root.py`, `telemetry.py`, `swarm.py`, `admin.py`, `inference.py`, plus `gates.py` and
+`context.py`), `service/` (the `AgentService` mixin composition: `engine.py` is the
 only failover loop, `surfaces/` the per-surface adapters, `accounting.py` the only accounting
 writer), `admin.py`, `metrics.py`, `shard.py`, `request_plan.py`, `candidates.py`,
 `taxonomy.py`, `errors.py`. Static UI: `static/` (HTML, JS, CSS, tokens).
@@ -16,6 +18,8 @@ writer), `admin.py`, `metrics.py`, `shard.py`, `request_plan.py`, `candidates.py
 ## Local Contracts
 
 - Default bind: `127.0.0.1:11400`; do not run menubar app and `./netllm serve` together (same port)
+- **Route registration** (PROGRAM.md Phase 5b): `create_app` builds the service, lifespan, error handlers, `AccessGates` and a `RouteContext`, then calls every registrar in `routes.REGISTRARS` — it registers **no route itself** and is capped at 150 lines (`tests/test_route_auth_gates.py::test_create_app_stays_assembly_only`). A new route goes in the matching `routes/` module; a new *group* is a new module plus one line in `routes/__init__.py`
+- **Auth gates are enumerated, not remembered**: routes call `ctx.gates.require_admin_access` / `require_read_access` / `require_inference_access` (`routes/gates.py`). The gate each route applies is pinned in `tests/contract/route-auth-gates.json`, derived by `scripts/generate-route-auth-gates.py` from the **pre-split** `app.py` and asserted against the running app; `ci.sh lint` runs `--check`. Adding a route means adding a row — an ungated route must be justified there (only `/`, `/health` and `/netllm/v1/heartbeat`, which does its own constant-time token compare, carry `null`)
 - **`RequestPlan.exact_model_only`**: set when incoming `x-netllm-hops >= 1` (`surfaces/base.py`, `surfaces/messages.py`); threads through `policy.py` → `selection.py` → `engine.py` so the terminating peer serves the pinned model name only — no pool substitution on agent hops
 - **Wire-payload adaptation is SDK-only** (`netllm-sdk-openai/payload.py`): agent/core must not duplicate provider stripping/normalization (no `provider_payload` in core)
 - **`GET /netllm/v1/status`:** cache-fast by default (TTL-cached local scan, no forced health probe); `?scan=1` / `?probe=1` (local backends only) / `?probe_peers=1` (peer reachability via GET `/health`) for explicit Refresh/doctor — macOS Settings and dashboard **Refresh** pass all three; routine 2s polls use no flags

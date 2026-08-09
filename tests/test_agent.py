@@ -448,7 +448,7 @@ def test_netllm_version(client: TestClient) -> None:
     assert sdk.get("anthropic")
 
 
-@patch("netllm_agent.app.build_update_check_payload", new_callable=AsyncMock)
+@patch("netllm_agent.routes.admin.build_update_check_payload", new_callable=AsyncMock)
 def test_netllm_update_check(mock_build: AsyncMock, client: TestClient) -> None:
     mock_build.return_value = {
         "current": "0.2.3.5",
@@ -472,7 +472,7 @@ def test_netllm_update_check(mock_build: AsyncMock, client: TestClient) -> None:
     mock_build.assert_awaited_once_with(force=False)
 
 
-@patch("netllm_agent.app.build_update_check_payload", new_callable=AsyncMock)
+@patch("netllm_agent.routes.admin.build_update_check_payload", new_callable=AsyncMock)
 def test_netllm_update_check_force(mock_build: AsyncMock, client: TestClient) -> None:
     mock_build.return_value = {
         "current": "0.2.3.5",

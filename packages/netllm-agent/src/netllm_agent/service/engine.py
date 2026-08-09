@@ -37,7 +37,7 @@ Streaming (plan §3 Phase 7)
 unit is **select → acquire → connect → first event**: it returns a
 :class:`StreamSession` only once an upstream stream has actually produced
 its first event. That makes the post-F-32 pre-flight shape structural
-rather than a convention held up by ``app._started_stream`` — everything
+rather than a convention held up by ``routes.inference.started_stream`` — everything
 that can still choose a different backend happens before the caller has a
 session, and everything after the session exists is unretryable by
 construction.
@@ -221,7 +221,7 @@ async def open_stream(adapter: SurfaceAdapter, plan: RequestPlan) -> StreamSessi
       coroutine is still being awaited, which is where the route layer can
       still turn it into a real HTTP status (F-32). It cannot become a
       200-with-an-aborted-body, and that is now true by construction rather
-      than because ``app._started_stream`` remembers to pull a chunk;
+      than because ``routes.inference.started_stream`` remembers to pull a chunk;
     - conversely, once a :class:`StreamSession` exists, a byte is already
       spoken for. Retrying past that point would replay a second upstream
       response into one SSE body, so the session never retries — the

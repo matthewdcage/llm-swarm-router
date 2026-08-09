@@ -187,11 +187,15 @@ def test_schema_endpoint_uses_require_admin_access(monkeypatch) -> None:
     # test_admin_config_rejects_remote_client against require_admin_access
     # directly; here we only need to confirm this route actually calls it
     # (same pattern as every other /netllm/v1/* admin route).
-    import netllm_agent.app as app_module
+    # Phase 5b: the route calls it through AccessGates, which resolves the
+    # function on netllm_agent.admin at call time — so that module is the
+    # monkeypatch seam now. Whole-table gate coverage lives in
+    # tests/test_route_auth_gates.py.
+    import netllm_agent.admin as admin_module
 
     calls: list[object] = []
     monkeypatch.setattr(
-        app_module, "require_admin_access", lambda request, cfg: calls.append(cfg)
+        admin_module, "require_admin_access", lambda request, cfg: calls.append(cfg)
     )
     with tempfile.TemporaryDirectory() as tmp:
         cfg_path = Path(tmp) / "config.toml"
