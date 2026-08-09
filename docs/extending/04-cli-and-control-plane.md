@@ -98,7 +98,7 @@ Rows marked ***unguarded*** have no test behind them.
 | — | **The widget is the right widget** and the control is usable | **unguarded** — presence is asserted, never quality. [PROGRAM.md](PROGRAM.md) §6.3 |
 | — | **The macOS app is rebuilt and the symbol actually renders** | **unguarded from Python** — the guard parses Swift *source text*; it cannot run the app |
 | — | **CLI output formatting** | **unguarded** — Typer introspection proves the command exists, not that its table reads well |
-| — | **`dashboard.js` (2826 lines) / `SettingsWindowView.swift` (1237 lines) size** | **acknowledged debt, not scheduled** — [PROGRAM.md](PROGRAM.md) §6.6. The parity gate makes their *gaps* loud without touching their *size* |
+| — | **`dashboard.js` / `SettingsWindowView.swift` size** (3004 and 1247 lines, `wc -l`, 2026-08-09 — both have grown since the 2826/1237 recorded in `docs/architecture/10-audit-2026-08-08.md`; re-measure rather than quote this row) | **acknowledged debt, not scheduled** — [PROGRAM.md](PROGRAM.md) §6.6. The parity gate makes their *gaps* loud without touching their *size* |
 
 ## Run it
 

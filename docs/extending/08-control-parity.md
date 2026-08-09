@@ -255,9 +255,15 @@ in its sharpest form.
 
 ```bash
 uv run pytest tests/conformance/kit_config_surfaces.py -q
-uv run pytest tests/conformance/kit_config_surfaces.py -k control-parity
+uv run pytest tests/conformance/kit_config_surfaces.py -k "ledger or parity"
 python3 scripts/generate-registry-artifacts.py --check
 ```
+
+The second selector is the ledger half: `-k control-parity` selected **nothing**
+(176 deselected, a vacuous pass) because no test id contains a hyphen —
+`control-parity` is the *ledger file's* name, not a test name. `"ledger or
+parity"` selects the seven that read it.
+
 
 Adding a config field with no control fails as:
 

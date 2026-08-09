@@ -6,8 +6,8 @@ oMLX, Ollama, LM Studio, vLLM today.
 > **This is not one line.** Before Phase 3 the same provider id was keyed in
 > eleven parallel maps across five files and nothing referenced the roster in
 > a test. Those eleven collapsed into one registry entry, which is a large
-> win — but the entry does **not** carry the whole job. It comes with **two
-> declared hand-written companions**, both of them deliberate refusals
+> win — but the entry does **not** carry the whole job. It comes with **three
+> declared hand-written companions**, all of them deliberate refusals
 > recorded in [PROGRAM.md](PROGRAM.md) §6, and per-surface UI work stays
 > manual. The registry makes omission a **build failure**, not a smaller job.
 
@@ -16,15 +16,16 @@ oMLX, Ollama, LM Studio, vLLM today.
 | | |
 |---|---|
 | Registry entries | 1 (`LOCAL_PROVIDERS` in `packages/netllm-core/src/netllm_core/local_providers.py`) |
-| Hand-written companions | **2** — see below |
+| Hand-written companions | **3** — see below |
 | Generated blocks | 2, produced by one command |
-| Test files you edit | **0** — `tests/conformance/kit_local.py` parameterizes over the registry |
+| Test files you edit | **0** — `tests/conformance/kit_local.py` parameterizes over the registry, and `tests/test_contract.py`'s Swift roster check compares against `default_discovery_providers()` rather than a hardcoded list |
 | Contract vectors you edit | 0 |
 
 Measured by `tests/extending/test_worked_example_local.py`, which injects a
 fixture entry into the live registry and drives it through discovery URLs →
 config validation → schema document → projection endpoint → CLI listing →
-dashboard payload. If the cost above ever becomes wrong, that file goes red.
+dashboard payload → macOS discovery checkboxes. If the cost above ever
+becomes wrong, that file goes red.
 
 ## Step 1 — the registry entry
 
@@ -50,7 +51,7 @@ docstrings, which are the contract; a summary of the ones people get wrong:
 only when **≥2 entries** set it non-default. One entrant's quirk is a hook,
 not a field. Review the spec shape at every third entrant.
 
-## Step 2 — the two hand-written companions
+## Step 2 — the three hand-written companions
 
 These are not oversights. Each is a refusal the program made on purpose, and
 each is enumerated with the reason it cannot be derived.
@@ -83,6 +84,29 @@ Studio's port, so a user accepting the macOS default configured a URL nothing
 serves. Enforcement: **projection**.
 
 **Guard:** `tests/conformance/kit_local.py::test_swift_bootstrap_matches_the_registry`
+
+### Companion 3 — `providers` (same file as companion 2)
+
+Add your id to `static let providers = [...]`.
+
+**This is a second, separate roster in the same file**, three lines above
+`localProviderBootstrap`. Editing one does not edit the other. `providers` is
+the list the macOS Settings discovery section iterates to draw one checkbox
+per provider; `localProviderBootstrap` is the label + scan-port table behind
+the offline prefill.
+
+**Why it is hand-written:** same refusal as companion 2 —
+[PROGRAM.md](PROGRAM.md) §6.3 will not generate SwiftUI. It is pinned to
+`default_discovery_providers()` (with `sys.platform` forced to darwin, since
+the file only ever ships to macOS) rather than generated.
+
+**How it fails without you:** as a named test failure, not at runtime. In the
+app a provider missing from this array simply has no checkbox — no error, no
+log line, just an option an operator cannot turn on.
+
+**Guard:** `tests/test_contract.py::test_swift_default_providers_match_python`
+— note the **different file**: this is the one companion on this axis whose
+guard does not live in `kit_local.py`.
 
 ## Step 3 — regenerate, do not hand-edit
 
@@ -142,9 +166,10 @@ will notice if you get them wrong.
 | 19 | Agent serves the provider on `GET /netllm/v1/local-providers` | `test_the_agent_serves_the_registry_to_its_clients` |
 | 20 | That route is in the exact-set route manifest | `test_the_local_provider_route_is_registered` |
 | 21 | Dashboard bootstrap regenerated | `test_dashboard_bootstrap_matches_the_registry` |
-| 22 | macOS prefill added (companion 2), and carries no extras | `test_swift_bootstrap_matches_the_registry`, `test_swift_bootstrap_has_no_extra_providers` |
-| 23 | No new id literal anywhere else | `scripts/check-registry-mirrors.py` (in `ci.sh lint`) |
-| 24 | Whole path still works end to end | `tests/extending/test_worked_example_local.py` |
+| 22 | macOS offline prefill `localProviderBootstrap` added (companion 2), and carries no extras | `test_swift_bootstrap_matches_the_registry`, `test_swift_bootstrap_has_no_extra_providers` |
+| 23 | macOS discovery-checkbox roster `static let providers` added (companion 3) | **`tests/test_contract.py::test_swift_default_providers_match_python`** — *not* a `kit_local.py` test, and the only row on this axis whose guard lives elsewhere |
+| 24 | No new id literal anywhere else | `scripts/check-registry-mirrors.py` (in `ci.sh lint`) |
+| 25 | Whole path still works end to end | `tests/extending/test_worked_example_local.py` |
 | — | **Probe semantics are right for your server** (does `GET /v1/models` mean what you think?) | **unguarded** — structural conformance cannot tell you a base URL or a probe verb is wrong ([PROGRAM.md](PROGRAM.md) §7) |
 | — | **`offline_hint` prose is accurate and current** | **unguarded** — only its presence is asserted, never its correctness |
 | — | **Dashboard and macOS discovery UI actually renders your provider well** | **unguarded** — [PROGRAM.md](PROGRAM.md) §6.3 keeps UI hand-written; the registry only makes *omission* loud |
@@ -156,9 +181,16 @@ will notice if you get them wrong.
 uv run pytest tests/conformance/kit_local.py -k <your-id>
 ```
 
-Then the whole rail:
+That covers every row above **except row 23** — companion 3's guard lives in
+`tests/test_contract.py`, so run it explicitly:
 
 ```bash
-uv run pytest tests/conformance tests/extending -q
+uv run pytest tests/test_contract.py::test_swift_default_providers_match_python
+```
+
+Then the whole rail, which includes both:
+
+```bash
+uv run pytest tests/conformance tests/extending tests/test_contract.py -q
 ./scripts/ci.sh lint
 ```

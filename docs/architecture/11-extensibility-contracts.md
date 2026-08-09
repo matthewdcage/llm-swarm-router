@@ -91,7 +91,7 @@ Not estimated — asserted, by `tests/extending/`.
 | Axis | Registry entries | Hand-written companions | Generated blocks | Test files you edit |
 |---|---|---|---|---|
 | A — cloud provider | 1 | **3** | 2 | 0 |
-| B — local provider | 1 | **2** | 2 | 0 |
+| B — local provider | 1 | **3** | 2 | 0 |
 | C — API surface | 1 spec + 1 adapter | — | 1 (`routes.json`) | **1** (`ADAPTERS` tuple) |
 | D — control | 1 descriptor | per-surface UI | 1 (obligations table) | 0 |
 

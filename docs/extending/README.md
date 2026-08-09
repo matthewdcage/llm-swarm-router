@@ -48,7 +48,7 @@ or is marked *unguarded*.** There is no third category.
 | Guide | Axis | Registry entry + hand-written companions | Kit |
 |---|---|---|---|
 | [01-cloud-provider.md](01-cloud-provider.md) | A — cloud provider | 1 + **3** | `tests/conformance/kit_cloud.py` |
-| [02-local-provider.md](02-local-provider.md) | B — local inference server | 1 + **2** | `tests/conformance/kit_local.py` |
+| [02-local-provider.md](02-local-provider.md) | B — local inference server | 1 + **3** | `tests/conformance/kit_local.py`, `tests/test_contract.py` |
 | [03-api-surface.md](03-api-surface.md) | C — wire dialect | 1 spec + 1 adapter | **none** — `tests/contract/test_surface_adapters.py` |
 | [04-cli-and-control-plane.md](04-cli-and-control-plane.md) | D — CLI / control | 1 descriptor + per-surface UI | `tests/conformance/kit_config_surfaces.py` |
 | [05-config-and-wire-evolution.md](05-config-and-wire-evolution.md) | E — config + wire | additive only today | `tests/test_config_forward_compat.py` |
@@ -79,7 +79,13 @@ Three properties, because one is not enough:
 
 1. **Sufficiency** — the entry plus its declared companions, and nothing
    else, passes every stage. A *new* hand-edit becoming necessary fails the
-   stage that needs it, by name.
+   stage that needs it, by name. **This property is exactly as strong as the
+   stage list**: it can only fail on a fact some stage reads. A surface no
+   stage reads is invisible to it — which is how Axis B's third companion
+   (`SettingsViewModel.providers`) went undeclared for a phase while its own
+   guard, `tests/test_contract.py::test_swift_default_providers_match_python`,
+   sat outside every guide checklist. When you add a companion, add the stage
+   that reads it.
 2. **Necessity** — omitting any companion must break something, so the list
    cannot rot into a pessimistic over-statement.
 3. **Classification** — every mirror `tests/conformance/ledgers/mirrors.toml`
@@ -235,7 +241,7 @@ Recorded because saying no is most of the value:
   party ever appears — deferring costs almost nothing.
 - **No generated SwiftUI or dashboard JS.** ~1100 of `bf67238`'s 1268 lines were genuine
   per-surface UI work. Generate the *manifest of what must exist*; hand-write the UI.
-- **No rewrite of `dashboard.js` (2826 lines) or `SettingsWindowView.swift` (1237).**
+- **No rewrite of `dashboard.js` or `SettingsWindowView.swift`** — 3004 and 1247 lines respectively (`wc -l`, 2026-08-09; both still growing).
   Acknowledged debt; the parity gate makes their *gaps* loud without touching their *size*.
 - **No opening of the `Literal` types** to validated `str` — a real typing regression for no
   benefit while every entry is in-tree.

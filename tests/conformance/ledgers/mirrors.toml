@@ -109,11 +109,16 @@ expires = "never — offline fallback, projection-tested"
 
 [[fact_class.allowed_mirrors]]
 glob = "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift"
-reason = """localProviderBootstrap (labels + first scan port) and the \
-`providers` roster, both pinned to the registry by kit_local. This is the \
-copy that had already drifted: vLLM was prefilled on LM Studio's port and \
-labels came from .capitalized. Retained as the offline fallback, same \
-contract as the cloud bootstrap next to it"""
+reason = """TWO separate hand-written rosters, pinned by DIFFERENT tests. \
+localProviderBootstrap (labels + first scan port) is pinned by kit_local's \
+test_swift_bootstrap_matches_the_registry; the `providers` roster (the \
+Settings discovery checkbox loop) is pinned by \
+tests/test_contract.py::test_swift_default_providers_match_python, NOT by \
+kit_local -- this row claimed kit_local covered both until Phase 8b, and it \
+never did. This is also the copy that had already drifted: vLLM was \
+prefilled on LM Studio's port and labels came from .capitalized. Both are \
+retained as the offline fallback, same contract as the cloud bootstrap next \
+to it, and both are declared companions of the local worked example"""
 expires = "never — offline fallback, projection-tested"
 
 [[fact_class.allowed_mirrors]]
@@ -125,11 +130,13 @@ expires = "never — generated with --check"
 
 [[fact_class.allowed_mirrors]]
 glob = "packages/netllm-core/src/netllm_core/models.py"
-reason = """ProviderId Literal (stays hand-written, asserted by get_args \
-equality), plus the id -> *_API_KEY env map in Backend.resolve_api_key -- \
-the ProviderId Literal is the ONLY hand-written local-provider fact left \
-after Phase 3 -- a derived Literal blinds basedpyright, so it is asserted by \
-kit_local's get_args equality instead"""
+reason = """The ProviderId Literal, and nothing else: it is the ONLY \
+hand-written local-provider fact in this file after Phase 3. A derived \
+Literal blinds basedpyright, so it stays hand-written and is asserted by \
+kit_local's get_args equality instead. This row used to also cite "the id -> \
+*_API_KEY env map in Backend.resolve_api_key"; there is no such map -- \
+resolve_api_key reads self.api_key_env off the Backend, which is populated \
+from the registry spec, so no provider id appears in it"""
 expires = "never — see reason"
 
 [[fact_class.allowed_mirrors]]
