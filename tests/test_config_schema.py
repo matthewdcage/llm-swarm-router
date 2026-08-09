@@ -17,11 +17,14 @@ from netllm_core.config_schema import (
     SECTIONS,
     config_schema_document,
 )
-from netllm_core.models import NetllmConfig, save_config
+from netllm_core.models import NON_SECTION_FIELDS, NetllmConfig, save_config
 
 
 def test_sections_match_netllm_config_fields():
-    assert set(SECTIONS) == set(NetllmConfig.model_fields)
+    # `schema_version` is a top-level scalar owned by the migration runner,
+    # not an editable section -- it has no form fields and no widget, and no
+    # client may set it. Subtracted here rather than added to SECTIONS.
+    assert set(SECTIONS) == set(NetllmConfig.model_fields) - NON_SECTION_FIELDS
 
 
 def test_every_pydantic_field_has_a_schema_entry():

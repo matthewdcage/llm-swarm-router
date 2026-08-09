@@ -10,12 +10,17 @@ from typing import Any
 from fastapi import HTTPException, Request
 from netllm_core import config_guards, config_merge
 from netllm_core.cloud_providers import CLOUD_PROVIDERS, get_provider_spec
-from netllm_core.config_report import unknown_cloud_provider_issues
+from netllm_core.config_report import (
+    deprecated_key_issues,
+    schema_version_issues,
+    unknown_cloud_provider_issues,
+)
 from netllm_core.harness_detection import detect as detect_harness
 from netllm_core.known_harnesses import KNOWN_HARNESSES
 from netllm_core.local_providers import api_key_env_for
 from netllm_core.models import (
     NetllmConfig,
+    default_config_path,
     is_lan_listen,
     listen_port,
     save_config,
@@ -41,8 +46,19 @@ def require_admin_access(request: Request, cfg: NetllmConfig) -> None:
     )
 
 
-def doctor_payload(cfg: NetllmConfig, service: AgentService) -> dict[str, Any]:
-    """Read-only doctor summary for the dashboard (subset of CLI doctor)."""
+def doctor_payload(
+    cfg: NetllmConfig,
+    service: AgentService,
+    config_path: Path | None = None,
+) -> dict[str, Any]:
+    """Read-only doctor summary for the dashboard (subset of CLI doctor).
+
+    `config_path` is the file the agent was started with. It is needed because
+    the deprecation report has to read the user's actual TOML -- a validated
+    model carries every field at its default and so cannot say which keys the
+    user wrote. Optional, defaulting to the standard location, so existing
+    two-argument callers keep working.
+    """
     issues: list[dict[str, str]] = []
     notes: list[str] = []
 
@@ -136,6 +152,12 @@ def doctor_payload(cfg: NetllmConfig, service: AgentService) -> dict[str, Any]:
     # Unknown [cloud.providers.*] ids are preserved on save rather than
     # deleted (models.CloudConfig), so doctor is where they become visible.
     issues.extend(unknown_cloud_provider_issues(cfg))
+
+    # Same two reports the CLI doctor runs, from the same helpers, so the
+    # dashboard panel and `netllm doctor` cannot disagree about what is wrong
+    # with a config.
+    issues.extend(deprecated_key_issues(config_path or default_config_path()))
+    issues.extend(schema_version_issues(cfg))
 
     if cfg.swarm.mdns and cfg.agent.advertise:
         try:

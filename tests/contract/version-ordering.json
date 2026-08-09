@@ -1,0 +1,133 @@
+{
+  "_comment": [
+    "THE shared version-ordering corpus. Two independent comparators exist —",
+    "netllm_core.update.compare_versions (Python) and VersionOrdering.compare",
+    "(apps/netllm-mac/Sources/Config/VersionOrdering.swift). Before this file",
+    "they had no corpus in common, so they could disagree about whether a peer",
+    "was older or newer and nothing would notice. Both consume this file; a case",
+    "added here is a case both must answer.",
+    "",
+    "`expect` is the sign of compare(left, right): -1 left is older, 0 the same",
+    "release, 1 left is newer. Every case carries `why` because a version",
+    "ordering assertion with no stated reason cannot be reviewed.",
+    "",
+    "Consumers: tests/test_version_ordering.py (Python),",
+    "apps/netllm-mac/Tests/NetllmMacTests/VersionOrderingTests.swift (Swift)."
+  ],
+  "cases": [
+    {
+      "left": "0.2.3",
+      "right": "0.2.4",
+      "expect": -1,
+      "why": "plain patch bump"
+    },
+    {
+      "left": "0.2.3.1",
+      "right": "0.2.3",
+      "expect": 1,
+      "why": "this repo's 4-part X.Y.Z.N scheme: a build suffix is newer"
+    },
+    {
+      "left": "1.0",
+      "right": "1.0.0",
+      "expect": 0,
+      "why": "missing trailing components are zero, not absent"
+    },
+    {
+      "left": "v0.5.0",
+      "right": "0.5.0",
+      "expect": 0,
+      "why": "a git tag's leading v is not part of the version"
+    },
+    {
+      "left": "0.10.0",
+      "right": "0.9.0",
+      "expect": 1,
+      "why": "components compare numerically, never as strings"
+    },
+    {
+      "left": "0.5.0",
+      "right": "0.5.0rc1",
+      "expect": 1,
+      "why": "REGRESSION: a final release is newer than its own release candidate. The digit-scraping comparator read 0.5.0rc1 as [0,5,0,1] and called the candidate newer, so an operator running a prerelease was told to downgrade."
+    },
+    {
+      "left": "0.5.0rc1",
+      "right": "0.5.0.1",
+      "expect": -1,
+      "why": "REGRESSION: 0.5.0rc1 and 0.5.0.1 both scraped to [0,5,0,1] and compared EQUAL, collapsing a prerelease and a real build into one version."
+    },
+    {
+      "left": "0.5.0",
+      "right": "0.5.0.1",
+      "expect": -1,
+      "why": "the pair the two regressions above have to stay consistent with"
+    },
+    {
+      "left": "1.0.0-rc.1",
+      "right": "1.0.0",
+      "expect": -1,
+      "why": "REGRESSION (PROGRAM.md §4): the semver punctuation spelling of the same defect"
+    },
+    {
+      "left": "0.5.0rc1",
+      "right": "0.5.0rc2",
+      "expect": -1,
+      "why": "prereleases of one release order by their own number"
+    },
+    {
+      "left": "0.5.0a2",
+      "right": "0.5.0b1",
+      "expect": -1,
+      "why": "alpha precedes beta regardless of the trailing number"
+    },
+    {
+      "left": "0.5.0b1",
+      "right": "0.5.0rc1",
+      "expect": -1,
+      "why": "beta precedes release candidate"
+    },
+    {
+      "left": "0.5.0.dev1",
+      "right": "0.5.0a1",
+      "expect": -1,
+      "why": "dev builds precede every prerelease of the same release"
+    },
+    {
+      "left": "0.5.0rc1",
+      "right": "0.5.1",
+      "expect": -1,
+      "why": "a prerelease is still bounded by the next release"
+    },
+    {
+      "left": "0.4.6",
+      "right": "0.5.0rc1",
+      "expect": -1,
+      "why": "a prerelease of the next release is newer than the last release"
+    },
+    {
+      "left": "0.5.0RC1",
+      "right": "0.5.0rc1",
+      "expect": 0,
+      "why": "prerelease labels are case-insensitive"
+    },
+    {
+      "left": "0.2.2.1.ci",
+      "right": "0.2.2.1",
+      "expect": 0,
+      "why": "scripts/ci.sh mints NETLLM_VERSION=<version>.ci for packaging smoke; an unrecognised trailing tag must not silently reorder anything"
+    },
+    {
+      "left": "",
+      "right": "0.0.0",
+      "expect": 0,
+      "why": "a peer that reports no version must not be ordered against, and must not raise"
+    },
+    {
+      "left": "unknown",
+      "right": "0.0.0",
+      "expect": 0,
+      "why": "garbage from a peer is inert, not an exception — this comparator runs on data another machine on the LAN controls"
+    }
+  ]
+}

@@ -27,6 +27,7 @@ from pathlib import Path
 from netllm_core.config_merge import _CONFIG_SECTIONS, apply_config_patch
 from netllm_core.config_schema import SECTIONS
 from netllm_core.models import (
+    NON_SECTION_FIELDS,
     CloudProviderConfig,
     NetllmConfig,
     SourceConfig,
@@ -259,8 +260,9 @@ def test_section_roster_three_way_equality() -> None:
     """The six editable sections are stated in three places. They are one
     fact; a seventh section added to `NetllmConfig` alone would be
     unreachable from the schema endpoint and unsavable through the merge."""
-    assert set(NetllmConfig.model_fields) == set(SECTIONS)
-    assert set(NetllmConfig.model_fields) == set(_CONFIG_SECTIONS)
+    sections = set(NetllmConfig.model_fields) - NON_SECTION_FIELDS
+    assert sections == set(SECTIONS)
+    assert sections == set(_CONFIG_SECTIONS)
 
 
 def test_merge_sources_allowlist_matches_source_config_fields() -> None:

@@ -1,0 +1,70 @@
+## The deprecation clock (docs/extending/PROGRAM.md §3 Axis E.4).
+##
+## Before this file, "deprecated" was a sentence in a comment. Two shims in
+## this tree said "kept for one release" and "drop one release after 0.4.6",
+## and nothing anywhere counted the releases — so both were still here at
+## 0.5.0.1. A deprecation with no date is a permanent feature with an apology
+## attached.
+##
+## DO NOT EDIT the block below — it is generated from the registry with
+##
+##     python3 scripts/generate-registry-artifacts.py
+##
+## and `scripts/ci.sh lint` fails when it is stale. The registry itself is
+## `DEPRECATIONS` in packages/netllm-core/src/netllm_core/deprecations.py, a
+## frozen dataclass tuple exactly like CLOUD_PROVIDERS. It lives in the package
+## rather than here because a wheel install has no `docs/` directory, and a
+## clock only CI can read would never fire for the person whose config carries
+## the key. This file is the human-readable projection.
+##
+## Fields
+##   id             stable identifier, also the DeprecationWarning's subject
+##   kind           config-key | symbol   (Axis F/G add more; PROGRAM.md §12)
+##   config_path    dotted path in config.toml — set for kind=config-key,
+##                  empty otherwise. This is what `netllm doctor` matches
+##                  against the user's actual file.
+##   symbol         import path of the thing that must eventually be deleted
+##   deprecated_in  the release that announced it
+##   remove_in      the release by which it must be GONE.
+##                  tests/conformance/kit_versioning.py fails once
+##                  compare_versions(get_version(), remove_in) >= 0 and the
+##                  symbol still resolves.
+##   replacement    what to use instead; "" when there is nothing to move to
+##   notes          why, in a sentence a stranger can act on
+##
+## `remove_in` is a promise to users, not a reminder to us. Bumping one is a
+## decision that belongs in a release note, not a quiet edit to the registry.
+
+# netllm:generated:begin:deprecations
+[[deprecation]]
+id = "routing.require_same_model_for_shard"
+kind = "config-key"
+config_path = "routing.require_same_model_for_shard"
+symbol = "netllm_core.models:RoutingConfig.require_same_model_for_shard"
+deprecated_in = "0.4.6"
+remove_in = "0.6.0"
+replacement = ""
+notes = """
+Inert since its only consumer, plan_batch_shard, was deleted as dead code
+(routing-hardening-plan.md Phase 5). Removed from config_summary, the
+dashboard and macOS Settings in 0.4.6 so nobody can toggle something that
+does nothing (audit F-17); the field itself is kept only so an existing
+config.toml still loads. The semantics move to the planned model_groups
+feature, so there is nothing to migrate to yet — delete the key.
+"""
+
+[[deprecation]]
+id = "pool.cached_peer_online"
+kind = "symbol"
+config_path = ""
+symbol = "netllm_core.pool:RouterPool.cached_peer_online"
+deprecated_in = "0.4.6"
+remove_in = "0.6.0"
+replacement = "netllm_core.pool:RouterPool.cached_online"
+notes = """
+A pure alias — `return self.cached_online(backend)`. Its docstring said
+\"kept for one release\" without naming which one, which is exactly how a
+one-release shim reaches its third. No caller remains in this tree.
+"""
+
+# netllm:generated:end:deprecations
