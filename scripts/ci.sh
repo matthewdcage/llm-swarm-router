@@ -41,6 +41,9 @@ run_lint() {
   # The HTTP surface is an exact set, not a presence check — a deleted
   # /v1/* route has to fail here, not ship.
   uv run python scripts/generate-routes-json.py --check
+  # And which auth gate each of those routes applies — derived from the
+  # pre-split app.py, so a route that loses its gate fails here (F-59).
+  uv run python scripts/generate-route-auth-gates.py --check
 }
 
 # Non-blocking for now: basedpyright is configured in pyproject.toml but has

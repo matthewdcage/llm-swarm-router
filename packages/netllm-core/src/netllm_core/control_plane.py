@@ -13,7 +13,7 @@ means the spec is wrong — redesign it, do not add entries") and failed it:
 22.2% absent with the CLI excluded, 62% with the CLI required, at a cost of
 ~500 hand-maintained facts and zero deletions. At tab granularity every
 descriptor has a real renderer, a real button, a real Swift symbol, and often
-a real CLI command family, and the day-one ledger is 1/14.
+a real CLI command family, and the day-one ledger is 2/16.
 
 Field-level parity did not disappear — it moved to where it belongs, as a
 coverage **disposition** computed from the surfaces themselves in
@@ -30,8 +30,9 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 #: A surface that can carry a control. `cli` is deliberately NOT a per-field
-#: surface (only 2 of 50 config field names appear as Typer options, and both
-#: are runtime flags) — it is required for **action**-kind controls only.
+#: surface: only 6 of 79 leaf config field names collide with a Typer long
+#: option, and just two of those (`cloud enable --auth`, `--region`) actually
+#: write a config field. It is required for **action**-kind controls only.
 SurfaceKey = Literal["dashboard", "macos", "cli"]
 
 #: `config` — edits `NetllmConfig` through `POST /netllm/v1/admin/config`.

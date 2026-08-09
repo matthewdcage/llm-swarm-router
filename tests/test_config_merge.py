@@ -161,6 +161,54 @@ def test_merged_policy_covers_every_model_field() -> None:
     )
 
 
+def test_backend_api_key_preserved_when_patch_omits_it() -> None:
+    cfg = NetllmConfig()
+    cfg.routing.backends = [
+        BackendOverride(
+            base_url="http://127.0.0.1:8000/v1",
+            provider="vllm",
+            api_key="stored-secret",
+        )
+    ]
+    patch = {
+        "routing": {
+            "backends": [
+                {
+                    "base_url": "http://127.0.0.1:8000/v1",
+                    "provider": "vllm",
+                    "enabled": True,
+                }
+            ]
+        }
+    }
+    updated = apply_config_patch(cfg, patch)
+    assert updated.routing.backends[0].api_key == "stored-secret"
+
+
+def test_backend_api_key_replaced_when_patch_sets_it() -> None:
+    cfg = NetllmConfig()
+    cfg.routing.backends = [
+        BackendOverride(
+            base_url="http://127.0.0.1:8000/v1",
+            provider="vllm",
+            api_key="old",
+        )
+    ]
+    patch = {
+        "routing": {
+            "backends": [
+                {
+                    "base_url": "http://127.0.0.1:8000/v1",
+                    "provider": "vllm",
+                    "api_key": "new",
+                }
+            ]
+        }
+    }
+    updated = apply_config_patch(cfg, patch)
+    assert updated.routing.backends[0].api_key == "new"
+
+
 def test_backend_max_concurrency_and_cloud_provider_survive_unrelated_save() -> None:
     cfg = NetllmConfig()
     cfg.routing.backends = [

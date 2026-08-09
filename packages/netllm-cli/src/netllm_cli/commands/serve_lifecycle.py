@@ -6,6 +6,7 @@ import asyncio
 import os
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 from netllm_core.config import (
@@ -39,6 +40,9 @@ from netllm_cli.ui import (
     print_warnings,
 )
 
+if TYPE_CHECKING:
+    from netllm_discovery.agent_lock import AgentLock
+
 
 def serve(
     config: Path | None = typer.Option(None, "--config"),
@@ -54,6 +58,7 @@ def serve(
     ),
 ) -> None:
     """Start the netllm agent (foreground)."""
+    from netllm_discovery.mdns import parse_listen_host_port
     from netllm_discovery.runtime import (
         check_listen_port,
         format_port_conflict_message,
@@ -73,192 +78,270 @@ def serve(
         current_host, current_port = split_listen(cfg.agent.listen)
         cfg.agent.listen = format_listen(host or current_host, port or current_port)
 
-    conflict = check_listen_port(cfg)
-    port_cleared = False
-    if conflict:
-        replace_cmd = suggested_cli("serve --replace")
-        if (
-            conflict.occupied_by_netllm
-            and conflict.agent_id
-            and conflict.agent_id == cfg.agent.agent_id
-        ):
-            if replace:
-                if control_socket_path().exists() and not is_menubar_supervised():
-                    if not quiet:
-                        console.print(
-                            "[yellow]Restarting agent via llm-swarm-router app…[/]"
+    _, listen_port = parse_listen_host_port(cfg.agent.listen)
+    agent_lock: AgentLock | None = None
+    try:
+        agent_lock = _acquire_serve_lock(
+            cfg,
+            listen_port=listen_port,
+            replace=replace,
+            quiet=quiet,
+            stop_netllm_on_port=stop_netllm_on_port,
+        )
+
+        conflict = check_listen_port(cfg)
+        port_cleared = False
+        if conflict:
+            replace_cmd = suggested_cli("serve --replace")
+            if (
+                conflict.occupied_by_netllm
+                and conflict.agent_id
+                and conflict.agent_id == cfg.agent.agent_id
+            ):
+                if replace:
+                    if control_socket_path().exists() and not is_menubar_supervised():
+                        if not quiet:
+                            console.print(
+                                "[yellow]Restarting agent via llm-swarm-router app…[/]"
+                            )
+                        raise typer.Exit(
+                            lifecycle_command("restart", timeout=60.0, no_wait=quiet)
                         )
-                    raise typer.Exit(
-                        lifecycle_command("restart", timeout=60.0, no_wait=quiet)
-                    )
-                if stop_netllm_on_port(conflict.port):
-                    port_cleared = check_listen_port(cfg) is None
-                    if not port_cleared:
-                        still = check_listen_port(cfg)
-                        if still is not None:
-                            conflict = still
+                    if stop_netllm_on_port(conflict.port):
+                        port_cleared = check_listen_port(cfg) is None
+                        if not port_cleared:
+                            still = check_listen_port(cfg)
+                            if still is not None:
+                                conflict = still
+                            print_error(
+                                "Could not free port",
+                                format_port_conflict_message(conflict),
+                                hints=port_conflict_hints(
+                                    conflict, replace_flag=replace_cmd
+                                ),
+                            )
+                            raise typer.Exit(1)
+                    else:
                         print_error(
-                            "Could not free port",
-                            format_port_conflict_message(conflict),
-                            hints=port_conflict_hints(
-                                conflict, replace_flag=replace_cmd
+                            "Could not restart agent",
+                            (
+                                "Same agent is running but could not stop "
+                                "it for --replace."
                             ),
+                            hints=[
+                                suggested_cli("restart"),
+                                "Or use Settings → Restart Agent in the menubar app",
+                            ],
                         )
                         raise typer.Exit(1)
                 else:
-                    print_error(
-                        "Could not restart agent",
-                        "Same agent is running but could not stop it for --replace.",
-                        hints=[
-                            suggested_cli("restart"),
-                            "Or use Settings → Restart Agent in the menubar app",
-                        ],
-                    )
-                    raise typer.Exit(1)
-            else:
+                    if not quiet:
+                        _print_already_running_panel(
+                            agent_id=conflict.agent_id or cfg.agent.agent_id,
+                            url=conflict.url,
+                            pid=conflict.pid,
+                        )
+                    raise typer.Exit(0)
+            if not port_cleared and replace and conflict.occupied_by_netllm:
                 if not quiet:
                     console.print(
-                        Panel(
-                            f"[green]netllm agent already running[/]\n"
-                            f"  agent_id: {conflict.agent_id}\n"
-                            f"  url: {conflict.url}\n"
-                            f"  pid: {conflict.pid or 'unknown'}\n\n"
-                            f"  Reload config: [cyan]{suggested_cli('restart')}[/]",
-                            border_style="green",
-                        )
+                        f"[yellow]Stopping existing netllm agent on port "
+                        f"{conflict.port}…[/]"
                     )
-                raise typer.Exit(0)
-        if not port_cleared and replace and conflict.occupied_by_netllm:
-            if not quiet:
-                console.print(
-                    f"[yellow]Stopping existing netllm agent on port "
-                    f"{conflict.port}…[/]"
-                )
-            if not stop_netllm_on_port(conflict.port):
+                if not stop_netllm_on_port(conflict.port):
+                    print_error(
+                        "Could not free port",
+                        format_port_conflict_message(conflict),
+                        hints=port_conflict_hints(conflict, replace_flag=replace_cmd),
+                    )
+                    raise typer.Exit(1)
+            elif not port_cleared:
                 print_error(
-                    "Could not free port",
+                    "Port already in use",
                     format_port_conflict_message(conflict),
                     hints=port_conflict_hints(conflict, replace_flag=replace_cmd),
                 )
                 raise typer.Exit(1)
-        elif not port_cleared:
-            print_error(
-                "Port already in use",
-                format_port_conflict_message(conflict),
-                hints=port_conflict_hints(conflict, replace_flag=replace_cmd),
-            )
-            raise typer.Exit(1)
 
-    base, lan_base = listen_urls(cfg.agent.listen)
-    warnings: list[str] = []
+        base, lan_base = listen_urls(cfg.agent.listen)
+        warnings: list[str] = []
 
-    if is_lan_listen(cfg.agent.listen) and not cfg.swarm.cluster_token:
-        warnings.append(
-            "LAN swarm is open (no cluster token). Trusted home LAN is fine; "
-            "run [cyan]netllm swarm-token[/] to require a token on other machines."
-        )
-
-    results = asyncio.run(scan_local_providers(cfg))
-    online = [r for r in results if r.get("status") == "online"]
-
-    if cfg.swarm.mdns and cfg.agent.advertise and not mdns_available():
-        warnings.append(
-            "Swarm mDNS unavailable — reinstall netllm ([cyan]uv sync[/]). "
-            "Static peers in swarm.peers still work."
-        )
-
-    if not quiet:
-        print_heading(
-            "Starting netllm agent",
-            f"role={cfg.agent.role}  strategy={cfg.routing.default_strategy}",
-        )
-        summary = f"[bold]Listen[/]  {base}\n"
-        if lan_base:
-            summary += f"[bold]LAN[/]     {lan_base}\n"
-        summary += (
-            f"[bold]Config[/]  {cfg_path}\n[bold]Backends[/] {len(online)} online"
-        )
-        if online:
-            names = ", ".join(r.get("name", "?") for r in online)
-            summary += f" ({names})"
-        else:
-            summary += " [yellow]— start oMLX/Ollama/LM Studio, then refresh[/]"
-        console.print(Panel(summary, border_style="cyan"))
-        print_endpoints_table(base)
-        print_env_block(base)
-
-        while_steps: list[tuple[str, str]] = [
-            (suggested_cli("status"), "New terminal — health + backends"),
-            (suggested_cli("models"), "List all routed models"),
-            (f"curl -sf {base}/health", "Quick health check"),
-        ]
-        if listen_is_loopback(cfg.agent.listen):
-            while_steps.insert(
-                0,
-                (
-                    suggested_cli("serve --host 0.0.0.0"),
-                    "Restart for LAN/swarm — other machines + mDNS can reach you",
-                ),
-            )
-        else:
-            while_steps.append(
-                (suggested_cli("peers"), "Find other netllm agents on the LAN"),
+        if is_lan_listen(cfg.agent.listen) and not cfg.swarm.cluster_token:
+            warnings.append(
+                "LAN swarm is open (no cluster token). Trusted home LAN is fine; "
+                "run [cyan]netllm swarm-token[/] to require a token on other machines."
             )
 
-        repo = find_repo_root()
-        if repo:
-            while_steps.append(
-                (
-                    f"{repo / 'netllm'} status",
-                    "Works in any terminal — no global PATH needed",
-                ),
-            )
-        elif not global_cli_on_path() and global_netllm_installed():
-            while_steps.append(
-                (path_export_line(), "Then use netllm in other terminals"),
+        results = asyncio.run(scan_local_providers(cfg))
+        online = [r for r in results if r.get("status") == "online"]
+
+        if cfg.swarm.mdns and cfg.agent.advertise and not mdns_available():
+            warnings.append(
+                "Swarm mDNS unavailable — reinstall netllm ([cyan]uv sync[/]). "
+                "Static peers in swarm.peers still work."
             )
 
-        print_next_steps(while_steps, title="While the agent runs")
-        print_warnings(warnings)
-        console.print(
-            "[dim]Press Ctrl+C to stop. "
-            "Dashboard: [cyan]" + base + "/ui/[/] · API help JSON at [cyan]/[/][/]\n"
+        if not quiet:
+            print_heading(
+                "Starting netllm agent",
+                f"role={cfg.agent.role}  strategy={cfg.routing.default_strategy}",
+            )
+            summary = f"[bold]Listen[/]  {base}\n"
+            if lan_base:
+                summary += f"[bold]LAN[/]     {lan_base}\n"
+            summary += (
+                f"[bold]Config[/]  {cfg_path}\n[bold]Backends[/] {len(online)} online"
+            )
+            if online:
+                names = ", ".join(r.get("name", "?") for r in online)
+                summary += f" ({names})"
+            else:
+                summary += " [yellow]— start oMLX/Ollama/LM Studio, then refresh[/]"
+            console.print(Panel(summary, border_style="cyan"))
+            print_endpoints_table(base)
+            print_env_block(base)
+
+            while_steps: list[tuple[str, str]] = [
+                (suggested_cli("status"), "New terminal — health + backends"),
+                (suggested_cli("models"), "List all routed models"),
+                (f"curl -sf {base}/health", "Quick health check"),
+            ]
+            if listen_is_loopback(cfg.agent.listen):
+                while_steps.insert(
+                    0,
+                    (
+                        suggested_cli("serve --host 0.0.0.0"),
+                        "Restart for LAN/swarm — other machines + mDNS can reach you",
+                    ),
+                )
+            else:
+                while_steps.append(
+                    (suggested_cli("peers"), "Find other netllm agents on the LAN"),
+                )
+
+            repo = find_repo_root()
+            if repo:
+                while_steps.append(
+                    (
+                        f"{repo / 'netllm'} status",
+                        "Works in any terminal — no global PATH needed",
+                    ),
+                )
+            elif not global_cli_on_path() and global_netllm_installed():
+                while_steps.append(
+                    (path_export_line(), "Then use netllm in other terminals"),
+                )
+
+            print_next_steps(while_steps, title="While the agent runs")
+            print_warnings(warnings)
+            console.print(
+                "[dim]Press Ctrl+C to stop. Dashboard: [cyan]"
+                + base
+                + "/ui/[/] · API help JSON at [cyan]/[/][/]\n"
+            )
+        elif warnings:
+            print_warnings(warnings)
+
+        import logging
+        import logging.handlers
+
+        import uvicorn
+        from netllm_agent.app import create_app
+
+        log_dir = cfg.resolved_log_dir()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "agent.log"
+        file_handler = logging.handlers.RotatingFileHandler(
+            log_file,
+            maxBytes=10 * 1024 * 1024,
+            backupCount=3,
+            encoding="utf-8",
         )
-    elif warnings:
-        print_warnings(warnings)
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        )
+        for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+            logging.getLogger(logger_name).addHandler(file_handler)
 
-    import logging
-    import logging.handlers
+        fastapi_app = create_app(cfg, config_path=cfg_path)
+        host_part, port_part = split_listen(cfg.agent.listen)
+        uvicorn.run(
+            fastapi_app,
+            host=host_part or "127.0.0.1",
+            port=port_part,
+            log_level="info",
+        )
+    finally:
+        if agent_lock is not None:
+            agent_lock.release()
 
-    import uvicorn
-    from netllm_agent.app import create_app
 
-    log_dir = cfg.resolved_log_dir()
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / "agent.log"
-    # Rotate: this is the file every troubleshooting doc points users at and
-    # the one GET /netllm/v1/logs tails. A plain FileHandler grew it without
-    # bound for the life of the agent (F-15).
-    file_handler = logging.handlers.RotatingFileHandler(
-        log_file,
-        maxBytes=10 * 1024 * 1024,
-        backupCount=3,
-        encoding="utf-8",
+def _print_already_running_panel(
+    *,
+    agent_id: str,
+    url: str,
+    pid: int | None,
+) -> None:
+    console.print(
+        Panel(
+            f"[green]netllm agent already running[/]\n"
+            f"  agent_id: {agent_id}\n"
+            f"  url: {url}\n"
+            f"  pid: {pid or 'unknown'}\n\n"
+            f"  Reload config: [cyan]{suggested_cli('restart')}[/]",
+            border_style="green",
+        )
     )
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    )
-    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
-        logging.getLogger(logger_name).addHandler(file_handler)
 
-    fastapi_app = create_app(cfg, config_path=cfg_path)
-    host_part, port_part = split_listen(cfg.agent.listen)
-    uvicorn.run(
-        fastapi_app,
-        host=host_part or "127.0.0.1",
-        port=port_part,
-        log_level="info",
+
+def _acquire_serve_lock(
+    cfg,
+    *,
+    listen_port: int,
+    replace: bool,
+    quiet: bool,
+    stop_netllm_on_port,
+) -> AgentLock:
+    from netllm_core.models import NetllmConfig
+    from netllm_discovery.agent_lock import (
+        AlreadyRunning,
+        acquire_agent_lock,
     )
+
+    assert isinstance(cfg, NetllmConfig)
+    lock_result = acquire_agent_lock(cfg)
+    if isinstance(lock_result, AlreadyRunning):
+        if replace:
+            if not stop_netllm_on_port(listen_port):
+                print_error(
+                    "Could not replace agent",
+                    "Another netllm agent holds the singleton lock but could "
+                    "not be stopped.",
+                    hints=[
+                        suggested_cli("serve --replace"),
+                        f"Stop manually: kill {lock_result.info.pid}"
+                        if lock_result.info.pid
+                        else suggested_cli("restart"),
+                    ],
+                )
+                raise typer.Exit(1)
+            lock_result = acquire_agent_lock(cfg)
+            if isinstance(lock_result, AlreadyRunning):
+                print_error(
+                    "Could not acquire agent lock",
+                    f"Lock still held at {lock_result.path}",
+                    hints=[suggested_cli("serve --replace")],
+                )
+                raise typer.Exit(1)
+            return lock_result
+        if not quiet:
+            _print_already_running_panel(
+                agent_id=lock_result.info.agent_id or cfg.agent.agent_id,
+                url=f"http://127.0.0.1:{listen_port}",
+                pid=lock_result.info.pid or None,
+            )
+        raise typer.Exit(0)
+    return lock_result
 
 
 def start(

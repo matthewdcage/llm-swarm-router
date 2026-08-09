@@ -39,6 +39,38 @@ from conformance.projections import (
     source_region,
 )
 
+
+def _swift_filter_names(rel_path: str, marker: str) -> frozenset[str]:
+    """Field names the Swift call site filters OUT, read from Swift itself.
+
+    This used to be a hand-written `frozenset` restating the literals in
+    `SettingsWindowView`'s filter array -- a mirror, sitting inside the gate
+    whose whole purpose is to delete mirrors. Adversarial review priced it:
+    growing the Swift array to also drop `max_concurrency`, `strategy` and
+    `allow_cloud` removed three real macOS controls and the entire suite
+    stayed GREEN, because the Python copy still insisted only three names
+    were excluded.
+
+    Derived now, so widening the Swift filter reclassifies those fields as
+    absent and the parity gate reports them instead of excusing them.
+    """
+    text = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+    start = text.find(marker)
+    assert start != -1, f"{rel_path}: filter marker not found: {marker!r}"
+    # Anchor past the closure brace: the marker line also contains the empty
+    # `?? []` coalesce, and taking the first `[` after it silently yields an
+    # empty exclusion set -- which would read as "nothing is excluded" and
+    # quietly turn three absent fields into covered ones.
+    brace = text.find("{", start)
+    assert brace != -1, f"{rel_path}: no closure after {marker!r}"
+    open_at = text.find("[", brace)
+    close_at = text.find("]", open_at)
+    assert open_at != -1 and close_at != -1, f"{rel_path}: unterminated filter list"
+    names = frozenset(re.findall(r'"([^"]+)"', text[open_at:close_at]))
+    assert names, f"{rel_path}: filter array at {marker!r} is empty"
+    return names
+
+
 SWIFT_DOC = "apps/netllm-mac/Sources/Config/NetllmConfigDocument.swift"
 
 
@@ -563,7 +595,9 @@ MACOS = EditingSurface(
             # plain string. Declared here so the exclusion is asserted rather
             # than silently read as coverage -- the literals in that filter
             # array are the names of fields NOT rendered.
-            excludes=frozenset({"model_rewrites", "scenarios", "match"}),
+            excludes=_swift_filter_names(
+                SWIFT_SETTINGS, "let renderedFields = (sourceFields ?? []).filter"
+            ),
         ),
         "ui": Region(
             (
@@ -813,10 +847,25 @@ def test_no_ledger_entry_excuses_a_field_that_is_actually_rendered() -> None:
             f"{entry['surface']}:{entry['key']} matches no schema key — "
             "the field was renamed or removed; delete the entry"
         )
-        if all(disposition(surface, k)[0] != "absent" for k in covered):
-            stale.append(f"{entry['surface']}:{entry['key']}")
+        rendered = [k for k in covered if disposition(surface, k)[0] != "absent"]
+        if len(rendered) == len(covered):
+            stale.append(f"{entry['surface']}:{entry['key']} — fully rendered")
+        elif rendered:
+            # An entry excusing BOTH absent and rendered keys banks cover it
+            # has not earned. The old rule only flagged an entry when EVERY
+            # covered key was rendered, so one genuinely-absent key kept an
+            # arbitrarily broad excuse alive: adversarial review consolidated
+            # three narrow rows into `routing.sources` and silently
+            # pre-excused 13 rendered macOS keys, suite green, still under
+            # the tripwire. Excuses must be no broader than the gap.
+            stale.append(
+                f"{entry['surface']}:{entry['key']} — excuses "
+                f"{len(rendered)} key(s) that ARE rendered "
+                f"({', '.join(sorted(rendered)[:4])}"
+                f"{', …' if len(rendered) > 4 else ''}); narrow the key"
+            )
     assert not stale, (
-        "these controls are rendered now and no longer need an excuse:\n  "
+        "these ledger entries excuse controls that are rendered:\n  "
         + "\n  ".join(stale)
     )
 
@@ -1147,3 +1196,100 @@ def test_drain_is_wired_end_to_end_on_the_dashboard() -> None:
     assert 'id="btn-drain"' in html, "no drain control in index.html"
     assert "btn-drain" in js.text, "the drain control is not bound to a handler"
     assert "/netllm/v1/admin/drain" in js.text, "the drain handler calls no endpoint"
+
+
+# --- a control must be FED, not merely present -----------------------------
+
+# Fields whose control was added by closing a real gap, paired with how to
+# reach their value in `config_summary`. A control bound to a value the
+# summary never sends renders empty and POSTs "" back -- and because
+# config_merge treats an explicit "" as a value, that ERASES what was stored.
+# The Phase 7 commit had to fix exactly that in `_cloud_provider_export`;
+# adversarial review then reverted BOTH new exports and the full 1415-test
+# suite stayed green, because every other gate proves only that a control
+# exists in the source.
+_MUST_BE_EXPORTED: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("routing.upstream_connect_timeout_s", ("routing", "upstream_connect_timeout_s")),
+    ("routing.upstream_read_timeout_s", ("routing", "upstream_read_timeout_s")),
+    ("agent.max_concurrency", ("agent", "max_concurrency")),
+    ("routing.model_aliases", ("routing", "model_aliases")),
+)
+
+
+@pytest.mark.parametrize(
+    ("field", "path"), _MUST_BE_EXPORTED, ids=[f for f, _ in _MUST_BE_EXPORTED]
+)
+def test_a_rendered_control_is_actually_fed_by_the_summary(
+    field: str, path: tuple[str, ...]
+) -> None:
+    """`GET /netllm/v1/config` must carry every field a surface renders."""
+    from netllm_agent.admin import config_summary
+    from netllm_core.models import NetllmConfig
+
+    node: object = config_summary(NetllmConfig())
+    for key in path:
+        assert isinstance(node, dict) and key in node, (
+            f"{field}: config_summary does not export {'.'.join(path)}. The "
+            "control renders against undefined and POSTs an empty value back, "
+            "which config_merge treats as an explicit erase."
+        )
+        node = node[key]
+
+
+def test_cloud_provider_rows_carry_their_rendered_fields() -> None:
+    """Same contract for the per-provider rows, which have their own export."""
+    from netllm_agent.admin import config_summary
+    from netllm_core.models import CloudProviderConfig, NetllmConfig
+
+    cfg = NetllmConfig()
+    cfg.cloud.providers = {
+        "openai": CloudProviderConfig(
+            enabled=True, api_key_env="MY_KEY", base_url="https://p.example/v1"
+        )
+    }
+    row = config_summary(cfg)["cloud"]["providers"]["openai"]
+    for key in ("api_key_env", "base_url"):
+        assert key in row, (
+            f"cloud.providers[].{key} is rendered on both surfaces but "
+            "_cloud_provider_export does not send it; the control reads empty "
+            "and POSTs '' back, erasing the stored value"
+        )
+
+
+def test_no_row_field_excuse_is_stale() -> None:
+    """A `[[row_field]]` excuse must name a field the Swift struct really omits.
+
+    The ledger's other sections get a staleness rule; this one had none, and
+    it was consulted only for the models in `IDENTITYLESS` — so neither
+    shipped entry was read by any assertion. Adversarial review found the
+    predictable result: `BackendOverride.api_key` was excused as "not carried
+    by the Swift struct" while `NetllmConfigDocument.swift` declares
+    `var api_key: String = ""`. An excuse nothing checks is not documentation,
+    it is cover.
+
+    Models with no Swift counterpart at all (`SourceConfig` is `[JSONValue]`)
+    are skipped rather than failed — there is no struct to omit a field from.
+    """
+    models = {
+        "RoutingPolicy": RoutingPolicy,
+        "BackendOverride": BackendOverride,
+        "SourceConfig": SourceConfig,
+    }
+    stale = []
+    for entry in _control_ledger().get("row_field", []):
+        model_name, field = entry["model"], entry["field"]
+        assert model_name in models, f"unknown model in row_field ledger: {model_name}"
+        assert field in models[model_name].model_fields, (
+            f"{model_name}.{field} is excused but no longer exists on the "
+            "pydantic model — delete the entry"
+        )
+        try:
+            swift_fields, location = _swift_struct_fields(model_name)
+        except AssertionError:
+            continue  # no typed Swift struct; nothing to omit
+        if field in swift_fields:
+            stale.append(f"{model_name}.{field} (declared at {location})")
+    assert not stale, (
+        "these row_field excuses claim the Swift struct omits a field it "
+        "actually declares:\n  " + "\n  ".join(stale)
+    )
