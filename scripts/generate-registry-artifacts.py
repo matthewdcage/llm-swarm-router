@@ -33,6 +33,8 @@ CLOUD_REGISTRY = ROOT / "packages/netllm-core/src/netllm_core/cloud_providers.py
 LOCAL_REGISTRY = ROOT / "packages/netllm-core/src/netllm_core/local_providers.py"
 DEPRECATIONS_TOML = ROOT / "docs/deprecations.toml"
 DEPRECATIONS_PY = ROOT / "packages/netllm-core/src/netllm_core/deprecations.py"
+CONTROL_REGISTRY = ROOT / "packages/netllm-core/src/netllm_core/control_plane.py"
+CONTROL_LEDGER = ROOT / "tests/conformance/ledgers/control-parity.toml"
 
 BEGIN = "netllm:generated:begin"
 END = "netllm:generated:end"
@@ -57,6 +59,91 @@ def _dict_keys(source: Path, name: str) -> list[str]:
             if isinstance(key, ast.Constant) and isinstance(key.value, str)
         ]
     raise SystemExit(f"generate-registry-artifacts: {source}: no dict named {name}")
+
+
+def _control_descriptors(source: Path) -> list[dict]:
+    """Every `ControlDescriptor(...)` call, as plain keyword constants.
+
+    AST rather than an import, for the same reason the provider registries are
+    read this way: this script runs under bare python3 in `run_lint`, beside
+    the other gates, with no workspace packages installed.
+    """
+    tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+    out: list[dict] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Name) and func.id == "ControlDescriptor"):
+            continue
+        entry: dict = {}
+        for keyword in node.keywords:
+            if keyword.arg is None:
+                continue
+            try:
+                entry[keyword.arg] = ast.literal_eval(keyword.value)
+            except ValueError:
+                entry[keyword.arg] = "<computed>"
+        out.append(entry)
+    if not out:
+        raise SystemExit(f"generate-registry-artifacts: {source}: no descriptors")
+    return out
+
+
+def _control_absences() -> dict[tuple[str, str], str]:
+    """`(surface, unit) -> expires` from the control-parity ledger."""
+    import tomllib
+
+    ledger = tomllib.loads(CONTROL_LEDGER.read_text(encoding="utf-8"))
+    return {
+        (entry["surface"], entry["unit"]): entry["expires"]
+        for entry in ledger.get("control", [])
+    }
+
+
+def _control_parity_table() -> str:
+    """The docs-side roster. Manifest of what must exist -- never UI.
+
+    PROGRAM.md §6.3 rejects generating SwiftUI or dashboard JS from a
+    descriptor and is right: ~1100 of `bf67238`'s 1268 lines were genuine
+    per-surface UI work. What is generated here is the *table of obligations*,
+    so the doc cannot drift from `CONTROLS` the way five doc rosters drifted
+    from the provider registries.
+    """
+    absences = _control_absences()
+    rows = [
+        "| Control | Kind | Dashboard | macOS | CLI |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+
+    def cell(surface: str, key: str, symbol: str) -> str:
+        expires = absences.get((surface, key))
+        if expires is not None:
+            return f"absent — ledgered, expires {expires}"
+        return f"`{symbol}`"
+
+    for entry in _control_descriptors(CONTROL_REGISTRY):
+        key = entry["key"]
+        required = entry.get("surfaces_required", ())
+        cli = entry.get("cli", ())
+        rows.append(
+            "| `{key}` | {kind} | {dash} | {mac} | {cli} |".format(
+                key=key,
+                kind=entry["kind"],
+                dash=(
+                    cell("dashboard", key, entry["dashboard_renderer"])
+                    if "dashboard" in required
+                    else "n/a"
+                ),
+                mac=(
+                    cell("macos", key, entry["swift_symbol"])
+                    if "macos" in required
+                    else "n/a"
+                ),
+                cli=", ".join(f"`netllm {c}`" for c in cli) if cli else "n/a",
+            )
+        )
+    return "\n".join(rows) + "\n"
 
 
 @dataclass(frozen=True)
@@ -216,6 +303,11 @@ def _blocks() -> list[Block]:
             DEPRECATIONS_TOML,
             "deprecations",
             _render_deprecations(deprecations),
+        ),
+        Block(
+            ROOT / "docs/extending/08-control-parity.md",
+            "control-parity-table",
+            _control_parity_table(),
         ),
     ]
 

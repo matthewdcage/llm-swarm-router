@@ -22,6 +22,7 @@ archaeology exercise.
 | [lifecycle-inventory.md](lifecycle-inventory.md) | Versioning, deprecation, migration, release and mesh-upgrade pathways — documented? tested? enforced? |
 | [harness-integration-map.md](harness-integration-map.md) | Axis F evidence: per-harness detected/attributed/wired/routed/capability-modelled/tested matrix |
 | [upstream-absorption-map.md](upstream-absorption-map.md) | Axis G evidence: upstream-change class x how and when it is detected, ranked by "silently reaches production" |
+| [08-control-parity.md](08-control-parity.md) | Axis D as built: why the literal per-field descriptor was measured, failed PROGRAM.md's own >20% tripwire and was redesigned; the four field dispositions; the day-one numbers and their denominators; which gaps were closed and which are correctly absent |
 
 Method: two parallel mapping agents measured the real cost against landed commits, three
 competing designs were produced independently, and a judge panel scored and synthesized

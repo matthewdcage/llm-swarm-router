@@ -1,0 +1,221 @@
+# Cross-surface control parity — the Axis D escape hatch.
+#
+# Three kinds of entry, all under the same discipline (`reason` + `expires`,
+# asserted by tests/conformance/kit_config_surfaces.py):
+#
+#   [[control]]   a whole unit of control (a ControlDescriptor) absent on one
+#                 surface — measured against PROGRAM.md §7's 20% tripwire
+#   [[field]]     one config schema key with no control on one surface; the
+#                 entry covers that key and everything nested beneath it
+#   [[row_field]] a config row model field a client's typed struct does not
+#                 carry (this used to be `INTENTIONALLY_ABSENT`, a dict
+#                 literal in the kit — which could never carry an expiry
+#                 because nothing read it)
+#
+# PROGRAM.md §7's tripwire, executable in
+# `test_the_control_parity_ledger_is_under_the_tripwire`: if these entries
+# ever cover >20% of (field, surface) pairs, the surfaces are wrong.
+# Redesign them; do not add rows.
+
+[scan]
+# The phase this tree has actually completed. `39f0d5e` landed Phase 5a;
+# 5b and 6 have not. Deliberately stated rather than inherited: an entry
+# expiring at a phase at or before this one fails
+# `test_no_control_ledger_entry_is_overdue`.
+current_phase = "phase-5a"
+
+
+# ==========================================================================
+# [[control]] — a whole ControlDescriptor absent on one surface
+# ==========================================================================
+
+[[control]]
+surface = "macos"
+unit = "serving"
+reason = """
+The Serving tab is a live telemetry panel driven by GET /netllm/v1/telemetry \
+on a 2 s poll (startTelemetryPolling). The macOS app surfaces throughput \
+through the menubar gauges (ui.menubar_show_live) instead and has no \
+equivalent windowed view, so there is no Swift symbol to point at.\
+"""
+expires = "phase-8"
+
+[[control]]
+surface = "macos"
+unit = "drain"
+reason = """
+POST /netllm/v1/admin/drain has a dashboard button (btn-drain) and a CLI \
+command (netllm drain) but no macOS control. Taking an agent out of rotation \
+from the app therefore still means stopping it, which kills in-flight \
+requests — the exact thing drain exists to avoid.\
+"""
+expires = "phase-8"
+
+
+# ==========================================================================
+# [[field]] — one schema key with no control on one surface
+# ==========================================================================
+
+[[field]]
+surface = "dashboard"
+key = "routing.require_same_model_for_shard"
+reason = """
+Deprecated and inert. Its only consumer, plan_batch_shard, was deleted as \
+dead code (routing-hardening-plan.md Phase 5); the field is kept solely so \
+existing config.toml files still load, and it was deliberately removed from \
+config_summary and both UIs in 0.4.6 under audit F-17. A toggle that does \
+nothing is the defect, not the fix — this is correctly absent.\
+"""
+expires = "phase-8 — the field is scheduled for deletion one release after 0.4.6; this entry dies with it"
+
+[[field]]
+surface = "macos"
+key = "routing.require_same_model_for_shard"
+reason = """
+Deprecated and inert — same reasoning as the dashboard entry above. Removed \
+from macOS Settings in 0.4.6 under audit F-17 together with the dashboard \
+control, and correctly absent until the field itself is deleted.\
+"""
+expires = "phase-8 — the field is scheduled for deletion one release after 0.4.6; this entry dies with it"
+
+[[field]]
+surface = "dashboard"
+key = "cloud.providers[].auth"
+reason = """
+CLI-owned, not a form field. Its valid values are per-provider \
+(CloudProviderSpec.auth_modes), which the shape-only schema does not carry, \
+and two of the three modes cannot be completed from a GUI at all: \
+oauth_pkce needs the browser and local callback server that `netllm cloud \
+connect` runs, and plan_token needs `claude setup-token` in a terminal. A \
+picker here would let a user select a mode neither UI can finish.\
+"""
+expires = "never — the setting is the outcome of a CLI flow, not an editable field"
+
+[[field]]
+surface = "macos"
+key = "cloud.providers[].auth"
+reason = """
+CLI-owned, not a form field — same reasoning as the dashboard entry above. \
+`netllm cloud enable --auth` validates the value against the provider's own \
+auth_modes and `netllm cloud connect` writes it as the result of a browser \
+flow; neither is expressible as a SwiftUI picker over the bare schema.\
+"""
+expires = "never — the setting is the outcome of a CLI flow, not an editable field"
+
+[[field]]
+surface = "macos"
+key = "cloud.providers[].api_key"
+reason = """
+The macOS app stores cloud API keys in the login Keychain and injects them \
+into the agent process (KeychainStore + PythonRuntime.injectCloudAPIKeys); \
+it deliberately never writes cloud.providers.*.api_key into config.toml. The \
+*control* exists — a SecureField with Save key / Clear key — what is absent \
+is the config field, and that absence is the security property.\
+"""
+expires = "never — Keychain storage instead of plaintext config is the design"
+
+[[field]]
+surface = "macos"
+key = "routing.policies[].source"
+reason = """
+A real gap. routingPolicyEditor is hand-written and predates the `source` \
+field; NetllmConfigDocument.RoutingPolicy does carry it (so a Save preserves \
+it — pinned by test_routing_policy_source_survives_a_swift_shaped_save), but \
+nothing in the macOS UI can set it. A source-scoped policy can be created \
+from the dashboard or config.toml only.\
+"""
+expires = "phase-8"
+
+[[field]]
+surface = "macos"
+key = "routing.backends[].api_format"
+reason = """
+A real gap. backendOverrideEditor is hand-written and carries base_url, \
+provider, api_key_env, enabled and local only. Backend rows are identity- \
+keyed on base_url so config_merge seeds each row from the prior model dump \
+and the omitted fields survive a Save (pinned by \
+test_identity_keyed_omission_is_non_destructive) — this is a parity gap, \
+not data loss.\
+"""
+expires = "phase-8"
+
+# routing.backends[].api_key had an entry here until the Discovery UI grew a
+# real per-endpoint key control (SettingsWindowView's backendOverrideEditor
+# binds `api_key`, SettingsViewModel.upsertBackendAPIKey writes it, and the
+# on-disk value is blanked for display). The gap closed, so the excuse is
+# deleted rather than reworded.
+#
+# It was caught by test_no_ledger_entry_excuses_a_field_that_is_actually_-
+# rendered, and only on the combined tree: this branch was green on its own
+# base, and the branch that closed the gap carried no ledger. Neither half
+# could see it alone, which is the case for running the gates on the merge
+# rather than on each branch.
+
+[[field]]
+surface = "macos"
+key = "routing.backends[].max_concurrency"
+reason = """
+A real gap with the same shape as backends[].api_format: the hand-written \
+backendOverrideEditor never grew a control for the per-backend concurrency \
+cap, so it is settable from the dashboard or config.toml only. \
+Non-destructive because backend rows are identity-keyed on base_url.\
+"""
+expires = "phase-8"
+
+[[field]]
+surface = "macos"
+key = "routing.sources[].model_rewrites"
+reason = """
+SchemaFormView has no dict_strings widget, and routing this field through \
+its text fallback would bind a TextField to `.stringValue` — nil for a dict \
+— so typing would overwrite the object with a plain string. sourceEditor \
+filters it out on purpose and tells the user, in the UI, to edit it from the \
+web dashboard or config.toml.\
+"""
+expires = "phase-8 — either SchemaFormView grows the widget or the exclusion is made permanent with data"
+
+[[field]]
+surface = "macos"
+key = "routing.sources[].scenarios"
+reason = """
+SchemaFormView has no dict-of-objects widget; same corruption hazard as \
+model_rewrites above (the text fallback would replace the object with a \
+string). Covers the five nested scenario fields as well. sourceEditor \
+filters it out on purpose and says so in the UI.\
+"""
+expires = "phase-8 — either SchemaFormView grows the widget or the exclusion is made permanent with data"
+
+[[field]]
+surface = "macos"
+key = "routing.sources[].match"
+reason = """
+SchemaFormView has no nested-object widget; same corruption hazard as \
+model_rewrites above. Covers match.user_agent_contains. Filtered out by \
+sourceEditor on purpose, with the exclusion stated to the user in the UI.\
+"""
+expires = "phase-8 — either SchemaFormView grows the widget or the exclusion is made permanent with data"
+
+
+# ==========================================================================
+# [[row_field]] — a config row field a client's typed struct does not carry
+# ==========================================================================
+# Was `INTENTIONALLY_ABSENT`, a dict literal inside kit_config_surfaces.py.
+# Moving it here is what puts it under the expiry and staleness tests that
+# already guard every other ledger; a dict in a test module could carry a
+# reason but never a date, and nothing read one.
+
+# BackendOverride.api_key had an entry here claiming the Swift struct does not
+# carry it. NetllmConfigDocument.swift declares `var api_key: String = ""`, so
+# the excuse was simply false — and nothing read it, because row_field was
+# only consulted for the models in IDENTITYLESS. Deleted rather than reworded:
+# the field IS carried, and BackendOverride rows merge onto the prior row by
+# base_url, so an omitted key is preserved anyway.
+
+[[row_field]]
+model = "SourceConfig"
+field = "secret"
+reason = """
+Write-only, same contract as BackendOverride.api_key — \
+ConfigStore.blankSourceSecret relies on empty-preserves-stored.\
+"""
+expires = "never — write-only secrets are deliberately not round-tripped through a client"

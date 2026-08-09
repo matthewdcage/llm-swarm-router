@@ -20,6 +20,7 @@ from typing import Any, Literal, get_args, get_origin
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 
+from netllm_core.control_plane import control_descriptor_payload
 from netllm_core.models import (
     AgentConfig,
     CloudConfig,
@@ -163,11 +164,18 @@ def _model_field_specs(model: type[BaseModel]) -> list[dict[str, Any]]:
 
 
 def config_schema_document() -> dict[str, Any]:
-    """The full schema document served at GET /netllm/v1/config/schema."""
+    """The full schema document served at GET /netllm/v1/config/schema.
+
+    `controls` is Axis D's additive projection (PROGRAM.md §3 Axis D): the
+    manifest of *which units of control must exist on which surface*, served
+    on the existing endpoint rather than a new one, so no client breaks and
+    an older client simply ignores the key.
+    """
     return {
         "version": get_version(),
         "sections": {
             key: {"fields": _model_field_specs(model)}
             for key, model in SECTIONS.items()
         },
+        "controls": control_descriptor_payload(),
     }

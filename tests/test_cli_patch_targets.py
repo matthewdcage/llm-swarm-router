@@ -10,6 +10,14 @@ Two defences live here:
 1. a deny-grep proving no test patches a moved symbol in the old namespace, and
 2. one canary per repointed module family: a sentinel-raising fake installed at
    the new target must actually fire when the command runs.
+
+Deliberately NOT absorbed into tests/conformance/kit_config_surfaces.py by the
+Axis D phase, despite being listed as a candidate. Nothing here is about
+cross-surface control parity: it guards the `netllm_cli.main` -> `commands`
+module split against patch targets that resolve but no longer intercept. The
+kit's CLI leg asks a different question (does a declared command exist, does
+config export/import round-trip) and shares no machinery with this file.
+Folding them would put two unrelated gates in one module.
 """
 
 from __future__ import annotations

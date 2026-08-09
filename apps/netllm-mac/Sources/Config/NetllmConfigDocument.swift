@@ -71,6 +71,12 @@ struct NetllmConfigDocument: Codable, Sendable {
         // of waiting out the full health TTL.
         var offline_retry_s: Double = 10.0
         var max_backend_failures: Int = 3
+        // Upstream connect/read timeouts (F-22, promoted to config in
+        // bb3eae0). Both shipped with no control on any surface, which
+        // left the 120 s read timeout unraisable without editing source
+        // -- the case F-22 called out as most likely to bite.
+        var upstream_connect_timeout_s: Double = 5.0
+        var upstream_read_timeout_s: Double = 120.0
         // One-shot marker: once the LAN upgrade has run, an explicit
         // user strategy choice is never silently rewritten again.
         var lan_defaults_applied: Bool = false
@@ -112,6 +118,13 @@ struct NetllmConfigDocument: Codable, Sendable {
         /// model the provider serves (live /models probe or the registry's
         /// static catalog) — matches the server's materialization rule.
         var models: [String] = []
+        /// Name of the environment variable holding this provider's key,
+        /// for operators who keep keys out of config.toml entirely. The
+        /// agent resolves it before the registry's own env var.
+        var api_key_env: String = ""
+        /// Overrides the registry endpoint for this region/api_format —
+        /// proxies, gateways and self-hosted compatible endpoints.
+        var base_url: String = ""
     }
 
     struct CloudSection: Codable, Sendable {

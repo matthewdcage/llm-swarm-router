@@ -34,19 +34,15 @@ def client() -> TestClient:
         yield test_client
 
 
-def test_dashboard_js_serves_generic_schema_renderer(client: TestClient) -> None:
-    resp = client.get("/ui/dashboard.js")
-    assert resp.status_code == 200
-    body = resp.text
-    assert "renderSchemaForm" in body
-    assert "renderDiscoveryCredentialsSection" in body
-    assert "applyDiscoveryCredentialPatch" in body
-    assert "function renderSchemaField" in body
-    # ui is the phase-2 pilot section: migrated to the generic renderer,
-    # sourced from the fetched schema rather than hand-built widgets.
-    assert 'renderSchemaForm("ui", state.configSchema' in body
-    assert "loadConfigSchema" in body
-    assert "/netllm/v1/config/schema" in body
+# test_dashboard_js_serves_generic_schema_renderer and
+# test_dashboard_js_serves_remaining_sections_generic_widgets moved to
+# tests/conformance/kit_config_surfaces.py (Axis D). They asserted the same
+# renderer markers this file greps for, but the kit asserts them *per config
+# subtree*, with a source location, and fails when a field stops being covered
+# rather than only when a string disappears -- see
+# test_the_generic_schema_machinery_exists_on_both_surfaces and the
+# `schema_rendered` evidence assertion in `disposition()`. Two systems asking
+# the same question is the duplication PROGRAM.md 1 exists to stop.
 
 
 def test_dashboard_js_syntax_is_valid() -> None:
@@ -68,36 +64,6 @@ def test_schema_endpoint_matches_default_ui_config(client: TestClient) -> None:
     assert doc == config_schema_document()
     ui_defaults = {f["name"]: f["default"] for f in doc["sections"]["ui"]["fields"]}
     assert ui_defaults == NetllmConfig().ui.model_dump()
-
-
-def test_dashboard_js_serves_remaining_sections_generic_widgets(
-    client: TestClient,
-) -> None:
-    """Phase 3: discovery/swarm/routing/cloud all route through the
-    generic renderer/patch-builder rather than hand-written render*Tab
-    bodies — this is a drift regression test, not a UI test: it fails
-    loudly if a future edit reintroduces hand-written per-field code for
-    these sections instead of extending the schema-driven path."""
-    resp = client.get("/ui/dashboard.js")
-    assert resp.status_code == 200
-    body = resp.text
-    for marker in [
-        'renderSchemaForm("swarm", state.configSchema',
-        'renderSchemaForm("cloud", state.configSchema',
-        "function schemaListOfObjectsRow",
-        "function schemaDictOfObjectsRow",
-        "function schemaDictListStringsRow",
-        "function buildSchemaSectionPatch",
-        "function schemaItemToPatch",
-        "SCHEMA_ITEM_FACTORIES",
-    ]:
-        assert marker in body, f"missing {marker!r}"
-    # Superseded hand-written editors should be gone, not just unused.
-    for dead in [
-        "function renderRoutingPoliciesEditor",
-        "function renderBackendOverridesEditor",
-    ]:
-        assert dead not in body, f"dead code still present: {dead!r}"
 
 
 def test_admin_config_round_trips_routing_policies_backends_and_pools() -> None:

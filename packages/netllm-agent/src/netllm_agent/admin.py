@@ -247,6 +247,12 @@ def _cloud_provider_export(cfg: NetllmConfig) -> dict[str, Any]:
             "region": provider_cfg.region if provider_cfg else "",
             "api_format": provider_cfg.api_format if provider_cfg else None,
             "auth": provider_cfg.auth if provider_cfg else "api_key",
+            # Exported because both surfaces now render them. A control
+            # bound to a value the summary never sends reads as empty and
+            # POSTs "" back, erasing what was configured -- the same class
+            # of defect tests/test_dashboard_ui_wiring.py was written for.
+            "api_key_env": provider_cfg.api_key_env if provider_cfg else "",
+            "base_url": provider_cfg.base_url if provider_cfg else "",
             "api_key_set": key_set,
             "models": list(provider_cfg.models) if provider_cfg else [],
             "regions": list(spec.endpoints.keys()),
@@ -386,6 +392,11 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
             "health_ttl_s": cfg.routing.health_ttl_s,
             "offline_retry_s": cfg.routing.offline_retry_s,
             "max_backend_failures": cfg.routing.max_backend_failures,
+            # F-22's two knobs: promoted to config in bb3eae0 and never
+            # exported, so no surface could show or edit them and the
+            # 120 s read timeout stayed effectively source-only.
+            "upstream_connect_timeout_s": cfg.routing.upstream_connect_timeout_s,
+            "upstream_read_timeout_s": cfg.routing.upstream_read_timeout_s,
             "lan_defaults_applied": cfg.routing.lan_defaults_applied,
             "model_aliases": dict(cfg.routing.model_aliases),
             "model_pools": {

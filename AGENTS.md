@@ -197,6 +197,8 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - Commit secrets, API keys, or real credentials
 - Assume `netllm` is on PATH: prefer `./netllm` from repo root in instructions
 - Skip `./netllm doctor` before declaring setup complete
+- Add a config field to `models.py` without a control on the dashboard **and** the macOS app, or a dated row in `tests/conformance/ledgers/control-parity.toml` — `tests/conformance/kit_config_surfaces.py` fails by name (Axis D / F-21)
+- Add a provider, surface or harness id literal outside its registry (`tests/conformance/ledgers/mirrors.toml` blocks it)
 - Auto-edit user editor `settings.json` without explicit consent
 - macOS menubar in-app install only works from `/Applications/llm-swarm-router.app` or `netllm-mac.app`; web dashboard proxies update checks via `GET /netllm/v1/update/check`
 
