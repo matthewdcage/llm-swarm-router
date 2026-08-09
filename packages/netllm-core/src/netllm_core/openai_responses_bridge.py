@@ -8,7 +8,8 @@ support for `wire_api = "chat"` entirely -- every custom
 speaks Chat Completions; this module is the same kind of adapter as
 anthropic_bridge.py, just for a different upstream-facing wire format.
 
-Scope (docs/cli-source-routing-plan.md, Codex wiring): plain text and
+Scope (docs/cli-source-routing-plan.md, Codex wiring): plain text, reasoning
+text (`reasoning_content` / ``response.reasoning_text.*`` events), and
 function-calling turns, single-turn and multi-turn conversations replayed
 via `input` (Codex resends its own history each call rather than relying on
 `previous_response_id`/server-side state). Not implemented: encrypted
@@ -167,6 +168,16 @@ def chat_to_responses_response(
     message = choice.get("message") or {}
     output: list[dict[str, Any]] = []
 
+    reasoning_content = message.get("reasoning_content")
+    if isinstance(reasoning_content, str) and reasoning_content:
+        output.append(
+            {
+                "id": f"rs_{uuid.uuid4().hex[:24]}",
+                "type": "reasoning",
+                "content": [{"type": "reasoning_text", "text": reasoning_content}],
+            }
+        )
+
     content = message.get("content")
     if isinstance(content, str) and content:
         output.append(
@@ -247,9 +258,14 @@ async def translate_chat_stream_to_responses(
         }
 
     started = False
+    next_output_index = 0
+    reasoning_item_id: str | None = None
+    reasoning_buffer = ""
+    reasoning_output_index: int | None = None
     text_item_id: str | None = None
     text_buffer = ""
-    # tool_call index -> {"call_id", "name", "arguments", "item_id"}
+    text_output_index: int | None = None
+    # tool_call index -> {"call_id", "name", "arguments", "item_id", "output_index"}
     tool_calls: dict[int, dict[str, Any]] = {}
     finish_reason: str | None = None
 
@@ -278,15 +294,64 @@ async def translate_chat_stream_to_responses(
         choice = (chunk.get("choices") or [{}])[0]
         delta = choice.get("delta") or {}
 
-        if delta.get("content"):
-            if text_item_id is None:
-                text_item_id = f"msg_{uuid.uuid4().hex[:24]}"
+        reasoning_piece = delta.get("reasoning_content")
+        if isinstance(reasoning_piece, str) and reasoning_piece:
+            if reasoning_item_id is None:
+                reasoning_item_id = f"rs_{uuid.uuid4().hex[:24]}"
+                reasoning_output_index = next_output_index
+                next_output_index += 1
                 yield _sse_event(
                     "response.output_item.added",
                     {
                         "type": "response.output_item.added",
                         "sequence_number": seq(),
-                        "output_index": 0,
+                        "output_index": reasoning_output_index,
+                        "item": {
+                            "id": reasoning_item_id,
+                            "type": "reasoning",
+                            "status": "in_progress",
+                            "content": [],
+                        },
+                    },
+                )
+                yield _sse_event(
+                    "response.content_part.added",
+                    {
+                        "type": "response.content_part.added",
+                        "sequence_number": seq(),
+                        "item_id": reasoning_item_id,
+                        "output_index": reasoning_output_index,
+                        "content_index": 0,
+                        "part": {
+                            "type": "reasoning_text",
+                            "text": "",
+                        },
+                    },
+                )
+            reasoning_buffer += reasoning_piece
+            yield _sse_event(
+                "response.reasoning_text.delta",
+                {
+                    "type": "response.reasoning_text.delta",
+                    "sequence_number": seq(),
+                    "item_id": reasoning_item_id,
+                    "output_index": reasoning_output_index,
+                    "content_index": 0,
+                    "delta": reasoning_piece,
+                },
+            )
+
+        if delta.get("content"):
+            if text_item_id is None:
+                text_item_id = f"msg_{uuid.uuid4().hex[:24]}"
+                text_output_index = next_output_index
+                next_output_index += 1
+                yield _sse_event(
+                    "response.output_item.added",
+                    {
+                        "type": "response.output_item.added",
+                        "sequence_number": seq(),
+                        "output_index": text_output_index,
                         "item": {
                             "id": text_item_id,
                             "type": "message",
@@ -302,7 +367,7 @@ async def translate_chat_stream_to_responses(
                         "type": "response.content_part.added",
                         "sequence_number": seq(),
                         "item_id": text_item_id,
-                        "output_index": 0,
+                        "output_index": text_output_index,
                         "content_index": 0,
                         "part": {
                             "type": "output_text",
@@ -318,7 +383,7 @@ async def translate_chat_stream_to_responses(
                     "type": "response.output_text.delta",
                     "sequence_number": seq(),
                     "item_id": text_item_id,
-                    "output_index": 0,
+                    "output_index": text_output_index,
                     "content_index": 0,
                     "delta": delta["content"],
                 },
@@ -332,18 +397,21 @@ async def translate_chat_stream_to_responses(
                 fn = tool_delta.get("function") or {}
                 item_id = f"fc_{uuid.uuid4().hex[:24]}"
                 call_id = tool_delta.get("id") or f"call_{uuid.uuid4().hex[:16]}"
+                tool_output_index = next_output_index
+                next_output_index += 1
                 tool_calls[idx] = {
                     "item_id": item_id,
                     "call_id": call_id,
                     "name": fn.get("name") or "",
                     "arguments": "",
+                    "output_index": tool_output_index,
                 }
                 yield _sse_event(
                     "response.output_item.added",
                     {
                         "type": "response.output_item.added",
                         "sequence_number": seq(),
-                        "output_index": idx + 1,
+                        "output_index": tool_output_index,
                         "item": {
                             "id": item_id,
                             "type": "function_call",
@@ -367,7 +435,7 @@ async def translate_chat_stream_to_responses(
                         "type": "response.function_call_arguments.delta",
                         "sequence_number": seq(),
                         "item_id": state["item_id"],
-                        "output_index": idx + 1,
+                        "output_index": state["output_index"],
                         "delta": arg_piece,
                     },
                 )
@@ -376,6 +444,50 @@ async def translate_chat_stream_to_responses(
             finish_reason = choice["finish_reason"]
 
     output: list[dict[str, Any]] = []
+    if reasoning_item_id is not None:
+        yield _sse_event(
+            "response.reasoning_text.done",
+            {
+                "type": "response.reasoning_text.done",
+                "sequence_number": seq(),
+                "item_id": reasoning_item_id,
+                "output_index": reasoning_output_index,
+                "content_index": 0,
+                "text": reasoning_buffer,
+            },
+        )
+        reasoning_part = {
+            "type": "reasoning_text",
+            "text": reasoning_buffer,
+        }
+        yield _sse_event(
+            "response.content_part.done",
+            {
+                "type": "response.content_part.done",
+                "sequence_number": seq(),
+                "item_id": reasoning_item_id,
+                "output_index": reasoning_output_index,
+                "content_index": 0,
+                "part": reasoning_part,
+            },
+        )
+        reasoning_item = {
+            "id": reasoning_item_id,
+            "type": "reasoning",
+            "status": "completed",
+            "content": [reasoning_part],
+        }
+        yield _sse_event(
+            "response.output_item.done",
+            {
+                "type": "response.output_item.done",
+                "sequence_number": seq(),
+                "output_index": reasoning_output_index,
+                "item": reasoning_item,
+            },
+        )
+        output.append(reasoning_item)
+
     if text_item_id is not None:
         yield _sse_event(
             "response.output_text.done",
@@ -383,7 +495,7 @@ async def translate_chat_stream_to_responses(
                 "type": "response.output_text.done",
                 "sequence_number": seq(),
                 "item_id": text_item_id,
-                "output_index": 0,
+                "output_index": text_output_index,
                 "content_index": 0,
                 "text": text_buffer,
             },
@@ -399,7 +511,7 @@ async def translate_chat_stream_to_responses(
                 "type": "response.content_part.done",
                 "sequence_number": seq(),
                 "item_id": text_item_id,
-                "output_index": 0,
+                "output_index": text_output_index,
                 "content_index": 0,
                 "part": final_part,
             },
@@ -416,7 +528,7 @@ async def translate_chat_stream_to_responses(
             {
                 "type": "response.output_item.done",
                 "sequence_number": seq(),
-                "output_index": 0,
+                "output_index": text_output_index,
                 "item": message_item,
             },
         )
@@ -430,7 +542,7 @@ async def translate_chat_stream_to_responses(
                 "type": "response.function_call_arguments.done",
                 "sequence_number": seq(),
                 "item_id": state["item_id"],
-                "output_index": idx + 1,
+                "output_index": state["output_index"],
                 "arguments": state["arguments"],
             },
         )
@@ -447,7 +559,7 @@ async def translate_chat_stream_to_responses(
             {
                 "type": "response.output_item.done",
                 "sequence_number": seq(),
-                "output_index": idx + 1,
+                "output_index": state["output_index"],
                 "item": function_call_item,
             },
         )

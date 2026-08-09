@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -43,22 +43,172 @@ class GitHubReleaseInfo:
     assets: tuple[ReleaseAsset, ...]
 
 
+# Prerelease ordering. Every rank is BELOW `_FINAL_RANK`, which is what makes
+# `0.5.0rc1 < 0.5.0` true. Mirrored in
+# apps/netllm-mac/Sources/Config/VersionOrdering.swift; the two rosters are
+# asserted equal by tests/test_version_ordering.py so they cannot drift.
+_PRERELEASE_RANK: dict[str, int] = {
+    "dev": -4,
+    "alpha": -3,
+    "a": -3,
+    "beta": -2,
+    "b": -2,
+    "rc": -1,
+    "c": -1,
+    "pre": -1,
+    "preview": -1,
+}
+_FINAL_RANK = 0
+
+# Release segment, then an optional prerelease label with an optional number.
+# Longest alternatives first so "alpha" is not eaten by "a". Matched with
+# `match`, not `fullmatch`: an unrecognised trailing tag (`0.2.2.1.ci`, a local
+# `+build`) is ignored rather than reordering anything.
+# Segments are bounded to 9 digits. Unbounded `\d+` let a peer-controlled
+# string reach `int()`, and CPython refuses to convert a decimal string over
+# 4300 digits -- so a LAN device reporting "9"*4400 raised ValueError out of
+# `mesh_skew`, through `peer_config_warnings`, and 500'd GET /netllm/v1/status
+# for everyone. No real version has a 10-digit segment.
+_VERSION_RE = re.compile(
+    r"\s*v?(?P<release>\d{1,9}(?:\.\d{1,9})*)"
+    r"(?:[-._]?(?P<label>preview|alpha|beta|dev|pre|rc|a|b|c)(?![A-Za-z])"
+    r"[-._]?(?P<num>\d{1,9})?)?",
+    re.IGNORECASE,
+)
+
+
+def _version_key(value: str) -> tuple[list[int], int, int]:
+    """(release components, prerelease rank, prerelease number).
+
+    This used to be `[int(x) for x in re.findall(r"\\d+", value)]` — every
+    digit run in the string, compared as a list. That read `0.5.0rc1` as
+    `[0, 5, 0, 1]`, which is both *newer* than `0.5.0` and *exactly equal* to
+    the real build `0.5.0.1`. It was masked because `fetch_latest_release`
+    filters prereleases out of the update check, so the only exposed caller was
+    the one that matters here: `service/status.py` deciding which machine in
+    the mesh is behind. An operator running a release candidate was told to
+    downgrade, and a peer on `0.5.0.1` looked identical to one on `0.5.0rc1`.
+
+    Unparseable input (a peer that reports `""`, garbage, a 4000-digit number
+    or a JSON list — this runs on data another machine on the LAN controls)
+    yields the zero version rather than raising. That is a containment
+    guarantee, not a convenience: this is reached from `status_payload`, so a
+    raise here is a remote denial of service. Callers treat "same version"
+    as "nothing to warn about", which is the correct inert outcome for a
+    version we cannot read.
+    """
+    if not isinstance(value, str):
+        # Peer heartbeats are untyped JSON: `payload.get("version")` can be a
+        # list, dict or number. Containment is the whole point of this
+        # function, so a non-string degrades like any other unreadable value
+        # instead of raising TypeError out of a status handler.
+        return ([0], _FINAL_RANK, 0)
+    match = _VERSION_RE.match(value)
+    if match is None:
+        return ([0], _FINAL_RANK, 0)
+    release = [int(part) for part in match.group("release").split(".")]
+    label = match.group("label")
+    if label is None:
+        return (release, _FINAL_RANK, 0)
+    return (release, _PRERELEASE_RANK[label.lower()], int(match.group("num") or 0))
+
+
 def compare_versions(current: str, latest: str) -> int:
-    """Return -1 if current < latest, 0 if equal, 1 if current > latest."""
+    """Return -1 if current < latest, 0 if equal, 1 if current > latest.
 
-    def _parts(value: str) -> list[int]:
-        nums = [int(x) for x in re.findall(r"\d+", value)]
-        return nums or [0]
-
-    left, right = _parts(current), _parts(latest)
+    Ordering is pinned by `tests/contract/version-ordering.json`, the corpus
+    shared with the macOS app's comparator. Add a case there, not here.
+    """
+    left, left_rank, left_num = _version_key(current)
+    right, right_rank, right_num = _version_key(latest)
     length = max(len(left), len(right))
-    left.extend([0] * (length - len(left)))
-    right.extend([0] * (length - len(right)))
-    if left < right:
+    left = left + [0] * (length - len(left))
+    right = right + [0] * (length - len(right))
+    lhs = (left, left_rank, left_num)
+    rhs = (right, right_rank, right_num)
+    if lhs < rhs:
         return -1
-    if left > right:
+    if lhs > rhs:
         return 1
     return 0
+
+
+def is_version_like(value: str) -> bool:
+    """True when `value` carries a release number this comparator can read.
+
+    `_version_key` deliberately degrades anything unreadable to the zero
+    version so it never raises. That is right for ordering and wrong for
+    *reporting*: `compare_versions("0.5.0", "not-a-version")` is 1, so a peer
+    sending junk looked like a machine on version 0.0.0 and produced a
+    confident "more than two minors of skew" warning about a version nobody is
+    running. Callers that turn a comparison into advice must ask this first.
+    """
+    if not isinstance(value, str):
+        # Peer heartbeats are untyped JSON: `payload.get("version")` can be a
+        # list, dict or number. Containment is the point, so a non-string is
+        # simply not version-like rather than a TypeError out of a handler.
+        return False
+    return _VERSION_RE.fullmatch(value.strip()) is not None
+
+
+SkewLevel = Literal["supported", "degraded", "unsupported"]
+
+
+@dataclass(frozen=True)
+class MeshSkew:
+    """How far apart two machines in one mesh are, and what to say about it.
+
+    The compatibility promise (docs/mesh-upgrade.md, PROGRAM.md §4) is
+    **N-1 minor fully supported, N-2 degraded, beyond that an error**. It was
+    prose in one planning document and nothing computed it, so every version
+    difference produced the same "update it" whether the peer was one patch
+    behind or two majors.
+
+    Deliberately advisory. Nothing refuses a peer on skew: a mesh that
+    partitions itself the moment someone starts an upgrade is worse than one
+    that tells you it is mid-upgrade. The peer's version is also data another
+    machine on the LAN controls, so it may only produce text, never a decision
+    about what this node does with its own config.
+    """
+
+    level: SkewLevel
+    minors: int
+    advice: str
+
+
+_SKEW_ADVICE: dict[SkewLevel, str] = {
+    "supported": ("update it when convenient — one minor of skew is fully supported"),
+    "degraded": (
+        "update it — two minors of skew is supported only in degraded mode "
+        "and features on the newer side may be unavailable mesh-wide"
+    ),
+    "unsupported": (
+        "update it now — more than two minors of skew is outside the "
+        "compatibility promise and the mesh is not expected to work"
+    ),
+}
+
+
+def mesh_skew(left: str, right: str) -> MeshSkew:
+    """Classify the distance between two netllm versions in one mesh."""
+    (left_release, _, _) = _version_key(left)
+    (right_release, _, _) = _version_key(right)
+    left_major, left_minor = (left_release + [0, 0])[:2]
+    right_major, right_minor = (right_release + [0, 0])[:2]
+
+    if left_major != right_major:
+        # A major bump is by definition more than a minor of skew; there is no
+        # meaningful minor distance across it.
+        return MeshSkew("unsupported", -1, _SKEW_ADVICE["unsupported"])
+
+    minors = abs(left_minor - right_minor)
+    if minors <= 1:
+        level: SkewLevel = "supported"
+    elif minors == 2:
+        level = "degraded"
+    else:
+        level = "unsupported"
+    return MeshSkew(level, minors, _SKEW_ADVICE[level])
 
 
 def _parse_release(data: dict[str, Any]) -> GitHubReleaseInfo | None:

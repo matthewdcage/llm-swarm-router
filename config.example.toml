@@ -1,6 +1,19 @@
 # Example netllm configuration
 # Copy to ~/.config/netllm/config.toml or run `netllm init`
 
+# schema_version — the generation of this FILE's shape, not an app version
+# (see docs/versioning.md). Absent means generation 1, so this example is a
+# valid config exactly as it stands; netllm stamps the current generation on
+# the first save and migrates older files on load, copying the original to
+# config.toml.bak-v<n> first. Owned by netllm — no UI writes it, and you do
+# not need to add it by hand.
+#
+#   schema_version = 2
+#
+# Left commented on purpose: this file doubles as the golden generation-1
+# input for tests/test_config_migrations.py, which proves the migration is a
+# genuine no-op on a real config.
+
 [agent]
 listen = "127.0.0.1:11400"
 role = "peer"
@@ -171,6 +184,12 @@ upstream_read_timeout_s = 120.0
 # [[routing.sources]]
 # id = "antigravity"
 # description = "Google Antigravity (OpenAI-compatible custom model)"
+#
+# Hermes Agent (NousResearch) -- litellm provider in ~/.hermes/config.yaml
+# (recommended; custom probes can hang on netllm). CLI, TUI, gateway share model block.
+# [[routing.sources]]
+# id = "hermes-agent"
+# description = "Hermes Agent CLI/TUI"
 
 # Optional routing policies (first match wins). Cloud paths require allow_cloud = true.
 # [[routing.policies]]

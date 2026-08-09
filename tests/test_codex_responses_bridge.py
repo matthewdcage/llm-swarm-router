@@ -259,6 +259,30 @@ def test_length_finish_reason_marks_incomplete() -> None:
     assert result["status"] == "incomplete"
 
 
+def test_reasoning_content_becomes_reasoning_output_item() -> None:
+    chat_response = {
+        "model": "m",
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "answer",
+                    "reasoning_content": "think step",
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {},
+    }
+    result = chat_to_responses_response(chat_response, model="m")
+    assert result["output"][0]["type"] == "reasoning"
+    assert result["output"][0]["content"] == [
+        {"type": "reasoning_text", "text": "think step"}
+    ]
+    assert result["output"][1]["type"] == "message"
+    assert result["output"][1]["content"][0]["text"] == "answer"
+
+
 # --- Streaming translation ---
 
 
@@ -285,6 +309,29 @@ async def test_stream_text_deltas_translate_to_responses_events() -> None:
     completed = _event_data(events[-1])
     assert completed["response"]["status"] == "completed"
     assert completed["response"]["output"][0]["content"][0]["text"] == "Hello"
+
+
+@pytest.mark.asyncio
+async def test_stream_reasoning_deltas_translate_to_responses_events() -> None:
+    chunks = _achunks(
+        _chat_chunk({"reasoning_content": "think"}),
+        _chat_chunk({"reasoning_content": " hard"}),
+        _chat_chunk({"content": "Hi"}),
+        _chat_chunk({}, finish_reason="stop"),
+        "data: [DONE]\n\n",
+    )
+    events = [e async for e in translate_chat_stream_to_responses(chunks, model="m")]
+    types = [_event_type(e) for e in events]
+    assert "response.reasoning_text.delta" in types
+    assert types.count("response.reasoning_text.delta") == 2
+    assert "response.output_text.delta" in types
+
+    completed = _event_data(events[-1])
+    output = completed["response"]["output"]
+    assert output[0]["type"] == "reasoning"
+    assert output[0]["content"][0]["text"] == "think hard"
+    assert output[1]["type"] == "message"
+    assert output[1]["content"][0]["text"] == "Hi"
 
 
 def _chat_chunk(delta: dict, finish_reason: str | None = None) -> str:
