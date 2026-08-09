@@ -415,6 +415,37 @@ struct SettingsWindowView: View {
                 placeholder: "http://127.0.0.1:8080/v1",
                 defaultNew: "http://127.0.0.1:8080/v1"
             )
+            sectionHeader("Server API keys")
+            Text(
+                "Per-endpoint keys are stored in routing.backends. Global env vars still apply when no per-URL key is set."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            ForEach(model.discoveryServerRows(), id: \.url) { row in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(SettingsViewModel.localProviderLabel(row.provider)) — \(row.url)")
+                        .font(.caption.weight(.medium))
+                    SecureField(
+                        model.discoveryServerAPIKeySet(for: row.url)
+                            ? "API key (set — enter to replace)"
+                            : "API key (optional)",
+                        text: Binding(
+                            get: { model.discoveryServerKeyDrafts[row.url] ?? "" },
+                            set: { model.setDiscoveryServerKeyDraft(row.url, $0) }
+                        )
+                    )
+                    if let env = model.localProviderAPIKeyEnv(row.provider) {
+                        Text("Global fallback: \(env)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if model.discoveryServerRows().isEmpty {
+                Text("Pin a provider URL or custom server above to set a per-endpoint API key.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -1067,6 +1098,12 @@ struct SettingsWindowView: View {
         VStack(alignment: .leading, spacing: 6) {
             TextField("Base URL", text: binding.base_url)
             TextField("Provider", text: binding.provider)
+            SecureField(
+                model.backendAPIKeyConfigured.contains(
+                    SettingsViewModel.normalizeDiscoveryURL(binding.wrappedValue.base_url)
+                ) ? "API key (set — enter to replace)" : "API key",
+                text: binding.api_key
+            )
             TextField("API key env", text: binding.api_key_env)
             Toggle("Enabled", isOn: binding.enabled)
             Toggle("Local", isOn: binding.local)

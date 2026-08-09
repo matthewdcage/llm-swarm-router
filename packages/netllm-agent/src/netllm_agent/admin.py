@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import HTTPException, Request
 from netllm_core import config_guards, config_merge
+from netllm_core.backend_credentials import backend_override_for_url
 from netllm_core.cloud_providers import CLOUD_PROVIDERS, get_provider_spec
 from netllm_core.config_report import unknown_cloud_provider_issues
 from netllm_core.harness_detection import detect as detect_harness
@@ -98,11 +99,22 @@ def doctor_payload(cfg: NetllmConfig, service: AgentService) -> dict[str, Any]:
             # CUSTOM_API_KEY nothing reads. That miss is why this map was
             # never derivable from `provider.upper()_API_KEY` alone.
             hint = api_key_env_for(b.provider)
-            fix = (
-                f"Set {hint} or add api_key under [[routing.backends]] for {b.base_url}"
-                if hint
-                else f"Add api_key under [[routing.backends]] for {b.base_url}"
-            )
+            override = backend_override_for_url(cfg, b.base_url)
+            if override and (override.api_key or override.api_key_env):
+                fix = (
+                    f"Set api_key on the Servers tab for {b.base_url} "
+                    f"(routing.backends override)"
+                )
+            elif hint:
+                fix = (
+                    f"Set {hint}, set api_key on the Servers tab for {b.base_url}, "
+                    f"or add api_key under [[routing.backends]]"
+                )
+            else:
+                fix = (
+                    f"Set api_key on the Servers tab or under "
+                    f"[[routing.backends]] for {b.base_url}"
+                )
             issues.append(
                 {
                     "title": f"{b.provider} backend requires an API token "

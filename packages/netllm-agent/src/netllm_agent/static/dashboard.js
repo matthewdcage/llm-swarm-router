@@ -17,6 +17,8 @@ const PROVIDERS_BOOTSTRAP = [
 let PROVIDERS = [...PROVIDERS_BOOTSTRAP];
 /** Provider id -> display label, filled from the registry once fetched. */
 let PROVIDER_LABELS = {};
+/** Full rows from GET /netllm/v1/local-providers (api_key_env, etc.). */
+let LOCAL_PROVIDER_REGISTRY = [];
 
 async function loadLocalProviderRegistry() {
   try {
@@ -24,6 +26,7 @@ async function loadLocalProviderRegistry() {
     if (!res.ok) return;
     const rows = (await res.json()).providers || [];
     if (!rows.length) return;
+    LOCAL_PROVIDER_REGISTRY = rows;
     PROVIDERS = rows.map((r) => r.id);
     PROVIDER_LABELS = Object.fromEntries(
       rows.map((r) => [r.id, r.short_label || r.display_name || r.id])
@@ -32,6 +35,133 @@ async function loadLocalProviderRegistry() {
     // Keep the bootstrap roster; the discovery tab still works offline.
     console.warn("local-provider registry unavailable, using bootstrap", err);
   }
+}
+
+function normalizeDiscoveryUrl(url) {
+  let raw = String(url || "").trim().replace(/\/+$/, "");
+  if (!raw) return "";
+  if (raw.endsWith("/v1")) return raw;
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return `${raw}/v1`;
+    }
+  } catch {
+    /* keep raw */
+  }
+  return raw;
+}
+
+function enumerateDiscoveryServerUrls(discovery) {
+  const rows = [];
+  const seen = new Set();
+  const providerUrls = discovery?.provider_urls || {};
+  Object.entries(providerUrls).forEach(([provider, urls]) => {
+    (urls || []).forEach((url) => {
+      const norm = normalizeDiscoveryUrl(url);
+      if (norm && !seen.has(norm)) {
+        seen.add(norm);
+        rows.push({ url: norm, provider });
+      }
+    });
+  });
+  (discovery?.custom_endpoints || []).forEach((url) => {
+    const norm = normalizeDiscoveryUrl(url);
+    if (norm && !seen.has(norm)) {
+      seen.add(norm);
+      rows.push({ url: norm, provider: "custom" });
+    }
+  });
+  return rows;
+}
+
+function backendSummaryForDiscoveryUrl(url) {
+  const norm = normalizeDiscoveryUrl(url);
+  return (state.configDraft?.routing?.backends || []).find(
+    (b) => normalizeDiscoveryUrl(b.base_url) === norm
+  );
+}
+
+function ensureDiscoveryCredentialsDraft() {
+  if (!state.configDraft.discovery._serverCredentials) {
+    state.configDraft.discovery._serverCredentials = {};
+  }
+  return state.configDraft.discovery._serverCredentials;
+}
+
+function renderDiscoveryCredentialsSection(root) {
+  const rows = enumerateDiscoveryServerUrls(state.configDraft.discovery);
+  root.appendChild(textEl("div", "section-label", "Server API keys"));
+  if (!rows.length) {
+    root.appendChild(
+      textEl(
+        "p",
+        "empty",
+        "Pin a provider URL or custom server above to set a per-endpoint API key."
+      )
+    );
+    return;
+  }
+  root.appendChild(
+    textEl(
+      "p",
+      "empty",
+      "Stored in routing.backends (one key per URL). Global env vars still apply when no per-URL key is set."
+    )
+  );
+  const creds = ensureDiscoveryCredentialsDraft();
+  const card = el("div", "card");
+  rows.forEach(({ url, provider }) => {
+    if (!creds[url]) creds[url] = { provider };
+    const summary = backendSummaryForDiscoveryUrl(url);
+    const group = el("div", "form-group");
+    group.appendChild(
+      textEl("label", "", `${PROVIDER_LABELS[provider] || provider} — ${url}`)
+    );
+    const input = document.createElement("input");
+    input.type = "password";
+    input.autocomplete = "off";
+    input.placeholder = summary?.api_key_set
+      ? "•••••••• (unchanged if left blank)"
+      : "API key (optional)";
+    input.oninput = () => {
+      creds[url]._pending_api_key = input.value;
+      markDirty();
+    };
+    group.appendChild(input);
+    const spec = LOCAL_PROVIDER_REGISTRY.find((r) => r.id === provider);
+    if (spec?.api_key_env) {
+      group.appendChild(
+        textEl("p", "muted-sm", `Global fallback: ${spec.api_key_env}`)
+      );
+    }
+    card.appendChild(group);
+  });
+  root.appendChild(card);
+}
+
+function applyDiscoveryCredentialPatch(routingPatch) {
+  const creds = state.configDraft.discovery?._serverCredentials || {};
+  const byUrl = new Map(
+    (routingPatch.backends || []).map((b) => [normalizeDiscoveryUrl(b.base_url), { ...b }])
+  );
+  enumerateDiscoveryServerUrls(state.configDraft.discovery).forEach(({ url, provider }) => {
+    const pending = creds[url]?._pending_api_key;
+    if (!pending) return;
+    const existing = byUrl.get(url);
+    if (existing) {
+      existing.api_key = pending;
+      return;
+    }
+    byUrl.set(url, {
+      base_url: url,
+      provider,
+      enabled: true,
+      local: true,
+      api_key: pending,
+    });
+  });
+  if (byUrl.size) routingPatch.backends = [...byUrl.values()];
 }
 // STRATEGIES was hand-maintained here; routing.default_strategy's options
 // now come from the schema's Literal introspection (phase 3) instead.
@@ -1833,6 +1963,8 @@ function renderDiscoveryTab() {
     );
   }
 
+  renderDiscoveryCredentialsSection(root);
+
   root.appendChild(textEl("div", "section-label", "Known swarm agents (static peers)"));
   root.appendChild(
     textEl("p", "empty", "Other netllm agents on your LAN — used when mDNS is blocked.")
@@ -2633,13 +2765,15 @@ function buildSchemaSectionPatch(sectionKey, schema, draft, pendingKeys = {}) {
 function buildConfigPatch() {
   const d = state.configDraft;
   const schema = state.configSchema;
+  const routingPatch = buildSchemaSectionPatch("routing", schema, d.routing);
+  applyDiscoveryCredentialPatch(routingPatch);
   return {
     agent: buildSchemaSectionPatch("agent", schema, d.agent),
     discovery: buildSchemaSectionPatch("discovery", schema, d.discovery),
     swarm: buildSchemaSectionPatch("swarm", schema, d.swarm, {
       cluster_token: "_cluster_token",
     }),
-    routing: buildSchemaSectionPatch("routing", schema, d.routing),
+    routing: routingPatch,
     ui: buildSchemaSectionPatch("ui", schema, d.ui),
     cloud: buildCloudPatch(d.cloud, schema),
   };

@@ -23,7 +23,7 @@ Key modules: `local.py`, `swarm.py`, `mdns.py`, `lan.py`, `runtime.py`, `agent_l
 - `lan.filter_own_peer_urls()` strips this host's agent URL from `swarm.peers` on save/scan
 - **`agent_lock.py`**: flock singleton at `{state_dir}/agent.lock` (parent of log dir); `serve` acquires before port preflight; stale PID reclaim; see [docs/dev-docs/agent-singleton-hardening-plan.md](../../docs/dev-docs/agent-singleton-hardening-plan.md)
 - `lan.subnet_scan_agents()` returns **one row per agent_id** (`dedupe_agents_by_id`): multi-homed hosts keep the row matching their reported listen_url, other IPs land in `also_reachable_at`; `fetch_agent_status` preserves `reported_listen_url` alongside the probe URL
-- LM Studio auth tokens: `LMSTUDIO_API_KEY` env or `[[routing.backends]]` `api_key` (scan + request paths)
+- LM Studio auth tokens: `LMSTUDIO_API_KEY` env or `[[routing.backends]]` `api_key` / `api_key_env` (scan uses `netllm_core.backend_credentials.resolve_api_key_for_url` per pinned URL; request paths unchanged)
 
 ## Work Guidance
 

@@ -61,6 +61,10 @@ final class SettingsViewModel {
     /// poll under ad-hoc signing — so this stays regardless.
     var cloudKeyDrafts: [String: String] = [:]
     var cloudKeyFeedback: [String: String] = [:]
+    /// Discovery tab per-server API key drafts, keyed by normalized base URL.
+    var discoveryServerKeyDrafts: [String: String] = [:]
+    /// Normalized backend URLs that had api_key set on disk before blanking for UI.
+    var backendAPIKeyConfigured: Set<String> = []
     /// Fetched provider catalogs (AgentAPI.cloudProviderModels) and the
     /// in-flight marker for the fetch button.
     var cloudCatalogs: [String: CloudModelCatalog] = [:]
@@ -86,6 +90,102 @@ final class SettingsViewModel {
     let configStore: ConfigStore
     let cli: CLIRunner
     private(set) var agentBaseURL: URL
+
+    static func normalizeDiscoveryURL(_ url: String) -> String {
+        var raw = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        while raw.hasSuffix("/") { raw.removeLast() }
+        guard !raw.isEmpty else { return "" }
+        if raw.hasSuffix("/v1") { return raw }
+        if let parsed = URL(string: raw),
+           let scheme = parsed.scheme,
+           scheme == "http" || scheme == "https",
+           parsed.host != nil {
+            return "\(raw)/v1"
+        }
+        return raw
+    }
+
+    private func absorbLoadedDocument(_ doc: NetllmConfigDocument) -> NetllmConfigDocument {
+        var next = doc
+        backendAPIKeyConfigured = Set(
+            next.routing.backends.compactMap { row in
+                row.api_key.isEmpty ? nil : Self.normalizeDiscoveryURL(row.base_url)
+            }
+        )
+        for idx in next.routing.backends.indices {
+            next.routing.backends[idx].api_key = ""
+        }
+        return next
+    }
+
+    func discoveryServerRows() -> [(url: String, provider: String)] {
+        var rows: [(String, String)] = []
+        var seen = Set<String>()
+        if let providerURLs = document.discovery["provider_urls"]?.objectValue {
+            for (provider, value) in providerURLs.sorted(by: { $0.key < $1.key }) {
+                let urls = value.arrayValue?.compactMap(\.stringValue) ?? []
+                for url in urls {
+                    let norm = Self.normalizeDiscoveryURL(url)
+                    guard !norm.isEmpty, seen.insert(norm).inserted else { continue }
+                    rows.append((norm, provider))
+                }
+            }
+        }
+        for url in document.discovery.stringArray("custom_endpoints") {
+            let norm = Self.normalizeDiscoveryURL(url)
+            guard !norm.isEmpty, seen.insert(norm).inserted else { continue }
+            rows.append((norm, "custom"))
+        }
+        return rows
+    }
+
+    func discoveryServerAPIKeySet(for url: String) -> Bool {
+        backendAPIKeyConfigured.contains(Self.normalizeDiscoveryURL(url))
+    }
+
+    func localProviderAPIKeyEnv(_ provider: String) -> String? {
+        Self.localProviderAPIKeyEnvs[provider]
+    }
+
+    private static let localProviderAPIKeyEnvs: [String: String] = [
+        "omlx": "OMLX_API_KEY",
+        "ollama": "OLLAMA_API_KEY",
+        "lmstudio": "LMSTUDIO_API_KEY",
+        "vllm": "VLLM_API_KEY",
+    ]
+
+    private func upsertBackendAPIKey(url: String, apiKey: String, provider: String) {
+        let norm = Self.normalizeDiscoveryURL(url)
+        guard !norm.isEmpty else { return }
+        if let idx = document.routing.backends.firstIndex(where: {
+            Self.normalizeDiscoveryURL($0.base_url) == norm
+        }) {
+            document.routing.backends[idx].base_url = norm
+            document.routing.backends[idx].provider = provider
+            document.routing.backends[idx].api_key = apiKey
+            document.routing.backends[idx].enabled = true
+            document.routing.backends[idx].local = true
+            return
+        }
+        document.routing.backends.append(
+            NetllmConfigDocument.BackendOverride(
+                base_url: norm,
+                provider: provider,
+                api_key: apiKey,
+                enabled: true,
+                local: true
+            )
+        )
+    }
+
+    private func applyDiscoveryCredentialsOnSave() {
+        for (url, provider) in discoveryServerRows() {
+            let draft = (discoveryServerKeyDrafts[url] ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !draft.isEmpty else { continue }
+            upsertBackendAPIKey(url: url, apiKey: draft, provider: provider)
+        }
+    }
 
     static let strategies = [
         "auto", "local_first", "local_spillover", "failover", "round_robin",
@@ -295,7 +395,7 @@ final class SettingsViewModel {
     func reloadAll() async {
         await runAction("Reloading…") {
             didAutoPeerScan = false
-            document = try configStore.load()
+            document = absorbLoadedDocument(try configStore.load())
             configSchema = try? configStore.loadSchema()
             syncRequireClusterTokenFromDocument()
             MenubarAppModel.shared.updateUiSettings(document.ui)
@@ -489,6 +589,7 @@ final class SettingsViewModel {
             await runAction("Saving config…") {
                 document.applyLanMeshDefaults()
                 applyRequireClusterTokenOnSave()
+                applyDiscoveryCredentialsOnSave()
                 _ = try configStore.save(document)
                 syncRequireClusterTokenFromDocument()
                 MenubarAppModel.shared.updateUiSettings(document.ui)
@@ -534,7 +635,7 @@ final class SettingsViewModel {
                     throw ActionError.unexpectedResponse("discover")
                 }
                 if saveURLs {
-                    document = try configStore.load()
+                    document = absorbLoadedDocument(try configStore.load())
                 }
                 discoverProviders = providers.map { row in
                     DiscoverProvider(
@@ -577,7 +678,7 @@ final class SettingsViewModel {
             lanPeers = result.peers
             let warnings = result.warnings
             if save {
-                document = try configStore.load()
+                document = absorbLoadedDocument(try configStore.load())
                 needsRestart = true
             }
             if showManualHints {
@@ -618,7 +719,7 @@ final class SettingsViewModel {
             )
         }
         if save {
-            document = try configStore.load()
+            document = absorbLoadedDocument(try configStore.load())
             needsRestart = true
         }
         if showManualHints {
@@ -666,7 +767,7 @@ final class SettingsViewModel {
         Task {
             await runAction("Enabling gateway role…") {
                 _ = try cli.run(["gateway"])
-                document = try configStore.load()
+                document = absorbLoadedDocument(try configStore.load())
                 needsRestart = true
                 setSuccess("Gateway role saved — restart agent to apply.")
             }
@@ -993,6 +1094,11 @@ final class SettingsViewModel {
     private func setSuccess(_ text: String) {
         message = text
         errorMessage = nil
+        bumpUI()
+    }
+
+    func setDiscoveryServerKeyDraft(_ url: String, _ value: String) {
+        discoveryServerKeyDrafts[url] = value
         bumpUI()
     }
 

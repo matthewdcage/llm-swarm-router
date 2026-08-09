@@ -38,7 +38,9 @@ def test_dashboard_js_serves_generic_schema_renderer(client: TestClient) -> None
     resp = client.get("/ui/dashboard.js")
     assert resp.status_code == 200
     body = resp.text
-    assert "function renderSchemaForm" in body
+    assert "renderSchemaForm" in body
+    assert "renderDiscoveryCredentialsSection" in body
+    assert "applyDiscoveryCredentialPatch" in body
     assert "function renderSchemaField" in body
     # ui is the phase-2 pilot section: migrated to the generic renderer,
     # sourced from the fetched schema rather than hand-built widgets.
