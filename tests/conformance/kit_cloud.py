@@ -174,3 +174,60 @@ def test_no_literal_api_key_table_survives_in_pythonruntime() -> None:
         "PythonRuntime.swift names an API-key env var literally again; the "
         f"injection list must stay derived from the registry: {offenders}"
     )
+
+
+def test_settings_bootstrap_covers_every_provider(spec: CloudProviderSpec) -> None:
+    """The macOS Settings offline roster (`cloudProvidersBootstrap`).
+
+    Richer than an id list -- it carries display name, notes, regions and auth
+    modes -- so it is projection-tested against the registry rather than
+    generated. A provider missing here simply does not render in Settings
+    until the app has reached an agent, which on a first run is "the provider
+    does not exist".
+    """
+    import re
+
+    text = (
+        REPO_ROOT / "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift"
+    ).read_text(encoding="utf-8")
+    start = text.find("static let cloudProvidersBootstrap")
+    assert start != -1, "cloudProvidersBootstrap not found"
+    body = text[start : text.find("\n    ]", start)]
+    ids = set(re.findall(r'id:\s*"([^"]+)"', body))
+    assert spec.id in ids, (
+        f"SettingsViewModel.cloudProvidersBootstrap is missing {spec.id!r}; "
+        "it will not render in Settings before the app reaches an agent"
+    )
+    name_match = re.search(
+        rf'id:\s*"{re.escape(spec.id)}",\s*displayName:\s*"([^"]+)"', body
+    )
+    if name_match:
+        assert name_match.group(1) == spec.display_name, (
+            f"{spec.id}: Swift displayName {name_match.group(1)!r} != registry "
+            f"{spec.display_name!r}"
+        )
+
+
+def test_omlx_admin_probe_is_the_only_provider_specific_branch() -> None:
+    """oMLX exposes a proprietary admin/telemetry API no other local server
+    has, so `provider != "omlx"` in discovery is a real capability check, not
+    a roster copy. Pin that it stays the *only* such branch -- a second one
+    means the capability belongs on the spec instead."""
+    import re
+
+    text = (
+        REPO_ROOT / "packages/netllm-discovery/src/netllm_discovery/local.py"
+    ).read_text(encoding="utf-8")
+    # Require an actual conditional, not prose: a docstring explaining a
+    # branch that was REMOVED still quotes the id it removed, and counting
+    # that would make the guard fire on its own changelog.
+    branches = [
+        line.strip()
+        for line in text.splitlines()
+        if re.match(r"^\s*(el)?if\s.*[!=]=\s*\"", line)
+        and any(f'"{p}"' in line for p in ("omlx", "ollama", "lmstudio", "vllm"))
+    ]
+    assert len(branches) <= 1, (
+        "more than one provider-specific branch survives in discovery; put the "
+        f"capability on LocalProviderSpec instead: {branches}"
+    )

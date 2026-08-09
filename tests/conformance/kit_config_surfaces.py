@@ -275,10 +275,15 @@ def test_every_ledger_entry_has_a_real_reason_and_expiry() -> None:
         )
         expires = entry.get("expires", "")
         assert expires, f"{where}: no expiry"
-        assert expires in valid or expires.startswith("never"), (
-            f"{where}: expiry {expires!r} is neither a known phase {sorted(valid)} "
-            "nor an explicit 'never — <reason>'"
+        # A phase may carry a trailing " — why", which is strictly better than
+        # a bare phase; `never` must carry one.
+        head = expires.split("—")[0].split("--")[0].strip()
+        assert head in valid or head == "never", (
+            f"{where}: expiry {expires!r} is neither a known phase "
+            f"{sorted(valid)} nor an explicit 'never — <reason>'"
         )
+        if head == "never":
+            assert head != expires, f"{where}: 'never' must state why"
 
 
 def test_no_ledger_entry_is_overdue() -> None:
@@ -289,8 +294,9 @@ def test_no_ledger_entry_is_overdue() -> None:
     overdue = [
         f"{class_id}:{entry['glob']} (expires {entry['expires']})"
         for class_id, entry in _entries()
-        if entry.get("expires", "") in PHASE_ORDER
-        and PHASE_ORDER.index(entry["expires"]) <= done_through
+        if entry.get("expires", "").split("—")[0].split("--")[0].strip() in PHASE_ORDER
+        and PHASE_ORDER.index(entry["expires"].split("—")[0].split("--")[0].strip())
+        <= done_through
     ]
     assert not overdue, (
         "these mirrors were due to be removed by the phase this tree has "

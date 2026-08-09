@@ -19,7 +19,9 @@ advertise = true
 [discovery]
 # macOS default (netllm init): omlx, ollama, lmstudio, vllm
 # Linux/Windows default (netllm init): ollama, lmstudio, vllm (no omlx)
+# netllm:generated:begin:local-provider-ids
 providers = ["omlx", "ollama", "lmstudio", "vllm"]
+# netllm:generated:end:local-provider-ids
 custom_endpoints = []
 # Per-machine overrides (tried before default port scan). Example desktop node with oMLX on 8088:
 # [discovery.provider_urls]

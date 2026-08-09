@@ -48,7 +48,9 @@ enum KeychainStore {
         /// beyond this arrives through the registry, so remembered ∪ bootstrap
         /// is a complete cover of what the Keychain can be holding.
         static let bootstrapProviderIDs = [
+            // netllm:generated:begin:cloud-provider-ids
             "moonshot", "zai", "openai", "anthropic", "openrouter", "dashscope",
+            // netllm:generated:end:cloud-provider-ids
         ]
 
         static func remember(_ providers: [CloudProviderInfo]) {

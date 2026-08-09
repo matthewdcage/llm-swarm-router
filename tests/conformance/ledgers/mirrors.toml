@@ -24,7 +24,7 @@
 # KeychainStore's switch cases, generating the 5 doc rosters and the
 # config.example.toml stanzas -- has not. Setting this to "phase-4" lists
 # exactly the seven mirrors that remain, which is the honest to-do list.
-current_phase = "phase-3"
+current_phase = "phase-4"
 files = [
   "packages/netllm-agent/src/netllm_agent/static/dashboard.js",
   "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift",
@@ -47,31 +47,40 @@ extract = "dict-keys:CLOUD_PROVIDERS"
 
 [[fact_class.allowed_mirrors]]
 glob = "packages/netllm-agent/src/netllm_agent/static/dashboard.js"
-reason = "cloud provider bootstrap list; becomes generated between markers"
-expires = "phase-4"
+reason = """cloud + local bootstrap lists, now GENERATED between markers by \
+scripts/generate-registry-artifacts.py with --check in lint. They stay real \
+literals so the dashboard renders offline, but they cannot drift"""
+expires = "never — generated with --check"
 
 [[fact_class.allowed_mirrors]]
 glob = "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift"
-reason = "cloudProvidersBootstrap offline fallback; becomes generated"
-expires = "phase-4"
+reason = """cloudProvidersBootstrap: the Settings offline roster. Carries \
+display name, notes, regions and auth modes, not just ids, so it is \
+projection-tested against the registry by kit_cloud rather than generated -- \
+generating prose would be worse than checking it"""
+expires = "never — offline fallback, projection-tested"
 
 [[fact_class.allowed_mirrors]]
 glob = "apps/netllm-mac/Sources/Config/KeychainStore.swift"
-reason = """accountForCloudProvider switch + bootstrapProviderIDs; the switch \
-cases go away in Axis A (the generic arm is already correct), the id list \
-becomes the generated degraded-mode fallback"""
-expires = "phase-4"
+reason = """bootstrapProviderIDs, now GENERATED between markers with --check \
+in lint. The accountForCloudProvider switch is gone: all six cases returned \
+exactly what the default arm computes"""
+expires = "never — generated with --check"
 
 [[fact_class.allowed_mirrors]]
 glob = "config.example.toml"
-reason = "[cloud.providers.*] example stanzas; become generated"
-expires = "phase-4"
+reason = """discovery.providers is generated between markers with --check. \
+The [cloud.providers.*] example stanzas are still hand-written prose with \
+per-provider commentary, which is documentation rather than a roster copy"""
+expires = "phase-8 — stanzas fold into the worked example"
 
 [[fact_class.allowed_mirrors]]
 glob = "packages/netllm-core/src/netllm_core/models.py"
 reason = """CloudProviderId re-export plus the openai/anthropic api_format \
-Literal, which collides with two provider ids by coincidence of naming"""
-expires = "phase-4"
+Literal, which collides with two provider ids by coincidence of naming. Same \
+rationale as ProviderId: a derived Literal blinds basedpyright, so it stays \
+hand-written and is asserted by get_args equality in kit_cloud"""
+expires = "never — hand-written Literal, get_args-asserted"
 
 [[fact_class]]
 id = "local-provider-id"
@@ -101,8 +110,10 @@ expires = "never — offline fallback, projection-tested"
 
 [[fact_class.allowed_mirrors]]
 glob = "config.example.toml"
-reason = "discovery.providers example plus provider_urls stanzas; generated in phase 4"
-expires = "phase-4"
+reason = """discovery.providers is GENERATED between markers with --check in \
+lint; the provider_urls stanzas below it stay hand-written, being example \
+URLs with commentary rather than a roster"""
+expires = "never — generated with --check"
 
 [[fact_class.allowed_mirrors]]
 glob = "packages/netllm-core/src/netllm_core/models.py"
@@ -115,9 +126,9 @@ expires = "never — see reason"
 
 [[fact_class.allowed_mirrors]]
 glob = "packages/netllm-discovery/src/netllm_discovery/local.py"
-reason = """oMLX's admin/telemetry probes (probe_omlx_admin and friends) test \
-`provider != "omlx"`. This is NOT a roster mirror: oMLX exposes a proprietary \
-admin API no other local server has, so the literal marks a genuine \
-capability, not a copy of the id list. Absorbed when LocalProviderSpec gains \
-its optional probe hook"""
-expires = "phase-4"
+reason = """oMLX's admin/telemetry probes test `provider != "omlx"`. NOT a \
+roster mirror: oMLX exposes a proprietary admin API no other local server \
+has, so the literal marks a genuine capability. kit_cloud pins that it stays \
+the ONLY provider-specific branch in discovery -- a second one means the \
+capability belongs on the spec instead"""
+expires = "never — provider capability, single-branch-asserted"

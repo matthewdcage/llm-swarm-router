@@ -6,7 +6,14 @@
 // the agent is unreachable. Pinned to netllm_core.local_providers by
 // tests/conformance/kit_local.py, so drift fails CI rather than silently
 // omitting a provider from the discovery checkboxes.
-const PROVIDERS_BOOTSTRAP = ["omlx", "ollama", "lmstudio", "vllm"];
+const PROVIDERS_BOOTSTRAP = [
+  // netllm:generated:begin:local-provider-ids
+  "omlx",
+  "ollama",
+  "lmstudio",
+  "vllm",
+  // netllm:generated:end:local-provider-ids
+];
 let PROVIDERS = [...PROVIDERS_BOOTSTRAP];
 /** Provider id -> display label, filled from the registry once fetched. */
 let PROVIDER_LABELS = {};
@@ -35,12 +42,14 @@ const ROLES = ["peer", "gateway"];
 // single source of truth for the provider set + all display metadata —
 // see admin.cloud_provider_registry_payload / GET /netllm/v1/cloud/providers).
 const CLOUD_PROVIDER_IDS_BOOTSTRAP = [
+  // netllm:generated:begin:cloud-provider-ids
   "moonshot",
   "zai",
   "openai",
   "anthropic",
   "openrouter",
   "dashscope",
+  // netllm:generated:end:cloud-provider-ids
 ];
 
 const state = {
