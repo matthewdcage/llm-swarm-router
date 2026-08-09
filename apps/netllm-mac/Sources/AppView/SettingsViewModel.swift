@@ -341,6 +341,10 @@ final class SettingsViewModel {
             if cloudProviderRegistry.isEmpty {
                 if let registry = await AgentAPI.cloudProviderRegistry(baseURL: agentBaseURL) {
                     cloudProviderRegistry = registry
+                    // PythonRuntime builds the agent's environment before any
+                    // agent exists to ask, so the api_key_env mapping has to
+                    // outlive this process.
+                    KeychainStore.CloudKeyEnv.remember(registry)
                 }
             }
             if let harnesses = await AgentAPI.harnesses(baseURL: agentBaseURL) {

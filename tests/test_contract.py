@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -13,25 +14,12 @@ from netllm_core.platform import default_discovery_providers, default_log_dir
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_EXAMPLE = REPO_ROOT / "config.example.toml"
 
-EXPECTED_HTTP_ROUTES = {
-    "/",
-    "/health",
-    "/metrics",
-    "/v1/models",
-    "/v1/chat/completions",
-    "/v1/embeddings",
-    "/v1/messages",
-    "/netllm/v1/status",
-    "/netllm/v1/version",
-    "/netllm/v1/update/check",
-    "/netllm/v1/doctor",
-    "/netllm/v1/config",
-    "/netllm/v1/client-env",
-    "/netllm/v1/admin/discover",
-    "/netllm/v1/heartbeat",
-    "/netllm/v1/peers",
-    "/netllm/v1/backends",
-}
+# The HTTP surface lives in a generated manifest, asserted as an exact set —
+# see scripts/generate-routes-json.py for why presence-only was not enough.
+ROUTES_MANIFEST = REPO_ROOT / "tests/contract/routes.json"
+FRAMEWORK_PATHS = frozenset(
+    {"/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"}
+)
 
 # Strategies that existing user configs may reference; removing any is breaking.
 LEGACY_ROUTING_STRATEGIES = (
@@ -155,11 +143,9 @@ def test_darwin_default_providers_include_omlx_and_vllm(
     assert "vllm" in providers
 
 
-@pytest.mark.skipif(
-    sys.platform != "darwin",
-    reason="Swift config defaults are macOS-only",
-)
-def test_darwin_swift_default_providers_match_python() -> None:
+def test_swift_default_providers_match_python(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Lock Swift Settings defaults to Python discovery.providers on Darwin.
 
     discovery.providers moved from a NetllmConfigDocument.DiscoverySection
@@ -167,7 +153,13 @@ def test_darwin_swift_default_providers_match_python() -> None:
     §5 phase 4 — discovery became a dynamic [String: JSONValue] section;
     the providers checkbox loop still needs a known list to iterate,
     which now lives on the view model instead of a typed struct default).
+
+    This used to be ``skipif(sys.platform != "darwin")`` and so ran on exactly
+    one CI job. It reads a checked-in .swift file as text and compares it to a
+    Python list — no Xcode, no macOS. The platform is pinned instead, which is
+    what the assertion actually needed (docs/extending/PROGRAM.md §2, 0b.5).
     """
+    monkeypatch.setattr(sys, "platform", "darwin")
     doc_path = REPO_ROOT / "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift"
     text = doc_path.read_text(encoding="utf-8")
     marker = "static let providers = ["
@@ -186,13 +178,122 @@ def test_darwin_swift_default_providers_match_python() -> None:
     assert swift_defaults == default_discovery_providers()
 
 
-def test_fastapi_routes_registered() -> None:
+def test_cloud_provider_api_key_env_is_derivable() -> None:
+    """`KeychainStore.CloudKeyEnv.defaultEnvVar` derives the env var from the
+    id, so the macOS app can export a key for a provider its binary predates.
+
+    That derivation is only sound while every registry entry agrees with it.
+    A provider whose vendor env var is spelled differently is allowed — it
+    just may not rely on the offline fallback, so add it to the Swift
+    bootstrap roster below and say so here.
+    """
+    from netllm_core.cloud_providers import CLOUD_PROVIDERS
+
+    for provider_id, spec in CLOUD_PROVIDERS.items():
+        assert spec.api_key_env == f"{provider_id.upper()}_API_KEY", (
+            f"{provider_id} names {spec.api_key_env}; the Swift fallback would "
+            f"export {provider_id.upper()}_API_KEY and the key would 401"
+        )
+
+
+def test_swift_cloud_key_env_has_no_hardcoded_table() -> None:
+    """PythonRuntime may not restate the api_key_env mapping.
+
+    It held a closed five-entry `[(account, envVar)]` list, which is why a
+    provider added everywhere else stored its key and never injected it. The
+    mapping is derived now; this is the projection that keeps it derived,
+    and it runs on Linux because it reads the .swift file as text.
+    """
+    runtime = REPO_ROOT / "apps/netllm-mac/Sources/Server/PythonRuntime.swift"
+    code = [
+        line
+        for line in runtime.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("//")
+    ]
+    offenders = [line.strip() for line in code if "_API_KEY" in line]
+    assert not offenders, f"PythonRuntime.swift restates api_key_env: {offenders}"
+
+
+def test_swift_cloud_bootstrap_roster_matches_registry() -> None:
+    """The offline provider roster in Swift must match CLOUD_PROVIDERS.
+
+    Ledgered as a mirror in tests/conformance/ledgers/mirrors.toml (expires
+    phase-4, when it becomes generated). Until then it is projection-tested
+    rather than merely hoped about.
+    """
+    from netllm_core.cloud_providers import CLOUD_PROVIDERS
+
+    text = (REPO_ROOT / "apps/netllm-mac/Sources/Config/KeychainStore.swift").read_text(
+        encoding="utf-8"
+    )
+    marker = "static let bootstrapProviderIDs = ["
+    _, _, rest = text.partition(marker)
+    assert rest, f"{marker} not found — did the roster move?"
+    inner, _, _ = rest.partition("]")
+    swift_ids = [part.strip().strip('"') for part in inner.split(",") if part.strip()]
+    assert set(swift_ids) == set(CLOUD_PROVIDERS)
+
+
+def test_fastapi_routes_match_generated_manifest() -> None:
+    """Exact-set equality against tests/contract/routes.json.
+
+    The predecessor of this test listed 17 of ~28 routes and asserted only
+    presence, so deleting ``/v1/responses`` was CI-green — the opposite of the
+    "``/v1/*`` is additive only, no sunset" promise the corpus exists to keep.
+    Regenerate with ``uv run python scripts/generate-routes-json.py``.
+    """
     from netllm_agent.app import create_app
 
     app = create_app()
-    paths = {route.path for route in app.routes if hasattr(route, "path")}
-    for path in EXPECTED_HTTP_ROUTES:
-        assert path in paths
+    live = {
+        (route.path, tuple(sorted(getattr(route, "methods", None) or [])))
+        for route in app.routes
+        if getattr(route, "path", None) not in FRAMEWORK_PATHS
+        and hasattr(route, "path")
+    }
+    manifest = json.loads(ROUTES_MANIFEST.read_text(encoding="utf-8"))
+    recorded = {(row["path"], tuple(row["methods"])) for row in manifest["routes"]}
+    assert live == recorded
+
+
+def test_known_providers_roster() -> None:
+    """The local-backend roster, which had zero tests referencing it.
+
+    ``KNOWN_PROVIDERS`` is the discovery-side statement of the same fact that
+    ``ProviderId`` states in the type system and ``default_discovery_providers``
+    states per platform. Nothing checked they agreed; adding a provider to one
+    and not the others is silent. Phase 3 collapses all three into
+    ``LocalProviderSpec`` — until then, assert the agreement.
+    """
+    from typing import get_args
+
+    from netllm_core.models import ProviderId
+    from netllm_discovery import KNOWN_PROVIDERS
+
+    ids = [pid for pid, _label, _ports in KNOWN_PROVIDERS]
+    assert ids == sorted(set(ids), key=ids.index), "duplicate id in KNOWN_PROVIDERS"
+
+    # Every discoverable provider must be nameable in config. The converse
+    # does not hold, and the gap is the interesting part: these three are
+    # ProviderIds that no port scan can find — "custom" points routing at an
+    # arbitrary base_url, and the two cloud ids reach a vendor over the
+    # internet. A fourth entry appearing here is either a new local provider
+    # missing from KNOWN_PROVIDERS or a new cloud one that owes this comment
+    # a line.
+    assert set(ids) <= set(get_args(ProviderId))
+    assert set(get_args(ProviderId)) - set(ids) == {"custom", "anthropic", "openai"}
+
+    for pid, label, ports in KNOWN_PROVIDERS:
+        assert pid and pid.islower() and pid.isascii()
+        assert label.strip(), f"{pid} has no display label"
+        assert ports, f"{pid} has no default scan ports"
+        assert len(set(ports)) == len(ports), f"{pid} repeats a scan port"
+        assert all(1 <= port <= 65535 for port in ports)
+
+    # Every platform default must be a real, discoverable provider.
+    for platform in ("darwin", "linux", "win32"):
+        with patch.object(sys, "platform", platform):
+            assert set(default_discovery_providers()) <= set(ids)
 
 
 def test_install_method_darwin_channels() -> None:

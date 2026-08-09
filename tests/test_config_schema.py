@@ -14,7 +14,6 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from netllm_agent.app import create_app
 from netllm_core.config_schema import (
-    BOOTSTRAP_SECTIONS,
     SECTIONS,
     config_schema_document,
 )
@@ -75,10 +74,6 @@ def test_document_is_deterministic_across_calls():
     # schema document that differs run to run (e.g. from a default_factory
     # like agent_id's uuid4) would defeat client-side caching.
     assert config_schema_document() == config_schema_document()
-
-
-def test_bootstrap_sections_are_a_subset_of_sections():
-    assert set(BOOTSTRAP_SECTIONS) <= set(SECTIONS)
 
 
 def test_list_of_object_fields_carry_item_schema():

@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 import typer
 from netllm_core.config import is_lan_listen, load_config, save_config
+from netllm_core.config_report import unknown_cloud_provider_issues
 from netllm_core.models import NetllmConfig
 from netllm_discovery.local import scan_local_providers
 
@@ -230,6 +231,13 @@ def doctor(
                 "Set agent.advertise = true so workers can find the gateway",
             )
         )
+
+    # Unknown [cloud.providers.*] ids are preserved on save rather than
+    # deleted (models.CloudConfig), so doctor is where they become visible.
+    # Same helper the dashboard's doctor panel calls.
+    issues.extend(
+        (issue["title"], issue["fix"]) for issue in unknown_cloud_provider_issues(cfg)
+    )
 
     if cfg.swarm.mdns and cfg.agent.advertise and not mdns_available():
         issues.append(

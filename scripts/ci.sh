@@ -29,6 +29,16 @@ run_lint() {
   # Anti-erosion gate (F-24/F-26 plan §1): the failover loop must stay
   # surface-agnostic. Cheap, no imports, fails loudly.
   python3 scripts/check-engine-erosion.py
+  # No-new-mirrors gate (docs/extending/PROGRAM.md §2): a provider id may not
+  # appear in a file the ledger does not already name.
+  python3 scripts/check-registry-mirrors.py
+  # Instructional docs may not point at paths that do not exist.
+  python3 scripts/check-doc-paths.py
+  # The three checked-in skill copies must match .agents/skills/.
+  scripts/sync-agent-skills.sh --check
+  # The HTTP surface is an exact set, not a presence check — a deleted
+  # /v1/* route has to fail here, not ship.
+  uv run python scripts/generate-routes-json.py --check
 }
 
 # Non-blocking for now: basedpyright is configured in pyproject.toml but has

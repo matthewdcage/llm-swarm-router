@@ -40,10 +40,14 @@ SECTIONS: dict[str, type[BaseModel]] = {
     "cloud": CloudConfig,
 }
 
-# Minimal section list a client can fall back to against an older agent
-# that predates this endpoint (see plan §4) — enough to reach a running
-# agent's other admin routes.
-BOOTSTRAP_SECTIONS = ("agent", "discovery")
+# `BOOTSTRAP_SECTIONS = ("agent", "discovery")` used to live here as a
+# fallback roster for clients talking to an agent predating this endpoint.
+# Nothing ever imported it: dashboard.js:276-287 hand-rolls its own working
+# fallbacks and ConfigStore.swift reaches the schema through the *bundled*
+# CLI, so it cannot be skewed against the agent at all. A constant tested
+# by one assertion and used by no caller is worse than no constant --
+# it reads as a contract while guaranteeing nothing. Deleted in Phase 2
+# (docs/extending/PROGRAM.md §3 Axis E.6).
 
 
 def _unwrap_optional(annotation: Any) -> tuple[Any, bool]:

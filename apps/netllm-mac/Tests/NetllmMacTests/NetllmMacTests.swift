@@ -77,3 +77,77 @@ final class AgentSupervisorStatusLabelTests: XCTestCase {
         )
     }
 }
+
+/// The first Swift test to reference the Keychain / cloud-provider axis at
+/// all. It covers the one silent load-bearing hardcode the audit found: the
+/// env vars PythonRuntime exports for stored cloud API keys used to be a
+/// closed table of five, so a sixth provider stored a key that never reached
+/// the agent (docs/extending/PROGRAM.md §2, item 0b.1).
+final class CloudKeyEnvTests: XCTestCase {
+    func testEnvVarDerivesFromProviderID() {
+        XCTAssertEqual(
+            KeychainStore.CloudKeyEnv.defaultEnvVar(for: "moonshot"),
+            "MOONSHOT_API_KEY"
+        )
+        XCTAssertEqual(
+            KeychainStore.CloudKeyEnv.defaultEnvVar(for: "dashscope"),
+            "DASHSCOPE_API_KEY"
+        )
+    }
+
+    func testEveryBootstrapProviderIsInjectedWithNoRegistryFetch() {
+        let pairs = KeychainStore.CloudKeyEnv.injectionPairs(remembered: [:])
+        let ids = KeychainStore.CloudKeyEnv.bootstrapProviderIDs
+        XCTAssertEqual(pairs.count, ids.count)
+        for id in ids {
+            let account = KeychainStore.accountForCloudProvider(id)
+            XCTAssertTrue(
+                pairs.contains { $0.account == account },
+                "\(id) would store a key that is never exported"
+            )
+        }
+    }
+
+    func testProviderKnownOnlyToTheRegistryIsInjected() {
+        // The regression this whole change exists to prevent: an id this
+        // binary has never heard of, arriving over the wire.
+        let pairs = KeychainStore.CloudKeyEnv.injectionPairs(
+            remembered: ["dashscope": "DASHSCOPE_API_KEY"]
+        )
+        XCTAssertTrue(
+            pairs.contains {
+                $0.account == "dashscope_api_key" && $0.envVar == "DASHSCOPE_API_KEY"
+            }
+        )
+        // …without dropping the ones it does know.
+        XCTAssertTrue(pairs.contains { $0.envVar == "ANTHROPIC_API_KEY" })
+    }
+
+    func testWireValueBeatsTheDerivedDefault() {
+        let pairs = KeychainStore.CloudKeyEnv.injectionPairs(
+            remembered: ["zai": "ZHIPU_API_KEY"]
+        )
+        XCTAssertEqual(pairs.first { $0.account == "zai_api_key" }?.envVar, "ZHIPU_API_KEY")
+    }
+
+    func testResolvedAPIKeyEnvPrefersTheServedValue() {
+        let served = CloudProviderInfo(
+            id: "zai",
+            displayName: "Z.ai",
+            notes: "",
+            regions: ["api"],
+            keychainAccount: "zai_api_key",
+            apiKeyEnv: "ZHIPU_API_KEY"
+        )
+        XCTAssertEqual(served.resolvedAPIKeyEnv, "ZHIPU_API_KEY")
+
+        let offline = CloudProviderInfo(
+            id: "zai",
+            displayName: "Z.ai",
+            notes: "",
+            regions: ["api"],
+            keychainAccount: "zai_api_key"
+        )
+        XCTAssertEqual(offline.resolvedAPIKeyEnv, "ZAI_API_KEY")
+    }
+}

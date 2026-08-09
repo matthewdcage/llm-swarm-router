@@ -218,6 +218,46 @@ def test_peer_config_warnings_on_strategy_and_version_drift() -> None:
     assert len(service.peer_config_warnings()) == 2
 
 
+def test_peer_version_warning_names_the_older_machine() -> None:
+    """The warning has to say *which* box to upgrade, and be right.
+
+    It used to compare version strings with ``!=`` and then unconditionally
+    say "update the older machine" — no ordering was computed, so the operator
+    got the same sentence whether the peer was ahead or behind, and a
+    cosmetically different spelling of the same version produced a warning at
+    all (docs/extending/PROGRAM.md §2, 0b.6).
+    """
+    from netllm_agent.service import AgentService
+    from netllm_core.version import get_version
+    from netllm_discovery.swarm import PeerRecord
+
+    def _warnings(peer_version: str) -> list[str]:
+        service = AgentService(NetllmConfig())
+        service.swarm.register_peer(
+            PeerRecord(
+                agent_id="p",
+                listen_url="http://192.168.1.11:11400",
+                hostname="other-mac",
+                version=peer_version,
+            )
+        )
+        return service.peer_config_warnings()
+
+    mine = get_version()
+
+    behind = _warnings("0.0.1")
+    assert len(behind) == 1
+    assert "peer other-mac is older than this agent" in behind[0]
+
+    ahead = _warnings("99.0.0.0")
+    assert len(ahead) == 1
+    assert "this agent is older than peer other-mac" in ahead[0]
+
+    # Same version, different spelling — no drift, so no warning.
+    assert _warnings(mine) == []
+    assert _warnings(f"v{mine}") == []
+
+
 def test_shardless_batch_shard_counts_fallbacks() -> None:
     from netllm_agent.service import AgentService
 

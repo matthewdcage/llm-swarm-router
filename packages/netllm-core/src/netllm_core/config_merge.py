@@ -26,15 +26,27 @@ Three merge behaviors, chosen per field:
      already behave correctly under this (they're lists); routing.sources
      and cloud.providers need the additional identity-keyed rebuild below
      to preserve their write-only secret fields when a patch omits them.
+  4. Sections and keys this build has no model for: merged through by the
+     same case-3 rule and re-emitted on save. `NetllmConfig` and every
+     model under it allow extras (netllm_core.models.ConfigModel), so a
+     `[future_section]` written by a newer agent survives an older agent's
+     Save instead of being deleted -- and a newer *client* patching an
+     older agent gets its new keys stored rather than filtered out.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from netllm_core.models import BackendOverride, NetllmConfig, RoutingPolicy
+from netllm_core.models import (
+    BackendOverride,
+    NetllmConfig,
+    RoutingPolicy,
+)
 
-_CONFIG_SECTIONS = frozenset({"agent", "discovery", "swarm", "routing", "ui", "cloud"})
+# The six editable sections. Derived, not restated: a seventh section added
+# to NetllmConfig must not need a second edit here to become savable.
+_CONFIG_SECTIONS = frozenset(NetllmConfig.model_fields)
 
 # (top-level section, key within it) pairs handled by case 2 above.
 _FULL_REPLACE_DICT_PATHS: tuple[tuple[str, str], ...] = (
@@ -42,6 +54,17 @@ _FULL_REPLACE_DICT_PATHS: tuple[tuple[str, str], ...] = (
     ("routing", "model_aliases"),
     ("discovery", "provider_urls"),
 )
+
+# Case 3's twin: dict-typed section fields that deliberately deep-merge, so
+# a key omitted from a patch is preserved rather than deleted. Declared
+# rather than inferred because it is the same genuine semantic choice as
+# _FULL_REPLACE_DICT_PATHS -- `cloud.providers` holds write-only api_keys
+# and is rebuilt identity-keyed below, so full replace would blank a
+# provider the sending UI happened not to render.
+# `tests/test_config_forward_compat.py` asserts every dict field on a
+# section model appears in exactly one of the two rosters, so a new one
+# cannot inherit a default by accident (the bug class 0c4489d was filed for).
+_DEEP_MERGE_DICT_PATHS: tuple[tuple[str, str], ...] = (("cloud", "providers"),)
 
 
 def deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
@@ -139,6 +162,42 @@ def _merge_policies(entries: list[Any]) -> list[dict[str, Any]]:
     return merged_policies
 
 
+# Fields a patch may set on a [[routing.sources]] row. `id` is the identity
+# key (copied separately) and `secret` is write-only (an empty/omitted value
+# keeps the stored one), so the roster is every other SourceConfig field --
+# asserted as such in tests/test_config_forward_compat.py. Hand-written
+# rather than derived so that adding a field is a deliberate decision about
+# whether clients may set it; the parity test is what makes forgetting loud
+# (F-01: a field missing here is silently unsavable on every surface).
+_MERGE_SOURCE_FIELDS: tuple[str, ...] = (
+    "known_id",
+    "enabled",
+    "description",
+    "secret_env",
+    "strategy",
+    "local_only",
+    "allow_cloud",
+    "prefer_provider",
+    "cloud_providers",
+    "max_concurrency",
+    "model_rewrites",
+    "scenarios",
+    "match",
+)
+
+# Same contract for [cloud.providers.<id>]: every CloudProviderConfig field
+# except the write-only api_key.
+_MERGE_CLOUD_PROVIDER_FIELDS: tuple[str, ...] = (
+    "enabled",
+    "region",
+    "api_format",
+    "auth",
+    "api_key_env",
+    "models",
+    "base_url",
+)
+
+
 def _merge_sources(cfg: NetllmConfig, entries: list[Any]) -> list[dict[str, Any]]:
     merged_sources: list[dict[str, Any]] = []
     existing_by_id = {s.id: s for s in cfg.routing.sources}
@@ -151,21 +210,7 @@ def _merge_sources(cfg: NetllmConfig, entries: list[Any]) -> list[dict[str, Any]
         prior = existing_by_id.get(source_id)
         merged_source: dict[str, Any] = prior.model_dump(mode="json") if prior else {}
         merged_source["id"] = source_id
-        for field in (
-            "known_id",
-            "enabled",
-            "description",
-            "secret_env",
-            "strategy",
-            "local_only",
-            "allow_cloud",
-            "prefer_provider",
-            "cloud_providers",
-            "max_concurrency",
-            "model_rewrites",
-            "scenarios",
-            "match",
-        ):
+        for field in _MERGE_SOURCE_FIELDS:
             if field in entry:
                 merged_source[field] = entry[field]
         # secret is write-only: an empty/omitted value keeps the
@@ -190,15 +235,7 @@ def _merge_cloud_providers(
             continue
         prior = existing_providers.get(provider_id)
         merged_entry: dict[str, Any] = prior.model_dump(mode="json") if prior else {}
-        for field in (
-            "enabled",
-            "region",
-            "api_format",
-            "auth",
-            "api_key_env",
-            "models",
-            "base_url",
-        ):
+        for field in _MERGE_CLOUD_PROVIDER_FIELDS:
             if field in entry:
                 merged_entry[field] = entry[field]
         # Keys are write-only: an empty/omitted value keeps the
@@ -225,10 +262,15 @@ def apply_config_patch(cfg: NetllmConfig, patch: dict[str, Any]) -> NetllmConfig
     current = cfg.model_dump(mode="json")
 
     for section, body in patch.items():
-        if section not in _CONFIG_SECTIONS:
-            continue
         if not isinstance(body, dict):
+            # Top-level scalars have no meaning in this schema (the config
+            # is sections all the way down). Anything cfg already carries
+            # at top level stays -- it came from `current` above.
             continue
+        # Sections outside _CONFIG_SECTIONS are merged through rather than
+        # dropped (case 4): NetllmConfig allows extras, so a `[future_section]`
+        # a newer client sends is stored instead of being filtered out on the
+        # way in and then deleted from disk by the save that follows.
         current[section] = deep_merge(current.get(section, {}), body)
 
     for top, sub in _FULL_REPLACE_DICT_PATHS:

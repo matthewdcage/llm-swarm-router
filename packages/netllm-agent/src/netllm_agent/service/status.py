@@ -12,6 +12,7 @@ import asyncio
 from typing import Any
 
 from netllm_core.capabilities import model_capability
+from netllm_core.update import compare_versions
 from netllm_core.version import get_version
 from netllm_discovery.local import find_omlx_admin_url, probe_omlx_admin_for_backends
 
@@ -81,11 +82,25 @@ class StatusMixin:
                     f"but this agent runs '{my_strategy}' — set both to the "
                     "same value (or 'auto') unless intentional"
                 )
-            if peer.version and peer.version != my_version:
-                warnings.append(
-                    f"peer {name} runs netllm {peer.version} but this agent "
-                    f"runs {my_version} — update the older machine"
-                )
+            if not peer.version:
+                continue
+            # String inequality flagged "0.5.0.1" against "v0.5.0.1" as drift
+            # and told the operator to "update the older machine" without
+            # saying which one — advice that is wrong half the time. Order
+            # them with the same comparator the updater uses.
+            order = compare_versions(my_version, peer.version)
+            if order == 0:
+                continue
+            older, newer = (
+                (f"peer {name}", "this agent")
+                if order > 0
+                else ("this agent", f"peer {name}")
+            )
+            warnings.append(
+                f"peer {name} runs netllm {peer.version} but this agent "
+                f"runs {my_version} — {older} is older than {newer}; "
+                "update it"
+            )
         return warnings
 
     async def status_payload_enriched(self) -> dict[str, Any]:

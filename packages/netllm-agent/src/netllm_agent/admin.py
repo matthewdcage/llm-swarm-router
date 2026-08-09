@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import HTTPException, Request
 from netllm_core import config_guards, config_merge
 from netllm_core.cloud_providers import CLOUD_PROVIDERS, get_provider_spec
+from netllm_core.config_report import unknown_cloud_provider_issues
 from netllm_core.harness_detection import detect as detect_harness
 from netllm_core.known_harnesses import KNOWN_HARNESSES
 from netllm_core.models import (
@@ -133,6 +134,10 @@ def doctor_payload(cfg: NetllmConfig, service: AgentService) -> dict[str, Any]:
                     }
                 )
 
+    # Unknown [cloud.providers.*] ids are preserved on save rather than
+    # deleted (models.CloudConfig), so doctor is where they become visible.
+    issues.extend(unknown_cloud_provider_issues(cfg))
+
     if cfg.swarm.mdns and cfg.agent.advertise:
         try:
             import zeroconf  # noqa: F401
@@ -182,6 +187,13 @@ def _source_export(cfg: NetllmConfig) -> list[dict[str, Any]]:
     out = []
     for s in cfg.routing.sources:
         dumped = s.model_dump(mode="json")
+        # [F-59 class] Allowlist, not a denylist. Phase 2 put
+        # extra="allow" on SourceConfig so a newer client's unknown keys
+        # are preserved on disk -- but blanking only "secret" would then
+        # stream every one of them, credential-shaped or not, to any
+        # reader. Extras stay out of the wire view; config_merge keeps
+        # them on the write path, so a save does not blank them.
+        dumped = {k: v for k, v in dumped.items() if k in type(s).model_fields}
         dumped["secret"] = ""
         out.append(dumped)
     return out

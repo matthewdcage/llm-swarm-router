@@ -1,0 +1,112 @@
+# Registry-mirror ledger — consumed by scripts/check-registry-mirrors.py
+# (docs/extending/PROGRAM.md §2, item 0a).
+#
+# The rule: a provider id is stated once, in its registry. Every other place
+# the literal appears is a *mirror*, and every mirror that exists today is
+# listed below with the phase that deletes it. The ledger is green on day one
+# by construction; its power today is that a NEW id may not appear in a file
+# that is not already listed here.
+#
+# Adding an entry is not a fix. If you are here because the gate failed, the
+# question is whether the fact can be derived (runtime projection, generated
+# artifact, or projection test) — see docs/extending/PROGRAM.md §1.
+
+# Fixed scan list. Deliberately not a repo-wide walk: Phase 0 buys the
+# detector, not the refactor. Doc rosters join in Phase 3 when they become
+# generated; surface-name fact classes join in Phase 5a.
+[scan]
+files = [
+  "packages/netllm-agent/src/netllm_agent/static/dashboard.js",
+  "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift",
+  "apps/netllm-mac/Sources/Config/KeychainStore.swift",
+  "apps/netllm-mac/Sources/Server/PythonRuntime.swift",
+  "config.example.toml",
+  "packages/netllm-cli/src/netllm_cli/ui.py",
+  "packages/netllm-core/src/netllm_core/platform.py",
+  "packages/netllm-discovery/src/netllm_discovery/local.py",
+  "packages/netllm-core/src/netllm_core/models.py",
+  "packages/netllm-agent/src/netllm_agent/admin.py",
+]
+
+[[fact_class]]
+id = "cloud-provider-id"
+source = "packages/netllm-core/src/netllm_core/cloud_providers.py"
+# Ids are the keys of the CLOUD_PROVIDERS dict literal, read by AST so the
+# checker needs no import and no installed environment.
+extract = "dict-keys:CLOUD_PROVIDERS"
+
+[[fact_class.allowed_mirrors]]
+glob = "packages/netllm-agent/src/netllm_agent/static/dashboard.js"
+reason = "cloud provider bootstrap list; becomes generated between markers"
+expires = "phase-4"
+
+[[fact_class.allowed_mirrors]]
+glob = "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift"
+reason = "cloudProvidersBootstrap offline fallback; becomes generated"
+expires = "phase-4"
+
+[[fact_class.allowed_mirrors]]
+glob = "apps/netllm-mac/Sources/Config/KeychainStore.swift"
+reason = """accountForCloudProvider switch + bootstrapProviderIDs; the switch \
+cases go away in Axis A (the generic arm is already correct), the id list \
+becomes the generated degraded-mode fallback"""
+expires = "phase-4"
+
+[[fact_class.allowed_mirrors]]
+glob = "config.example.toml"
+reason = "[cloud.providers.*] example stanzas; become generated"
+expires = "phase-4"
+
+[[fact_class.allowed_mirrors]]
+glob = "packages/netllm-core/src/netllm_core/models.py"
+reason = """CloudProviderId re-export plus the openai/anthropic api_format \
+Literal, which collides with two provider ids by coincidence of naming"""
+expires = "phase-4"
+
+[[fact_class]]
+id = "local-provider-id"
+source = "packages/netllm-discovery/src/netllm_discovery/local.py"
+# Ids are the first element of each KNOWN_PROVIDERS tuple.
+extract = "tuple-heads:KNOWN_PROVIDERS"
+
+[[fact_class.allowed_mirrors]]
+glob = "packages/netllm-agent/src/netllm_agent/static/dashboard.js"
+reason = "discovery provider checkbox roster"
+expires = "phase-3"
+
+[[fact_class.allowed_mirrors]]
+glob = "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift"
+reason = "SettingsViewModel.providers checkbox roster"
+expires = "phase-3"
+
+[[fact_class.allowed_mirrors]]
+glob = "config.example.toml"
+reason = "discovery.providers example plus provider_urls stanzas"
+expires = "phase-3"
+
+[[fact_class.allowed_mirrors]]
+glob = "packages/netllm-cli/src/netllm_cli/ui.py"
+reason = "PROVIDER_LABELS / offline hints; LocalProviderSpec absorbs both"
+expires = "phase-3"
+
+[[fact_class.allowed_mirrors]]
+glob = "packages/netllm-core/src/netllm_core/platform.py"
+reason = "default_discovery_providers per-platform lists; spec.platforms absorbs"
+expires = "phase-3"
+
+[[fact_class.allowed_mirrors]]
+glob = "packages/netllm-core/src/netllm_core/models.py"
+reason = """ProviderId Literal (stays hand-written, asserted by get_args \
+equality), plus the id -> *_API_KEY env map in Backend.resolve_api_key -- \
+one of the three copies of that map, all absorbed by LocalProviderSpec"""
+expires = "phase-3"
+
+[[fact_class.allowed_mirrors]]
+glob = "packages/netllm-agent/src/netllm_agent/admin.py"
+reason = """doctor's 401/403 env-var hint map -- the third copy of the same \
+id -> *_API_KEY fact (local.py:163 and models.py:596 are the others). Every \
+entry is mechanically PROVIDER.upper()_API_KEY, but it is NOT derivable by \
+that rule alone: the .get(..., "") miss is load-bearing, since a `custom` or \
+`peer:*` backend must produce no hint rather than a CUSTOM_API_KEY that \
+nothing reads. Needs spec membership, i.e. Axis B"""
+expires = "phase-3"
