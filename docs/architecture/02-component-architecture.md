@@ -172,8 +172,9 @@ a real simplification target (F-23).
 | `lan.py` | 366 | Loopback/own-URL detection, subnet CIDR scan, mDNS browse (sync), `discover_lan_agents` aggregation |
 | `mdns.py` | 298 | zeroconf advertiser + browser, `ServiceInfo` encode/decode |
 | `swarm.py` | 235 | `SwarmRegistry`, `PeerRecord`, heartbeat gossip loop, peer → `Backend` materialisation |
+| `runtime.py` | 142 | Listen-port conflict detection, human-readable hints, `stop_netllm_on_port` |
+| `agent_lock.py` | — | Cross-platform flock singleton lock (`agent.lock` under state dir) |
 | `process_util.py` | 160 | Port ownership / PID inspection for `serve --replace` |
-| `runtime.py` | 142 | Listen-port conflict detection and human-readable hints |
 
 `local.py` carries all oMLX-specific admin/telemetry probing (~280 lines of the 610). That is
 provider-specific knowledge sitting in a package named "discovery" — a cohesion smell, not a

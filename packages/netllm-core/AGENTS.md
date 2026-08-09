@@ -8,13 +8,14 @@ Shared routing, backend health cache, configuration I/O, model catalog types, an
 
 ## Ownership
 
-Key modules: `config.py`, `routing_policy.py`, `pool.py`, `model_resolution.py`, `health.py`, `models.py`, `capabilities.py`, `anthropic_bridge.py`, `update.py`, `platform.py`, `cloud_providers.py`, `config_schema.py`.
+Key modules: `config.py`, `routing_policy.py`, `pool.py`, `model_resolution.py`, `health.py`, `models.py`, `capabilities.py`, `anthropic_bridge.py`, `update.py`, `platform.py`, `cloud_providers.py`, `config_schema.py`, `backend_credentials.py`.
 
 ## Local Contracts
 
 - Config path: `~/.config/netllm/config.toml` (see root `config.example.toml`)
 - `anthropic_bridge.py` translates Messages API ↔ OpenAI-compatible backends; SDK calls stay in `netllm-sdk-anthropic`
 - Routing strategies and backend health drive agent and CLI behavior
+- **`backend_credentials.py`**: per-URL key resolution (`resolve_api_key_for_url`, `backend_override_for_url`, `upsert_backend_credential`) — discovery scan and UIs sync credentials into `routing.backends`
 - **`ensure_lan_mesh_defaults()`** / **`is_lan_listen()`** in `models.py`: LAN bind → `local_spillover` + `subnet_scan` without minting `cluster_token`; called from CLI `serve`, config JSON import, and menubar save. The strategy upgrade is **one-shot** (`routing.lan_defaults_applied`) — an explicit user strategy choice is never rewritten after the first upgrade (mirrored in Swift `applyLanMeshDefaults`)
 - **Per-request routing headers** (constants in `models.py`, resolved in `routing_policy.resolve_routing`): `x-netllm-strategy` (one-off strategy override), `x-netllm-backend` (pin to backend id / `peer:<agent-id>` / base URL → `pool.backend_by_id`), `x-netllm-hops` (agent-hop counter; ≥ `MAX_FORWARD_HOPS` forces local — backstop beside `x-netllm-local-only`)
 - **Health knobs are config-driven** (`routing.health_ttl_s`, `offline_retry_s`, `max_backend_failures`): offline entries re-probe after the shorter `offline_retry_s` window, and a failed probe keeps the last known model catalog (never wipe `health.models` to `[]`)

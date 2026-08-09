@@ -73,20 +73,14 @@ def _swift_filter_names(rel_path: str, marker: str) -> frozenset[str]:
 
 SWIFT_DOC = "apps/netllm-mac/Sources/Config/NetllmConfigDocument.swift"
 
-
-# Fields a client legitimately does not carry. Anything not listed must
-# appear in the Swift struct -- "we forgot" is not a reason.
-#
-# This used to be a dict literal here. It now lives in
-# ledgers/control-parity.toml as `[[row_field]]`, which is what puts it under
-# the reason-quality, expiry and staleness tests that already guard every
-# other ledger in this tree: a dict in a test module can carry a reason but
-# never a date, and nothing ever read one.
-def _row_field_excuses() -> dict[tuple[str, str], str]:
-    return {
-        (entry["model"], entry["field"]): entry["reason"]
-        for entry in _control_ledger().get("row_field", [])
-    }
+# Fields a client legitimately does not carry, with the reason. Anything not
+# listed here must appear in the Swift struct -- "we forgot" is not a reason.
+INTENTIONALLY_ABSENT: dict[tuple[str, str], str] = {
+    ("SourceConfig", "secret"): (
+        "write-only, same contract as BackendOverride.api_key -- "
+        "ConfigStore.blankSourceSecret relies on empty-preserves-stored"
+    ),
+}
 
 
 def _swift_struct_fields(struct_name: str) -> tuple[set[str], str]:

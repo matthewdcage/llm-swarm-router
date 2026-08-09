@@ -139,16 +139,17 @@ not data loss.\
 """
 expires = "phase-8"
 
-[[field]]
-surface = "macos"
-key = "routing.backends[].api_key"
-reason = """
-A real gap with the same shape as backends[].api_format: backendOverride- \
-Editor renders api_key_env but not the write-only api_key itself, so a \
-per-backend inline key can only be set from the dashboard or config.toml. \
-Non-destructive because backend rows are identity-keyed on base_url.\
-"""
-expires = "phase-8"
+# routing.backends[].api_key had an entry here until the Discovery UI grew a
+# real per-endpoint key control (SettingsWindowView's backendOverrideEditor
+# binds `api_key`, SettingsViewModel.upsertBackendAPIKey writes it, and the
+# on-disk value is blanked for display). The gap closed, so the excuse is
+# deleted rather than reworded.
+#
+# It was caught by test_no_ledger_entry_excuses_a_field_that_is_actually_-
+# rendered, and only on the combined tree: this branch was green on its own
+# base, and the branch that closed the gap carried no ledger. Neither half
+# could see it alone, which is the case for running the gates on the merge
+# rather than on each branch.
 
 [[field]]
 surface = "macos"

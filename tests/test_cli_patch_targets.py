@@ -202,7 +202,19 @@ def test_canary_observe_httpx_namespace(tmp_path: Path) -> None:
 
 def test_canary_serve_lifecycle_asyncio_namespace(tmp_path: Path) -> None:
     cfg_path = _cfg(tmp_path)
-    with patch.object(serve_lifecycle.asyncio, "run", _boom):
+
+    class _FakeLock:
+        def release(self) -> None:
+            return None
+
+    with (
+        patch(
+            "netllm_discovery.agent_lock.acquire_agent_lock",
+            return_value=_FakeLock(),
+        ),
+        patch("netllm_discovery.runtime.check_listen_port", return_value=None),
+        patch.object(serve_lifecycle.asyncio, "run", _boom),
+    ):
         result = runner.invoke(app, ["serve", "--config", str(cfg_path)])
     assert _intercepted(result), result.output
 

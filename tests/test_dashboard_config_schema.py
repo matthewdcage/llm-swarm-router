@@ -34,15 +34,19 @@ def client() -> TestClient:
         yield test_client
 
 
-# test_dashboard_js_serves_generic_schema_renderer and
-# test_dashboard_js_serves_remaining_sections_generic_widgets moved to
-# tests/conformance/kit_config_surfaces.py (Axis D). They asserted the same
-# renderer markers this file greps for, but the kit asserts them *per config
-# subtree*, with a source location, and fails when a field stops being covered
-# rather than only when a string disappears -- see
-# test_the_generic_schema_machinery_exists_on_both_surfaces and the
-# `schema_rendered` evidence assertion in `disposition()`. Two systems asking
-# the same question is the duplication PROGRAM.md 1 exists to stop.
+def test_dashboard_js_serves_generic_schema_renderer(client: TestClient) -> None:
+    resp = client.get("/ui/dashboard.js")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "renderSchemaForm" in body
+    assert "renderDiscoveryCredentialsSection" in body
+    assert "applyDiscoveryCredentialPatch" in body
+    assert "function renderSchemaField" in body
+    # ui is the phase-2 pilot section: migrated to the generic renderer,
+    # sourced from the fetched schema rather than hand-built widgets.
+    assert 'renderSchemaForm("ui", state.configSchema' in body
+    assert "loadConfigSchema" in body
+    assert "/netllm/v1/config/schema" in body
 
 
 def test_dashboard_js_syntax_is_valid() -> None:

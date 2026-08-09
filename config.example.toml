@@ -199,11 +199,14 @@ check_for_updates_automatically = true
 # menubar_show_live = false  # live throughput gauge (LIV)
 # menubar_models_favorites_only = false  # menubar Models menu shows favorites only
 
-# Optional manual backend overrides (per-endpoint API keys via env)
+# Optional manual backend overrides (per-endpoint API keys).
+# The Discovery / Servers tab in the web dashboard and macOS Settings writes
+# the same [[routing.backends]] rows when you set a key next to a pinned URL.
 # [[routing.backends]]
 # base_url = "http://192.168.1.50:8080/v1"
 # provider = "omlx"
-# api_key_env = "OMLX_API_KEY"
+# api_key = "your-token-here"
+# # api_key_env = "OMLX_API_KEY"  # alternative to inline api_key
 # enabled = true
 # local = true
 # Optional per-backend concurrency cap (0/omitted = defer to
@@ -211,11 +214,13 @@ check_for_updates_automatically = true
 # max_concurrency = 4
 
 # LM Studio with API authentication enabled (Settings -> Developer):
-# set LMSTUDIO_API_KEY in the agent's environment, or pin the token here.
+# set the key on the Servers tab, LMSTUDIO_API_KEY in the agent environment,
+# or pin the token inline here.
 # [[routing.backends]]
 # base_url = "http://127.0.0.1:1234/v1"
 # provider = "lmstudio"
-# api_key_env = "LMSTUDIO_API_KEY"
+# api_key = "your-lmstudio-token"
+# # api_key_env = "LMSTUDIO_API_KEY"
 # enabled = true
 # local = true
 
