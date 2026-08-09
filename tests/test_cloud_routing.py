@@ -200,6 +200,33 @@ def test_materialize_cloud_provider_backends_creates_routable_row(
     assert row.cloud_provider == "moonshot"
 
 
+def test_materialize_skips_unknown_provider_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An id with no registry entry is preserved in config now rather than
+    deleted on save (Phase 2 / PROGRAM.md §3 Axis E.1) -- but preserved is
+    not honored. `get_provider_spec` returns None and materialization
+    skips it, so nothing routable is ever built from a provider this build
+    has no driver for. `netllm doctor` names it instead.
+    """
+    monkeypatch.setenv("BOGUS_PROVIDER_API_KEY", "bk-test")
+    cfg = NetllmConfig.model_validate(
+        {
+            "cloud": {
+                "providers": {
+                    "bogus-provider": {"enabled": True, "api_key": "bk-inline"}
+                }
+            }
+        }
+    )
+    service = AgentService(cfg)
+    service._materialize_cloud_provider_backends()
+    assert service.pool.backend_by_id("cloud-bogus-provider") is None
+    assert not [
+        b for b in service.pool.backends if b.cloud_provider == "bogus-provider"
+    ]
+
+
 def test_materialize_skips_enabled_provider_without_key() -> None:
     cfg = NetllmConfig()
     cfg.cloud.providers["moonshot"] = CloudProviderConfig(enabled=True)

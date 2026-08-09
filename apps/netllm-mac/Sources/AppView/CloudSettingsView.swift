@@ -44,6 +44,15 @@ struct CloudProviderInfo {
     var notes: String
     var regions: [String]
     var keychainAccount: String
+    /// `CloudProviderSpec.api_key_env` as served by the agent. Empty when the
+    /// row came from the offline bootstrap (or from an agent too old to send
+    /// it) — read `resolvedAPIKeyEnv`, never this, and the derived default
+    /// applies instead.
+    var apiKeyEnv: String = ""
+
+    var resolvedAPIKeyEnv: String {
+        apiKeyEnv.isEmpty ? KeychainStore.CloudKeyEnv.defaultEnvVar(for: id) : apiKeyEnv
+    }
 }
 
 @MainActor

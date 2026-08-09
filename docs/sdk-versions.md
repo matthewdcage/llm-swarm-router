@@ -37,7 +37,7 @@ When an upstream release adds or changes API behavior, classify the work:
 |-------|------|----------|
 | 1 — Adapter | `packages/netllm-sdk-*/src/*/client.py` | SDK constructor, `create`/`stream` calls, `model_dump()`, SSE wire format |
 | 2 — Bridge | `packages/netllm-core/src/netllm_core/anthropic_bridge.py` | Messages ↔ Chat Completions mapping, tools, stream events |
-| 3 — Agent | `packages/netllm-agent/src/netllm_agent/service.py` | Routing, failover, headers, backend selection |
+| 3 — Agent | `packages/netllm-agent/src/netllm_agent/service/` | Routing, failover, headers, backend selection |
 | Probes | `packages/netllm-core/src/netllm_core/health.py` | Discovery compat signals |
 
 ## Bump checklist

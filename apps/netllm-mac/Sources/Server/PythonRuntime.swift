@@ -77,14 +77,15 @@ struct PythonRuntime: Sendable {
         // Env var names must match each provider's CloudProviderSpec.api_key_env
         // in netllm_core.cloud_providers — that's what _materialize_cloud_provider_backends
         // falls back to when a [cloud.providers.*] entry has no inline api_key.
-        let keychainToEnvVar: [(account: String, envVar: String)] = [
-            (KeychainStore.Account.anthropicAPIKey, "ANTHROPIC_API_KEY"),
-            (KeychainStore.Account.openaiAPIKey, "OPENAI_API_KEY"),
-            (KeychainStore.Account.moonshotAPIKey, "MOONSHOT_API_KEY"),
-            (KeychainStore.Account.zaiAPIKey, "ZAI_API_KEY"),
-            (KeychainStore.Account.openrouterAPIKey, "OPENROUTER_API_KEY"),
-            (KeychainStore.Account.dashscopeAPIKey, "DASHSCOPE_API_KEY"),
-        ]
+        //
+        // This list is *derived*, never written here. It used to be a closed
+        // table of five, so a provider added to the Python registry stored its
+        // key in the Keychain and was never exported: the agent 401'd against
+        // a credential Settings showed as saved, with nothing in any log
+        // connecting the two. See KeychainStore.CloudKeyEnv.
+        let keychainToEnvVar = KeychainStore.CloudKeyEnv.injectionPairs(
+            remembered: KeychainStore.CloudKeyEnv.remembered()
+        )
         for (account, envVar) in keychainToEnvVar {
             if env[envVar]?.isEmpty != false,
                let key = KeychainStore.load(account: account),

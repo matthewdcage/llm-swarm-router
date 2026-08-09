@@ -92,13 +92,19 @@ def test_default_cloud_config_preserves_current_behavior() -> None:
     assert cfg.cloud.providers == {}
 
 
-def test_unknown_provider_id_is_dropped_on_validate() -> None:
-    """Regression test for docs/config-guards-audit.md: cloud.providers
-    keys are always one of the five code-owned registry ids (netllm cloud
-    enable/set-key already reject anything else); a stray key -- e.g. from
-    a hand-edited config.toml -- has no supported way to be removed
-    through the normal save/merge path, so it must never be able to enter
-    a validated config in the first place."""
+def test_unknown_provider_id_is_kept_on_validate() -> None:
+    """A `[cloud.providers.<id>]` key with no registry entry is preserved,
+    not filtered out.
+
+    It used to be dropped by a validator (docs/config-guards-audit.md), on
+    the grounds that a stray key has no supported way to be removed through
+    the save/merge path. But "unknown to this build" also describes a
+    provider added in a *later* release, and dropping it meant an older
+    agent's Save deleted a newer agent's configuration -- the data loss
+    Phase 2 exists to close (docs/extending/PROGRAM.md §3 Axis E.1). The
+    entry is inert either way (see the materialization test below) and
+    `netllm doctor` now names it.
+    """
     cfg = NetllmConfig.model_validate(
         {
             "cloud": {
@@ -109,16 +115,18 @@ def test_unknown_provider_id_is_dropped_on_validate() -> None:
             }
         }
     )
-    assert set(cfg.cloud.providers) == {"moonshot"}
+    assert set(cfg.cloud.providers) == {"moonshot", "bogus-provider"}
 
 
-def test_unknown_provider_id_dropped_on_toml_round_trip(tmp_path: Path) -> None:
+def test_unknown_provider_id_survives_toml_round_trip(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     save_config(NetllmConfig(), path)
     with path.open("a") as f:
         f.write("\n[cloud.providers.bogus-provider]\nenabled = true\n")
     loaded = load_config(path)
-    assert "bogus-provider" not in loaded.cloud.providers
+    assert loaded.cloud.providers["bogus-provider"].enabled is True
+    save_config(loaded, path)
+    assert "bogus-provider" in load_config(path).cloud.providers
 
 
 def test_cloud_config_round_trip(tmp_path: Path) -> None:

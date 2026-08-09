@@ -118,7 +118,8 @@ enum AgentAPI {
                 displayName: row["display_name"] as? String ?? id,
                 notes: row["notes"] as? String ?? "",
                 regions: row["regions"] as? [String] ?? ["global"],
-                keychainAccount: KeychainStore.accountForCloudProvider(id)
+                keychainAccount: KeychainStore.accountForCloudProvider(id),
+                apiKeyEnv: row["api_key_env"] as? String ?? ""
             )
         }
     }

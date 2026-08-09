@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from netllm_core.cloud_providers import CloudProviderId
 from netllm_core.platform import (
@@ -21,6 +22,34 @@ __all__ = [
     "default_discovery_providers",
     "default_hostname",
 ]
+
+logger = logging.getLogger(__name__)
+
+
+class ConfigModel(BaseModel):
+    """Base for everything reachable from a config.toml.
+
+    `extra="allow"` is the whole point: `save_config` rewrites the entire
+    file from `model_dump()`, so any key pydantic discards at load time is
+    *deleted from the user's config* on the next save -- by the dashboard's
+    `POST /netllm/v1/admin/config`, by `netllm config import` (the macOS
+    Settings Save button), and by `netllm join`. Under the default
+    `extra="ignore"` that meant every write path silently destroyed keys
+    written by a newer netllm, which is the ordinary mixed-version upgrade
+    path (upgrade one machine, configure a provider there, press Save on an
+    older machine). Allowing extras turns that into a lossless round-trip:
+    unknown keys are carried on the model and re-emitted verbatim.
+
+    This is the generalization of F-01 (docs/architecture/07-findings-register.md),
+    which was the same failure for fields this build *does* know but the
+    merge layer forgot to copy. See docs/extending/PROGRAM.md §3 Axis E.1.
+
+    Not applied to runtime-only models (`Backend`, `BackendHealth`): they
+    are never persisted, so a typo there should still fail loudly.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
 
 RoutingStrategy = Literal[
     "auto",
@@ -66,7 +95,7 @@ def infer_api_format(provider: ProviderId) -> ApiFormat:
     return "openai"
 
 
-class BackendOverride(BaseModel):
+class BackendOverride(ConfigModel):
     base_url: str
     provider: ProviderId = "custom"
     api_format: ApiFormat | None = None
@@ -98,14 +127,14 @@ class BackendOverride(BaseModel):
         return ""
 
 
-class DiscoveryLocalConfig(BaseModel):
+class DiscoveryLocalConfig(ConfigModel):
     providers: list[str] = Field(default_factory=default_discovery_providers)
     custom_endpoints: list[str] = Field(default_factory=list)
     # Per-machine overrides, e.g. omlx on :8088 — tried before default port scan.
     provider_urls: dict[str, list[str]] = Field(default_factory=dict)
 
 
-class DiscoverySwarmConfig(BaseModel):
+class DiscoverySwarmConfig(ConfigModel):
     peers: list[str] = Field(default_factory=list)
     mdns: bool = True
     subnet_scan: bool = False
@@ -127,7 +156,7 @@ class DiscoverySwarmConfig(BaseModel):
     rediscover_interval_s: float = Field(default=60.0, ge=0.0)
 
 
-class RoutingPolicy(BaseModel):
+class RoutingPolicy(ConfigModel):
     """Match rules for per-request routing. Cloud paths require allow_cloud = true."""
 
     name: str = ""
@@ -143,7 +172,7 @@ class RoutingPolicy(BaseModel):
     enabled: bool = True
 
 
-class SourceMatch(BaseModel):
+class SourceMatch(ConfigModel):
     """Fallback identification when no header/key match is presented.
 
     Never grants elevated access on its own -- see SourceConfig.is_elevated.
@@ -152,7 +181,7 @@ class SourceMatch(BaseModel):
     user_agent_contains: list[str] = Field(default_factory=list)
 
 
-class ScenarioRule(BaseModel):
+class ScenarioRule(ConfigModel):
     """[routing.sources.<id>.scenarios.<scenario>] -- per-source override
     for one classified traffic scenario (netllm_core.scenarios.Scenario:
     long_context, web_search, think, background, default).
@@ -193,7 +222,7 @@ class ScenarioRule(BaseModel):
         return surface in self.surfaces
 
 
-class SourceConfig(BaseModel):
+class SourceConfig(ConfigModel):
     """[[routing.sources]] -- a known CLI or harness with durable routing.
 
     Identity resolution (netllm_core.source_identity.resolve_source), first
@@ -267,7 +296,7 @@ class SourceConfig(BaseModel):
         return False
 
 
-class ModelPool(BaseModel):
+class ModelPool(ConfigModel):
     """[routing.model_pools.<name>] — a host-scoped catch-all pool.
 
     Unlike model_aliases (canonical name -> served IDs, matched against
@@ -288,7 +317,7 @@ class ModelPool(BaseModel):
     models: list[str] = Field(default_factory=list)
 
 
-class RoutingConfig(BaseModel):
+class RoutingConfig(ConfigModel):
     # "auto": requests with shard context use batch_shard; everything
     # else balances by live in-flight load (least_load).
     default_strategy: RoutingStrategy = "local_first"
@@ -354,7 +383,7 @@ class RoutingConfig(BaseModel):
     sources: list[SourceConfig] = Field(default_factory=list)
 
 
-class AgentConfig(BaseModel):
+class AgentConfig(ConfigModel):
     listen: str = "127.0.0.1:11400"
     role: AgentRole = "peer"
     advertise: bool = True
@@ -396,7 +425,7 @@ class AgentConfig(BaseModel):
         return raw
 
 
-class UiConfig(BaseModel):
+class UiConfig(ConfigModel):
     auto_start_on_launch: bool = True
     log_dir: str = ""
     check_for_updates_automatically: bool = True
@@ -413,7 +442,7 @@ CloudFallbackMode = Literal["cloud", "local", "none"]
 CloudAuthMode = Literal["api_key", "oauth_pkce", "plan_token"]
 
 
-class CloudProviderConfig(BaseModel):
+class CloudProviderConfig(ConfigModel):
     """[cloud.providers.<id>] — one pre-configured cloud provider.
 
     All fields default to the provider's registry entry (see
@@ -436,7 +465,7 @@ class CloudProviderConfig(BaseModel):
     base_url: str = ""
 
 
-class CloudConfig(BaseModel):
+class CloudConfig(ConfigModel):
     """[cloud] — master switch, fallback policy, and per-provider config.
 
     Absent section == identical behavior to pre-cloud-feature releases:
@@ -455,30 +484,24 @@ class CloudConfig(BaseModel):
     )
     providers: dict[str, CloudProviderConfig] = Field(default_factory=dict)
 
-    @field_validator("providers", mode="before")
-    @classmethod
-    def _drop_unknown_provider_ids(cls, v: Any) -> Any:
-        """`cloud.providers` keys are always one of the code-owned
-        CLOUD_PROVIDERS ids (enforced everywhere a key is created: `netllm
-        cloud enable/set-key` validate against the registry, the dashboard
-        and macOS app only ever render/save those registry rows) -- there is
-        no supported way to add an arbitrary provider id. A stray key
-        (hand-edited config.toml, a future registry removal) would
-        otherwise be unremovable through the normal save/merge path (see
-        docs/config-guards-audit.md), so drop it here instead of trying to
-        make the merge layer support deleting it.
-        """
-        if not isinstance(v, dict):
-            return v
-        from netllm_core.cloud_providers import CLOUD_PROVIDERS
-
-        return {k: val for k, val in v.items() if k in CLOUD_PROVIDERS}
+    # A `_drop_unknown_provider_ids` validator used to live here, filtering
+    # `providers` down to the code-owned CLOUD_PROVIDERS ids on the grounds
+    # that a stray key is unremovable through the merge path (see
+    # docs/config-guards-audit.md). But "unknown to *this build*" and
+    # "stray" are not the same thing: a provider added in a later release
+    # is unknown here and the filter deleted it on the next save, which is
+    # exactly the mixed-version data loss ConfigModel exists to stop.
+    # Unknown ids are now kept and reported instead --
+    # netllm_core.config_report.unknown_cloud_provider_issues surfaces them
+    # in `netllm doctor` and the dashboard's doctor panel, and every
+    # consumer already skips a provider whose `get_provider_spec` is None
+    # (service/cloud.py, admin.py), so an unknown id materializes nothing.
 
     def provider(self, provider_id: CloudProviderId) -> CloudProviderConfig:
         return self.providers.get(provider_id, CloudProviderConfig())
 
 
-class NetllmConfig(BaseModel):
+class NetllmConfig(ConfigModel):
     agent: AgentConfig = Field(default_factory=AgentConfig)
     discovery: DiscoveryLocalConfig = Field(default_factory=DiscoveryLocalConfig)
     swarm: DiscoverySwarmConfig = Field(default_factory=DiscoverySwarmConfig)
@@ -490,6 +513,40 @@ class NetllmConfig(BaseModel):
         if self.ui.log_dir:
             return Path(self.ui.log_dir).expanduser()
         return default_log_dir()
+
+
+def unknown_cloud_provider_ids(config: NetllmConfig) -> list[str]:
+    """`[cloud.providers.<id>]` keys with no entry in CLOUD_PROVIDERS.
+
+    Either a typo or -- the case that matters -- a provider this build is
+    too old to know. Kept on the model either way; see CloudConfig.
+    """
+    from netllm_core.cloud_providers import CLOUD_PROVIDERS
+
+    return sorted(pid for pid in config.cloud.providers if pid not in CLOUD_PROVIDERS)
+
+
+def _model_extra_paths(model: BaseModel, prefix: str = "") -> list[str]:
+    paths = [f"{prefix}{key}" for key in (model.model_extra or {})]
+    for name in type(model).model_fields:
+        value = getattr(model, name, None)
+        if isinstance(value, BaseModel):
+            paths.extend(_model_extra_paths(value, f"{prefix}{name}."))
+    return paths
+
+
+def preserved_extra_paths(config: NetllmConfig) -> list[str]:
+    """Dotted paths of every key this build does not model but is keeping.
+
+    Covers top-level sections, fields within them, and unknown
+    `[cloud.providers.<id>]` subtrees. Deliberately does *not* descend into
+    list rows ([[routing.backends]], [[routing.sources]], ...): their
+    extras round-trip the same way, but naming them would turn one
+    orienting log line into a wall of indices.
+    """
+    paths = _model_extra_paths(config)
+    paths.extend(f"cloud.providers.{pid}" for pid in unknown_cloud_provider_ids(config))
+    return sorted(paths)
 
 
 class BackendHealth(BaseModel):
@@ -694,6 +751,18 @@ def save_config(config: NetllmConfig, path: Path | None = None) -> Path:
 
     cfg_path = path or default_config_path()
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    # One line naming everything being carried through, not one per key:
+    # this fires on every save of a config written by a newer netllm, and
+    # a per-key loop would bury the rest of the serve log.
+    extras = preserved_extra_paths(config)
+    if extras:
+        logger.warning(
+            "Preserving %d config key(s) this build does not recognize: %s. "
+            "They are re-emitted unchanged (likely written by a newer netllm); "
+            "run `netllm doctor` if that is unexpected.",
+            len(extras),
+            ", ".join(extras),
+        )
     payload = _drop_none_values(config.model_dump(mode="json"))
     cfg_path.write_text(
         tomli_w.dumps(payload),  # type: ignore[arg-type]
