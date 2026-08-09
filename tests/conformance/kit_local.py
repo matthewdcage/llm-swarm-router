@@ -383,3 +383,41 @@ def test_dashboard_bootstrap_matches_the_registry() -> None:
         "const PROVIDERS_BOOTSTRAP",
     )
     found.assert_exactly(set(LOCAL_PROVIDERS))
+
+
+def test_no_module_level_name_is_defined_twice() -> None:
+    """A redefinition is silent in Python and shadowing is easy to introduce.
+
+    `_is_platform_exclusive` was defined twice in `local_providers.py`: a
+    Phase 3 edit inserted the helper above its first use and left the original
+    behind. The bodies were identical so nothing broke, but Python takes the
+    second definition unconditionally — had the two drifted, the visible one
+    would have been dead code and the live one invisible to a reader who
+    stopped at the first.
+
+    Found by the Phase 8 build agent as a "pre-existing wart" rather than by
+    any gate, which is why this exists.
+    """
+    import ast
+
+    from conformance.projections import REPO_ROOT
+
+    for rel in (
+        "packages/netllm-core/src/netllm_core/local_providers.py",
+        "packages/netllm-core/src/netllm_core/cloud_providers.py",
+        "packages/netllm-core/src/netllm_core/control_plane.py",
+    ):
+        path = REPO_ROOT / rel
+        if not path.is_file():
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        seen: dict[str, int] = {}
+        dupes: list[str] = []
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                if node.name in seen:
+                    dupes.append(
+                        f"{node.name} (lines {seen[node.name]}, {node.lineno})"
+                    )
+                seen[node.name] = node.lineno
+        assert not dupes, f"{rel} defines the same name twice: {'; '.join(dupes)}"
