@@ -86,9 +86,17 @@ def deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
 # marked read_only in the schema document, so a patch echoing it back must
 # not be able to retag a hand-authored row.
 _BACKEND_CLIENT_SET_EXCLUDED = frozenset({"api_key", "cloud_provider"})
-# api_key_env has no editor on any surface today; it is preserved from the
-# prior row rather than accepted from a patch (unchanged behavior).
-_BACKEND_PRESERVE_ONLY = frozenset({"api_key_env"})
+# Fields preserved from the prior row rather than accepted from a patch.
+#
+# This used to hold `api_key_env` on the stated grounds that it "has no editor
+# on any surface today". That was false: SettingsWindowView.swift renders a
+# `TextField("API key env", ...)` bound straight to it, so a user could type a
+# new env var name, press Save, and watch it silently revert -- with no error,
+# and with the UI still showing the typed value because save() does not reload
+# from disk. It is an ordinary editable field and is now treated as one; the
+# empty set is kept so the distinction stays visible rather than the concept
+# being deleted.
+_BACKEND_PRESERVE_ONLY: frozenset[str] = frozenset()
 
 
 def _merge_backends(cfg: NetllmConfig, entries: list[Any]) -> list[dict[str, Any]]:

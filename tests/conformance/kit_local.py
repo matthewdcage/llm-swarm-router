@@ -284,3 +284,102 @@ def test_an_unknown_platform_still_gets_cross_platform_providers() -> None:
         assert "omlx" not in got, (
             f"{exotic} was offered oMLX, which is Apple-Silicon only"
         )
+
+
+# --- client projections (PROGRAM.md Axis B: "all five client/doc") --------
+
+
+def _swift_bootstrap() -> dict[str, tuple[str, int]]:
+    """Parse SettingsViewModel.localProviderBootstrap into {id: (label, port)}."""
+    import re
+
+    from conformance.projections import REPO_ROOT
+
+    path = REPO_ROOT / "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift"
+    text = path.read_text(encoding="utf-8")
+    start = text.find("static let localProviderBootstrap")
+    assert start != -1, f"{path.name}: localProviderBootstrap not found"
+    # Skip the type annotation's own brackets: the declaration reads
+    # `... : [(id: String, ...)] = [` and a naive find("]") stops inside it.
+    open_at = text.find("= [", start)
+    assert open_at != -1, f"{path.name}: localProviderBootstrap has no literal"
+    body = text[open_at : text.find("\n    ]", open_at)]
+    out: dict[str, tuple[str, int]] = {}
+    for pid, label, port in re.findall(
+        r'id:\s*"([^"]+)",\s*label:\s*"([^"]+)",\s*port:\s*(\d+)', body
+    ):
+        out[pid] = (label, int(port))
+    return out
+
+
+def test_swift_bootstrap_matches_the_registry(spec: LocalProviderSpec) -> None:
+    """The macOS prefill must agree with what discovery actually scans.
+
+    It did not: the prefill URL came from a ternary that gave every provider
+    except oMLX and Ollama port 1234, so vLLM was offered LM Studio's port --
+    a user accepting the default configured a URL nothing serves. Labels came
+    from `.capitalized`, rendering "Omlx", "Lmstudio", "Vllm".
+    """
+    bootstrap = _swift_bootstrap()
+    assert spec.id in bootstrap, (
+        f"SettingsViewModel.localProviderBootstrap is missing {spec.id!r}"
+    )
+    label, port = bootstrap[spec.id]
+    assert label == spec.short_label, (
+        f"{spec.id}: Swift label {label!r} != registry {spec.short_label!r}"
+    )
+    assert port in spec.default_ports, (
+        f"{spec.id}: Swift prefills port {port}, which discovery never scans "
+        f"(registry ports: {list(spec.default_ports)})"
+    )
+
+
+def test_swift_bootstrap_has_no_extra_providers() -> None:
+    assert set(_swift_bootstrap()) == set(LOCAL_PROVIDERS)
+
+
+def test_the_agent_serves_the_registry_to_its_clients() -> None:
+    """The route whose absence forced every client to hand-mirror the roster.
+
+    The cloud tab could derive itself from GET /netllm/v1/cloud/providers; the
+    discovery tab had no equivalent, which is why dashboard.js and three Swift
+    files each kept their own copy -- and why those copies drifted.
+    """
+    from netllm_agent.admin import local_provider_registry_payload
+
+    rows = {row["id"]: row for row in local_provider_registry_payload()}
+    assert set(rows) == set(LOCAL_PROVIDERS)
+    for pid, spec_ in LOCAL_PROVIDERS.items():
+        assert rows[pid]["display_name"] == spec_.display_name
+        assert rows[pid]["default_ports"] == list(spec_.default_ports)
+        assert rows[pid]["platforms"] == list(spec_.platforms)
+        assert rows[pid]["api_key_env"] == spec_.api_key_env
+
+
+def test_the_local_provider_route_is_registered() -> None:
+    import json
+
+    from conformance.projections import REPO_ROOT
+
+    manifest = json.loads(
+        (REPO_ROOT / "tests/contract/routes.json").read_text(encoding="utf-8")
+    )
+    paths = {row["path"] for row in manifest["routes"]}
+    assert "/netllm/v1/local-providers" in paths
+
+
+def test_dashboard_bootstrap_matches_the_registry() -> None:
+    """The dashboard's degraded-mode roster must still list every provider.
+
+    It now fetches GET /netllm/v1/local-providers, but the bootstrap is what
+    renders before that returns or when the agent is unreachable -- so a
+    provider missing here is simply absent from the discovery checkboxes,
+    silently, exactly the class this program exists to make loud.
+    """
+    from conformance.projections import string_array_after
+
+    found = string_array_after(
+        "packages/netllm-agent/src/netllm_agent/static/dashboard.js",
+        "const PROVIDERS_BOOTSTRAP",
+    )
+    found.assert_exactly(set(LOCAL_PROVIDERS))

@@ -18,6 +18,12 @@
 # The phase this tree has completed. Any entry whose `expires` names this
 # phase or an earlier one is overdue and fails the ledger test -- otherwise an
 # expiry is decoration. (PROGRAM.md §5 phase order: 0,1,2,3,4,5a,5b,6,7,8.)
+# Phase 4 is HALF done and this stays at phase-3 until it is not. The local
+# half landed (GET /netllm/v1/local-providers, both UIs derive from it). The
+# cloud half -- generate-registry-artifacts.py --check, deleting
+# KeychainStore's switch cases, generating the 5 doc rosters and the
+# config.example.toml stanzas -- has not. Setting this to "phase-4" lists
+# exactly the seven mirrors that remain, which is the honest to-do list.
 current_phase = "phase-3"
 files = [
   "packages/netllm-agent/src/netllm_agent/static/dashboard.js",
@@ -77,18 +83,21 @@ extract = "dict-keys:LOCAL_PROVIDERS"
 
 [[fact_class.allowed_mirrors]]
 glob = "packages/netllm-agent/src/netllm_agent/static/dashboard.js"
-reason = """discovery provider checkbox roster. NOT closed by phase 3: that \
-phase consolidated the Python side, and there is no local-provider registry \
-route in routes.json for a client to fetch (contrast the cloud side, which \
-derives from GET /netllm/v1/cloud/providers). Phase 4 adds the route"""
-expires = "phase-4"
+reason = """PROVIDERS_BOOTSTRAP: the degraded-mode roster rendered before \
+GET /netllm/v1/local-providers returns, or when the agent is unreachable. \
+No longer the source of truth (the fetch replaces it at boot) and pinned to \
+the registry by kit_local. Kept because an offline dashboard still has to \
+draw the discovery checkboxes"""
+expires = "never — offline fallback, projection-tested"
 
 [[fact_class.allowed_mirrors]]
 glob = "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift"
-reason = """SettingsViewModel.providers checkbox roster, plus a second copy \
-in AppConfig.swift and inline default ports in SettingsWindowView. Same \
-blocker as dashboard.js: no local-provider route exists to derive from"""
-expires = "phase-4"
+reason = """localProviderBootstrap (labels + first scan port) and the \
+`providers` roster, both pinned to the registry by kit_local. This is the \
+copy that had already drifted: vLLM was prefilled on LM Studio's port and \
+labels came from .capitalized. Retained as the offline fallback, same \
+contract as the cloud bootstrap next to it"""
+expires = "never — offline fallback, projection-tested"
 
 [[fact_class.allowed_mirrors]]
 glob = "config.example.toml"
