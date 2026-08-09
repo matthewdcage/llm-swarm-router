@@ -10,7 +10,7 @@ Build scripts and artifacts for macOS (venvstacks layers + DMG), Linux (deb/rpm)
 |------|------|
 | `build.py` | venvstacks export, fingerprint |
 | `_export/` | Python layer tree for Swift embed (generated) |
-| `linux/` | deb/rpm staging |
+| `linux/` | deb/rpm staging; `install-ollama-concurrency.sh` (Ollama parallel queue); `install-swarm-firewall.sh` (ufw/firewalld LAN `:11400` + mDNS) |
 | `windows/` | zip + winget metadata |
 | `scripts/` | Shared packaging helpers (see table below) |
 | `macos/` | Hardened-runtime entitlements for Developer ID sign |
