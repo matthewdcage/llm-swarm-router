@@ -12,9 +12,12 @@ It was found by an adversarial audit rather than by CI, twice. These tests are
 the CI answer: they parse the real Swift source and fail naming the missing
 field.
 
-Deliberately a projection test rather than a Swift unit test -- `swift test`
-does not run in CI (only `swift build`, inside the macos-14 menubar-lifecycle
-job), so an assertion that lives in Swift would not guard anything.
+Deliberately a projection test rather than a Swift unit test. `swift test`
+now runs in CI (added to the macos-14 menubar-lifecycle job in the same
+change), but a Swift assertion could only compare the struct against a
+hardcoded field list -- another mirror. Parsing the struct from Python lets
+the assertion compare it against the pydantic model itself, which is the
+actual source of truth.
 """
 
 from __future__ import annotations
