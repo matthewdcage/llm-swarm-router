@@ -25,6 +25,7 @@ Index: [README.md](README.md). Parent rail: [../AGENTS.md](../AGENTS.md).
 | `07-findings-register.md` | F-01…F-29 with severity, evidence, and fix |
 | `08-feature-integration-status.md` | shipped / partial / orphaned per client surface; product decisions |
 | `09-follow-up-audit-2026-07-31.md` | F-30…F-53 with severity, evidence, and fix (same contracts as 07; IDs continue the register namespace), plus a **Post-audit entries** tail (F-54…) for IDs opened after this audit closed |
+| `10-audit-2026-08-08.md` | F-59…F-96 with severity, evidence, and fix (same contracts as 07/09; continues the register namespace) |
 | `../closure-roadmap-2026-08-03.md` | Open-item inventory, adversarial merged-PR reviews, phased closure (**0.5.0.0 shipped**; Phase B → **0.5.0.1**) |
 
 ## Local Contracts
