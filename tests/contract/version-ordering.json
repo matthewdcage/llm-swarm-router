@@ -1,6 +1,6 @@
 {
   "_comment": [
-    "THE shared version-ordering corpus. Two independent comparators exist —",
+    "THE shared version-ordering corpus. Two independent comparators exist \u2014",
     "netllm_core.update.compare_versions (Python) and VersionOrdering.compare",
     "(apps/netllm-mac/Sources/Config/VersionOrdering.swift). Before this file",
     "they had no corpus in common, so they could disagree about whether a peer",
@@ -67,7 +67,7 @@
       "left": "1.0.0-rc.1",
       "right": "1.0.0",
       "expect": -1,
-      "why": "REGRESSION (PROGRAM.md §4): the semver punctuation spelling of the same defect"
+      "why": "REGRESSION (PROGRAM.md \u00a74): the semver punctuation spelling of the same defect"
     },
     {
       "left": "0.5.0rc1",
@@ -127,7 +127,37 @@
       "left": "unknown",
       "right": "0.0.0",
       "expect": 0,
-      "why": "garbage from a peer is inert, not an exception — this comparator runs on data another machine on the LAN controls"
+      "why": "garbage from a peer is inert, not an exception \u2014 this comparator runs on data another machine on the LAN controls"
+    },
+    {
+      "left": "0.5.0alpha1",
+      "right": "0.5.0beta1",
+      "expect": -1,
+      "why": "long-form labels must rank like their short forms; the corpus only exercised a/b, so swapping alpha and beta in _PRERELEASE_RANK left the suite green"
+    },
+    {
+      "left": "0.5.0beta1",
+      "right": "0.5.0rc1",
+      "expect": -1,
+      "why": "beta precedes rc, long form"
+    },
+    {
+      "left": "0.5.0dev1",
+      "right": "0.5.0alpha1",
+      "expect": -1,
+      "why": "dev precedes alpha, long form"
+    },
+    {
+      "left": "0.5.0pre1",
+      "right": "0.5.0",
+      "expect": -1,
+      "why": "pre is a prerelease and precedes the final release"
+    },
+    {
+      "left": "0.5.0preview1",
+      "right": "0.5.0rc1",
+      "expect": 0,
+      "why": "preview, pre, c and rc are one tier -- PEP 440 normalises all four to rc, and this comparator agrees. Pinned because the corpus exercised only the short forms, so an accidental re-rank of the long ones stayed green"
     }
   ]
 }

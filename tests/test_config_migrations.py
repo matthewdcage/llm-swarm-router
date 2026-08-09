@@ -374,3 +374,35 @@ def test_schema_version_is_not_an_editable_section() -> None:
     cfg = NetllmConfig()
     merged = apply_config_patch(cfg, {"schema_version": 99})
     assert merged.schema_version == CURRENT_SCHEMA_VERSION
+
+
+def test_a_pre_existing_backup_is_never_overwritten(tmp_path: Path) -> None:
+    """The oldest copy of the user's config is the valuable one.
+
+    `pre_migration_backup` returns early when `.bak-v{n}` already exists, and
+    its docstring calls that out as a property — but nothing enforced it.
+    Deleting the two-line guard left the whole suite green, and the harm is
+    direct: the backup taken on the FIRST upgrade is the only copy of the
+    user's original config, and a later save would replace it with something
+    already migrated.
+
+    Found by adversarial review, which removed the guard and watched a
+    hand-written `.bak-v1` get clobbered.
+    """
+    from netllm_core.models import load_config, save_config
+
+    path = tmp_path / "config.toml"
+    path.write_text('[agent]\nlisten = "127.0.0.1:11400"\n', encoding="utf-8")
+
+    backup = tmp_path / "config.toml.bak-v1"
+    backup.write_text("PRECIOUS ORIGINAL — must survive\n", encoding="utf-8")
+    before = backup.read_text(encoding="utf-8")
+
+    cfg = load_config(path)
+    save_config(cfg, path)
+    save_config(load_config(path), path)
+
+    assert backup.read_text(encoding="utf-8") == before, (
+        "an existing .bak-v1 was overwritten; the user's original config is "
+        "gone and only a migrated copy survives"
+    )

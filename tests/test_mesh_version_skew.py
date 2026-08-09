@@ -114,15 +114,31 @@ def test_an_absent_peer_version_is_silent(monkeypatch) -> None:
     assert service.peer_config_warnings() == []
 
 
-def test_an_absurd_but_readable_peer_version_is_handled(monkeypatch) -> None:
-    """`"9" * 500` is a real integer, so it is assessed rather than rejected —
-    the point is only that nothing raises on it."""
+def test_an_absurd_peer_version_is_reported_as_unreadable(monkeypatch) -> None:
+    """A 500-digit "version" is not a version, and we no longer pretend it is.
+
+    This test previously asserted the warning "this agent is older than peer
+    other-mac" — a confident claim about a number nobody is running, from data
+    a stranger on the LAN controls. Version segments are now bounded to 9
+    digits, so this is classified unreadable and the operator is told to go
+    look at the peer instead.
+
+    Two reasons the change is an improvement rather than a relaxation:
+    the advice is honest, and the bound is what stops `int()` raising on a
+    4400-digit string, which used to 500 `GET /netllm/v1/status` for everyone
+    (CPython refuses decimal conversions past 4300 digits). The original
+    intent — nothing raises — is still asserted, and now holds for inputs
+    that used to blow up.
+    """
     service = _service_with_peer(
         my_version="0.5.0", peer_version="9" * 500, monkeypatch=monkeypatch
     )
     warnings = service.peer_config_warnings()
     assert len(warnings) == 1
-    assert "this agent is older than peer other-mac" in warnings[0]
+    assert "unreadable netllm version" in warnings[0]
+    assert "older than peer" not in warnings[0], (
+        "an unreadable version must not produce a confident skew claim"
+    )
 
 
 def test_a_peer_never_changes_this_agents_config(monkeypatch) -> None:

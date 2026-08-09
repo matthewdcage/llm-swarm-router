@@ -64,10 +64,15 @@ _FINAL_RANK = 0
 # Longest alternatives first so "alpha" is not eaten by "a". Matched with
 # `match`, not `fullmatch`: an unrecognised trailing tag (`0.2.2.1.ci`, a local
 # `+build`) is ignored rather than reordering anything.
+# Segments are bounded to 9 digits. Unbounded `\d+` let a peer-controlled
+# string reach `int()`, and CPython refuses to convert a decimal string over
+# 4300 digits -- so a LAN device reporting "9"*4400 raised ValueError out of
+# `mesh_skew`, through `peer_config_warnings`, and 500'd GET /netllm/v1/status
+# for everyone. No real version has a 10-digit segment.
 _VERSION_RE = re.compile(
-    r"\s*v?(?P<release>\d+(?:\.\d+)*)"
+    r"\s*v?(?P<release>\d{1,9}(?:\.\d{1,9})*)"
     r"(?:[-._]?(?P<label>preview|alpha|beta|dev|pre|rc|a|b|c)(?![A-Za-z])"
-    r"[-._]?(?P<num>\d+)?)?",
+    r"[-._]?(?P<num>\d{1,9})?)?",
     re.IGNORECASE,
 )
 
@@ -84,12 +89,21 @@ def _version_key(value: str) -> tuple[list[int], int, int]:
     the mesh is behind. An operator running a release candidate was told to
     downgrade, and a peer on `0.5.0.1` looked identical to one on `0.5.0rc1`.
 
-    Unparseable input (a peer that reports `""` or garbage — this runs on data
-    another machine on the LAN controls) yields the zero version rather than
-    raising. Callers treat "same version" as "nothing to warn about", which is
-    the correct inert outcome for a version we cannot read.
+    Unparseable input (a peer that reports `""`, garbage, a 4000-digit number
+    or a JSON list — this runs on data another machine on the LAN controls)
+    yields the zero version rather than raising. That is a containment
+    guarantee, not a convenience: this is reached from `status_payload`, so a
+    raise here is a remote denial of service. Callers treat "same version"
+    as "nothing to warn about", which is the correct inert outcome for a
+    version we cannot read.
     """
-    match = _VERSION_RE.match(value or "")
+    if not isinstance(value, str):
+        # Peer heartbeats are untyped JSON: `payload.get("version")` can be a
+        # list, dict or number. Containment is the whole point of this
+        # function, so a non-string degrades like any other unreadable value
+        # instead of raising TypeError out of a status handler.
+        return ([0], _FINAL_RANK, 0)
+    match = _VERSION_RE.match(value)
     if match is None:
         return ([0], _FINAL_RANK, 0)
     release = [int(part) for part in match.group("release").split(".")]
@@ -129,7 +143,12 @@ def is_version_like(value: str) -> bool:
     confident "more than two minors of skew" warning about a version nobody is
     running. Callers that turn a comparison into advice must ask this first.
     """
-    return _VERSION_RE.match(value or "") is not None
+    if not isinstance(value, str):
+        # Peer heartbeats are untyped JSON: `payload.get("version")` can be a
+        # list, dict or number. Containment is the point, so a non-string is
+        # simply not version-like rather than a TypeError out of a handler.
+        return False
+    return _VERSION_RE.fullmatch(value.strip()) is not None
 
 
 SkewLevel = Literal["supported", "degraded", "unsupported"]

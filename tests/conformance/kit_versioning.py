@@ -23,7 +23,7 @@ from netllm_core.config_migrations import (
     Migration,
 )
 from netllm_core.deprecations import DEPRECATIONS, Deprecation
-from netllm_core.update import compare_versions, mesh_skew
+from netllm_core.update import compare_versions, is_version_like, mesh_skew
 from netllm_core.version import get_version
 from pydantic import BaseModel
 
@@ -261,3 +261,67 @@ def test_mesh_skew_never_raises_on_a_peer_reported_version() -> None:
             "degraded",
             "unsupported",
         }
+
+
+# --- peer-controlled input: containment, found by adversarial review --------
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "9" * 4400,  # over CPython's 4300-digit int() cap
+        "9" * 100000,
+        "0xdeadbeef",
+        "0abc",
+        "0 DROP TABLE peers",
+        "0" + "." * 5000,
+        "\x00\x01\x02",
+        "🙂" * 100,
+        "",
+        "unknown",
+        "v",
+        None,
+        ["1.0.0"],
+        {"version": "1.0.0"},
+        42,
+        3.14,
+    ],
+)
+def test_a_peer_cannot_raise_out_of_the_version_comparator(hostile: object) -> None:
+    """`version` comes verbatim from another machine's heartbeat JSON.
+
+    `mesh_skew` is reached from `peer_config_warnings`, which
+    `status_payload` calls unconditionally — so ANY exception here is a
+    remote denial of service on `GET /netllm/v1/status`, triggerable by
+    anything that can talk to this agent.
+
+    Two real holes, both found by adversarial review rather than by CI:
+    an unbounded `\\d+` let a 4400-digit string reach `int()`, which CPython
+    refuses to convert; and a non-string (untyped JSON gives lists and dicts)
+    raised `TypeError` out of `is_version_like`.
+    """
+    assert is_version_like(hostile) in (True, False)
+    skew = mesh_skew(get_version(), hostile)  # type: ignore[arg-type]
+    assert skew.level in ("supported", "degraded", "unsupported")
+    compare_versions(get_version(), hostile)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "junk", ["0xdeadbeef", "0abc", "0 DROP TABLE", "9" * 4400, "", "unknown"]
+)
+def test_junk_is_never_reported_as_a_version_number(junk: str) -> None:
+    """The half-fix this replaces was worse than no claim.
+
+    `is_version_like` used `match`, so anything *starting* with a digit
+    qualified. A peer reporting `0xdeadbeef` had its leading `0` read as the
+    release, and the node announced "more than two minors of skew — the mesh
+    is not expected to work" about a version nobody runs. Anchoring at both
+    ends is what makes the guard mean what it says.
+    """
+    assert is_version_like(junk) is False
+
+
+@pytest.mark.parametrize("real", ["0.4.0", "0.5.0.1", "1.0.0rc1", " v0.5.0 ", "1.0"])
+def test_real_versions_still_pass_the_guard(real: str) -> None:
+    """Anchoring must not reject versions the mesh actually reports."""
+    assert is_version_like(real) is True
