@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
 import subprocess
 import sys
@@ -57,7 +58,43 @@ def _pinned_ref() -> str:
     return DEFAULT_REF
 
 
-def read_source(ref: str) -> str:
+FIXTURE = ROOT / "tests/contract/fixtures/app-pre-split.py.txt"
+
+
+def _fixture_blob() -> str:
+    """git blob hash of the fixture, computed without invoking git."""
+    data = FIXTURE.read_bytes()
+    header = f"blob {len(data)}\0".encode()
+    return hashlib.sha1(header + data).hexdigest()  # noqa: S324 - git's format
+
+
+def read_source(ref: str | None) -> str:
+    """The pre-split ``app.py``, from the vendored fixture by default.
+
+    This used to shell out to ``git show <pinned-sha>:app.py``, which was
+    wrong twice over. It failed in CI because ``actions/checkout`` shallow
+    clones and the object is simply not there (exit 128) -- and more
+    seriously, the pinned commit was a feature-branch tip that gets SQUASHED
+    on merge, so it stops being an ancestor of ``main`` the moment the branch
+    lands. A baseline that evaporates when its own PR merges is not a
+    baseline.
+
+    The fixture is byte-identical to that blob (``git hash-object`` on it
+    equals the recorded ``source_blob``), and ``test_route_auth_gates.py``
+    re-checks that whenever git still has the object -- so provenance stays
+    verifiable where it can be, and never silently assumed where it cannot.
+
+    Passing an explicit ``--ref`` still reads from git, for a human
+    re-deriving the baseline from history.
+    """
+    if ref is None:
+        if not FIXTURE.is_file():
+            raise SystemExit(
+                f"generate-route-auth-gates: {FIXTURE.relative_to(ROOT)} is "
+                "missing -- it is the pre-split baseline and cannot be "
+                "regenerated from a squashed branch tip."
+            )
+        return FIXTURE.read_text(encoding="utf-8")
     return subprocess.run(
         ["git", "show", f"{ref}:{APP_PATH}"],
         cwd=ROOT,
@@ -151,6 +188,12 @@ def collect(source: str, ref: str) -> dict[str, object]:
             "Asserted against the running app by tests/test_route_auth_gates.py."
         ),
         "source_commit": ref,
+        # git blob hash of the vendored fixture. The pinned commit is a
+        # squashed branch tip and will not survive on main, so THIS is what
+        # makes the baseline's provenance checkable: `git hash-object` on the
+        # fixture must equal it, and it must equal the blob at source_commit
+        # in any clone deep enough to still have the object.
+        "source_blob": _fixture_blob(),
         "source_path": APP_PATH,
         "routes": rows,
     }
@@ -170,8 +213,11 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    ref = args.ref or _pinned_ref()
-    rendered = render(collect(read_source(ref), ref))
+    # ref=None means "read the vendored fixture"; the JSON still records the
+    # commit the fixture came from, so the manifest stays self-describing.
+    ref = args.ref
+    pinned = ref or _pinned_ref()
+    rendered = render(collect(read_source(ref), pinned))
     if args.check:
         current = OUT.read_text(encoding="utf-8") if OUT.is_file() else ""
         if current != rendered:
@@ -184,7 +230,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        print(f"OK: route-auth-gates.json up to date (derived from {ref[:12]})")
+        print(f"OK: route-auth-gates.json up to date (derived from {pinned[:12]})")
         return 0
 
     OUT.write_text(rendered, encoding="utf-8")

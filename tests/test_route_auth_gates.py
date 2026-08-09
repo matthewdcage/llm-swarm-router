@@ -227,3 +227,73 @@ def test_create_app_stays_assembly_only() -> None:
         "create_app registers routes inline again; move them into "
         "netllm_agent/routes/ and add the registrar to REGISTRARS"
     )
+
+
+def test_the_vendored_baseline_matches_the_pinned_commit() -> None:
+    """The fixture must really be the pre-split ``app.py``, not a lookalike.
+
+    The baseline used to be read live via ``git show <sha>:app.py``. That was
+    wrong twice: CI shallow-clones so the object is absent (exit 128), and the
+    pinned sha is a feature-branch tip that gets SQUASHED on merge — so it
+    stops being reachable from ``main`` the moment its own PR lands. A
+    baseline that evaporates when it merges is not a baseline.
+
+    So the source is vendored. Provenance is kept checkable rather than
+    assumed: the manifest records the git blob hash, this test recomputes it
+    from the file, and — whenever the clone is deep enough to still have the
+    object — cross-checks it against git itself. Where git cannot answer, the
+    test says so out loud instead of passing quietly.
+    """
+    import hashlib
+    import json
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    fixture = root / "tests/contract/fixtures/app-pre-split.py.txt"
+    manifest = json.loads(
+        (root / "tests/contract/route-auth-gates.json").read_text(encoding="utf-8")
+    )
+
+    data = fixture.read_bytes()
+    computed = hashlib.sha1(  # noqa: S324 - git's own blob format
+        f"blob {len(data)}\0".encode() + data
+    ).hexdigest()
+    assert computed == manifest["source_blob"], (
+        f"{fixture.name} does not match the blob recorded in the manifest "
+        f"({computed} != {manifest['source_blob']}); the baseline was edited"
+    )
+
+    # The pre-split shape is the whole point: routes declared INSIDE
+    # create_app. If this fixture were ever replaced with post-split app.py
+    # the manifest would go empty and assert nothing.
+    text = data.decode("utf-8")
+    assert "@app.get(" in text and "def create_app(" in text, (
+        "the vendored baseline does not register routes inline — it is not a "
+        "pre-split app.py"
+    )
+
+    probe = subprocess.run(
+        ["git", "cat-file", "-e", f"{manifest['source_commit']}^{{commit}}"],
+        cwd=root,
+        capture_output=True,
+    )
+    if probe.returncode != 0:
+        pytest.skip(
+            f"clone lacks {manifest['source_commit'][:12]} (shallow, or the "
+            "branch was squash-merged); blob hash checked, git cross-check "
+            "not possible here"
+        )
+    blob = subprocess.run(
+        [
+            "git",
+            "rev-parse",
+            f"{manifest['source_commit']}:packages/netllm-agent/src/netllm_agent/app.py",
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    assert blob.returncode == 0, blob.stderr
+    assert blob.stdout.strip() == manifest["source_blob"], (
+        "the vendored baseline disagrees with the blob at the pinned commit"
+    )
