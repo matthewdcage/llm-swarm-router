@@ -244,8 +244,6 @@ def test_the_vendored_baseline_matches_the_pinned_commit() -> None:
     test says so out loud instead of passing quietly.
     """
     import hashlib
-    import json
-    import subprocess
 
     root = Path(__file__).resolve().parents[1]
     fixture = root / "tests/contract/fixtures/app-pre-split.py.txt"
