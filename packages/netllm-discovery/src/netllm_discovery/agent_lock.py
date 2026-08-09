@@ -38,8 +38,15 @@ class AlreadyRunning:
 class AgentLock:
     """Held for the lifetime of the foreground agent process."""
 
-    def __init__(self, path: Path, fd: int, handle: IO[Any]) -> None:
+    def __init__(
+        self,
+        path: Path,
+        fd: int,
+        handle: IO[Any],
+        info: AgentLockInfo,
+    ) -> None:
         self.path = path
+        self.info = info
         self._fd = fd
         self._handle = handle
         self._released = False
@@ -65,8 +72,12 @@ class AgentLock:
 
 
 def agent_lock_path(config: NetllmConfig) -> Path:
-    """Path to the singleton lock file for this install."""
-    return config.resolved_log_dir().parent / "agent.lock"
+    """Path to the singleton lock file for this install and listen address."""
+    from netllm_discovery.mdns import parse_listen_host_port
+
+    host, port = parse_listen_host_port(config.agent.listen)
+    tag = f"{host}-{port}".replace(":", "_").replace("/", "_").replace(".", "_")
+    return config.resolved_log_dir().parent / f"agent-{tag}.lock"
 
 
 def read_lock_info(path: Path) -> AgentLockInfo | None:
@@ -129,7 +140,7 @@ def acquire_agent_lock(config: NetllmConfig) -> AgentLock | AlreadyRunning:
     handle.flush()
     os.fsync(fd)
 
-    lock = AgentLock(path=path, fd=fd, handle=handle)
+    lock = AgentLock(path=path, fd=fd, handle=handle, info=info)
     _LOCK = lock
     atexit.register(lock.release)
     return lock

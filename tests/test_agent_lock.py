@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,6 +20,12 @@ from netllm_discovery.agent_lock import (
 )
 
 
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
 @pytest.fixture
 def lock_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     state = tmp_path / "state" / "netllm"
@@ -26,12 +33,10 @@ def lock_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     logs = state / "logs"
     logs.mkdir()
 
-    cfg = NetllmConfig()
-    monkeypatch.setattr(cfg, "resolved_log_dir", lambda: logs)
     monkeypatch.setattr(
-        lock_mod,
-        "agent_lock_path",
-        lambda _config: state / "agent.lock",
+        NetllmConfig,
+        "resolved_log_dir",
+        lambda self: logs,
     )
     yield state
     if lock_mod._LOCK is not None and not lock_mod._LOCK._released:
@@ -41,19 +46,19 @@ def lock_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def test_agent_lock_path_under_state_dir(lock_dir: Path) -> None:
     cfg = NetllmConfig()
+    cfg.agent.listen = "127.0.0.1:11400"
     with patch.object(cfg, "resolved_log_dir", return_value=lock_dir / "logs"):
-        assert agent_lock_path(cfg) == lock_dir / "agent.lock"
+        assert agent_lock_path(cfg) == lock_dir / "agent-127_0_0_1-11400.lock"
 
 
 def test_acquire_lock_free(lock_dir: Path) -> None:
     cfg = NetllmConfig()
+    cfg.agent.listen = f"127.0.0.1:{_free_port()}"
     result = acquire_agent_lock(cfg)
     assert isinstance(result, AgentLock)
-    assert result.path == lock_dir / "agent.lock"
-    info = read_lock_info(result.path)
-    assert info is not None
-    assert info.pid == os.getpid()
-    assert info.agent_id == cfg.agent.agent_id
+    assert result.path == agent_lock_path(cfg)
+    assert result.info.pid == os.getpid()
+    assert result.info.agent_id == cfg.agent.agent_id
     result.release()
 
 
@@ -63,7 +68,8 @@ def test_read_lock_info_missing(lock_dir: Path) -> None:
 
 def test_stale_lock_reclaimed(lock_dir: Path) -> None:
     cfg = NetllmConfig()
-    path = lock_dir / "agent.lock"
+    cfg.agent.listen = "127.0.0.1:11400"
+    path = agent_lock_path(cfg)
     path.write_text(
         json.dumps(
             {
@@ -79,15 +85,13 @@ def test_stale_lock_reclaimed(lock_dir: Path) -> None:
     with patch("netllm_discovery.agent_lock.pid_alive", return_value=False):
         result = acquire_agent_lock(cfg)
     assert isinstance(result, AgentLock)
-    info = read_lock_info(path)
-    assert info is not None
-    assert info.pid == os.getpid()
+    assert result.info.pid == os.getpid()
     result.release()
 
 
 def test_already_running_when_holder_alive(lock_dir: Path) -> None:
     cfg = NetllmConfig()
-    path = lock_dir / "agent.lock"
+    path = agent_lock_path(cfg)
     path.write_text(
         json.dumps(
             {

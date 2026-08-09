@@ -19,7 +19,7 @@ Pattern follows [solutions/macos-release-readiness.md](../solutions/macos-releas
 | L1 | Terminal A: `./netllm serve` | Agent listens on configured port |
 | L2 | Terminal B: `./netllm serve` | Exit **0**, message "already running", **one** PID on port |
 | L3 | `./netllm serve --replace` | Old PID gone, new agent serves `/health` |
-| L4 | `cat ~/.local/state/netllm/agent.lock` | JSON with current `pid`, `agent_id`, `listen` |
+| L4 | `ls ~/.local/state/netllm/agent-*-11400.lock` | JSON with current `pid`, `agent_id`, `listen` |
 | L5 | `systemctl --user restart netllm` (packaged) | Single PID after restart; unit stays active |
 | L6 | `./netllm doctor` with port in use | Issue cites port + lock path when lock exists |
 
@@ -38,7 +38,7 @@ Pattern follows [solutions/macos-release-readiness.md](../solutions/macos-releas
 | # | Step | Expected |
 |---|------|----------|
 | W1 | `netllm serve` × 2 | Second instance exits 0 or port conflict; no twin listeners |
-| W2 | Lock file under `%LOCALAPPDATA%\netllm\agent.lock` | Present when agent runs |
+| W2 | Lock file under `%LOCALAPPDATA%\\netllm\\agent-*-<port>.lock` | Present when agent runs |
 
 ## Regression watchlist
 

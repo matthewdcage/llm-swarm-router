@@ -39,9 +39,9 @@ spawn twins, replace only with explicit `--replace` (or supervisor default).
 
 | Field | Value |
 |-------|--------|
-| **Path** | `{state_dir}/agent.lock` where `state_dir` = parent of `NetllmConfig.resolved_log_dir()` |
-| **Linux example** | `~/.local/state/netllm/agent.lock` |
-| **macOS example** | `~/Library/Application Support/netllm/agent.lock` |
+| **Path** | `{state_dir}/agent-{host}-{port}.lock` (sanitized listen address) |
+| **Linux example** | `~/.local/state/netllm/agent-127_0_0_1-11400.lock` |
+| **macOS example** | `~/Library/Application Support/netllm/agent-127_0_0_1-11400.lock` |
 | **Mechanism** | `fcntl.flock(LOCK_EX \| LOCK_NB)` on Unix; `msvcrt.locking` on Windows |
 | **Payload** | JSON: `pid`, `agent_id`, `listen`, `started_at` (ISO-8601), `version` |
 | **Hold duration** | From successful acquire until process exit (`atexit` + `serve` finally) |
