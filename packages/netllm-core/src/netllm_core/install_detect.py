@@ -145,8 +145,33 @@ def is_source() -> bool:
     )
 
 
+def is_editable_install() -> bool:
+    """True when this package is imported from a source checkout.
+
+    A `uv tool install --editable` (or `pip install -e`) leaves the modules in
+    the working tree and only drops a `.pth` into site-packages, so `__file__`
+    resolves to `<repo>/packages/netllm-core/src/netllm_core/...` rather than
+    into site-packages. That distinction decides whether an OS package is a
+    sane upgrade: installing a .deb over a developer's editable checkout
+    replaces the CLI while leaving the checkout as the imported code, which is
+    a genuinely confusing half-upgrade. Such an install upgrades with git.
+    """
+    here = _path_str(Path(__file__).resolve())
+    if "/site-packages/" in here or "/dist-packages/" in here:
+        return False
+    # The layout marker, not a repo-name match: this must hold for any clone
+    # path, and must not fire for a wheel that happens to unpack elsewhere.
+    return "/packages/netllm-core/src/" in here
+
+
 def get_install_method() -> str:
-    """Return install channel for lifecycle dispatch."""
+    """Return install channel for **lifecycle dispatch** (start/stop/restart).
+
+    Deliberately ignores `is_editable_install()`: if a systemd unit or Windows
+    service manages the agent, that is how it must be started and stopped even
+    when the code being run is a working tree. Upgrades are a different
+    question — see `get_upgrade_channel()`.
+    """
     if is_app_bundle():
         return "app"
     if is_homebrew():
@@ -156,6 +181,21 @@ def get_install_method() -> str:
     if is_windows_service():
         return "windows-service"
     return "source"
+
+
+def get_upgrade_channel() -> str:
+    """Return the channel that should service an *upgrade*.
+
+    Same answer as `get_install_method()` except for an editable checkout
+    managed by an OS service: the service says how the agent runs, but the
+    imported code is the working tree, so an OS package would replace the CLI
+    and leave the checkout as the code actually loaded — a half-upgrade. Those
+    upgrade with git.
+    """
+    method = get_install_method()
+    if method in ("linux-systemd", "windows-service") and is_editable_install():
+        return "source"
+    return method
 
 
 def can_applications_auto_install() -> bool:

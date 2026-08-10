@@ -343,6 +343,36 @@ function renderLocationPicker(root) {
       "Only the host in the base URL changes: 127.0.0.1, this agent's LAN address, or host.docker.internal."
     )
   );
+  const bridge = containerBridgeUrl();
+  if (state.integrationLocation === "docker" && bridge) {
+    // `host.docker.internal` is a Docker Desktop convenience and does not
+    // resolve inside a Linux container unless the run adds it explicitly. The
+    // agent already classifies its own addresses (`status.reachable_at`), so
+    // the bridge gateway — otherwise just noise on the Peers page — is the
+    // literal answer to "what host do I put in my compose file?".
+    body.appendChild(
+      textEl(
+        "p",
+        "field-help",
+        `On Linux, host.docker.internal only resolves when the container is run with ` +
+          `--add-host=host.docker.internal:host-gateway. Containers on this machine can ` +
+          `also reach the agent directly at ${bridge}.`
+      )
+    );
+  }
+}
+
+/**
+ * This agent's container-bridge address, from `status.reachable_at` (the
+ * agent classifies by interface — nothing here could tell 172.17.0.1 from a
+ * LAN address). Empty when the agent is loopback-bound, predates the key, or
+ * simply has no bridge.
+ */
+function containerBridgeUrl() {
+  const entry = asArray(state.status?.reachable_at)
+    .filter((e) => e && typeof e === "object")
+    .find((e) => String(e.kind || "") === "container");
+  return entry ? String(entry.url || "") : "";
 }
 
 /* ---------------- values table ---------------- */

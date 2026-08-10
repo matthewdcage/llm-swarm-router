@@ -81,6 +81,40 @@ def normalize_peer_urls(raw: Any) -> list[str]:
     return seen
 
 
+def normalize_peer_endpoints(raw: Any) -> list[dict[str, str]]:
+    """Coerce a heartbeat's ``reachable_at`` into ``[{url, kind, interface}]``.
+
+    Same wire-data discipline as ``normalize_peer_urls``: a peer on another
+    build may send a string, nulls, or entries that are not objects. A ``kind``
+    this build does not recognise is kept verbatim — a newer agent may know a
+    classification we do not, and every client already prints an unrecognised
+    label rather than dropping the row.
+    """
+    if isinstance(raw, str) or not isinstance(raw, (list, tuple)):
+        return []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        url = str(entry.get("url", "") or "").strip().rstrip("/")
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        out.append(
+            {
+                "url": url,
+                "kind": str(entry.get("kind", "") or ""),
+                "interface": str(entry.get("interface", "") or ""),
+            }
+        )
+        # +1: this list carries the peer's advertised URL as well as its
+        # alternates, which the flat list does not.
+        if len(out) >= MAX_PEER_ALSO_REACHABLE + 1:
+            break
+    return out
+
+
 @dataclass
 class PeerRecord:
     agent_id: str
@@ -116,6 +150,15 @@ class PeerRecord:
     # DHCP drift). Union of what the peer advertises about itself and what
     # this agent has observed it at.
     also_reachable_at: list[str] = field(default_factory=list)
+    # UI-4a. The peer's own classification of those addresses:
+    # [{url, kind, interface}], kinds from netllm_discovery.lan.ADDRESS_KINDS,
+    # ordered most-useful-first and including the peer's advertised URL. It is
+    # a *lookup keyed on url*, not a replacement for also_reachable_at: this
+    # agent also observes addresses the peer never advertised (a subnet probe
+    # answering on an IP the peer does not know it has), and those stay in the
+    # flat list with no classification. Empty for a peer that predates it —
+    # which reads as "unclassified", not "no alternates".
+    reachable_at: list[dict[str, str]] = field(default_factory=list)
     # Summary of what the peer actually serves: [{id, provider, model_count}].
     # A peer is materialised as ONE Backend with provider="custom"
     # (peer_agent_backends below), so without this its real provider mix is
@@ -152,6 +195,7 @@ class SwarmRegistry:
         if previous is not None:
             self._carry_forward_provenance(previous, record)
         record.also_reachable_at = normalize_peer_urls(record.also_reachable_at)
+        record.reachable_at = normalize_peer_endpoints(record.reachable_at)
         url = record.listen_url.rstrip("/")
         if record.discovered_via == DEFAULT_DISCOVERY_SOURCE:
             remembered = self._url_discovery.get(url, "")
@@ -194,6 +238,14 @@ class SwarmRegistry:
             if url and url != current and url not in merged:
                 merged.append(url)
         record.also_reachable_at = merged
+        # Classifications accumulate the same way, keyed on url: a probe that
+        # carries no `reachable_at` (an older peer, or a scan row) must not
+        # erase the labels a heartbeat already supplied.
+        known = {entry.get("url", "") for entry in record.reachable_at}
+        record.reachable_at = [
+            *record.reachable_at,
+            *(e for e in previous.reachable_at if e.get("url", "") not in known),
+        ]
 
     def stale_peers(self, max_age_s: float | None = None) -> list[str]:
         max_age = (
@@ -309,6 +361,7 @@ class SwarmRegistry:
                     draining=bool(data.get("draining", False)),
                     discovered_via=discovered_via,
                     also_reachable_at=also,
+                    reachable_at=normalize_peer_endpoints(data.get("reachable_at")),
                     providers=normalize_peer_providers(data.get("providers")),
                 )
         except Exception as exc:
@@ -417,6 +470,10 @@ class SwarmRegistry:
                 # other two default to empty for a peer that sends neither.
                 "discovered_via": p.discovered_via or DEFAULT_DISCOVERY_SOURCE,
                 "also_reachable_at": list(p.also_reachable_at),
+                # UI-4a. Classification for the URLs above; empty for a peer
+                # whose build predates it, which every client reads as
+                # "unclassified" and renders exactly as it did before.
+                "reachable_at": [dict(entry) for entry in p.reachable_at],
                 "providers": [dict(entry) for entry in p.providers],
             }
             for p in self.peers.values()

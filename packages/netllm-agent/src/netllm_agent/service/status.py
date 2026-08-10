@@ -10,23 +10,24 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import socket
 from typing import Any
 
 from netllm_core.capabilities import model_capability
 from netllm_core.update import compare_versions, is_version_like, mesh_skew
 from netllm_core.version import get_version
 from netllm_discovery.lan import (
+    classified_agent_endpoints,
     is_lan_reachable_agent_url,
     last_peer_scan_at,
-    own_agent_urls,
+    local_ipv4_interfaces,
+    local_lan_ip,
 )
 from netllm_discovery.local import (
     find_omlx_admin_url,
     last_provider_scan_at,
     probe_omlx_admin_for_backends,
 )
-from netllm_discovery.swarm import MAX_PEER_PROVIDERS
+from netllm_discovery.swarm import MAX_PEER_ALSO_REACHABLE, MAX_PEER_PROVIDERS
 
 logger = logging.getLogger(__name__)
 
@@ -64,32 +65,45 @@ class StatusMixin:
                 break
         return out
 
-    def own_alternate_urls(self) -> list[str]:
-        """LAN URLs other than the advertised one that also reach this agent.
+    def own_reachable_endpoints(self) -> list[dict[str, str]]:
+        """Where this agent answers, classified and ordered (UI-4a).
+
+        ``[{"url", "kind", "interface"}]`` with the advertised ``listen_url``
+        first and the rest ordered by ``lan.ADDRESS_KINDS``. This is the
+        producer for ``also_reachable_at`` as well — the two keys are never
+        computed separately, so they cannot disagree about the order.
 
         Only a wildcard bind earns any: ``agent_url_from_listen`` picks ONE
         address for a host with several interfaces (Wi-Fi + Ethernet, a VPN,
         Docker), so the advertised ``listen_url`` is a peer's only way in even
         though the socket answers on all of them. A bind to one concrete
         address is reachable at exactly that address and gets ``[]`` — the
-        point of this key is to stop a client guessing, not to make it guess
+        point of these keys is to stop a client guessing, not to make it guess
         more confidently.
 
-        Loopback addresses are excluded throughout: they resolve to the
-        *reader's* agent, not this one.
+        Loopback is excluded: it resolves to the *reader's* agent, not this
+        one. Container-bridge addresses are kept, because "the host is
+        reachable from your containers at 172.17.0.1" is an answer somebody
+        wants — they are just labelled and ranked below the LAN address
+        instead of being listed above it.
 
         Memoized on ``agent.listen``: this runs on every heartbeat and every
         ``/status`` read.
         """
         listen = self.config.agent.listen
-        cached = getattr(self, "_own_alt_urls_cache", None)
+        cached = getattr(self, "_own_endpoints_cache", None)
         if cached is not None and cached[0] == listen:
-            return list(cached[1])
-        urls = self._compute_alternate_urls(listen)
-        self._own_alt_urls_cache = (listen, urls)
-        return list(urls)
+            return [dict(entry) for entry in cached[1]]
+        endpoints = self._compute_reachable_endpoints(listen)
+        self._own_endpoints_cache = (listen, endpoints)
+        return [dict(entry) for entry in endpoints]
 
-    def _compute_alternate_urls(self, listen: str) -> list[str]:
+    def own_alternate_urls(self) -> list[str]:
+        """The URLs from ``own_reachable_endpoints`` other than the advertised one."""
+        primary = self.swarm.local_agent_url().rstrip("/")
+        return [e["url"] for e in self.own_reachable_endpoints() if e["url"] != primary]
+
+    def _compute_reachable_endpoints(self, listen: str) -> list[dict[str, str]]:
         from netllm_core.models import split_listen
 
         if listen.startswith("http"):
@@ -98,27 +112,23 @@ class StatusMixin:
         if host not in ("", "0.0.0.0", "::"):
             return []
         primary = self.swarm.local_agent_url().rstrip("/")
-        found: set[str] = {
-            url for url in own_agent_urls(listen) if is_lan_reachable_agent_url(url)
-        }
-        try:
-            import psutil
-
-            for addrs in psutil.net_if_addrs().values():
-                for addr in addrs:
-                    if addr.family != socket.AF_INET:
-                        continue
-                    ip = str(addr.address or "")
-                    if not ip:
-                        continue
-                    url = f"http://{ip}:{port}"
-                    if is_lan_reachable_agent_url(url):
-                        found.add(url)
-        except Exception:
-            # Interface enumeration is a nicety. A platform that refuses it
-            # leaves the caller with the primary address it already had.
-            logger.debug("interface enumeration unavailable", exc_info=True)
-        return sorted(found - {primary})
+        rows = local_ipv4_interfaces()
+        # The socket-derived primary LAN IP is authoritative even on a
+        # platform that refuses interface enumeration; an unnamed interface
+        # classifies as "lan", and a named row for the same address (from
+        # psutil, listed first) wins the dedupe in classified_agent_endpoints.
+        lan_ip = local_lan_ip()
+        if lan_ip:
+            rows.append(("", lan_ip))
+        endpoints = classified_agent_endpoints(
+            port, interfaces=rows, primary_url=primary
+        )
+        # Loopback never goes on the wire; the cap is the same one the
+        # receiving side applies to also_reachable_at, so a host with a
+        # pathological interface list cannot inflate every heartbeat. The
+        # ordering above means truncation drops the least useful addresses.
+        usable = [e for e in endpoints if is_lan_reachable_agent_url(e["url"])]
+        return usable[: MAX_PEER_ALSO_REACHABLE + 1]
 
     def discovery_scan_payload(self) -> dict[str, Any]:
         """When each discovery pass last completed, in epoch seconds (UI-3).
@@ -164,6 +174,13 @@ class StatusMixin:
             # else it answers. Additive: an older peer ignores both.
             "providers": self.local_provider_summary(),
             "also_reachable_at": self.own_alternate_urls(),
+            # UI-4a. The same addresses, classified and ordered
+            # (`netllm_discovery.lan.ADDRESS_KINDS`), so a client can tell a
+            # LAN address from a Docker bridge gateway without re-deriving
+            # "is 172.x a bridge?" — which it cannot, having no view of this
+            # host's interfaces. Strictly additive: `also_reachable_at` is
+            # unchanged and still complete on its own.
+            "reachable_at": self.own_reachable_endpoints(),
             # UI-3. Wall clocks for the two discovery passes, so a client can
             # age them without subtracting our monotonic clock from its own.
             "discovery": self.discovery_scan_payload(),

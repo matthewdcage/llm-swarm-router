@@ -7,6 +7,7 @@ import ipaddress
 import logging
 import socket
 import time
+from collections.abc import Iterable
 from typing import Any
 
 import httpx
@@ -55,6 +56,154 @@ def is_loopback_url(url: str) -> bool:
 def is_lan_reachable_agent_url(url: str) -> bool:
     """True when peer listen_url is usable from another host on the LAN."""
     return bool(url) and not is_loopback_url(url)
+
+
+# How an address on THIS host relates to whoever is trying to reach us, in
+# descending order of usefulness. A wildcard bind answers on every local
+# IPv4, and a flat list of them buried the one address a LAN peer can dial
+# under five Docker bridge gateways.
+#
+# The test is the INTERFACE, not the address. 10.0.0.29 and 172.17.0.1 are
+# both RFC1918; only the interface says which one is a container bridge.
+# Ordering — a LAN address works for any peer; a VPN address works for peers
+# on that VPN; a container-bridge address works only from a container on this
+# host (real, and what the Integrations page's "Docker" location needs on
+# Linux); link-local is a DHCP failure; loopback resolves to the *reader's*
+# machine and is never put on the wire.
+ADDRESS_KINDS = ("lan", "vpn", "container", "link_local", "loopback")
+
+_ADDRESS_KIND_RANK = {kind: index for index, kind in enumerate(ADDRESS_KINDS)}
+_UNKNOWN_KIND_RANK = len(ADDRESS_KINDS)
+
+# Container/VM bridge gateways. `br-<hash>` is what Docker names a compose
+# network; plain `br0`/`bridge0` is deliberately absent, because a Linux host
+# that bridges its own NIC (libvirt, Proxmox) carries its real LAN address
+# there and would be misfiled as noise.
+_CONTAINER_IFACE_PREFIXES = (
+    "docker",
+    "br-",
+    "podman",
+    "cni",
+    "cbr",
+    "lxcbr",
+    "lxdbr",
+    "virbr",
+    "vmnet",
+    "vboxnet",
+    "veth",
+    "flannel",
+    "weave",
+    "kube",
+    "antrea",
+    "cali",
+)
+
+# Tunnels. Reachable by a peer that is on the same tunnel, so these rank
+# above container bridges and below the LAN proper.
+_VPN_IFACE_PREFIXES = ("tun", "tap", "utun", "wg", "ppp", "tailscale", "ipsec", "zt")
+
+
+def classify_interface_address(interface: str, ip: str) -> str:
+    """Which of ``ADDRESS_KINDS`` an IPv4 on ``interface`` is.
+
+    Loopback and link-local are properties of the address itself (127/8,
+    169.254/16 are definitional). Everything else is decided by the interface
+    name, because no address range distinguishes a Docker bridge gateway from
+    the LAN — both are RFC1918. An unrecognised interface is ``"lan"``: the
+    failure mode of showing a real address is far cheaper than hiding one.
+    """
+    try:
+        addr: ipaddress.IPv4Address | ipaddress.IPv6Address | None = (
+            ipaddress.ip_address(ip)
+        )
+    except ValueError:
+        addr = None
+    if addr is not None:
+        if addr.is_loopback:
+            return "loopback"
+        if addr.is_link_local:
+            return "link_local"
+    name = str(interface or "").lower()
+    if name == "lo" or name.startswith("lo0"):
+        return "loopback"
+    if any(name.startswith(prefix) for prefix in _VPN_IFACE_PREFIXES):
+        return "vpn"
+    if any(name.startswith(prefix) for prefix in _CONTAINER_IFACE_PREFIXES):
+        return "container"
+    return "lan"
+
+
+def address_kind_rank(kind: str) -> int:
+    """Sort position for a kind; an unknown kind sorts last, never crashes."""
+    return _ADDRESS_KIND_RANK.get(str(kind or ""), _UNKNOWN_KIND_RANK)
+
+
+def local_ipv4_interfaces() -> list[tuple[str, str]]:
+    """``[(interface, ipv4)]`` for this host — ``[]`` when unavailable.
+
+    Interface enumeration is a nicety (it needs ``psutil``); a platform that
+    refuses it leaves the caller with whatever it already knew.
+    """
+    rows: list[tuple[str, str]] = []
+    try:
+        import psutil
+
+        for name, addrs in psutil.net_if_addrs().items():
+            for addr in addrs:
+                if addr.family != socket.AF_INET:
+                    continue
+                ip = str(addr.address or "").strip()
+                if ip:
+                    rows.append((str(name), ip))
+    except Exception:
+        logger.debug("interface enumeration unavailable", exc_info=True)
+        return []
+    return rows
+
+
+def classified_agent_endpoints(
+    port: int | str,
+    *,
+    interfaces: Iterable[tuple[str, str]] | None = None,
+    primary_url: str = "",
+) -> list[dict[str, str]]:
+    """Every local address this agent answers on, classified and ordered.
+
+    Returns ``[{"url", "kind", "interface"}]`` — ``primary_url`` first (it is
+    what peers were told to dial, whatever kind it turns out to be), then by
+    ``ADDRESS_KINDS`` order, then by URL so the list is stable across polls.
+
+    Classifying here rather than in each client is the point: the dashboard,
+    the macOS app and the CLI would otherwise each have to re-derive "is
+    172.x a bridge?", which is exactly the mirror drift the registry rules
+    exist to prevent — and none of them can, since only this host can see its
+    own interface names.
+    """
+    rows = list(interfaces) if interfaces is not None else local_ipv4_interfaces()
+    primary = str(primary_url or "").rstrip("/")
+    best: dict[str, dict[str, str]] = {}
+    for name, raw_ip in rows:
+        ip = str(raw_ip or "").strip()
+        if not ip:
+            continue
+        host = f"[{ip}]" if ":" in ip else ip
+        url = f"http://{host}:{port}"
+        kind = classify_interface_address(str(name), ip)
+        prior = best.get(url)
+        # One address can appear on several interfaces (an alias, a bond).
+        # Keep the most useful reading of it.
+        if prior is None or address_kind_rank(kind) < address_kind_rank(prior["kind"]):
+            best[url] = {"url": url, "kind": kind, "interface": str(name or "")}
+    if primary and primary not in best:
+        best[primary] = {"url": primary, "kind": "lan", "interface": ""}
+    return sorted(
+        best.values(),
+        key=lambda e: (
+            0 if e["url"] == primary else 1,
+            address_kind_rank(e["kind"]),
+            e["url"],
+        ),
+    )
 
 
 def own_agent_urls(listen: str) -> set[str]:

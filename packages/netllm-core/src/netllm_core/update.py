@@ -16,6 +16,7 @@ import httpx
 from netllm_core.install_detect import (
     can_applications_auto_install,
     get_install_method,
+    get_upgrade_channel,
 )
 from netllm_core.sdk_versions import sdk_versions_payload
 from netllm_core.version import get_version
@@ -301,7 +302,9 @@ def select_asset(
     release: GitHubReleaseInfo,
     install_method: str | None = None,
 ) -> dict[str, Any]:
-    method = install_method or get_install_method()
+    # Upgrade channel, not lifecycle channel: an editable checkout run by a
+    # systemd unit is started with systemctl but upgraded with git.
+    method = install_method or get_upgrade_channel()
     version = release.version
 
     if method == "homebrew":
@@ -343,8 +346,29 @@ def select_asset(
         "download_url": asset.download_url,
         "asset_name": asset.name,
         "asset_size": asset.size,
-        "upgrade_hint": None,
+        "upgrade_hint": _package_install_hint(asset.name),
     }
+
+
+def _package_install_hint(asset_name: str) -> str | None:
+    """The command that installs a downloaded package, or None.
+
+    Homebrew and source installs already told the user what to run; the OS
+    package channels handed over a file and said nothing, which left "click
+    Download" as the whole of the upgrade instructions. The hint is derived
+    from the asset's own extension because .deb and .rpm do not share a
+    command, and guessing the wrong one is worse than staying silent.
+    """
+    name = asset_name.lower()
+    if name.endswith(".deb"):
+        # apt over dpkg: it resolves dependencies, and the ./ prefix is what
+        # makes apt treat the argument as a file rather than a package name.
+        return f"sudo apt install ./{asset_name}"
+    if name.endswith(".rpm"):
+        return f"sudo dnf install ./{asset_name}"
+    if name.endswith(".zip"):
+        return None  # Windows: unpacking location is the user's choice
+    return None
 
 
 def find_sha256_sidecar(

@@ -13,25 +13,19 @@
  */
 
 // Wildcard binds, i.e. "other machines can reach this agent". `[::]` is the
-// IPv6 form AgentConfig._validate_listen accepts.
-const NETWORK_LAN_HOSTS = new Set(["0.0.0.0", "[::]", "::"]);
+// IPv6 form AgentConfig._validate_listen accepts. Aliased to the core set
+// rather than restated: Home's masthead asks the same question about the same
+// value, and two lists of wildcards would be one list too many.
+const NETWORK_LAN_HOSTS = LAN_WILDCARD_HOSTS;
 const NETWORK_LOCAL_HOST = "127.0.0.1";
 
 /* ---------------- listen address ---------------- */
 
-function networkParseListen(listen) {
-  const raw = String(listen || "127.0.0.1:11400").trim();
-  // Bracketed IPv6 first: rpartition on ":" would split inside the address.
-  if (raw.startsWith("[")) {
-    const end = raw.indexOf("]:");
-    if (end > 0) {
-      return { host: raw.slice(0, end + 1), port: Number(raw.slice(end + 2)) || 11400 };
-    }
-  }
-  const idx = raw.lastIndexOf(":");
-  if (idx < 0) return { host: raw, port: 11400 };
-  return { host: raw.slice(0, idx), port: Number(raw.slice(idx + 1)) || 11400 };
-}
+// parseListenAddr / localAgentUrl / swarmJoinCommand live in dashboard.js:
+// this page edits `agent.listen`, but Home now reads the same derived values,
+// and a second copy of the wildcard-bind fallback is exactly the kind of
+// duplicate that drifts.
+const networkParseListen = parseListenAddr;
 
 function networkSetListen(host, port) {
   state.configDraft.agent.listen = `${host}:${port}`;
@@ -45,20 +39,7 @@ function networkListenChanged() {
 }
 
 /** Best-effort URL another machine would use to reach this agent. */
-function networkLocalAgentUrl() {
-  const fromStatus = state.status?.listen_url || state.status?.listen;
-  if (fromStatus) {
-    return String(fromStatus).startsWith("http") ? fromStatus : `http://${fromStatus}`;
-  }
-  const { host, port } = networkParseListen(state.configDraft?.agent?.listen);
-  // A wildcard bind is not a dialable address — fall back to the hostname,
-  // which is what mDNS advertises anyway.
-  if (NETWORK_LAN_HOSTS.has(host)) {
-    const name = state.status?.hostname || state.configDraft?.agent?.hostname || "this-host";
-    return `http://${name}:${port}`;
-  }
-  return `http://${host}:${port}`;
-}
+const networkLocalAgentUrl = localAgentUrl;
 
 /* ---------------- small builders ---------------- */
 
@@ -727,8 +708,7 @@ function networkKnownAgentsSection(root) {
 }
 
 function networkSecuritySection(root) {
-  const swarm = state.configDraft.swarm;
-  const tokenSet = swarm.cluster_token_set ?? state.status?.cluster_token_set ?? false;
+  const tokenSet = clusterTokenSet();
   const body = panel(root, "Security", tokenSet ? "cluster token set" : "open LAN");
 
   const statusLine = textEl(
@@ -792,17 +772,10 @@ function networkSecuritySection(root) {
 
 /* ---------------- join sheet ---------------- */
 
-function networkJoinCommand() {
-  const tokenSet =
-    state.configDraft?.swarm?.cluster_token_set ?? state.status?.cluster_token_set ?? false;
-  // The URL is assembled from status/config free text (agent.hostname, listen),
-  // and this command is copied straight into a shell — quote it so a value that
-  // ever stops being trustworthy cannot append a second command.
-  const base = `netllm join ${shellQuote(networkLocalAgentUrl())}`;
-  // The token itself is never rendered — it is write-only server-side and
-  // this page has no copy of it.
-  return tokenSet ? `${base} --token <cluster token>` : base;
-}
+// Built in dashboard.js (quoting, and the "never render the token" rule, are
+// the same wherever the command is offered). Home's masthead copies the very
+// same string.
+const networkJoinCommand = swarmJoinCommand;
 
 function networkCopyJoinCommand() {
   copyText(networkJoinCommand(), "Join command copied");
@@ -832,8 +805,7 @@ function networkOpenJoinSheet() {
         )
       );
     }
-    const tokenSet =
-      state.configDraft?.swarm?.cluster_token_set ?? state.status?.cluster_token_set ?? false;
+    const tokenSet = clusterTokenSet();
     sheet.appendChild(
       textEl(
         "p",

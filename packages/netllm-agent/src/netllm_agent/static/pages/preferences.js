@@ -279,10 +279,27 @@ function prefsUpdatesSection(root) {
         : "Download update";
       detail.appendChild(dl);
     }
-    if (info.sha256) {
+    // Say when there is no checksum rather than omitting the row. A missing
+    // sha256 used to render as nothing at all, which reads identically to
+    // "this build was not verified because we didn't look" — and the user
+    // cannot verify a download whose absence of a checksum is invisible.
+    if (info.download_url) {
       const sha = el("div", "row");
       sha.appendChild(textEl("span", "field-label", "sha256"));
-      sha.appendChild(textEl("span", "mono", info.sha256));
+      if (info.sha256) {
+        sha.appendChild(textEl("span", "mono", info.sha256));
+      } else {
+        sha.appendChild(
+          textEl("span", "text-warn", "not published for this release")
+        );
+        sha.appendChild(
+          textEl(
+            "span",
+            "field-help",
+            "The download cannot be checksum-verified."
+          )
+        );
+      }
       detail.appendChild(sha);
     }
   } else {

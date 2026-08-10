@@ -1116,6 +1116,108 @@ function sparklineSvg(values, color, width = 400, height = 72) {
   return svg;
 }
 
+/* ---------------- endpoints and the join command ----------------
+ *
+ * Two questions every surface that points something at this agent has to
+ * answer: "what URL does a client use?" and "what does another machine run to
+ * join?". Both used to be computed where they were first needed — the client
+ * URL inline in updateStatusLine(), the join command in pages/network.js — and
+ * both now have a second caller on Home. One implementation each, so the
+ * sidebar card and the masthead cannot disagree about, say, a wildcard bind.
+ */
+
+/** Wildcard binds. Listening on one is not the same as being dialable at it. */
+const LAN_WILDCARD_HOSTS = new Set(["0.0.0.0", "[::]", "::"]);
+
+/** Split a `host:port` listen string. Bracketed IPv6 is handled first. */
+function parseListenAddr(listen) {
+  const raw = String(listen || "127.0.0.1:11400").trim();
+  // Bracketed IPv6 first: rpartition on ":" would split inside the address.
+  if (raw.startsWith("[")) {
+    const end = raw.indexOf("]:");
+    if (end > 0) {
+      return { host: raw.slice(0, end + 1), port: Number(raw.slice(end + 2)) || 11400 };
+    }
+  }
+  const idx = raw.lastIndexOf(":");
+  if (idx < 0) return { host: raw, port: 11400 };
+  return { host: raw.slice(0, idx), port: Number(raw.slice(idx + 1)) || 11400 };
+}
+
+/**
+ * The OpenAI base URL a client should be pointed at, or null when the agent
+ * never told us. Prefers what /netllm/v1/client-env actually reports over
+ * anything reconstructed here — that endpoint is what `netllm connect` emits.
+ */
+function clientEndpointUrl() {
+  return (
+    state.envVars?.OPENAI_BASE_URL ||
+    state.envVars?.OPENAI_API_BASE ||
+    (state.status?.listen ? `http://${state.status.listen}/v1` : null)
+  );
+}
+
+/** Best-effort URL another machine would use to reach this agent. */
+function localAgentUrl() {
+  const fromStatus = state.status?.listen_url || state.status?.listen;
+  if (fromStatus) {
+    return String(fromStatus).startsWith("http") ? fromStatus : `http://${fromStatus}`;
+  }
+  const { host, port } = parseListenAddr(state.configDraft?.agent?.listen);
+  // A wildcard bind is not a dialable address — fall back to the hostname,
+  // which is what mDNS advertises anyway.
+  if (LAN_WILDCARD_HOSTS.has(host)) {
+    const name = state.status?.hostname || state.configDraft?.agent?.hostname || "this-host";
+    return `http://${name}:${port}`;
+  }
+  return `http://${host}:${port}`;
+}
+
+/**
+ * Seconds this agent has been up, or null when nothing reported it.
+ *
+ * The figure lives on `telemetry.router.session.uptime_s` (telemetry.py owns
+ * the clock); `/status` has never carried an `uptime_s` and the topbar's read
+ * of one has therefore always been silently empty. `status` is still consulted
+ * second so a peer or an older agent that does publish it is not ignored.
+ */
+function agentUptimeSeconds() {
+  const candidates = [
+    asObject(asObject(state.telemetry?.router).session).uptime_s,
+    state.status?.uptime_s,
+  ];
+  for (const value of candidates) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return null;
+}
+
+/** True when a cluster token is configured. The value itself is write-only. */
+function clusterTokenSet() {
+  return (
+    state.configDraft?.swarm?.cluster_token_set ??
+    state.status?.cluster_token_set ??
+    false
+  );
+}
+
+/**
+ * The one-line command another machine runs to join this swarm.
+ *
+ * The URL is assembled from status/config free text (agent.hostname, listen)
+ * and this string is copied straight into a shell, so it is quoted: a value
+ * that ever stops being trustworthy must not be able to append a second
+ * command. The token is never interpolated — it is write-only server-side and
+ * no surface here holds a copy — so the placeholder is quoted too, both
+ * because `<`/`>` are redirections and because the substituted value is the
+ * user's to keep out of their shell history intact.
+ */
+function swarmJoinCommand() {
+  const base = `netllm join ${shellQuote(localAgentUrl())}`;
+  return clusterTokenSet() ? `${base} --token ${shellQuote("<cluster token>")}` : base;
+}
+
 /* ---------------- config paths ---------------- */
 
 const BLOCKED_PATH_KEYS = new Set(["__proto__", "constructor", "prototype"]);
@@ -1359,10 +1461,11 @@ function updateStatusLine() {
   const parts = [];
   if (s?.hostname) parts.push(s.hostname);
   if (s?.role) parts.push(s.role);
-  if (s?.listen) parts.push(s.listen);
-  if (Number.isFinite(Number(s?.uptime_s))) {
-    parts.push(`uptime ${formatDuration(s.uptime_s)}`);
-  }
+  // listen_url is the key /status actually publishes; `listen` is the config
+  // field name, kept as a fallback for a peer that republishes it under that.
+  if (s?.listen_url || s?.listen) parts.push(s.listen_url || s.listen);
+  const uptime = agentUptimeSeconds();
+  if (uptime != null) parts.push(`uptime ${formatDuration(uptime)}`);
   line.textContent = parts.length ? parts.join(" · ") : "Agent unreachable";
 
   // Sidebar counts and badges.
@@ -1396,10 +1499,7 @@ function updateStatusLine() {
 
   const endpoint = document.getElementById("client-endpoint");
   if (endpoint) {
-    endpoint.textContent =
-      state.envVars?.OPENAI_BASE_URL ||
-      state.envVars?.OPENAI_API_BASE ||
-      (state.status?.listen ? `http://${state.status.listen}/v1` : "—");
+    endpoint.textContent = clientEndpointUrl() || "—";
   }
 }
 

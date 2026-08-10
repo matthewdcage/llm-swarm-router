@@ -29,7 +29,7 @@
         <div class="nav-group" role="group" aria-labelledby="nav-group-mesh">
           <button type="button" class="nav-item active" data-page="overview" aria-current="page">
             <span class="nav-icon" aria-hidden="true">&#9678;</span>
-            <span class="nav-label">Overview</span>
+            <span class="nav-label">Home</span>
           </button>
           <button type="button" class="nav-item" data-page="backends">
             <span class="nav-icon" aria-hidden="true">&#9636;</span>
@@ -119,7 +119,11 @@
       <div id="global-banner" role="status" aria-live="polite" hidden></div>
 
       <main class="content" id="page-main" tabindex="-1">
-        <section id="page-overview" class="page active" aria-label="Overview"></section>
+        <!-- The page key stays `overview`: it is the same key in `const PAGES`,
+             registerPage(), data-page, the #hash and DASHBOARD_CONTROLS in
+             tests/conformance/kit_config_surfaces.py, and the kit asserts all
+             five agree. Only the user-visible name changed. -->
+        <section id="page-overview" class="page active" aria-label="Home"></section>
         <section id="page-backends" class="page" aria-label="Backends"></section>
         <section id="page-models" class="page" aria-label="Models and pools"></section>
         <section id="page-peers" class="page" aria-label="Peers"></section>

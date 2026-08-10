@@ -305,6 +305,50 @@ struct CloudVerification: Sendable, Equatable {
     }
 }
 
+/// `reachable_at[].kind` — how an address on another machine relates to the
+/// person reading it (`netllm_discovery.lan.ADDRESS_KINDS`).
+///
+/// A wildcard-bound agent answers on every address its host has, and on a
+/// machine running Docker most of those are bridge gateways: real, but only
+/// dialable from a container on that same host. The agent classifies, because
+/// only it can see its own interface names — 10.0.0.29 and 172.17.0.1 are
+/// both RFC1918 and nothing here can tell them apart. This mirrors the wire
+/// order rather than deciding it; an unrecognised kind sorts last and is
+/// shown verbatim, the same convention `discoveredVia` already uses.
+enum PeerAddressKind {
+    static let ordered = ["lan", "vpn", "container", "link_local", "loopback"]
+
+    /// Absent ranks with the LAN — an address an older agent never classified
+    /// must not be demoted for that; an unrecognised name ranks last.
+    static func rank(_ kind: String) -> Int {
+        if kind.isEmpty { return 0 }
+        return ordered.firstIndex(of: kind) ?? ordered.count
+    }
+
+    static func label(_ kind: String) -> String {
+        switch kind {
+        case "", "lan": return ""
+        case "vpn": return "over VPN"
+        case "container": return "from containers"
+        case "link_local": return "link-local, no DHCP lease"
+        case "loopback": return "same machine only"
+        default: return kind.replacingOccurrences(of: "_", with: " ")
+        }
+    }
+
+    /// `alsoReachableAt` ordered by usefulness. Stable: equal ranks keep wire
+    /// order, so a 2s poll does not reshuffle the line under the cursor.
+    static func sorted(_ urls: [String], kinds: [String: String]) -> [String] {
+        urls.enumerated()
+            .sorted { lhs, rhs in
+                let l = rank(kinds[lhs.element] ?? "")
+                let r = rank(kinds[rhs.element] ?? "")
+                return l == r ? lhs.offset < rhs.offset : l < r
+            }
+            .map(\.element)
+    }
+}
+
 struct PeerStatus: Identifiable, Sendable {
     var id: String { agentId }
     var agentId: String
@@ -318,6 +362,11 @@ struct PeerStatus: Identifiable, Sendable {
     var discoveredVia: String = ""
     /// Alternate LAN URLs the peer also answers on (wildcard binds only).
     var alsoReachableAt: [String] = []
+    /// `reachable_at` flattened to url -> kind (UI-4a). A lookup, not a
+    /// replacement for `alsoReachableAt`: this agent also observes addresses
+    /// the peer never advertised, and those stay in the list unclassified.
+    /// Empty for a peer whose build predates the key.
+    var addressKinds: [String: String] = [:]
 }
 
 struct DiscoverProvider: Identifiable, Sendable {

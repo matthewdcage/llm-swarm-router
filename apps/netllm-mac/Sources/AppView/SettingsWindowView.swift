@@ -11,6 +11,10 @@ struct SettingsWindowView: View {
     @State private var tab = "status"
     @State private var portText = "11400"
 
+    /// How many alternate addresses a peer row lists before the rest are
+    /// counted instead (UI-4a) — the dashboard's `PEERS_INLINE_ALTERNATES`.
+    static let inlinePeerAddresses = 2
+
     var body: some View {
         NavigationSplitView {
             List(selection: $tab) {
@@ -1286,11 +1290,24 @@ struct SettingsWindowView: View {
             Text(peerSubtitle(peer)).font(.caption).foregroundStyle(.secondary)
             // Alternate URLs the same peer answers on (wildcard binds). Worth
             // showing because "unreachable at the address we cached" and
-            // "down" look identical without them.
-            if !peer.alsoReachableAt.isEmpty {
-                Text("also at \(peer.alsoReachableAt.joined(separator: ", "))")
+            // "down" look identical without them — but a peer running Docker
+            // has a bridge gateway per compose network, and listing those
+            // flat buried the address anyone can actually dial. Ranked by
+            // the peer's own classification (UI-4a), labelled, and cut to the
+            // useful few; the rest are counted, not hidden.
+            let alternates = PeerAddressKind.sorted(
+                peer.alsoReachableAt, kinds: peer.addressKinds)
+            ForEach(alternates.prefix(Self.inlinePeerAddresses), id: \.self) { url in
+                let label = PeerAddressKind.label(peer.addressKinds[url] ?? "")
+                Text("also at \(url)\(label.isEmpty ? "" : " — \(label)")")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            }
+            if alternates.count > Self.inlinePeerAddresses {
+                Text("+\(alternates.count - Self.inlinePeerAddresses) more addresses")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .help(alternates.dropFirst(Self.inlinePeerAddresses).joined(separator: ", "))
             }
         }
         .padding(.vertical, 4)

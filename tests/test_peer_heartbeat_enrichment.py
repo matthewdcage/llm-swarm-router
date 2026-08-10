@@ -31,6 +31,7 @@ from netllm_discovery.swarm import (
     MAX_PEER_PROVIDERS,
     PeerRecord,
     SwarmRegistry,
+    normalize_peer_endpoints,
     normalize_peer_providers,
     normalize_peer_urls,
 )
@@ -51,6 +52,12 @@ NEW_HEARTBEAT: dict[str, object] = {
         {"id": "omlx", "provider": "omlx", "model_count": 3},
     ],
     "also_reachable_at": ["http://10.0.0.6:11400"],
+    # UI-4a: the same addresses, classified. Includes the advertised URL, so a
+    # client can render the whole cell from one ordered list.
+    "reachable_at": [
+        {"url": "http://10.0.0.5:11400", "kind": "lan", "interface": "en0"},
+        {"url": "http://10.0.0.6:11400", "kind": "lan", "interface": "en1"},
+    ],
 }
 
 # The same agent one release back: no key the reader can rely on beyond the
@@ -58,7 +65,14 @@ NEW_HEARTBEAT: dict[str, object] = {
 OLD_HEARTBEAT: dict[str, object] = {
     k: v
     for k, v in NEW_HEARTBEAT.items()
-    if k not in {"providers", "also_reachable_at", "max_concurrency", "draining"}
+    if k
+    not in {
+        "providers",
+        "also_reachable_at",
+        "reachable_at",
+        "max_concurrency",
+        "draining",
+    }
 } | {"agent_id": "peer-old", "hostname": "old-box"}
 
 
@@ -93,6 +107,9 @@ async def test_a_heartbeat_without_the_new_fields_still_registers_a_peer() -> No
     # Absent means absent — empty, never a guess and never a placeholder row.
     assert record.providers == []
     assert record.also_reachable_at == []
+    # Unclassified, which the clients read as "show it, say nothing about it"
+    # — not as "this peer has no alternates".
+    assert record.reachable_at == []
     # And "heartbeat" is the honest provenance for a peer that simply started
     # talking to us: the sender cannot tell us how we found it.
     assert record.discovered_via == "heartbeat"
@@ -100,6 +117,7 @@ async def test_a_heartbeat_without_the_new_fields_still_registers_a_peer() -> No
     wire = service.swarm.all_peer_urls()[0]
     assert wire["providers"] == []
     assert wire["also_reachable_at"] == []
+    assert wire["reachable_at"] == []
     assert wire["discovered_via"] == "heartbeat"
 
 
@@ -140,6 +158,7 @@ async def test_a_heartbeat_from_a_newer_agent_is_read_field_by_field() -> None:
     assert record.hostname == "mac-mini-m4"
     assert [p["provider"] for p in record.providers] == ["ollama", "omlx"]
     assert record.also_reachable_at == ["http://10.0.0.6:11400"]
+    assert [e["kind"] for e in record.reachable_at] == ["lan", "lan"]
 
 
 @pytest.mark.parametrize(
@@ -189,6 +208,32 @@ def test_the_gossiped_lists_are_capped() -> None:
     assert len(normalize_peer_providers(providers)) == MAX_PEER_PROVIDERS
     urls = [f"http://10.0.0.{i}:11400" for i in range(1, 100)]
     assert len(normalize_peer_urls(urls)) == MAX_PEER_ALSO_REACHABLE
+    endpoints = [{"url": url, "kind": "container"} for url in urls]
+    # +1: this list also carries the peer's advertised URL.
+    assert len(normalize_peer_endpoints(endpoints)) == MAX_PEER_ALSO_REACHABLE + 1
+
+
+def test_classified_addresses_are_normalised_not_trusted() -> None:
+    """Same wire discipline as the flat list: a peer on another build may send
+    a string, nulls, or entries that are not objects."""
+    assert normalize_peer_endpoints("http://10.0.0.5:11400") == []
+    assert normalize_peer_endpoints(None) == []
+    assert normalize_peer_endpoints(
+        [
+            None,
+            "http://10.0.0.5:11400",
+            {"kind": "lan"},
+            {"url": "http://10.0.0.5:11400/", "kind": "lan", "interface": "en0"},
+            {"url": "http://10.0.0.5:11400", "kind": "container"},
+            {"url": "http://10.0.0.6:11400", "kind": "starlink_from_2030"},
+        ]
+    ) == [
+        {"url": "http://10.0.0.5:11400", "kind": "lan", "interface": "en0"},
+        # A kind this build does not know is kept verbatim — a newer agent may
+        # have classified something we have no name for, and every client
+        # already prints an unrecognised label rather than dropping the row.
+        {"url": "http://10.0.0.6:11400", "kind": "starlink_from_2030", "interface": ""},
+    ]
 
 
 # --------------------------------------------------------- provenance
@@ -420,7 +465,76 @@ def test_a_single_address_bind_advertises_no_alternates() -> None:
     """The point of `also_reachable_at` is to stop a client guessing. An agent
     bound to one concrete address is reachable at exactly that address."""
     service = _service(listen="127.0.0.1:11400")
-    assert service.status_payload()["also_reachable_at"] == []
+    payload = service.status_payload()
+    assert payload["also_reachable_at"] == []
+    assert payload["reachable_at"] == []
+
+
+# A wildcard-bound host with Docker on it, as `ip -o -4 addr` reports it.
+_DOCKER_HOST_INTERFACES = [
+    ("lo", "127.0.0.1"),
+    ("docker0", "172.17.0.1"),
+    ("br-1a2b3c4d5e6f", "172.18.0.1"),
+    ("br-9f8e7d6c5b4a", "172.19.0.1"),
+    ("wlp3s0", "10.0.0.29"),
+]
+
+
+def _wildcard_service(monkeypatch: pytest.MonkeyPatch, interfaces: list):
+    from netllm_agent.service import status as status_mod
+    from netllm_discovery import lan as lan_mod
+
+    monkeypatch.setattr(status_mod, "local_ipv4_interfaces", lambda: list(interfaces))
+    monkeypatch.setattr(status_mod, "local_lan_ip", lambda: "10.0.0.29")
+    # `swarm.local_agent_url()` resolves the wildcard through lan's own copy.
+    monkeypatch.setattr(lan_mod, "local_lan_ip", lambda: "10.0.0.29")
+    return _service(listen="0.0.0.0:11400")
+
+
+def test_a_wildcard_bind_ranks_its_own_addresses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reported bug, at the surface that caused it.
+
+    A wildcard bind answers on every local IPv4, and on a host running Docker
+    most of those are bridge gateways. Listing them flat put five
+    `172.x.0.1` lines above the only address another machine can dial.
+    """
+    service = _wildcard_service(monkeypatch, _DOCKER_HOST_INTERFACES)
+    payload = service.status_payload()
+
+    assert [(e["url"], e["kind"]) for e in payload["reachable_at"]] == [
+        ("http://10.0.0.29:11400", "lan"),
+        ("http://172.17.0.1:11400", "container"),
+        ("http://172.18.0.1:11400", "container"),
+        ("http://172.19.0.1:11400", "container"),
+    ]
+    # The old key is unchanged in shape and still complete on its own — an
+    # agent, macOS build or CLI that never learns about `reachable_at` sees
+    # exactly what it saw before, in a better order.
+    assert payload["also_reachable_at"] == [
+        "http://172.17.0.1:11400",
+        "http://172.18.0.1:11400",
+        "http://172.19.0.1:11400",
+    ]
+    # Loopback resolves to the *reader's* agent. It is classified (so a
+    # same-host caller could use it) but never put on the wire.
+    assert not any("127.0.0.1" in url for url in payload["also_reachable_at"])
+
+
+def test_the_alternate_address_list_stays_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """This body is gossiped to every peer every heartbeat_interval_s. A host
+    with forty compose networks must not turn that into a bandwidth problem —
+    and because the list is ordered, truncation drops the least useful."""
+    interfaces = [("wlp3s0", "10.0.0.29")] + [
+        (f"br-{i:012x}", f"172.{i}.0.1") for i in range(17, 60)
+    ]
+    payload = _wildcard_service(monkeypatch, interfaces).status_payload()
+
+    assert len(payload["also_reachable_at"]) <= MAX_PEER_ALSO_REACHABLE
+    assert payload["reachable_at"][0]["url"] == "http://10.0.0.29:11400"
 
 
 # ------------------------------------------------------------- the page
@@ -451,3 +565,25 @@ def test_the_peers_page_no_longer_keeps_its_own_scan_clock() -> None:
 def test_the_peers_page_reads_reach_and_providers_off_live_rows() -> None:
     assert "p.also_reachable_at" in PEERS_JS
     assert "peersProviderSummary" in PEERS_JS
+
+
+def test_the_peers_page_collapses_alternates_instead_of_listing_them_flat() -> None:
+    """The reported bug was presentational: six address lines with the useful
+    one on top and five Docker bridges under it. The page now ranks by the
+    agent's classification and hides the tail behind one disclosure — with
+    the full list still one click (or one hover) away, never dropped."""
+    assert "peersSplitAlternates" in PEERS_JS
+    assert "PEERS_INLINE_ALTERNATES" in PEERS_JS
+    assert "peersExpandedAddresses" in PEERS_JS
+    # Classification comes off the wire, keyed on URL. The page never derives
+    # it — from a browser "is 172.x a bridge?" has no answer, and a second
+    # implementation of the guess is exactly the mirror drift to avoid.
+    assert "status.reachable_at" in PEERS_JS
+    assert "p.reachable_at" in PEERS_JS
+    assert "row.addressKinds.get(url)" in PEERS_JS
+
+
+def test_the_peers_page_still_shows_addresses_an_older_agent_did_not_classify() -> None:
+    """Absent classification must rank with the LAN. If it ranked last, a
+    mesh of older agents would collapse every alternate it used to show."""
+    assert "if (!name) return 0;" in PEERS_JS

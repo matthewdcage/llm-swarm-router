@@ -1,11 +1,28 @@
-/* Overview page — design 1a (dark radar-led) / 1b (light table-led variant of
- * the same data). Everything below is token-driven, so one implementation
- * reads correctly in both themes.
+/* Home — design 1a (dark radar-led) / 1b (light table-led variant of the same
+ * data). Everything below is token-driven, so one implementation reads
+ * correctly in both themes.
+ *
+ * The page key is `overview` and stays that way: it is the same key in
+ * `const PAGES`, registerPage(), `data-page`/`#hash`, `id="page-overview"` and
+ * DASHBOARD_CONTROLS (tests/conformance/kit_config_surfaces.py), and the
+ * conformance kit asserts they agree. "Home" is a label, not a rename.
  *
  * This page merges the old Status tab (renderStatusTab) and Serving tab
  * (renderServingTab): role/mesh/backend counts and the router + oMLX counters
  * now live together, because "what is my mesh doing right now" was the one
  * question that needed both tabs open.
+ *
+ * Reading order is deliberate, because this is the front door:
+ *
+ *   masthead   what is this, is it working, how do I point something at it
+ *   banner     what is my place in the mesh
+ *   mesh/…     what is it doing right now
+ *   counters   the long tail
+ *
+ * The node facts used to be a "This node" panel at the very bottom, below
+ * three panels of telemetry — so the answer to "what is this machine" was the
+ * last thing on the page. It is now the first, and only the provenance half
+ * (agent id, build, host gauges) is folded away.
  */
 
 /* ---------------- shared derivations ---------------- */
@@ -178,6 +195,232 @@ function ovLegend(items) {
   return legend;
 }
 
+/* ---------------- 0. masthead ----------------
+ *
+ * The landing page has to answer three questions before anything is scrolled:
+ * what is this, is it working, and how do I point something at it. Everything
+ * below serves one of those and nothing else — the mesh, throughput and pools
+ * answer "what is it doing", which is a different question and stays below.
+ *
+ * Every value degrades: no /version, no client-env, an unreachable agent and a
+ * peer-less single node all render an em-dash rather than a plausible guess.
+ */
+
+/** Version as the user reads it, or null — never a fabricated "v0.0.0". */
+function ovVersionText() {
+  const v = state.versionInfo?.version || state.updateInfo?.current || state.status?.version;
+  return v ? `v${v}` : null;
+}
+
+/**
+ * What this node is doing right now, as one status the pill colour can carry.
+ *
+ * "Serving" is the only ok-green state, and it requires a backend that is
+ * actually online: an agent answering /health with nothing behind it accepts
+ * requests it cannot fulfil, which is a warning, not success.
+ */
+function ovServingState() {
+  if (!state.healthy || !state.status) {
+    return { kind: "error", accent: "accent-danger", label: "Unreachable" };
+  }
+  if (state.status.draining) {
+    return { kind: "warn", accent: "accent-warn", label: "Draining" };
+  }
+  const backends = ovEnabledBackends();
+  const online = backends.filter((b) => b.health?.status === "online").length;
+  if (!online) {
+    return {
+      kind: "warn",
+      accent: "accent-warn",
+      label: backends.length ? "No backend online" : "No backends",
+    };
+  }
+  return { kind: "ok", accent: "accent-ok", label: "Serving" };
+}
+
+/**
+ * Version state + the action for it, beside the version itself.
+ *
+ * "Up to date" is deliberately muted rather than a green badge: it is the
+ * absence of news, and a status colour on this page means "something needs
+ * you". When there *is* an update the button leads to the Preferences update
+ * card — which owns the download link, the upgrade command and the checksum —
+ * rather than reimplementing any of it here.
+ */
+function ovUpdateControl() {
+  const info = state.updateInfo;
+  const row = el("div", "row masthead-update");
+
+  if (info?.update_available) {
+    row.appendChild(
+      button(`Update to v${info.latest}`, "small", () => navigate("preferences"))
+    );
+    return row;
+  }
+
+  row.appendChild(
+    button("Check for updates", "small secondary", (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      loadUpdateCheck(true).then(() => {
+        showToast("Update check complete");
+        render();
+      });
+    })
+  );
+  if (info?.error) {
+    // A failed check is a real failure, not "no update": the agent could not
+    // reach the release feed, so "up to date" would be unproven.
+    row.appendChild(textEl("span", "text-warn", "check failed"));
+  } else if (info) {
+    row.appendChild(textEl("span", "muted", "up to date"));
+  } else {
+    row.appendChild(textEl("span", "muted", "not checked"));
+  }
+  return row;
+}
+
+function ovMastheadFact(parent, label, value) {
+  const item = el("div", "masthead-fact");
+  const shown = value === undefined || value === null || value === "" ? "—" : String(value);
+  item.append(textEl("div", "field-label", label), textEl("div", "mono", shown));
+  parent.appendChild(item);
+}
+
+/**
+ * A value the user is meant to take away with them: rendered as code, with a
+ * Copy beside it. `value` of null renders the em-dash and no button — there is
+ * nothing to copy, and a button that copies "—" is worse than no button.
+ */
+function ovMastheadCopy(parent, label, value, message, help) {
+  const card = el("div", "inset masthead-copy");
+  card.appendChild(textEl("div", "field-label", label));
+  const row = el("div", "row");
+  const code = codeEl(value || "—");
+  code.classList.add("masthead-code");
+  row.appendChild(code);
+  if (value) {
+    row.appendChild(button("Copy", "small secondary", () => copyText(value, message)));
+  }
+  card.appendChild(row);
+  if (help) card.appendChild(textEl("div", "field-help", help));
+  parent.appendChild(card);
+  return card;
+}
+
+/**
+ * Node details that are real but rarely the reason someone opened the page:
+ * identifiers, build provenance and host gauges. Folded, but folded *here* —
+ * this used to be a full panel below the fold, which is the placement the user
+ * called unintuitive.
+ */
+function ovMastheadDetails(parent) {
+  const status = state.status;
+  const version = state.versionInfo;
+  const host = state.telemetry?.host;
+  const body = collapsiblePanel(parent, "Node details", null, {
+    boxClass: "inset",
+    storageKey: "overview.nodeDetails",
+    defaultOpen: false,
+    summary: "agent id · build · host gauges",
+  });
+
+  const grid = el("div", "grid-2");
+  const left = el("div", "stack");
+  const right = el("div", "stack");
+  ovInfoRow(left, "Agent ID", status?.agent_id);
+  ovInfoRow(left, "Install method", version?.install_method);
+  ovInfoRow(left, "Platform", version?.platform);
+  ovInfoRow(left, "Build", version?.build);
+  ovInfoRow(right, "OpenAI SDK", version?.sdk_versions?.openai);
+  ovInfoRow(right, "Anthropic SDK", version?.sdk_versions?.anthropic);
+  // telemetry.host is absent whenever /telemetry did not answer; the two rows
+  // stay so the block does not change shape, and say "—" rather than "0%".
+  ovInfoRow(right, "Host CPU", host ? `${host.cpu_percent}%` : null);
+  ovInfoRow(
+    right,
+    "Host memory",
+    host ? `${host.memory_used_gb} / ${host.memory_total_gb} GB` : null
+  );
+  grid.append(left, right);
+  body.appendChild(grid);
+
+  body.appendChild(
+    textEl(
+      "p",
+      "panel-note",
+      "After changing listen address or port, restart the agent: netllm restart (packaged install) or menubar Settings → Restart Agent."
+    )
+  );
+}
+
+/**
+ * The page's identity block, and the only `h1` on Home.
+ *
+ * The product name is the level-1 heading rather than a page title: this page
+ * has no name of its own any more (the nav says "Home"), and a page with no h1
+ * has no outline for a screen reader to navigate the panels by.
+ */
+function ovRenderMasthead(root) {
+  const status = state.status;
+  const serving = ovServingState();
+  const body = panel(root, null, null, `masthead ${serving.accent}`);
+
+  const top = el("div", "masthead-top");
+  top.appendChild(brandLogoEl(40));
+
+  const identity = el("div", "masthead-identity");
+  identity.appendChild(textEl("h1", "masthead-title", "llm-swarm-router"));
+  const versionRow = el("div", "masthead-version-row");
+  versionRow.append(
+    textEl("span", "masthead-version", ovVersionText() || "version unknown"),
+    ovUpdateControl()
+  );
+  identity.appendChild(versionRow);
+  top.appendChild(identity);
+
+  const statusSide = el("div", "masthead-status");
+  statusSide.appendChild(pill(serving.kind, serving.label));
+  statusSide.appendChild(
+    textEl("div", "panel-note", `updated ${timeAgo(state.lastUpdatedAt)} · polling 5s`)
+  );
+  top.appendChild(statusSide);
+  body.appendChild(top);
+
+  const backends = ovEnabledBackends();
+  const online = backends.filter((b) => b.health?.status === "online").length;
+  const facts = el("div", "masthead-facts");
+  ovMastheadFact(facts, "Host", status?.hostname);
+  ovMastheadFact(facts, "Role", status?.role);
+  ovMastheadFact(facts, "Listen", status?.listen_url || status?.listen);
+  const uptime = agentUptimeSeconds();
+  ovMastheadFact(facts, "Uptime", uptime == null ? null : formatDuration(uptime));
+  ovMastheadFact(facts, "Backends", backends.length ? `${online}/${backends.length}` : null);
+  ovMastheadFact(facts, "Peers", status ? String(ovPeerList().length) : null);
+  body.appendChild(facts);
+
+  const copies = el("div", "masthead-copy-grid");
+  ovMastheadCopy(
+    copies,
+    "Serving on",
+    clientEndpointUrl(),
+    "Client endpoint copied",
+    "Point an OpenAI-compatible client at this base URL."
+  );
+  ovMastheadCopy(
+    copies,
+    "Join this swarm",
+    swarmJoinCommand(),
+    "Join command copied",
+    clusterTokenSet()
+      ? "Run on the machine you are adding, with your cluster token substituted — netllm never displays the stored value."
+      : "Run on the machine you are adding. This swarm has no cluster token: any agent on the LAN can join."
+  );
+  body.appendChild(copies);
+
+  ovMastheadDetails(body);
+}
+
 /* ---------------- 1. role banner ---------------- */
 
 function ovRoleSentence(peerRows) {
@@ -230,17 +473,14 @@ function ovRenderRoleBanner(root, peerRows) {
   );
   row.appendChild(text);
 
+  // Role, the backend count and the peer count moved into the masthead facts,
+  // which is now the block that answers "what is this node". Repeating them
+  // one panel later gave the same numbers two homes that could disagree
+  // mid-poll; Strategy stays because it is about routing, not identity.
   const stats = el("div", "stat-row");
-  const roleStat = statBlock("Role", status?.role || "—");
   const strategyStat = statBlock("Strategy", status?.routing_strategy || "—");
   strategyStat.querySelector(".stat-value").classList.add("mono");
-  const backends = ovEnabledBackends();
-  const online = backends.filter((b) => b.health?.status === "online").length;
-  stats.append(
-    roleStat,
-    strategyStat,
-    statBlock("Backends", backends.length ? `${online}/${backends.length}` : "—")
-  );
+  stats.appendChild(strategyStat);
   row.appendChild(stats);
 
   // The role itself is a config field owned by the Network page (agent.role);
@@ -1105,56 +1345,25 @@ function ovRenderCounters(root) {
   body.appendChild(holder);
 }
 
-function ovRenderThisNode(root) {
-  const status = state.status;
-  const version = state.versionInfo;
-  const host = state.telemetry?.host;
-  const body = panel(root, "This node", null);
-  const grid = el("div", "grid-2");
-  const left = el("div", "stack");
-  const right = el("div", "stack");
-
-  ovInfoRow(left, "Version", version?.version ? `v${version.version}` : status?.version);
-  ovInfoRow(left, "Install method", version?.install_method);
-  ovInfoRow(left, "Platform", version?.platform);
-  ovInfoRow(left, "OpenAI SDK", version?.sdk_versions?.openai);
-  ovInfoRow(left, "Anthropic SDK", version?.sdk_versions?.anthropic);
-  ovInfoRow(left, "Agent ID", status?.agent_id);
-
-  ovInfoRow(right, "Hostname", status?.hostname);
-  ovInfoRow(right, "Role", status?.role);
-  ovInfoRow(right, "Strategy", status?.routing_strategy);
-  ovInfoRow(right, "Listen", status?.listen_url || status?.listen);
-  if (host) {
-    ovInfoRow(right, "Host CPU", `${host.cpu_percent}%`);
-    ovInfoRow(right, "Host memory", `${host.memory_used_gb} / ${host.memory_total_gb} GB`);
-  } else {
-    ovInfoRow(right, "Host CPU", null);
-    ovInfoRow(right, "Host memory", null);
-  }
-
-  grid.append(left, right);
-  body.appendChild(grid);
-  body.appendChild(
-    textEl(
-      "p",
-      "panel-note",
-      "After changing listen address or port, restart the agent: netllm restart (packaged install) or menubar Settings → Restart Agent."
-    )
-  );
-}
-
 /* ---------------- page ---------------- */
 
+/*
+ * The page key stays `overview` — `const PAGES`, registerPage(),
+ * data-page/#hash, `id="page-overview"` and DASHBOARD_CONTROLS in
+ * tests/conformance/kit_config_surfaces.py all agree on it, and the kit
+ * asserts that agreement. "Home" is the label the user reads (sidebar +
+ * aria-label); renaming the key would mean editing five places to produce the
+ * same visible result.
+ *
+ * There is no `pageHeader()` here on purpose. An "Overview" h1 above a
+ * masthead that already names the product said the product's name twice and
+ * the page's name once, for a page that is now the front door and has no name
+ * of its own — so the masthead carries the h1 instead. Home therefore has
+ * exactly one h1, like every other page.
+ */
 function renderOverviewPage(root) {
-  pageHeader(
-    root,
-    "Overview",
-    null,
-    `updated ${timeAgo(state.lastUpdatedAt)} · polling 5s`
-  );
-
   const peerRows = ovPeerRows();
+  ovRenderMasthead(root);
   ovRenderRoleBanner(root, peerRows);
 
   // Mesh on the left, the reading column (throughput / pools / events) on the
@@ -1175,7 +1384,6 @@ function renderOverviewPage(root) {
 
   ovRenderOmlx(root);
   ovRenderCounters(root);
-  ovRenderThisNode(root);
 }
 
 registerPage("overview", renderOverviewPage);

@@ -345,8 +345,21 @@ enum AgentAPI {
             role: dict["role"] as? String ?? "peer",
             hostname: dict["hostname"] as? String ?? "",
             discoveredVia: dict["discovered_via"] as? String ?? "",
-            alsoReachableAt: dict["also_reachable_at"] as? [String] ?? []
+            alsoReachableAt: dict["also_reachable_at"] as? [String] ?? [],
+            addressKinds: parseAddressKinds(dict["reachable_at"])
         )
+    }
+
+    /// `reachable_at` -> url: kind (UI-4a). Absent on an agent that predates
+    /// the key, which reads as "unclassified" — never as "no alternates".
+    static func parseAddressKinds(_ value: Any?) -> [String: String] {
+        guard let rows = value as? [[String: Any]] else { return [:] }
+        var out: [String: String] = [:]
+        for row in rows {
+            guard let url = row["url"] as? String, !url.isEmpty else { continue }
+            out[url] = row["kind"] as? String ?? ""
+        }
+        return out
     }
 
     /// POST twin of `fetchJSON`. Same contract: a non-200 or an unparseable

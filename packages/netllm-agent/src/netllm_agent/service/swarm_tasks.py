@@ -17,6 +17,7 @@ from typing import Any
 
 from netllm_discovery.swarm import (
     PeerRecord,
+    normalize_peer_endpoints,
     normalize_peer_providers,
     normalize_peer_urls,
 )
@@ -88,6 +89,7 @@ class SwarmTasksMixin:
                 # sender cannot know how we found it, and register_peer
                 # carries forward a more specific answer if one exists.
                 also_reachable_at=normalize_peer_urls(payload.get("also_reachable_at")),
+                reachable_at=normalize_peer_endpoints(payload.get("reachable_at")),
                 providers=normalize_peer_providers(payload.get("providers")),
             )
         )
@@ -290,6 +292,7 @@ class SwarmTasksMixin:
                         also_reachable_at=normalize_peer_urls(
                             data.get("also_reachable_at")
                         ),
+                        reachable_at=normalize_peer_endpoints(data.get("reachable_at")),
                         providers=normalize_peer_providers(data.get("providers")),
                     )
                 )

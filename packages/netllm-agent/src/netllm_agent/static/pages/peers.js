@@ -27,8 +27,67 @@ const PEER_DISCOVERY_LABELS = {
   heartbeat: "heartbeat",
 };
 
+/**
+ * `reachable_at[].kind` (netllm_discovery.lan.ADDRESS_KINDS) in the order a
+ * person should be offered them, and what to call each one.
+ *
+ * A wildcard-bound agent answers on every address its host has, and on a
+ * machine running Docker most of those are bridge gateways: this row used to
+ * read "http://10.0.0.29:11400" followed by five "also at http://172.x.0.1"
+ * lines, which buried the only address another machine can dial. None of that
+ * is wrong — a container on that host really does reach the agent at the
+ * bridge gateway, and saying so is the answer to "what base URL do I put in
+ * my compose file?" — so the fix is ranking and labelling, not deletion.
+ *
+ * The agent classifies, because only it can see its own interface names:
+ * 10.0.0.29 and 172.17.0.1 are both RFC1918 and no client can tell them
+ * apart. An unrecognised kind is printed verbatim (a newer agent may know one
+ * this dashboard does not).
+ */
+const PEER_ADDRESS_KINDS = ["lan", "vpn", "container", "link_local", "loopback"];
+
+const PEER_ADDRESS_KIND_LABELS = {
+  lan: "",
+  vpn: "over VPN",
+  container: "from containers",
+  link_local: "link-local, no DHCP lease",
+  loopback: "same machine only",
+};
+
+/** How many alternates stay inline before the rest collapse behind "+N more". */
+const PEERS_INLINE_ALTERNATES = 2;
+
+/** Row keys whose full address list the user has expanded. */
+const peersExpandedAddresses = new Set();
+
 /** Index in swarm.peers to focus after the next render ("+ Add by URL"). */
 let peersFocusPinIndex = -1;
+
+function peersRowKey(row) {
+  return row.agentId || row.url || "";
+}
+
+/**
+ * Sort position for an address kind. An *absent* kind (every agent that
+ * predates the classification) ranks with the LAN so nothing that used to be
+ * visible is demoted on the strength of not being described; an unrecognised
+ * one ranks last, since a newer agent that bothered to name it meant
+ * something by it.
+ */
+function peersAddressRank(kind) {
+  const name = String(kind || "");
+  if (!name) return 0;
+  const index = PEER_ADDRESS_KINDS.indexOf(name);
+  return index < 0 ? PEER_ADDRESS_KINDS.length : index;
+}
+
+function peersAddressKindLabel(kind) {
+  const name = String(kind || "");
+  if (!name) return "";
+  return name in PEER_ADDRESS_KIND_LABELS
+    ? PEER_ADDRESS_KIND_LABELS[name]
+    : name.replace(/_/g, " ");
+}
 
 /**
  * `[{id, provider, model_count}]` from a heartbeat, defensively. Wire data:
@@ -99,6 +158,10 @@ function peersCollectRows() {
         sources: new Set(),
         self: false,
         alsoAt: [],
+        // url -> kind, from `reachable_at`. A URL missing from this map is
+        // one nobody classified (older agent, or an address this machine
+        // observed the peer at that the peer never advertised).
+        addressKinds: new Map(),
         draining: false,
         version: "",
         strategy: "",
@@ -128,6 +191,22 @@ function peersCollectRows() {
       });
   }
 
+  /**
+   * Merge a wire-supplied `reachable_at` into row.addressKinds. Wire data:
+   * entries can be non-objects, and `kind` can be anything. This only records
+   * classifications — the URL set itself stays addAlternates' business, so a
+   * peer that classifies nothing loses no addresses.
+   */
+  function addAddressKinds(row, entries) {
+    asArray(entries)
+      .filter((entry) => entry && typeof entry === "object")
+      .forEach((entry) => {
+        const url = peersNormalizeUrl(entry.url);
+        const kind = String(entry.kind || "");
+        if (url && kind) row.addressKinds.set(url, kind);
+      });
+  }
+
   const status = state.status || null;
   if (status && (status.agent_id || status.listen_url || status.listen)) {
     // The registry does not necessarily hold a record for this agent, so the
@@ -145,6 +224,7 @@ function peersCollectRows() {
     // fields every peer sees about it.
     selfRow.providers = peersProviderList(status.providers);
     addAlternates(selfRow, status.also_reachable_at);
+    addAddressKinds(selfRow, status.reachable_at);
   }
 
   // status.peers / lanPeers are wire data: either can be wrong-typed or hold
@@ -168,6 +248,7 @@ function peersCollectRows() {
     const providers = peersProviderList(p.providers);
     if (providers.length) row.providers = providers;
     addAlternates(row, p.also_reachable_at);
+    addAddressKinds(row, p.reachable_at);
   });
 
   scannedPeers.forEach((p) => {
@@ -186,6 +267,7 @@ function peersCollectRows() {
     const providers = peersProviderList(p.providers);
     if (providers.length && !row.providers.length) row.providers = providers;
     addAlternates(row, [p.reported_listen_url, ...asArray(p.also_reachable_at)]);
+    addAddressKinds(row, p.reachable_at);
   });
 
   peersPinnedList().forEach((url, index) => {
@@ -330,6 +412,50 @@ function peersAgentCell(row, health) {
   return cell;
 }
 
+/**
+ * Alternate addresses, most useful first, split into what shows inline and
+ * what hides behind "+N more".
+ *
+ * `alsoAt` arrives in wire order, which for a classified agent is already
+ * correct; sorting here is what makes an *older* agent's list (and the mixed
+ * case, where this machine observed an address the peer never advertised)
+ * behave the same way. A stable sort keeps ties in wire order.
+ */
+function peersSplitAlternates(row) {
+  const ranked = row.alsoAt
+    .map((url, index) => ({ url, index, kind: row.addressKinds.get(url) || "" }))
+    .sort(
+      (a, b) => peersAddressRank(a.kind) - peersAddressRank(b.kind) || a.index - b.index
+    );
+  // Everything ranked below the LAN is noise on this row by construction, so
+  // the cut is "useful ones, up to the inline budget".
+  const inlineCount = Math.min(
+    PEERS_INLINE_ALTERNATES,
+    ranked.filter((entry) => peersAddressRank(entry.kind) === 0).length
+  );
+  return { shown: ranked.slice(0, inlineCount), hidden: ranked.slice(inlineCount) };
+}
+
+/**
+ * One alternate: the URL, and under it what kind of address it is.
+ *
+ * Two lines rather than one. `also at http://172.17.0.1:11400 — from
+ * containers` does not fit the Address column at any sane width, and letting
+ * it wrap mid-phrase produced three ragged lines per address — worse than
+ * the flat list this replaces.
+ */
+function peersAlternateLine(entry, previousLabel) {
+  const line = el("div");
+  line.appendChild(textEl("div", "muted mono", `also at ${entry.url}`));
+  const label = peersAddressKindLabel(entry.kind);
+  // Entries are grouped by kind, so a repeated label under every one of five
+  // bridge gateways says "from containers" five times to no one's benefit.
+  if (label && label !== previousLabel) {
+    line.appendChild(textEl("div", "field-help", label));
+  }
+  return line;
+}
+
 function peersAddressCell(row) {
   const cell = el("div");
   if (row.pinIndex >= 0) {
@@ -353,9 +479,42 @@ function peersAddressCell(row) {
   } else {
     cell.appendChild(textEl("div", "mono", row.url || "—"));
   }
-  row.alsoAt.forEach((extra) => {
-    cell.appendChild(textEl("div", "muted mono", `also at ${extra}`));
-  });
+  const { shown, hidden } = peersSplitAlternates(row);
+  let lastLabel = "";
+  const appendAlternate = (entry) => {
+    cell.appendChild(peersAlternateLine(entry, lastLabel));
+    lastLabel = peersAddressKindLabel(entry.kind);
+  };
+  shown.forEach(appendAlternate);
+  if (!hidden.length) return cell;
+
+  const key = peersRowKey(row);
+  const open = peersExpandedAddresses.has(key);
+  if (open) hidden.forEach(appendAlternate);
+  // A real button, not a summary/details: the row is a grid cell and a
+  // <details> marker would break the column alignment. Kept ghost-weight —
+  // this is a disclosure, not an action anyone came here to take.
+  const toggle = button(
+    open ? "Show fewer addresses" : `+${hidden.length} more`,
+    "small ghost",
+    () => {
+      if (open) peersExpandedAddresses.delete(key);
+      else peersExpandedAddresses.add(key);
+      render();
+    }
+  );
+  toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  toggle.setAttribute(
+    "aria-label",
+    open
+      ? "Show fewer addresses for this agent"
+      : `Show ${hidden.length} more address${hidden.length === 1 ? "" : "es"} for this agent`
+  );
+  // A peer's advertised URLs are attacker-influenced; `title` is a text
+  // property (no markup path) but still goes through sanitizeText, which is
+  // what strips bidi/control characters everywhere else on this page.
+  toggle.title = sanitizeText(hidden.map((entry) => entry.url).join(", "));
+  cell.appendChild(toggle);
   return cell;
 }
 
@@ -520,7 +679,10 @@ function peersRosterPanel(root, rows) {
   }
 
   const shares = peersRoutedShares();
-  const template = "1.6fr 1.5fr .8fr 1.1fr .9fr .9fr auto";
+  // Address is the widest column on purpose: it carries a URL plus, on a
+  // multi-homed host, its alternates. At 1.5fr `also at http://172.17.0.1:11400`
+  // wrapped mid-phrase. Role and Provenance are short words and gave it up.
+  const template = "1.6fr 2fr .7fr .9fr .9fr .9fr auto";
   const table = dataTable(
     ["Agent", "Address", "Role", "Provenance", "Heartbeat", "Share", ""],
     template

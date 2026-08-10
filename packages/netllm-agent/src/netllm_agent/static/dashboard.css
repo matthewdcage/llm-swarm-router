@@ -1037,6 +1037,110 @@ code {
   background: var(--warn);
 }
 
+/* ---------- Home masthead ----------
+   The identity block at the top of Home: brand mark, product name, version +
+   update action, serving status, the node facts, and the two strings the user
+   copies out (client endpoint, join command). Everything wraps rather than
+   scrolls — the panel is the widest thing on the page and a horizontal scroll
+   here would be the whole page's. */
+
+.masthead-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* The only part allowed to shrink: the mark is fixed and the status column
+   must not be squeezed under its pill's own width. */
+.masthead-identity {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.masthead-title {
+  font: 600 22px system-ui, sans-serif;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.masthead-version-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  font: 400 12px system-ui, sans-serif;
+}
+
+.masthead-version {
+  font-family: var(--mono);
+  color: var(--muted);
+}
+
+.masthead-update {
+  gap: 8px;
+}
+
+.masthead-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  flex: none;
+  text-align: right;
+}
+
+/* Facts, not stats: these are short identifiers read at a glance, so they get
+   the small uppercase label + mono value pairing rather than the 22px
+   .stat-value used for numbers that change. */
+.masthead-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px 16px;
+}
+
+.masthead-fact {
+  min-width: 0;
+}
+
+.masthead-fact .mono {
+  font-size: 12px;
+  color: var(--text);
+  margin-top: 2px;
+  /* A listen URL or a hostname is arbitrary length and has no space in it. */
+  overflow-wrap: anywhere;
+}
+
+.masthead-copy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: var(--panel-rhythm);
+  align-items: start;
+}
+
+.masthead-copy {
+  min-width: 0;
+}
+
+.masthead-copy > .row {
+  margin-top: 5px;
+  align-items: flex-start;
+}
+
+.masthead-copy > .field-help {
+  margin-top: 5px;
+}
+
+/* The command is the flexible half; the Copy button keeps its width. Without
+   min-width:0 a long single-token URL sets the flex base and pushes the
+   button outside the card. */
+.masthead-code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- mesh radar ---------- */
 
 /* The stage is as wide as the panel gives it; ovMeshApply() sets the pixel
