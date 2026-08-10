@@ -38,6 +38,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from netllm_core.cloud_verification import VERIFICATION_FIELDS
 from netllm_core.config_identity import (
     BACKEND_ROW_PREFIX,
     SOURCE_ROW_PREFIX,
@@ -293,7 +294,7 @@ _MERGE_SOURCE_FIELDS: tuple[str, ...] = (
 )
 
 # Same contract for [cloud.providers.<id>]: every CloudProviderConfig field
-# except the write-only api_key.
+# except the write-only api_key and the server-owned verification record.
 _MERGE_CLOUD_PROVIDER_FIELDS: tuple[str, ...] = (
     "enabled",
     "region",
@@ -303,6 +304,16 @@ _MERGE_CLOUD_PROVIDER_FIELDS: tuple[str, ...] = (
     "models",
     "base_url",
 )
+
+# The verification record is written by the agent (or the CLI) after a live
+# check, and read by config_guards to decide whether a provider may be
+# enabled at all. A client that could set it could assert its own
+# credentials were checked and walk through that gate, so these names are
+# deliberately NOT in the allowlist above: a patch carrying them is ignored
+# and the stored record is preserved from the prior row, exactly like a
+# read_only field should behave. Imported rather than restated so adding a
+# fifth field cannot leave a hole here.
+_SERVER_OWNED_CLOUD_PROVIDER_FIELDS: frozenset[str] = frozenset(VERIFICATION_FIELDS)
 
 
 def _merge_sources(cfg: NetllmConfig, entries: list[Any]) -> list[dict[str, Any]]:

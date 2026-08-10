@@ -40,6 +40,7 @@ FROZEN_CHECK_IDS = frozenset(
         "backends.healthy",
         "backends.auth_required",
         "cloud.provider_key",
+        "cloud.provider_verified",
         "cloud.unknown_provider",
         "config.deprecated_key",
         "config.schema_version",

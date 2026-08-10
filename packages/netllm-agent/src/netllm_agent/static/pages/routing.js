@@ -378,23 +378,33 @@ function renderRoutingPage(root) {
 
   if (!schemaFields.length) return;
 
-  const backendsBody = panel(
+  // 607px of row editor, below the policy table that is the reason for this
+  // page and rarely touched once a URL is pinned. Same section as Backends →
+  // Manual overrides, same storage key would be wrong (two independent
+  // triangles), so they get their own.
+  const pinned = asArray(draft.backends);
+  const backendsBody = collapsiblePanel(
     root,
     "Backend overrides",
-    "manual entries for specific upstream URLs"
+    "manual entries for specific upstream URLs",
+    {
+      storageKey: "routing.backends",
+      defaultOpen: false,
+      forceOpen: draftDiffers("routing.backends"),
+      forceReason: "unsaved edits",
+      summary: pinned.length
+        ? `${pinned.length} entr${pinned.length === 1 ? "y" : "ies"}`
+        : "no entries",
+    }
   );
   routingFieldInto(backendsBody, byName.backends, { itemLabel: "backend" });
 
   // Not in mockup 1d, but the old routing tab exposed every one of these
   // and they belong to no other page — dropping them would take the only
-  // control off a config field (Axis D parity).
-  const tuningBody = panel(
-    root,
-    "Limits & timeouts",
-    "back-pressure, health probing and upstream HTTP"
-  );
-  const tuningGrid = el("div", "grid-2");
-  [
+  // control off a config field (Axis D parity). Parity does not require them
+  // to be on screen at all times, only reachable: eight tuning knobs nobody
+  // edits after setup are the definition of a section that folds.
+  const tuning = [
     "max_in_flight_per_backend",
     "follow_gateway",
     "spillover_max_local_in_flight",
@@ -403,7 +413,25 @@ function renderRoutingPage(root) {
     "max_backend_failures",
     "upstream_connect_timeout_s",
     "upstream_read_timeout_s",
-  ].forEach((name) => routingFieldInto(tuningGrid, byName[name]));
+  ];
+  const tuningBody = collapsiblePanel(
+    root,
+    "Limits & timeouts",
+    "back-pressure, health probing and upstream HTTP",
+    {
+      storageKey: "routing.limits",
+      defaultOpen: false,
+      forceOpen: tuning.some((name) => draftDiffers(`routing.${name}`)),
+      forceReason: "unsaved edits",
+      // The two numbers that decide how quickly a dead backend is noticed:
+      // the only ones worth reading without opening the section.
+      summary: `${tuning.length} settings · health ${draft.health_ttl_s ?? "—"}s · retry ${
+        draft.offline_retry_s ?? "—"
+      }s`,
+    }
+  );
+  const tuningGrid = el("div", "grid-2");
+  tuning.forEach((name) => routingFieldInto(tuningGrid, byName[name]));
   tuningBody.appendChild(tuningGrid);
 }
 

@@ -73,7 +73,8 @@ Prefer `./netllm` from the repo root, works without global PATH (`uv run` wrappe
 | `./netllm doctor` | PATH, mDNS, backend misconfig checks |
 | `./netllm cloud list` | Pre-configured cloud providers (Moonshot, Z.ai, OpenAI, Anthropic, OpenRouter, DashScope) + enabled/key state |
 | `./netllm cloud enable/disable <id>` | Toggle a cloud provider (`--region`, `--auth`) |
-| `./netllm cloud set-key <id>` | Store an API key (prompt or `--env VAR`) |
+| `./netllm cloud set-key <id>` | Store an API key (prompt or `--env VAR`) — verifies it immediately |
+| `./netllm cloud verify <id>` | Check the credential against the provider and record the result — a provider cannot be enabled until this passes |
 | `./netllm cloud fallback <cloud\|local\|none\|on\|off>` | Cloud fallback direction / toggle |
 | `./netllm cloud connect openrouter` | OAuth PKCE sign-in (the only provider with sanctioned 3rd-party OAuth) |
 | `./netllm cloud test <id>` | Probe a cloud provider's reachability + model catalog |

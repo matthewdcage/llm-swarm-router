@@ -707,6 +707,109 @@ button.small,
   color: var(--muted);
 }
 
+/* ---------- collapsible sections (collapsiblePanel) ----------
+   A <details> carrying .panel or .inset, so a folded section is the same box
+   as an unfolded one and every panel rule above still applies to it. */
+
+details.collapsible > summary.collapsible-head {
+  cursor: pointer;
+  /* The default disclosure triangle is drawn differently per engine and sits
+     outside the flex row; .disclosure below replaces it. `display: flex` alone
+     already suppresses it (the marker needs display: list-item), the rest is
+     for engines that keep it anyway. */
+  display: flex;
+  list-style: none;
+  border-radius: var(--radius-sm);
+}
+
+details.collapsible > summary.collapsible-head::-webkit-details-marker {
+  display: none;
+}
+
+details.collapsible > summary.collapsible-head::marker {
+  content: "";
+}
+
+.collapsible-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+/* The label is the only part allowed to shrink; a long provider name must not
+   push the count or the status off the end of the row. */
+.collapsible-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* CSS triangle in currentColor — no token needed and it follows the heading
+   colour in both themes. */
+.disclosure {
+  flex: none;
+  align-self: center;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent currentcolor;
+  opacity: 0.55;
+  transform: rotate(0deg);
+  transform-origin: 25% 50%;
+  transition: transform 120ms ease;
+}
+
+details.collapsible[open] > summary > .collapsible-title > .disclosure {
+  transform: rotate(90deg);
+}
+
+/* The global prefers-reduced-motion block already zeroes transition-duration;
+   this keeps the rotation itself from being the animation when a UA honours
+   the query but not that override. */
+@media (prefers-reduced-motion: reduce) {
+  .disclosure {
+    transition: none;
+  }
+}
+
+/* Closed-state summary: the count/status that makes a folded section
+   skippable. Hidden when open, where the body says it in full. */
+.collapsible-meta {
+  flex: none;
+  font: 400 11.5px system-ui, sans-serif;
+  color: var(--muted);
+}
+
+details.collapsible[open] > summary > .collapsible-title > .collapsible-meta {
+  display: none;
+}
+
+/* Why the section refused to stay closed (an unsaved edit, a failing probe).
+   Stays visible when open — it is the reason, not a summary. */
+.collapsible-forced {
+  flex: none;
+  font: 500 11.5px system-ui, sans-serif;
+  color: var(--warn-text);
+  background: var(--warn-tint);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+
+details.collapsible > summary.collapsible-head:hover {
+  background: var(--hover-bg);
+}
+
+/* `.panel.panel > * + *` supplies this for a .panel collapsible; an .inset
+   collapsible matches no such rule, so state it for both. Same value, so the
+   two never disagree. */
+details.collapsible > summary.collapsible-head + .panel-body {
+  margin-top: var(--panel-rhythm);
+}
+
 .inset {
   background: var(--inset);
   border-radius: var(--radius-sm);
@@ -1239,6 +1342,22 @@ textarea.mono {
   cursor: pointer;
 }
 
+/* A switch appended straight into a stacked container is a row in that stack,
+   and an inline-level box cannot take the container's rhythm — `margin-top` on
+   an inline box is ignored, so the gap came out as whatever leading the line
+   box happened to have (15.5px against the 10px everywhere else on the pool
+   detail). Blockify it where it stacks; `fit-content` keeps the clickable area
+   the size of the control rather than the full row.
+   Grid and flex containers already blockify their items, so `.row`, `.grid-2`
+   and the cloud model list are unaffected. */
+.panel > .switch,
+.panel-body > .switch,
+.stack > .switch,
+.inset > .switch {
+  display: flex;
+  width: fit-content;
+}
+
 .switch input {
   position: absolute;
   opacity: 0;
@@ -1279,6 +1398,24 @@ textarea.mono {
 .switch input:focus-visible + .track {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* A switch can be refused, not just off. The Cloud page disables Enable until
+   the provider's credential has been verified, and without a disabled look
+   the control reads as "off" — so a click that does nothing looks like a bug
+   rather than a step not yet done. The blocker sentence sits directly beneath
+   it; this is the affordance that sends the eye there. */
+   Dimming the whole label was the obvious version and it fails WCAG: the
+   label text lands at 4.39:1 on the dark theme's inset background (caught by
+   test_every_text_pair_meets_wcag_contrast). The words are the part that has
+   to stay readable — a refused control still has to be *legible* — so only
+   the track, which carries no text, is faded. */
+.switch:has(input:disabled) {
+  cursor: not-allowed;
+}
+
+.switch:has(input:disabled) .track {
+  opacity: 0.45;
 }
 
 /* ---------- logs ---------- */

@@ -48,6 +48,34 @@ GATE_NAMES = frozenset(
 )
 HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete", "head", "options"})
 
+# Routes registered AFTER the pre-split baseline, with the gate each one is
+# REQUIRED to apply. The baseline is a frozen fixture and by construction can
+# never contain a route added later, so without this a new route would be
+# unrepresentable in the manifest -- and `test_gate_manifest_covers_every_
+# registered_route` asserts the manifest is the exact route set, so the
+# alternative to declaring it here is deleting that assertion.
+#
+# These rows are hand-written, which makes them weaker evidence than the
+# derived ones: they say what a human decided, not what a shipped version did.
+# Two things keep them honest. `test_post_baseline_rows_are_genuinely_new`
+# refuses a row whose path exists in the fixture, so a baseline route cannot
+# be laundered into the softer list to change its recorded gate. And
+# `test_route_applies_the_pre_split_gate` probes these exactly like the
+# derived ones, so the running app still has to match.
+POST_BASELINE_ROUTES: tuple[dict[str, object], ...] = (
+    {
+        "path": "/netllm/v1/cloud/providers/{provider_id}/verify",
+        "method": "POST",
+        "handler": "netllm_cloud_provider_verify",
+        "gate": "require_admin_access",
+        "added_for": (
+            "UI-7a cloud key state: the only route that can certify a cloud "
+            "credential, and it both reads a submitted key and writes config "
+            "-- admin, like every other config writer."
+        ),
+    },
+)
+
 
 def _pinned_ref() -> str:
     if OUT.is_file():
@@ -196,7 +224,14 @@ def collect(source: str, ref: str) -> dict[str, object]:
         "source_blob": _fixture_blob(),
         "source_path": APP_PATH,
         "routes": rows,
+        "routes_added_after_split": [
+            dict(row) for row in sorted(POST_BASELINE_ROUTES, key=_row_key)
+        ],
     }
+
+
+def _row_key(row: dict[str, object]) -> tuple[str, str]:
+    return (str(row["path"]), str(row["method"]))
 
 
 def render(payload: dict[str, object]) -> str:

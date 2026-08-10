@@ -230,11 +230,17 @@ function localBackendCard(b) {
   const view = backendHealthView(b);
   const modifier = backendPanelModifier(view.kind);
   const card = el("div", modifier ? `panel ${modifier}` : "panel");
+  // Ignoring is a draft edit: the endpoint keeps answering and keeps appearing
+  // in /status until the config is saved and discovery re-runs. Saying only
+  // "Ignored — undo" on a button left the card otherwise unchanged, so the
+  // most likely reading was that the click had not worked.
+  const ignored = !b.cloud_provider && isDiscoveryUrlIgnored(b.base_url);
 
   const head = el("div", "row");
   head.appendChild(statusDot(backendDotKind(view.kind)));
   head.appendChild(textEl("strong", "", backendProviderLabel(b)));
   head.appendChild(el("div", "spacer"));
+  if (ignored) head.appendChild(pill("warn", "ignored · unsaved"));
   head.appendChild(pill(view.kind, view.label));
   card.appendChild(head);
   card.appendChild(textEl("div", "mono muted", b.base_url || "—"));
@@ -277,7 +283,12 @@ function localBackendCard(b) {
       actions.appendChild(
         button("Manual overrides", "secondary small", () => {
           const target = document.getElementById("section-backend-overrides");
-          if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+          if (!target) return;
+          // The section folds now, so scrolling to it is not enough: land on
+          // an open editor, not on a closed triangle.
+          const details = target.querySelector("details.collapsible");
+          if (details) details.open = true;
+          target.scrollIntoView({ behavior: "smooth", block: "start" });
         })
       );
       const ignore = backendIgnoreButton(b);
@@ -285,7 +296,82 @@ function localBackendCard(b) {
       card.appendChild(actions);
     }
   }
+
+  // An ignored endpoint that is otherwise healthy has no `why` block, so
+  // without this the undo lived only on cards that had something wrong with
+  // them — and ignoring a *working* endpoint you do not want routed to is the
+  // common case. The note plus the button go on every ignored card.
+  if (ignored) {
+    const box = el("div", "inset");
+    box.appendChild(
+      textEl(
+        "div",
+        "field-help",
+        "Staged for discovery.ignored_urls. It keeps answering and stays on this page until you Save and rescan."
+      )
+    );
+    const undo = backendIgnoreButton(b);
+    if (undo && !why) {
+      const actions = el("div", "row");
+      actions.appendChild(undo);
+      box.appendChild(actions);
+    }
+    card.appendChild(box);
+  }
   return card;
+}
+
+/* ---------------- ignored endpoints (the undo, where the action happened) ---
+ *
+ * discovery.ignored_urls could only be edited on the Network page, so the loop
+ * was: ignore an endpoint here, then leave for another page to take it back.
+ * This is the same list, restore-only — Network keeps the full editor (adding
+ * a URL by hand, seeing which entries a pinned backend overrules).
+ *
+ * Only rendered when the list is non-empty: an empty collapsed section on a
+ * page that has never ignored anything is pure noise.
+ */
+function renderBackendsIgnored(root) {
+  const entries = ignoredDiscoveryUrls();
+  if (!entries.length) return;
+  const unsaved = draftDiffers("discovery.ignored_urls");
+  const body = collapsiblePanel(root, "Ignored endpoints", null, {
+    storageKey: "backends.ignored",
+    // Open on arrival right after an Ignore click: the thing the user just did
+    // must be visible, together with the way to take it back.
+    defaultOpen: false,
+    forceOpen: unsaved,
+    forceReason: "unsaved — press Save",
+    summary: `${entries.length} ignored`,
+  });
+  body.appendChild(
+    textEl(
+      "p",
+      "panel-desc",
+      "Base URLs discovery must never register. Restore puts one back in the next scan; the full editor is on Network → Ignored endpoints."
+    )
+  );
+  entries.forEach((url) => {
+    const row = el("div", "row");
+    row.appendChild(statusDot(""));
+    row.appendChild(textEl("span", "mono", url));
+    row.appendChild(el("div", "spacer"));
+    if (ignoreOverruledByBackend(url)) {
+      // Stored but inert — an explicit routing.backends row wins. Saying so
+      // beats a Restore button that would appear to do nothing.
+      row.appendChild(
+        textEl("span", "field-help text-warn", "overruled by a pinned backend")
+      );
+    }
+    const restore = button("Restore", "secondary small", () => {
+      if (!unignoreDiscoveryUrl(url)) return;
+      showToast("Restored — press Save, then Rescan now");
+      render();
+    });
+    restore.title = `Stop ignoring ${url} — it is offered again after Save + Rescan.`;
+    row.appendChild(restore);
+    body.appendChild(row);
+  });
 }
 
 /**
@@ -303,8 +389,9 @@ function localBackendCard(b) {
  *  - a URL already pinned in routing.backends, where an ignore entry is inert
  *    because the explicit override wins (netllm_core.backend_credentials);
  *  - a cloud row, which comes from [cloud.providers] and never from the scan.
- * Removal lives on the Network page's "Ignored endpoints" section, which is
- * where the whole list is managed.
+ * Removal is available in two places: the "Ignored endpoints" section further
+ * down this page (restore-only, so the undo is where the action happened) and
+ * the Network page's section, which is the full editor.
  */
 function backendIgnoreButton(b) {
   const url = b.base_url || "";
@@ -324,7 +411,7 @@ function backendIgnoreButton(b) {
     render();
   });
   btn.title =
-    "Never register this endpoint again. Save, then Rescan. Undo it under Network → Ignored endpoints.";
+    "Never register this endpoint again. Save, then Rescan. Undo it under Ignored endpoints at the bottom of this page.";
   return btn;
 }
 
@@ -396,11 +483,20 @@ function remoteBackendTable(rows) {
  */
 function renderBackendOverrides(root) {
   const pinned = asArray(state.configDraft?.routing?.backends);
-  const body = panel(
-    root,
-    "Manual overrides",
-    pinned.length ? `${pinned.length} pinned` : "routing.backends"
-  );
+  // The tallest panel on this page and the one the user reaches for least —
+  // and the section whose own example ("collapse it like Manual overrides")
+  // started this. Force-opened whenever it holds an unsaved edit, so a row
+  // being typed can never be folded away underneath the cursor.
+  const edited = draftDiffers("routing.backends");
+  const body = collapsiblePanel(root, "Manual overrides", "routing.backends", {
+    storageKey: "backends.overrides",
+    defaultOpen: false,
+    forceOpen: edited,
+    forceReason: "unsaved edits",
+    summary: pinned.length
+      ? `${pinned.length} pinned URL${pinned.length === 1 ? "" : "s"}`
+      : "nothing pinned",
+  });
   body.appendChild(
     textEl(
       "p",
@@ -575,6 +671,7 @@ function renderBackendsPage(root) {
   overrides.id = "section-backend-overrides";
   stack.appendChild(overrides);
   renderBackendOverrides(overrides);
+  renderBackendsIgnored(stack);
 }
 
 registerPage("backends", renderBackendsPage);

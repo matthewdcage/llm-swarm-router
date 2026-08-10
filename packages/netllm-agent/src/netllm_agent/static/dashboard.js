@@ -340,6 +340,13 @@ const state = {
   // AgentAPI.cloudProviderModels twin (GET /netllm/v1/cloud/providers/{id}/models).
   cloudCatalogs: {},
   cloudCatalogFetching: new Set(),
+  // Cloud page credential verification (UI-7a), keyed by provider id.
+  // `cloudVerifyResults` holds only the *just-ran* check, for immediate
+  // feedback; the durable answer is `config.cloud.providers[id].verification`
+  // on the config summary, because the agent — not this page — is what has to
+  // remember it across a reload.
+  cloudVerifyResults: {},
+  cloudVerifying: new Set(),
   // Known-harness registry + live PATH detection, GET /netllm/v1/harnesses
   // (docs/cli-source-routing-plan.md Phase 4c/4d). null on an older agent
   // that predates the endpoint (404) -- the Integrations page section simply
@@ -640,6 +647,152 @@ function panel(root, title, note, modifier) {
   card.appendChild(body);
   root.appendChild(card);
   return body;
+}
+
+/* ---------------- collapsible sections ----------------
+ *
+ * One implementation for every accordion on every page, so a section that
+ * folds behaves identically wherever it lives.
+ *
+ * Native <details>/<summary>, never a div with aria-expanded: the browser
+ * gives keyboard operation, the correct screen-reader role and state, and —
+ * the one no hand-rolled version reproduces — find-in-page expands a closed
+ * section when the match is inside it. A collapsed section that Ctrl-F cannot
+ * reach is a section the user cannot find.
+ *
+ * Three rules the component enforces so pages cannot get them individually
+ * wrong:
+ *
+ *   1. Open/closed persists. render() rebuilds the whole page on every 5s
+ *      poll, so without storage a section you opened would shut again a few
+ *      seconds later, mid-edit.
+ *   2. `forceOpen` wins over both the stored state and the default. A section
+ *      holding an unsaved edit, a validation error or a failing status must
+ *      never be the thing hiding it. Callers compute the condition; the
+ *      component guarantees it is honoured.
+ *   3. A closed section still says something. `summary` is the count/status
+ *      line rendered while closed, so the section can be skipped without
+ *      being opened.
+ */
+
+const SECTION_STORAGE_KEY = "netllm.sections";
+
+/** `{sectionKey: bool}` from localStorage; `{}` when unavailable or corrupt. */
+function storedSectionStates() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SECTION_STORAGE_KEY) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    // Private mode, a quota error, or a hand-edited value. Defaults apply.
+    return {};
+  }
+}
+
+function storedSectionOpen(key, fallback) {
+  if (!key) return fallback;
+  const value = storedSectionStates()[key];
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function setStoredSectionOpen(key, open) {
+  if (!key) return;
+  try {
+    const all = storedSectionStates();
+    all[key] = !!open;
+    window.localStorage.setItem(SECTION_STORAGE_KEY, JSON.stringify(all));
+  } catch {
+    /* private mode — the section still works, it just forgets */
+  }
+}
+
+/**
+ * A collapsible titled section. Returns the body element to append into,
+ * exactly like `panel()`.
+ *
+ * options:
+ *   storageKey  string   persistence key under `netllm.sections`. Omit for a
+ *                        section whose state should not be remembered.
+ *   defaultOpen boolean  state on first visit (default false).
+ *   forceOpen   boolean  open regardless of stored/default state.
+ *   forceReason string   why it was force-opened, shown in the header.
+ *   summary     string|Node  rendered in the header, visible only while closed.
+ *   modifier    string   accent class on the box (accent-ok/warn/danger).
+ *   boxClass    string   "panel" (default) or "inset" for a card inside a panel.
+ */
+function collapsiblePanel(root, title, note, options) {
+  const opts = asObject(options);
+  const boxClass = opts.boxClass || "panel";
+  const classes = [boxClass, "collapsible", opts.modifier].filter(Boolean);
+  const box = el("details", classes.join(" "));
+
+  // forceOpen deliberately does not write to storage: it is a temporary
+  // condition (an unsaved edit, a failing probe), and letting it overwrite the
+  // user's choice would leave the section open forever once the edit is saved.
+  const forced = !!opts.forceOpen;
+  const open = forced || storedSectionOpen(opts.storageKey, !!opts.defaultOpen);
+  box.open = open;
+
+  const head = el("summary", "panel-head collapsible-head");
+  // One heading element is the only non-phrasing content <summary> accepts, so
+  // the note and the closed-state summary live inside it. That also puts them
+  // in the summary's accessible name, which is what a screen-reader user hears
+  // before deciding whether to expand.
+  const heading = el("h2", "panel-title collapsible-title");
+  heading.appendChild(el("span", "disclosure"));
+  heading.appendChild(textEl("span", "collapsible-label", title || ""));
+  if (note) {
+    heading.appendChild(
+      typeof note === "string" ? textEl("span", "panel-note", note) : note
+    );
+  }
+  heading.appendChild(el("span", "spacer"));
+  if (forced && opts.forceReason) {
+    heading.appendChild(textEl("span", "collapsible-forced", opts.forceReason));
+  }
+  if (opts.summary != null && opts.summary !== "") {
+    const meta =
+      typeof opts.summary === "string"
+        ? textEl("span", "collapsible-meta", opts.summary)
+        : opts.summary;
+    if (meta.classList) meta.classList.add("collapsible-meta");
+    heading.appendChild(meta);
+  }
+  head.appendChild(heading);
+  box.appendChild(head);
+
+  const body = el("div", "panel-body");
+  box.appendChild(body);
+  root.appendChild(box);
+
+  // `toggle` also fires for the `box.open` assignment above (it is queued as a
+  // task, so it lands after this function returns). Tracking the last value we
+  // are responsible for means that initial event is a no-op and only a real
+  // user toggle is persisted.
+  let last = open;
+  box.addEventListener("toggle", () => {
+    if (box.open === last) return;
+    last = box.open;
+    setStoredSectionOpen(opts.storageKey, box.open);
+  });
+  return body;
+}
+
+/**
+ * True when `path` (dotted, e.g. "routing.backends") differs between the
+ * staged draft and the saved config — the "this section holds an unsaved
+ * edit" test every `forceOpen` on a config section is built from.
+ */
+function draftDiffers(path) {
+  if (!state.config || !state.configDraft) return false;
+  try {
+    return (
+      JSON.stringify(getByPath(state.configDraft, path) ?? null) !==
+      JSON.stringify(getByPath(state.config, path) ?? null)
+    );
+  } catch {
+    // A draft holding a cycle (it should not) must not take the page down.
+    return false;
+  }
 }
 
 function statusDot(kind) {

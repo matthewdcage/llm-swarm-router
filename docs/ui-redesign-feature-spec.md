@@ -639,6 +639,26 @@ Plus `POST /netllm/v1/cloud/providers/{id}/verify` → `{ok, status, checked_at,
 detail}`, a real auth check (a cheap authenticated GET, per provider spec) —
 distinct from `/models`, whose `status` is a side effect of listing.
 
+> **Shipped, with three changes.** The verify route landed (`POST`, admin gate,
+> `netllm_core.cloud_verification`) together with the gate it exists for:
+> `enabled` cannot be set on a provider whose credential has not passed a
+> current check, enforced in `config_guards` so the CLI and the macOS Save
+> button are bound by it too. Divergences worth knowing:
+> **(1)** the record is four persisted read-only config keys
+> (`verified_status` / `verified_at` / `verified_detail` /
+> `verified_key_fingerprint`) rather than `key_status` / `key_checked_at` on
+> the wire only — the CLI shares no runtime state with the agent, and the gate
+> runs in both. The wire keys the table describes are served as a composed
+> `verification` object on each provider row, blocker sentence included.
+> **(2)** the body may carry an unsaved `api_key`, which is what lets a pasted
+> key be checked before it is stored; only its fingerprint is kept.
+> **(3)** a provider with no catalogue endpoint is checked with a one-token
+> request, because "a key is present" is not verification.
+>
+> Still open from this section: `api_key_hint`, `api_key_updated_at`,
+> `api_key_source`, `api_key_is_placeholder`, the `api_key_clear` erase
+> channel, and `secret_backend` on `/status`.
+
 Plus an erase channel: `apply_config_patch` accepts `api_key_clear: true` on a
 cloud provider patch, meaning "delete the stored key". A `DELETE` route is the
 alternative; the patch flag is preferable because it goes through the one

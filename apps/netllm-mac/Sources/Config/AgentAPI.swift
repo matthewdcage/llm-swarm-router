@@ -167,6 +167,58 @@ enum AgentAPI {
         )
     }
 
+    /// Every provider's stored credential-verification state, read from the
+    /// config summary (`cloud.providers.<id>.verification`).
+    ///
+    /// Read over HTTP rather than out of `document`, even though the app's
+    /// config comes from `netllm config export`, because the export is the
+    /// raw model dump — it carries the four `verified_*` fields but not the
+    /// server-composed `blocker` sentence or the gate's `can_enable` verdict.
+    /// Fetching the projection is what keeps the macOS app from having to
+    /// write its own copy of either.
+    ///
+    /// `nil` when the agent is unreachable or predates verification; the
+    /// Cloud tab then shows no verdict and blocks nothing.
+    static func cloudVerifications(baseURL: URL) async -> [String: CloudVerification]? {
+        guard let json = await fetchJSON(baseURL: baseURL, path: "/netllm/v1/config")
+        else { return nil }
+        let cloud = json["cloud"] as? [String: Any] ?? [:]
+        let providers = cloud["providers"] as? [String: Any] ?? [:]
+        var out: [String: CloudVerification] = [:]
+        for (id, raw) in providers {
+            guard let row = raw as? [String: Any],
+                  let verification = row["verification"] as? [String: Any]
+            else { continue }
+            out[id] = CloudVerification.from(verification)
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    /// Checks one provider's credential against the provider and records the
+    /// outcome in the agent's config (POST
+    /// /netllm/v1/cloud/providers/{id}/verify).
+    ///
+    /// `apiKey` is a key the user has typed but not yet stored — the agent
+    /// checks it and keeps only a fingerprint, so a key never has to be saved
+    /// to find out whether it works. On macOS keys live in the login Keychain
+    /// and are injected into the agent process at launch, which means a key
+    /// saved *since* the agent started is invisible to it; passing the draft
+    /// here is what makes Verify answer about the key the user is looking at
+    /// rather than the one the agent happens to be holding.
+    static func verifyCloudProvider(
+        baseURL: URL, providerID: String, apiKey: String?
+    ) async -> CloudVerification? {
+        var body: [String: Any] = [:]
+        if let apiKey, !apiKey.isEmpty { body["api_key"] = apiKey }
+        guard let json = await postJSON(
+            baseURL: baseURL,
+            path: "/netllm/v1/cloud/providers/\(providerID)/verify",
+            body: body,
+            timeout: 20
+        ) else { return nil }
+        return CloudVerification.from(json)
+    }
+
     /// Known-harness registry merged with configured routing.sources state
     /// and live PATH detection (admin.harness_registry_payload,
     /// docs/cli-source-routing-plan.md Phase 4c/4d). `nil` on an older
@@ -295,6 +347,27 @@ enum AgentAPI {
             discoveredVia: dict["discovered_via"] as? String ?? "",
             alsoReachableAt: dict["also_reachable_at"] as? [String] ?? []
         )
+    }
+
+    /// POST twin of `fetchJSON`. Same contract: a non-200 or an unparseable
+    /// body is `nil`, never a partially-filled result — a caller cannot tell
+    /// a refusal from a success by accident.
+    private static func postJSON(
+        baseURL: URL, path: String, body: [String: Any], timeout: TimeInterval = 5
+    ) async -> [String: Any]? {
+        guard let url = AgentHTTP.url(base: baseURL, path: path) else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            return try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        } catch {
+            return nil
+        }
     }
 
     private static func fetchJSON(

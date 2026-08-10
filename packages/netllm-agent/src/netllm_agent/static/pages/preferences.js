@@ -139,8 +139,26 @@ function prefsBehaviourSection(root) {
     })
   );
 
-  const menubar = el("div", "inset");
-  menubar.appendChild(textEl("div", "field-label", "macOS menu bar"));
+  const menubarOverrides = prefsHiddenUiOverrides((n) =>
+    n.startsWith(PREFS_MENUBAR_PREFIX)
+  );
+  const menubarNames = prefsUiFieldNames().filter((n) =>
+    n.startsWith(PREFS_MENUBAR_PREFIX)
+  );
+  // Folded by default: not one of these controls does anything on the web
+  // surface the user is looking at. They are saved here so the menubar app
+  // picks them up, which is a reason to keep them reachable, not a reason to
+  // put eight switches in front of someone on Linux.
+  const menubar = collapsiblePanel(body, "macOS menu bar", null, {
+    boxClass: "inset",
+    storageKey: "prefs.menubar",
+    defaultOpen: false,
+    forceOpen: menubarNames.some((n) => draftDiffers(`ui.${n}`)),
+    forceReason: "unsaved edits",
+    summary: `${menubarNames.length} menubar setting${
+      menubarNames.length === 1 ? "" : "s"
+    } · no effect on this page`,
+  });
   menubar.appendChild(
     textEl(
       "div",
@@ -148,9 +166,6 @@ function prefsBehaviourSection(root) {
       "These only affect the macOS menubar app. They are saved to the same " +
         "config file on every platform."
     )
-  );
-  const menubarOverrides = prefsHiddenUiOverrides((n) =>
-    n.startsWith(PREFS_MENUBAR_PREFIX)
   );
   Object.entries(PREFS_MENUBAR_LABELS).forEach(([name, label]) => {
     if (menubarOverrides[name]?.hidden) return;
@@ -162,8 +177,9 @@ function prefsBehaviourSection(root) {
     menubarOverrides.menubar_merge_gauges.help =
       "Stored for the menubar app; no surface reads it yet.";
   }
+  // No body.appendChild(menubar): collapsiblePanel already placed the box in
+  // `body` and handed back its interior.
   renderSchemaForm(menubar, "ui", menubarOverrides);
-  body.appendChild(menubar);
 }
 
 /* ---------------- updates ---------------- */
@@ -171,7 +187,10 @@ function prefsBehaviourSection(root) {
 function prefsUpdateNote(info) {
   if (!info) return pill("neutral", "Status unknown");
   if (info.update_available) return pill("warn", `v${info.latest} available`);
-  if (info.error) return pill("neutral", "Check failed");
+  // A failed check is a real failure, not an absence of news: the agent could
+  // not reach the release feed, so "no update available" below is unproven.
+  // Rendering it neutral read as "fine, nothing to do".
+  if (info.error) return pill("warn", "Check failed");
   return pill("ok", info.current ? `Up to date · v${info.current}` : "Up to date");
 }
 
@@ -408,12 +427,15 @@ function renderPreferencesPage(root) {
     "Preferences",
     "App behaviour, updates and diagnostics — nothing here affects routing"
   );
+  // About first, by request. Reordering this one array moves the jump rail
+  // and the body together — railLayout() builds both from it, and marks the
+  // first entry active/aria-current on the initial render.
   railLayout(root, [
+    { id: "prefs-about", label: "About", render: prefsAboutSection },
     { id: "prefs-appearance", label: "Appearance", render: prefsAppearanceSection },
     { id: "prefs-behaviour", label: "Behaviour", render: prefsBehaviourSection },
     { id: "prefs-updates", label: "Updates", render: prefsUpdatesSection },
     { id: "prefs-logs", label: "Logs location", render: prefsLogsSection },
-    { id: "prefs-about", label: "About", render: prefsAboutSection },
   ]);
 }
 

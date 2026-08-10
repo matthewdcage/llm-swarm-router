@@ -273,6 +273,38 @@ struct CloudModelCatalog: Sendable {
     var models: [String]
 }
 
+/// One provider's credential-verification state, as the agent reports it
+/// (netllm_core.cloud_verification.verification_state — carried on
+/// GET /netllm/v1/config and returned by POST .../verify).
+///
+/// Every field is the server's answer, including `blocker`, the sentence
+/// shown to the user, and `canEnable`, the write-path gate's own verdict.
+/// Nothing here is derived on this side on purpose: the same rule is
+/// enforced when config is saved, and a Swift re-derivation would be a
+/// second rule that drifts from the one that decides.
+struct CloudVerification: Sendable, Equatable {
+    var status: String
+    var ok: Bool
+    var blocker: String
+    var detail: String
+    var checkedAt: String
+    var canEnable: Bool
+
+    static func from(_ json: [String: Any]) -> CloudVerification {
+        CloudVerification(
+            status: json["status"] as? String ?? "",
+            ok: json["ok"] as? Bool ?? false,
+            blocker: json["blocker"] as? String ?? "",
+            detail: json["detail"] as? String ?? "",
+            checkedAt: json["checked_at"] as? String ?? "",
+            // Absent on an agent too old to know about verification: no
+            // verdict means no gate, and refusing every provider because the
+            // agent is old would be a worse answer than allowing them.
+            canEnable: json["can_enable"] as? Bool ?? true
+        )
+    }
+}
+
 struct PeerStatus: Identifiable, Sendable {
     var id: String { agentId }
     var agentId: String

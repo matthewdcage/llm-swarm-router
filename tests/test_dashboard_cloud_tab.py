@@ -103,13 +103,26 @@ def test_cloud_patch_never_sends_key_when_not_provided(tmp_path: Path) -> None:
     provider entry saved without a key does not blank a previously
     stored one (mirrors the admin API's own preserve-on-omit test, but
     verifies the JS-shaped payload the admin endpoint actually receives
-    from the dashboard save button matches what save-preserving expects)."""
-    from netllm_core.models import save_config
+    from the dashboard save button matches what save-preserving expects).
+
+    The provider starts verified and enabled, which is now the only way it
+    can legitimately be either: the point under test is that a save carrying
+    no `api_key` neither blanks the stored key nor invalidates the check that
+    key passed."""
+    from netllm_core.cloud_verification import key_fingerprint
+    from netllm_core.models import CloudProviderConfig, save_config
 
     cfg_path = tmp_path / "config.toml"
     cfg = NetllmConfig()
     cfg.swarm.mdns = False
     cfg.agent.advertise = False
+    cfg.cloud.providers["moonshot"] = CloudProviderConfig(
+        enabled=True,
+        api_key="mk-stored",
+        verified_status="ok",
+        verified_at="2026-08-10T00:00:00+00:00",
+        verified_key_fingerprint=key_fingerprint("mk-stored"),
+    )
     save_config(cfg, cfg_path)
     app = create_app(cfg, config_path=cfg_path)
     client = TestClient(app)
@@ -129,4 +142,8 @@ def test_cloud_patch_never_sends_key_when_not_provided(tmp_path: Path) -> None:
     assert resp.status_code == 200, resp.text
     summary = client.get("/netllm/v1/config").json()
     assert summary["cloud"]["providers"]["moonshot"]["enabled"] is True
-    assert summary["cloud"]["providers"]["moonshot"]["api_key_set"] is False
+    assert summary["cloud"]["providers"]["moonshot"]["api_key_set"] is True
+    assert "mk-stored" not in str(summary)
+    # The omitted key kept its verification: a save that touches nothing
+    # about the credential must not knock the provider back to "unverified".
+    assert summary["cloud"]["providers"]["moonshot"]["verification"]["ok"] is True

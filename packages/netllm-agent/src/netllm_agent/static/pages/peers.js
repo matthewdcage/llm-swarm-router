@@ -314,7 +314,9 @@ function peersAgentCell(row, health) {
   const name = row.hostname || row.agentId || (row.url ? row.url : "unnamed agent");
   line.appendChild(textEl("span", "", name));
   if (row.self) {
-    line.appendChild(pill("ok", `you · ${row.role || "peer"}`));
+    // Identity, not health. Green next to `statusDot(health.kind)` claimed
+    // this node was fine even when the dot beside it was red.
+    line.appendChild(pill("neutral", `you · ${row.role || "peer"}`));
   }
   if (row.draining) line.appendChild(pill("warn", "draining"));
   cell.appendChild(line);
@@ -386,17 +388,29 @@ function peersActionsCell(row) {
   return cell;
 }
 
+/**
+ * Peer warnings — collapsed, and below the roster.
+ *
+ * These are informational drift notices (a peer on a different strategy, a
+ * one-minor version skew), not the reason anyone opens this page. Rendered
+ * open and first, three of them filled half the viewport and pushed the peer
+ * list — the actual content — below the fold.
+ *
+ * The early return stays: a collapsed "0 peer warnings detected" is noise.
+ * The accent stays too (these really are warnings) but moves off the box and
+ * onto the status dots inside it — a full warn border around a closed one-line
+ * row shouts louder than a version-skew notice deserves.
+ */
 function peersWarningsPanel(root) {
   // peer_warnings is what other agents said about themselves — the most
   // reachable wrong-typed field on this page.
   const warnings = asArray(state.status?.peer_warnings).filter(Boolean);
   if (!warnings.length) return;
-  const body = panel(
-    root,
-    "Peer warnings",
-    `${warnings.length} drift issue${warnings.length === 1 ? "" : "s"}`,
-    "accent-warn"
-  );
+  const body = collapsiblePanel(root, "Peer warnings", null, {
+    storageKey: "peers.warnings",
+    defaultOpen: false,
+    summary: `${warnings.length} peer warning${warnings.length === 1 ? "" : "s"} detected`,
+  });
   warnings.forEach((text) => {
     const finding = el("div", "finding");
     finding.appendChild(statusDot("warn"));
@@ -478,8 +492,15 @@ function renderPeersPage(root) {
   );
 
   pageHeader(root, "Peers", subParts.join(" · "), actions);
+  // Roster first — it is why the page exists; warnings go underneath it. The
+  // roster is its own function rather than the tail of this one because it
+  // early-returns on an empty mesh, and that return used to be the end of the
+  // page: warnings appended after it would simply never render.
+  peersRosterPanel(root, rows);
   peersWarningsPanel(root);
+}
 
+function peersRosterPanel(root, rows) {
   const body = panel(
     root,
     "Mesh roster",

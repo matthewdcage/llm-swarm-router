@@ -82,6 +82,7 @@ DOCTOR_CHECK_IDS = (
     "backends.healthy",
     "backends.auth_required",
     "cloud.provider_key",
+    "cloud.provider_verified",
     "cloud.unknown_provider",
     "config.deprecated_key",
     "config.schema_version",
@@ -357,6 +358,54 @@ def doctor_payload(
             )
         )
 
+    # Enabled and keyed, but never actually checked against the provider —
+    # the state a config written before UI-7a lands in, and the one the write
+    # gate deliberately grandfathers rather than switching off. Grandfathering
+    # is the right call for a provider that has been serving requests, and
+    # exactly wrong if it never worked, and doctor is the only surface that
+    # can tell the user which of the two they have.
+    from netllm_core.cloud_verification import verification_state
+
+    cloud_unverified: list[tuple[str, Any, dict[str, Any]]] = []
+    if cfg.cloud.enabled:
+        for provider_id, provider_cfg in cfg.cloud.providers.items():
+            if not provider_cfg.enabled:
+                continue
+            spec = get_provider_spec(provider_id)
+            if spec is None or any(pid == provider_id for pid, _ in cloud_missing_key):
+                continue
+            state = verification_state(provider_cfg, spec)
+            if not state["ok"]:
+                cloud_unverified.append((provider_id, spec, state))
+    for provider_id, spec, state in cloud_unverified:
+        checks.append(
+            doctor_check(
+                "cloud.provider_verified",
+                ok=False,
+                title=f"Cloud provider {spec.display_name} is enabled but its "
+                "credential is not verified",
+                detail=state["blocker"],
+                fix=f"Run `netllm cloud verify {provider_id}`, or press Verify "
+                "key on the dashboard's Cloud page",
+                subject=provider_id,
+                action={"kind": "navigate", "label": "Open Cloud", "target": "cloud"},
+            )
+        )
+    if not cloud_unverified:
+        checks.append(
+            doctor_check(
+                "cloud.provider_verified",
+                ok=True,
+                title="Every enabled cloud provider has a verified credential",
+                detail=(
+                    "cloud.enabled is false"
+                    if not cfg.cloud.enabled
+                    else "Each enabled provider's key passed a check against "
+                    "the provider itself."
+                ),
+            )
+        )
+
     # Unknown [cloud.providers.*] ids are preserved on save rather than
     # deleted (models.CloudConfig), so doctor is where they become visible.
     extend_or_pass(
@@ -505,6 +554,8 @@ def _source_export(cfg: NetllmConfig) -> list[dict[str, Any]]:
 
 
 def _cloud_provider_export(cfg: NetllmConfig) -> dict[str, Any]:
+    from netllm_core.cloud_verification import verification_state
+
     out: dict[str, Any] = {}
     for provider_id, spec in CLOUD_PROVIDERS.items():
         provider_cfg = cfg.cloud.providers.get(provider_id)
@@ -531,6 +582,13 @@ def _cloud_provider_export(cfg: NetllmConfig) -> dict[str, Any]:
             "auth_modes": list(spec.auth_modes),
             "default_api_format": spec.default_api_format,
             "notes": spec.notes,
+            # The credential-verification state, computed server-side so the
+            # dashboard, the macOS app and the CLI all print the same
+            # sentence about the same provider instead of each deriving its
+            # own from `api_key_set` -- which is exactly how a page came to
+            # show a keyless provider as ready. Carries `can_enable`, the
+            # gate's own answer, so no client re-implements the rule.
+            "verification": verification_state(provider_cfg, spec),
         }
     return out
 
@@ -709,7 +767,11 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
     }
 
 
-def apply_config_patch(cfg: NetllmConfig, patch: dict[str, Any]) -> NetllmConfig:
+def apply_config_patch(
+    cfg: NetllmConfig,
+    patch: dict[str, Any],
+    warnings: list[str] | None = None,
+) -> NetllmConfig:
     """Merge dashboard-editable config sections, apply the shared write-path
     guards, and validate.
 
@@ -718,13 +780,21 @@ def apply_config_patch(cfg: NetllmConfig, patch: dict[str, Any]) -> NetllmConfig
     (netllm_cli.config_json.import_config) so the two writers can no longer
     diverge on what they enforce. See docs/config-guards-audit.md and
     docs/architecture/07-findings-register.md F-02.
+
+    `cfg` doubles as the guards' `previous`: config_merge never mutates it,
+    so it is still the pre-patch state the cloud verification gate needs to
+    tell "the user just switched this provider on" (refuse, unverified) from
+    "this config has had it on since before the feature existed" (warn).
     """
     from netllm_discovery.lan import own_agent_urls
 
     updated = config_merge.apply_config_patch(cfg, patch)
     try:
         config_guards.apply_config_guards(
-            updated, own_agent_urls=own_agent_urls(updated.agent.listen)
+            updated,
+            own_agent_urls=own_agent_urls(updated.agent.listen),
+            previous=cfg,
+            warnings=warnings,
         )
     except config_guards.ConfigGuardError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -745,8 +815,11 @@ def save_config_patch(
             detail="Agent was started without a config file path; cannot save",
         )
     before = listen_before or cfg.agent.listen
-    updated = apply_config_patch(cfg, patch)
     warnings: list[str] = []
+    # Guard warnings first: a provider demoted for having no key is the most
+    # important thing this response can say, and it has to be said before the
+    # peer/ignore notes rather than appended after them.
+    updated = apply_config_patch(cfg, patch, warnings)
     swarm_patch = patch.get("swarm") if isinstance(patch.get("swarm"), dict) else None
     if swarm_patch is not None and "peers" in swarm_patch:
         from netllm_discovery.lan import own_agent_urls

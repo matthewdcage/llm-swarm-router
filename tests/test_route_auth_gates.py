@@ -77,6 +77,19 @@ def _manifest() -> dict:
     return json.loads(GATES_MANIFEST.read_text(encoding="utf-8"))
 
 
+def _all_rows() -> list[dict]:
+    """Baseline rows plus the ones added after the split.
+
+    The two lists are asserted identically against the running app -- the
+    only difference is provenance, and the manifest keeps them apart so that
+    difference stays visible. A row in `routes_added_after_split` records a
+    human's decision about a route that did not exist at the pin; a row in
+    `routes` records what a shipped version actually did.
+    """
+    manifest = _manifest()
+    return list(manifest["routes"]) + list(manifest.get("routes_added_after_split", []))
+
+
 @pytest.fixture
 def recorded_gates(monkeypatch) -> list[str]:
     calls: list[str] = []
@@ -115,7 +128,7 @@ def test_gate_manifest_covers_every_registered_route(probe_client: TestClient) -
         for method in (getattr(route, "methods", None) or [])
         if route.path not in framework and route.path not in MOUNTS
     }
-    declared = {(row["path"], row["method"]) for row in _manifest()["routes"]}
+    declared = {(row["path"], row["method"]) for row in _all_rows()}
     assert live == declared, (
         "route-auth-gates.json is out of step with the registered routes; "
         "regenerate with scripts/generate-route-auth-gates.py and explain any "
@@ -134,7 +147,7 @@ def test_gate_manifest_covers_every_registered_route(probe_client: TestClient) -
 
 @pytest.mark.parametrize(
     "row",
-    _manifest()["routes"],
+    _all_rows(),
     ids=lambda row: f"{row['method']} {row['path']}",
 )
 def test_route_applies_the_pre_split_gate(
@@ -158,6 +171,29 @@ def test_route_applies_the_pre_split_gate(
     assert len(recorded_gates) <= 1, (
         f"{row['method']} {row['path']} called more than one gate: {recorded_gates}"
     )
+
+
+def test_post_baseline_rows_are_genuinely_new() -> None:
+    """A hand-declared row may only describe a route the baseline cannot.
+
+    `routes_added_after_split` is the softer half of the manifest: its gate
+    is asserted, but its *provenance* is a human's word rather than a shipped
+    version's behaviour. That is only acceptable for a route the frozen
+    fixture could never contain. Moving an existing route into it -- the one
+    way to quietly re-record a gate -- fails here, and each row must say what
+    it was added for.
+    """
+    fixture = FIXTURE.read_text(encoding="utf-8")
+    added = _manifest().get("routes_added_after_split", [])
+    for row in added:
+        assert row["path"] not in fixture, (
+            f"{row['path']} exists in the pre-split baseline; it belongs in "
+            "`routes`, derived from the fixture, not in the hand-written list"
+        )
+        assert len(str(row.get("added_for", ""))) > 30, (
+            f"{row['path']} needs a real reason for carrying its gate by "
+            "declaration rather than by derivation"
+        )
 
 
 def test_gate_baseline_is_pre_split() -> None:

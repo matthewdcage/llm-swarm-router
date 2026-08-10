@@ -172,5 +172,14 @@
       "handler": "openai_responses",
       "gate": "require_inference_access"
     }
+  ],
+  "routes_added_after_split": [
+    {
+      "path": "/netllm/v1/cloud/providers/{provider_id}/verify",
+      "method": "POST",
+      "handler": "netllm_cloud_provider_verify",
+      "gate": "require_admin_access",
+      "added_for": "UI-7a cloud key state: the only route that can certify a cloud credential, and it both reads a submitted key and writes config -- admin, like every other config writer."
+    }
   ]
 }

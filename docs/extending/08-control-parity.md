@@ -174,7 +174,8 @@ assertion passes vacuously. The walk duck-types on `.commands`, and
 | `swarm` | config | `networkSwarmDiscoverySection` | `swarmTab` | `netllm join`, `netllm swarm-token` |
 | `routing` | config | `renderRoutingPage` | `routingTab` | n/a |
 | `sources` | config | `renderSourcesSection` | `sectionHeader("Sources")` | `netllm sources list`, `netllm sources toggle` |
-| `cloud` | config | `renderCloudPage` | `cloudTab` | `netllm cloud list`, `netllm cloud enable`, `netllm cloud disable`, `netllm cloud set-key` |
+| `cloud` | config | `renderCloudPage` | `cloudTab` | `netllm cloud list`, `netllm cloud enable`, `netllm cloud disable`, `netllm cloud set-key`, `netllm cloud verify` |
+| `cloud_verify` | action | `renderCloudVerificationRow` | `verifyCloudProvider` | `netllm cloud verify` |
 | `ui` | config | `prefsBehaviourSection` | `uiTab` | n/a |
 | `logs` | view | `renderLogsPage` | `logsTab` | n/a |
 | `tools` | action | `renderDoctorPage` | `toolsTab` | `netllm doctor`, `netllm test`, `netllm gateway` |

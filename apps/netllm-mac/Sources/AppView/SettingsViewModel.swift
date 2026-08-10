@@ -73,6 +73,14 @@ final class SettingsViewModel {
     /// in-flight marker for the fetch button.
     var cloudCatalogs: [String: CloudModelCatalog] = [:]
     var cloudCatalogFetching: Set<String> = []
+    /// Per-provider credential verification (UI-7a), keyed by provider id.
+    ///
+    /// Refreshed from the agent on every poll rather than remembered here,
+    /// because the record lives in the agent's config — it has to survive a
+    /// window close, an app restart and a check run from the dashboard or the
+    /// CLI, and only the agent sees all three.
+    var cloudVerifications: [String: CloudVerification] = [:]
+    var cloudVerifying: Set<String> = []
     /// Monotonic counter bumped on every live-data refresh.
     ///
     /// **Never key a view on this with `.id(uiRevision)`.** Changing a view's
@@ -509,6 +517,12 @@ final class SettingsViewModel {
             }
             if let harnesses = await AgentAPI.harnesses(baseURL: agentBaseURL) {
                 harnessRegistry = harnesses
+            }
+            // Per-provider, per-key state — unlike the registry above this
+            // changes whenever anyone verifies a key, from any surface, so it
+            // is re-read rather than fetched once per session.
+            if let verifications = await AgentAPI.cloudVerifications(baseURL: agentBaseURL) {
+                cloudVerifications = verifications
             }
         } else {
             status = nil
@@ -1052,6 +1066,69 @@ final class SettingsViewModel {
         cloudKeyDrafts[provider.id] = ""
         cloudKeyFeedback[provider.id] = "Cleared. Restart the agent to drop the injected credential."
         bumpUI()
+    }
+
+    /// May this provider's Enable toggle be operated?
+    ///
+    /// A provider already on always can be — turning a working failover off
+    /// must never be blocked, and an upgrade from a build before this feature
+    /// has `enabled = true` with no record anywhere. Anything else defers to
+    /// the agent's `can_enable`, which is the same verdict
+    /// `config_guards.enforce_cloud_provider_verification` applies when the
+    /// Save button writes config, so the toggle cannot promise a save the
+    /// agent will undo.
+    func cloudProviderCanEnable(_ providerID: String) -> Bool {
+        if document.cloud.providers[providerID]?.enabled == true { return true }
+        guard let verification = cloudVerifications[providerID] else { return true }
+        return verification.canEnable
+    }
+
+    func cloudVerification(_ providerID: String) -> CloudVerification? {
+        cloudVerifications[providerID]
+    }
+
+    /// Check one provider's credential against the provider.
+    ///
+    /// Sends the Keychain draft rather than relying on the stored key: on
+    /// macOS a key is injected into the agent at launch, so a key saved since
+    /// then is one the agent has never seen. Checking the draft is what makes
+    /// the button answer about what the user is looking at.
+    func verifyCloudProvider(_ provider: CloudProviderInfo) {
+        guard agentReachable, !cloudVerifying.contains(provider.id) else {
+            if !agentReachable {
+                cloudKeyFeedback[provider.id] =
+                    "Start the agent to verify — the check runs against the provider."
+                bumpUI()
+            }
+            return
+        }
+        cloudVerifying.insert(provider.id)
+        cloudKeyFeedback[provider.id] = "Checking…"
+        bumpUI()
+        // Hoisted so the task captures two plain values, never the provider
+        // struct — the same shape fetchCloudCatalog uses.
+        let providerID = provider.id
+        let draft = (cloudKeyDrafts[providerID] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        Task { [weak self] in
+            guard let self else { return }
+            let result = await AgentAPI.verifyCloudProvider(
+                baseURL: agentBaseURL,
+                providerID: providerID,
+                apiKey: draft.isEmpty ? nil : draft
+            )
+            cloudVerifying.remove(providerID)
+            if let result {
+                cloudVerifications[providerID] = result
+                cloudKeyFeedback[providerID] = result.ok
+                    ? "Verified. \(result.detail)"
+                    : result.blocker
+            } else {
+                cloudKeyFeedback[providerID] =
+                    "The agent did not answer the check — is it running?"
+            }
+            bumpUI()
+        }
     }
 
     func fetchCloudCatalog(_ providerID: String) {

@@ -518,6 +518,32 @@ class CloudProviderConfig(ConfigModel):
     models: list[str] = Field(default_factory=list)
     base_url: str = ""
 
+    # --- verification record (server-owned, read_only) --------------------
+    #
+    # Written only by netllm_core.cloud_verification.record_verification,
+    # after a live check against the provider. Read by config_guards, which
+    # refuses to newly-enable a provider whose credential has not been
+    # checked -- so a client that could set these could walk straight
+    # through the gate. Three things stop that: they are read_only in the
+    # schema (no generic renderer emits them, buildSchemaSectionPatch drops
+    # them), they are absent from config_merge's cloud-provider allowlist
+    # (a patch naming them is ignored, the prior value is preserved), and
+    # tests/test_cloud_verification.py asserts both.
+    #
+    # Persisted rather than held in agent memory because the CLI is a
+    # separate process: `netllm cloud enable` has to see the record a
+    # dashboard check wrote, and a running agent has to see the record the
+    # CLI wrote. Runtime state satisfies neither.
+    verified_status: str = Field(default="", json_schema_extra={"read_only": True})
+    verified_at: str = Field(default="", json_schema_extra={"read_only": True})
+    verified_detail: str = Field(default="", json_schema_extra={"read_only": True})
+    #: Truncated SHA-256 of the credential the check passed with -- never the
+    #: credential. A key replaced after a successful check no longer matches,
+    #: which is what turns a stale "verified" badge into "key changed".
+    verified_key_fingerprint: str = Field(
+        default="", json_schema_extra={"read_only": True}
+    )
+
 
 class CloudConfig(ConfigModel):
     """[cloud] — master switch, fallback policy, and per-provider config.

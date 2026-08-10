@@ -528,10 +528,18 @@ function renderClientPanel(root) {
 function renderAnthropicPanel(root) {
   const base = integrationBase();
   const apiKey = state.envVars?.ANTHROPIC_API_KEY || "netllm-local";
-  const body = panel(
+  // Secondary to the per-client panel above, which already carries the values
+  // for whichever client is selected. Only relevant to someone wiring an
+  // Anthropic-native client by hand.
+  const body = collapsiblePanel(
     root,
     "Anthropic Messages clients",
-    "Claude Code's native path and some agents — no /v1 suffix"
+    "Claude Code's native path and some agents — no /v1 suffix",
+    {
+      storageKey: "integrations.anthropic",
+      defaultOpen: false,
+      summary: base.unavailable ? "base URL unavailable" : "base URL, key and model",
+    }
   );
 
   if (base.unavailable) {
@@ -720,10 +728,23 @@ function renderHarnessSection(root) {
   // whole section rather than showing an empty one that implies zero harnesses.
   if (!state.harnessRegistry || !rows.length) return;
 
-  const body = panel(
+  // 384px of harness cards on a page whose job is "copy the base URL for my
+  // editor". Registration is a once-per-tool action; folded by default, and
+  // force-opened while routing.sources holds an unsaved toggle so the switch
+  // the user just flipped cannot vanish under them.
+  const detected = rows.filter((h) => h && h.detected).length;
+  const registered = rows.filter((h) => h && h.configured && h.enabled).length;
+  const body = collapsiblePanel(
     root,
     "Known harnesses",
-    "one-click registration as a routing source"
+    "one-click registration as a routing source",
+    {
+      storageKey: "integrations.harnesses",
+      defaultOpen: false,
+      forceOpen: draftDiffers("routing.sources"),
+      forceReason: "unsaved edits",
+      summary: `${rows.length} known · ${detected} on PATH · ${registered} registered`,
+    }
   );
   body.appendChild(
     textEl(
@@ -740,7 +761,19 @@ function renderHarnessSection(root) {
 }
 
 function renderSourcesSection(root) {
-  const body = panel(root, "Sources", "routing.sources");
+  const sources = asArray(state.configDraft?.routing?.sources).filter(Boolean);
+  // The raw row editor behind "Known harnesses" — the same data, one level
+  // down. Nobody opens this page to edit it, but Axis D parity requires the
+  // controls to exist, and folded still counts as existing.
+  const body = collapsiblePanel(root, "Sources", "routing.sources", {
+    storageKey: "integrations.sources",
+    defaultOpen: false,
+    forceOpen: draftDiffers("routing.sources"),
+    forceReason: "unsaved edits",
+    summary: sources.length
+      ? `${sources.length} source${sources.length === 1 ? "" : "s"}`
+      : "no sources",
+  });
   body.appendChild(
     textEl(
       "p",

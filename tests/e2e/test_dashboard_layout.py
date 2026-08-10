@@ -570,3 +570,122 @@ def test_local_backend_cards_line_up_at_every_count(
             overlap_x = min(a["right"], b["right"]) - max(a["left"], b["left"])
             overlap_y = min(a["bottom"], b["bottom"]) - max(a["top"], b["top"])
             assert overlap_x <= 1 or overlap_y <= 1, "backend cards overlap"
+
+
+# --------------------------------------------------------------------------
+# sub-views and drill-ins
+# --------------------------------------------------------------------------
+
+# Every view a page can be in that is NOT reachable by clicking a nav item.
+# The suite above walks the 11 top-level pages only, which is exactly why the
+# pool detail shipped with its two columns built out of unclassed <div>s:
+# neither `.page.active` nor `.stack` matched them, no container owned the
+# gap, and three panels in each column butted together at 0px.
+SUB_VIEWS = [
+    ("models", "pool detail", "state.openPoolId = 'e2e-pool'; render();"),
+    (
+        "models",
+        "nodes view",
+        "state.openPoolId = null; modelsViewMode = 'nodes'; render();",
+    ),
+    ("models", "aliases view", "modelsViewMode = 'aliases'; render();"),
+    ("backends", "local scope", "backendsScope = 'local'; render();"),
+    ("backends", "remote scope", "backendsScope = 'remote'; render();"),
+    ("logs", "level filter", "state.logLevelFilter = new Set(['error']); render();"),
+]
+
+
+def _open_sub_view(page, key: str, script: str) -> None:
+    _show(page, key)
+    page.evaluate(script)
+    page.wait_for_timeout(250)
+
+
+def _reset_sub_views(page) -> None:
+    page.evaluate(
+        "state.openPoolId = null; modelsViewMode = 'pools'; backendsScope = 'all';"
+        " state.logLevelFilter = new Set(); render();"
+    )
+    page.wait_for_timeout(150)
+
+
+@pytest.fixture
+def dash_with_pool(dash):  # noqa: ANN001, ANN201 - playwright types
+    """A dashboard whose draft holds a pool, so the pool detail has content."""
+    dash.evaluate(
+        """
+        () => {
+          state.configDraft.routing.model_pools = {
+            'e2e-pool': {hosts: ['peer:aaaa1111', 'peer:bbbb2222'],
+                         models: ['gemma4:27b', 'qwen3.5-35b']},
+          };
+        }
+        """
+    )
+    return dash
+
+
+@pytest.mark.parametrize("width", WIDTHS)
+def test_sub_views_keep_the_container_rhythm(dash_with_pool, width: int) -> None:  # noqa: ANN001
+    """Drill-in views obey the same spacing rule as the pages that own them.
+
+    A sub-view is still a column of boxes; building its columns out of bare
+    `<div>` wrappers opts out of every container gap rule in the stylesheet.
+    The fix is always to name the container (`.stack`), never to reintroduce
+    a `.panel + .panel` adjacency rule.
+    """
+    dash_with_pool.set_viewport_size({"width": width, "height": 1000})
+    violations: dict[str, Any] = {}
+    for key, label, script in SUB_VIEWS:
+        _open_sub_view(dash_with_pool, key, script)
+        found = dash_with_pool.evaluate(_RHYTHM_JS, RHYTHM_BY_CONTAINER)
+        if found:
+            violations[f"{key}: {label}"] = found
+        _reset_sub_views(dash_with_pool)
+    assert not violations, json.dumps(violations, indent=2)[:4000]
+
+
+@pytest.mark.parametrize("width", WIDTHS)
+def test_sub_views_paint_inside_their_containers(dash_with_pool, width: int) -> None:  # noqa: ANN001
+    """Containment holds in a drill-in too, at both widths."""
+    dash_with_pool.set_viewport_size({"width": width, "height": 1000})
+    violations: dict[str, Any] = {}
+    for key, label, script in SUB_VIEWS:
+        _open_sub_view(dash_with_pool, key, script)
+        found = dash_with_pool.evaluate(_CONTAINMENT_JS)
+        if found:
+            violations[f"{key}: {label}"] = found
+        _reset_sub_views(dash_with_pool)
+    assert not violations, json.dumps(violations, indent=2)[:4000]
+
+
+def test_pool_detail_columns_are_named_containers(dash_with_pool) -> None:  # noqa: ANN001
+    """The specific defect: the pool detail's two columns own their gap.
+
+    Asserted structurally as well as geometrically — a future refactor that
+    reverts the columns to bare `<div>`s but happens to leave one panel per
+    column would pass a gap check by accident.
+    """
+    _open_sub_view(dash_with_pool, "models", "state.openPoolId = 'e2e-pool'; render();")
+    columns = dash_with_pool.evaluate(
+        """
+        () => {
+          const grid = document.querySelector('.page.active .grid-2');
+          if (!grid) return null;
+          return [...grid.children].map((c) => ({
+            cls: c.className,
+            panels: c.querySelectorAll(':scope > .panel').length,
+            gap: getComputedStyle(c).rowGap,
+          }));
+        }
+        """
+    )
+    assert columns, "pool detail rendered no column grid"
+    for column in columns:
+        if column["panels"] < 2:
+            continue
+        assert "stack" in column["cls"], (
+            "a pool-detail column holding several panels is not a named "
+            f"container: {column}"
+        )
+        assert column["gap"] == f"{STACK_GAP}px", column

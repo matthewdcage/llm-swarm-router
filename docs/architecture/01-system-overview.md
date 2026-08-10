@@ -191,6 +191,7 @@ container runtime requirement. All state is either in-process or a single TOML f
 | `GET /netllm/v1/cloud/providers[/{id}/models]` | local or token | Cloud registry + live catalog probe |
 | `GET /netllm/v1/update/check` | local or token | GitHub release check |
 | `GET /netllm/v1/client-env` | none | Env-var snippet for editor wiring |
+| `POST /netllm/v1/cloud/providers/{id}/verify` | local or token | Credential check + verification record |
 | `POST /netllm/v1/admin/{config,discover,peers-scan,drain}` | local or token | Admin writes |
 
 "Optional cluster token" on `/v1/*` = enforced only when

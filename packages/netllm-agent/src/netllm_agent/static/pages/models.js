@@ -271,7 +271,9 @@ function modelsNodeCell(backend) {
   const cell = el("div", "row");
   cell.appendChild(statusDot(modelsHealthKind(backend)));
   cell.appendChild(textEl("span", "", name));
-  if (self) cell.appendChild(pill("ok", "you"));
+  // Neutral: "you" marks which row is this agent, and says nothing about its
+  // health — that is the statusDot immediately to its left.
+  if (self) cell.appendChild(pill("neutral", "you"));
   return cell;
 }
 
@@ -1121,8 +1123,16 @@ function modelsKeepWarmPanel(root) {
 }
 
 function modelsMaintenancePanel(root, pool) {
-  const body = panel(root, "Maintenance", null, "accent-warn");
   const draining = !!state.status?.draining;
+  // The accent was a constant, so every pool detail page carried a permanent
+  // orange border for a section where nothing was wrong. A destructive *button*
+  // is not a warning state; actually being drained is.
+  const body = panel(
+    root,
+    "Maintenance",
+    draining ? pill("warn", "draining") : null,
+    draining ? "accent-warn" : ""
+  );
   body.appendChild(
     textEl(
       "p",
@@ -1209,8 +1219,12 @@ function renderPoolDetail(root, pool) {
   // Design 3a is a wide main column with a 340px sidebar; .grid-2's auto-fit
   // template would split it evenly.
   cols.style.gridTemplateColumns = "minmax(0, 1fr) minmax(280px, 340px)";
-  const main = el("div");
-  const side = el("div");
+  // .stack, not a bare div: spacing between stacked boxes is owned by the
+  // container (see the spacing scale in dashboard.css). A grid cell built as
+  // an unclassed <div> matches neither `.page.active` nor `.stack`, so the
+  // three panels in each column butted together with a 0px gap.
+  const main = el("div", "stack");
+  const side = el("div", "stack");
   cols.append(main, side);
   root.appendChild(cols);
 

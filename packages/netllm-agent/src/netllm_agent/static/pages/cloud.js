@@ -226,17 +226,152 @@ function cloudScalarFields(root, show) {
 
 /* ---------------- hero ---------------- */
 
+/* ---------------- credential verification ---------------- */
+
+/**
+ * The server's verification verdict for one provider.
+ *
+ * Every word of it — the status, the blocker sentence, whether the provider
+ * may be enabled — is computed by the agent
+ * (netllm_core.cloud_verification.verification_state) and carried on the
+ * config summary. This page renders it and never re-derives it: the same rule
+ * is enforced on the write path, and a second implementation here would be a
+ * second answer that drifts from the one that actually decides.
+ *
+ * A check run in this session wins over the stored record only until the next
+ * config refresh, which is what makes pressing Verify feel immediate without
+ * inventing state the agent does not have.
+ */
+function cloudVerification(pid) {
+  const live = asObject(state.cloudVerifyResults?.[pid]);
+  const stored = asObject(cloudProviderSummary(pid).verification);
+  const source = live.status ? live : stored;
+  return {
+    status: source.status || "",
+    ok: !!source.ok,
+    blocker: source.blocker || "",
+    detail: source.detail || "",
+    checkedAt: source.checked_at || "",
+    // Absent on an agent too old to send `verification`: no verdict means no
+    // gate, and degrading to "you may enable this" is the only honest read of
+    // an agent that has never heard of the check.
+    canEnable: source.can_enable === undefined ? true : !!source.can_enable,
+    known: !!source.status,
+  };
+}
+
+/** The Enable switch is live only for a provider that has earned it. */
+function cloudCanEnable(pid, draft) {
+  const entry = asObject(draft.providers?.[pid]);
+  // Already on: never take the switch away. Turning a working provider OFF
+  // must always be possible, and an upgrade from a build before this feature
+  // has `enabled = true` with no record anywhere.
+  if (entry.enabled) return true;
+  return cloudVerification(pid).canEnable;
+}
+
+async function verifyCloudProvider(pid, draft) {
+  if (state.cloudVerifying.has(pid)) return;
+  const entry = ensureCloudProviderEntry(draft, pid);
+  state.cloudVerifying.add(pid);
+  rerenderCloud();
+  try {
+    // A key typed but not saved is sent in the body. That is the whole answer
+    // to the unsaved-key problem: the agent checks it, records the outcome
+    // against its fingerprint, and never stores or logs the key itself — so
+    // nobody has to save a broken key to find out that it is broken.
+    const body = entry._pending_api_key
+      ? JSON.stringify({ api_key: entry._pending_api_key })
+      : "{}";
+    const result = await api(`/netllm/v1/cloud/providers/${pid}/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    state.cloudVerifyResults[pid] = asObject(result);
+    const verdict = asObject(result);
+    showToast(
+      verdict.ok
+        ? `${cloudProviderSummary(pid).display_name || pid}: key verified`
+        : `${cloudProviderSummary(pid).display_name || pid}: ${verdict.blocker || "not verified"}`
+    );
+    if (verdict.persisted === false) {
+      showToast(
+        "This agent has no config file, so the check will not survive a restart."
+      );
+    }
+  } catch (e) {
+    showToast(`Could not verify: ${e.message}`);
+  } finally {
+    state.cloudVerifying.delete(pid);
+    rerenderCloud();
+  }
+}
+
+/**
+ * True when at least one *enabled* provider could actually authenticate.
+ *
+ * "Has a key" is no longer enough, and that is the point of UI-7a: a key that
+ * has never been checked, or that the provider rejected, is exactly the state
+ * where the page used to claim failover was armed. A key typed into this page
+ * but not yet saved does not count either — it counts once it has been
+ * verified, which the Verify button can do before Save.
+ */
+function cloudProviderUsable(pid, draft) {
+  const entry = asObject(draft.providers?.[pid]);
+  if (!entry.enabled) return false;
+  const verification = cloudVerification(pid);
+  if (!verification.known) {
+    // Older agent: fall back to the pre-UI-7a signal rather than reporting
+    // every provider as broken.
+    return !!(cloudProviderSummary(pid).api_key_set || entry._pending_api_key);
+  }
+  return verification.ok;
+}
+
+/**
+ * The hero's honest state, as a pill kind + label.
+ *
+ * Green is reserved for "actively good". Three states matter here and the page
+ * could previously only tell two of them apart — it painted the panel green and
+ * put a green dot next to the word "off":
+ *
+ *   off        — cloud.enabled is false. Nothing is wrong and nothing is
+ *                armed: neutral, no accent.
+ *   unverified — enabled, but no enabled provider has a credential this
+ *                agent has checked. This is the dangerous one: the user
+ *                believes they have failover and they do not, so it is a
+ *                warning, not a green tick.
+ *   armed      — enabled, and at least one provider's key has been verified
+ *                against the provider. Green.
+ */
+function cloudArmedState(draft) {
+  if (draft.enabled === false) return { kind: "neutral", label: "off" };
+  const usable = cloudProviderIds(draft).filter((pid) => cloudProviderUsable(pid, draft));
+  if (!usable.length) return { kind: "warn", label: "unverified" };
+  return { kind: "ok", label: "armed" };
+}
+
 function renderCloudHero(root, draft) {
   const split = cloudRequestSplit();
-  const on = draft.enabled !== false;
+  const armed = cloudArmedState(draft);
   const reached = split ? split.cloud > 0 : false;
-  const body = panel(root, null, null, reached ? "accent-warn" : "accent-ok");
+  // The accent tracks the state the pill names. "off" is not an achievement
+  // and not a fault, so it gets no accent at all.
+  const accent = reached
+    ? "accent-warn"
+    : armed.kind === "ok"
+      ? "accent-ok"
+      : armed.kind === "warn"
+        ? "accent-warn"
+        : "";
+  const body = panel(root, null, null, accent);
 
   const row = el("div", "row");
   row.appendChild(
     reached
       ? pill("warn", `${formatCompactCount(split.cloud)} cloud`)
-      : pill("ok", on ? "armed" : "off")
+      : pill(armed.kind, armed.label)
   );
 
   const copy = el("div");
@@ -258,6 +393,17 @@ function renderCloudHero(root, draft) {
     )
   );
   copy.appendChild(detail);
+  // The armed-but-keyless case, said out loud. Without this the page shows
+  // failover as configured and never mentions that it cannot fire.
+  if (armed.kind === "warn") {
+    copy.appendChild(
+      textEl(
+        "div",
+        "field-help text-warn",
+        "Cloud failover is on, but no enabled provider has a credential this agent has verified — it cannot be relied on to fire. Add a key below and press Verify key."
+      )
+    );
+  }
   if (state.status?.uptime_s != null) {
     copy.appendChild(
       textEl("div", "field-help", `Counted since agent start · uptime ${formatDuration(state.status.uptime_s)}.`)
@@ -298,7 +444,7 @@ function renderCloudProvidersSection(root, draft) {
     );
   }
   cloudProviderIds(draft).forEach((pid) => {
-    body.appendChild(renderCloudProviderCard(pid, draft));
+    renderCloudProviderCard(body, pid, draft);
   });
 
   const unrendered = cloudUnrenderedProviderFields();
@@ -313,32 +459,104 @@ function renderCloudProvidersSection(root, draft) {
   }
 }
 
-function renderCloudProviderCard(pid, draft) {
+/**
+ * The credential's state as a pill kind + short label.
+ *
+ * The status vocabulary is the server's, so a provider that is unreachable
+ * does not read the same as one whose key was refused — "not working" is not
+ * a diagnosis, and the Backends page has never settled for one.
+ */
+function cloudKeyPill(pid, entry, summary) {
+  if (entry._pending_api_key) return { kind: "warn", label: "key typed — unsaved" };
+  const verification = cloudVerification(pid);
+  if (!verification.known) {
+    return summary.api_key_set
+      ? { kind: "ok", label: "key set" }
+      : { kind: "neutral", label: "no key" };
+  }
+  const LABELS = {
+    ok: "verified",
+    no_key: "no key set",
+    unauthorized: "key rejected",
+    no_endpoint: "no endpoint",
+    unreachable: "unreachable",
+    timeout: "no answer",
+    never_checked: "never checked",
+    key_changed: "key changed",
+    inconclusive: "unconfirmed",
+    error: "check failed",
+  };
+  const label = LABELS[verification.status] || verification.status;
+  if (verification.ok) return { kind: "ok", label };
+  // Never-checked is a to-do, not a fault; a rejected key is a fault.
+  const kind = verification.status === "never_checked" ? "neutral" : "warn";
+  return { kind, label };
+}
+
+/** "verified · enabled" / "key rejected · disabled" — readable when folded. */
+function cloudProviderCardSummary(pid, entry, summary) {
+  const parts = [cloudKeyPill(pid, entry, summary).label];
+  parts.push(entry.enabled ? "enabled" : "disabled");
+  const models = asArray(entry.models);
+  if (models.length) parts.push(`${models.length} models`);
+  return parts.join(" · ");
+}
+
+/**
+ * One provider, folded.
+ *
+ * Six providers × five fields each is what made this page three screens tall,
+ * for a user who typically has one enabled. Open by default only where there
+ * is something to look at — the provider is enabled, or a key is already
+ * stored — and force-open whenever the card holds an unsaved edit, so a typed
+ * key can never be hidden behind a closed triangle.
+ *
+ * The Enable switch stays in the body rather than the header: an <input>
+ * inside <summary> is toggled by the same click that folds the section, and
+ * there is no way to have one without the other. The header says "enabled" or
+ * "disabled" in words instead.
+ */
+function renderCloudProviderCard(root, pid, draft) {
   const entry = ensureCloudProviderEntry(draft, pid);
   const summary = cloudProviderSummary(pid);
   const title = summary.display_name || pid;
-  const card = el("div", "inset");
+  const format = entry.api_format || summary.default_api_format;
+  const edited = !!entry._pending_api_key || draftDiffers(`cloud.providers.${pid}`);
+  // collapsiblePanel appends the box itself and hands back the body, so the
+  // card is built into `root` rather than returned.
+  const card = collapsiblePanel(root, title, format || null, {
+    boxClass: "inset",
+    storageKey: `cloud.provider.${pid}`,
+    defaultOpen: !!entry.enabled || !!summary.api_key_set,
+    forceOpen: edited,
+    forceReason: "unsaved edits",
+    summary: cloudProviderCardSummary(pid, entry, summary),
+  });
 
   const head = el("div", "row");
-  head.appendChild(textEl("strong", "", title));
-  if (entry._pending_api_key) {
-    head.appendChild(pill("warn", "key typed — unsaved"));
-  } else if (summary.api_key_set) {
-    head.appendChild(pill("ok", "key set"));
-  } else {
-    head.appendChild(pill("neutral", "no key"));
-  }
-  const format = entry.api_format || summary.default_api_format;
-  if (format) head.appendChild(textEl("span", "muted", format));
+  const keyPill = cloudKeyPill(pid, entry, summary);
+  head.appendChild(pill(keyPill.kind, keyPill.label));
   head.appendChild(el("div", "spacer"));
-  head.appendChild(
-    switchRow(`Enable ${title}`, !!entry.enabled, (v) => {
-      entry.enabled = v;
-      markDirty();
-      rerenderCloud();
-    })
-  );
+  const canEnable = cloudCanEnable(pid, draft);
+  const enableSwitch = switchRow(`Enable ${title}`, !!entry.enabled, (v) => {
+    entry.enabled = v;
+    markDirty();
+    rerenderCloud();
+  });
+  if (!canEnable) {
+    // Disabled, not hidden: a control that vanishes reads as a missing
+    // feature, while a disabled one with the blocker printed underneath
+    // reads as a step not yet done. The server refuses this save either
+    // way (config_guards), so the switch would only be a lie.
+    enableSwitch.querySelectorAll("input").forEach((input) => {
+      input.disabled = true;
+    });
+    enableSwitch.title = cloudVerification(pid).blocker;
+  }
+  head.appendChild(enableSwitch);
   card.appendChild(head);
+
+  card.appendChild(renderCloudVerificationRow(pid, entry, draft));
 
   if (summary.notes) card.appendChild(textEl("p", "field-help", summary.notes));
 
@@ -398,7 +616,83 @@ function renderCloudProviderCard(pid, draft) {
   card.appendChild(grid);
 
   card.appendChild(renderCloudModelsSection(pid, entry));
-  return card;
+}
+
+/**
+ * "on 10 Aug 2026, 14:02" from the record's ISO `checked_at`.
+ *
+ * When the check ran matters as much as its outcome — a pass from three
+ * months ago against a key that has since expired upstream is not the same
+ * claim as one from this morning. Unparseable input degrades to the raw
+ * string rather than to "Invalid Date".
+ */
+function cloudCheckedAtLabel(iso) {
+  if (!iso) return "";
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return `at ${iso}`;
+  return `on ${when.toLocaleString()}`;
+}
+
+/**
+ * The blocker line and the Verify button — the whole feature, in one row.
+ *
+ * The sentence is the agent's (`verification.blocker`), never composed here,
+ * for the same reason the Backends page prints the probe's own explanation:
+ * the surface that ran the check is the only one that knows what happened.
+ */
+function renderCloudVerificationRow(pid, entry, draft) {
+  const wrap = el("div", "field");
+  const verification = cloudVerification(pid);
+  const row = el("div", "row");
+
+  const copy = el("div");
+  if (!verification.known) {
+    copy.appendChild(
+      textEl(
+        "div",
+        "field-help",
+        "This agent does not report credential checks — it predates them."
+      )
+    );
+  } else if (verification.ok) {
+    copy.appendChild(
+      textEl(
+        "div",
+        "field-help",
+        `Key verified ${cloudCheckedAtLabel(verification.checkedAt)}. ${verification.detail}`.trim()
+      )
+    );
+  } else {
+    copy.appendChild(textEl("div", "field-help text-warn", verification.blocker));
+    if (verification.detail && !verification.blocker.includes(verification.detail)) {
+      copy.appendChild(textEl("div", "field-help mono", verification.detail));
+    }
+  }
+  if (entry._pending_api_key) {
+    copy.appendChild(
+      textEl(
+        "div",
+        "field-help",
+        "Verify checks the key typed above without saving it — only the result is stored."
+      )
+    );
+  }
+  row.appendChild(copy);
+  row.appendChild(el("div", "spacer"));
+
+  const verifying = state.cloudVerifying.has(pid);
+  const btn = button(
+    verifying ? "Verifying…" : "Verify key",
+    "small secondary",
+    () => verifyCloudProvider(pid, draft)
+  );
+  btn.id = `cloud-verify-${pid}`;
+  btn.disabled = !state.healthy || verifying;
+  btn.title =
+    "Checks this provider's credential against the provider itself. A provider cannot be enabled until this passes.";
+  row.appendChild(btn);
+  wrap.appendChild(row);
+  return wrap;
 }
 
 function renderCloudTextField(id, label, value, placeholder, onInput) {
@@ -840,23 +1134,34 @@ function renderCloudUsageSection(root) {
 
 /* ---------------- page ---------------- */
 
-function testCloudKeys(draft) {
-  // The model-catalog endpoint is the only key probe the agent exposes: it
-  // answers `no_api_key` / an upstream error / a live list, per provider.
-  const targets = cloudProviderIds(draft).filter((pid) => draft.providers[pid]?.enabled);
+/**
+ * Re-check every provider that has something to check.
+ *
+ * Enabled providers *and* keyed-but-disabled ones: the second set is exactly
+ * where a user is mid-setup, and it is the set whose check unlocks the Enable
+ * switch. Restricting this to enabled providers — as the old "Test keys" did
+ * — checked only the providers that no longer needed checking.
+ */
+function verifyCloudKeys(draft) {
+  const targets = cloudProviderIds(draft).filter((pid) => {
+    const entry = asObject(draft.providers?.[pid]);
+    return (
+      entry.enabled || entry._pending_api_key || cloudProviderSummary(pid).api_key_set
+    );
+  });
   if (!targets.length) {
-    showToast("Enable a provider first — keys are tested by listing its models");
+    showToast("Nothing to verify yet — add a provider key first");
     return;
   }
-  showToast(`Testing ${targets.length} provider(s) — stored keys only`);
-  targets.forEach((pid) => fetchCloudCatalog(pid));
+  showToast(`Verifying ${targets.length} provider(s)`);
+  targets.forEach((pid) => verifyCloudProvider(pid, draft));
 }
 
 function cloudHeaderActions(draft) {
   const wrap = el("div", "row");
-  const test = button("Test keys", "secondary", () => testCloudKeys(draft));
+  const test = button("Verify keys", "secondary", () => verifyCloudKeys(draft));
   test.title =
-    "Fetches each enabled provider's model list — the only key check the agent exposes. Tests the saved key, not one you just typed.";
+    "Checks every configured credential against its provider and records the result. A key typed but not saved is checked without being stored.";
   wrap.appendChild(test);
   // Primary styling is the unclassed <button>, and button() coerces a falsy
   // class to "secondary" — so this one is built directly.

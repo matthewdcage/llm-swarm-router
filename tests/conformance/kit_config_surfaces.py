@@ -1053,6 +1053,10 @@ DASHBOARD_CONTROLS: dict[str, tuple[str, str]] = {
     "routing": ("routing", ROUTING_JS),
     "sources": ("integrations", INTEGRATIONS_JS),
     "cloud": ("cloud", CLOUD_JS),
+    # Not a tab, but it does live on the Cloud page rather than in the chrome:
+    # the credential check is per provider, so its control is a row inside the
+    # provider card.
+    "cloud_verify": ("cloud", CLOUD_JS),
     "ui": ("preferences", PREFERENCES_JS),
     "logs": ("logs", LOGS_JS),
     "tools": ("doctor", DOCTOR_JS),
@@ -1255,6 +1259,17 @@ def test_config_import_export_round_trips_every_field() -> None:
     `netllm config export | netllm config import` is what makes the CLI a
     complete config surface without ~30 options nobody asked for. Asserted on
     a config with every section populated, through the real commands.
+
+    One field is deliberately NOT portable and is asserted as such below:
+    `cloud.providers[].enabled`. Enablement is earned by a credential check
+    that this machine performed (UI-7a), and the record backing it is
+    server-owned — it is neither accepted from a config patch nor meaningful
+    on a machine that never ran the check. A config that could carry
+    "enabled, and take my word for it that the key works" across machines
+    would be a way to assert your own verification, which is exactly what the
+    gate exists to refuse. So the provider arrives with every field intact
+    and the switch off, and `test_cloud_verification.py` covers the arrival
+    warning that says so.
     """
     import json
     import tempfile
@@ -1299,6 +1314,18 @@ def test_config_import_export_round_trips_every_field() -> None:
         )
         assert imported.exit_code == 0, imported.output
         round_tripped = load_config(target)
+
+    imported_provider = round_tripped.cloud.providers["openai"]
+    assert imported_provider.enabled is False, (
+        "an unverified cloud provider arrived enabled on a machine that has "
+        "never checked its credential — the write-path gate did not run"
+    )
+    assert imported_provider.api_key_env == "MY_KEY"
+    assert imported_provider.base_url == "https://proxy.example/v1"
+    # Everything else has to round-trip byte for byte. `enabled` is normalised
+    # away rather than excluded wholesale, so a second non-portable field
+    # could not hide behind this one.
+    cfg.cloud.providers["openai"].enabled = False
 
     before = cfg.model_dump(mode="json")
     after = round_tripped.model_dump(mode="json")

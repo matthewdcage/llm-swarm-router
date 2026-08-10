@@ -148,6 +148,7 @@ not eliminated (F-16).
 | `/netllm/v1/harnesses` | GET | local/token | registry × configured sources × PATH detection |
 | `/netllm/v1/cloud/providers` | GET | local/token | static registry |
 | `/netllm/v1/cloud/providers/{id}/models` | GET | local/token | live probe, static fallback |
+| `/netllm/v1/cloud/providers/{id}/verify` | POST | local/token | credential check; optional unsaved `api_key` in the body, never stored or logged; records the outcome in `[cloud.providers.<id>].verified_*` |
 | `/netllm/v1/admin/config` | POST | local/token | merge + save + hot-apply |
 | `/netllm/v1/admin/discover` | POST | local/token | force scan + force probe |
 | `/netllm/v1/admin/peers-scan?save=1` | POST | local/token | subnet scan, optional persist |
@@ -238,9 +239,10 @@ guaranteed to 401); doctor flags that state instead.
 | `join URL --token` | listen + peer + token | `ensure_lan_mesh_defaults`, token validation against the target |
 | `swarm-token --create/--rotate` | `swarm.cluster_token` | — |
 | `gateway` | `agent.role` | — |
-| `cloud enable/disable/set-key/fallback/connect` | `[cloud.*]` | provider id validated against registry |
+| `cloud enable/disable/set-key/fallback/connect` | `[cloud.*]` | provider id validated against registry; `enable`/`connect` verify the credential first |
+| `cloud verify <id>` | `[cloud.providers.<id>].verified_*` | live probe, server-owned record — the only writer of it besides `POST .../verify` |
 | `sources toggle <id>` | `routing.sources` | registers from `KNOWN_HARNESSES` if new |
-| `config import` | any section | merge only — **no elevated-source or own-peer guard** |
+| `config import` | any section | merge only — **no elevated-source or own-peer guard**; does apply the cloud verification gate |
 | `serve` | `lan_defaults_applied`, `subnet_scan` | one-shot LAN upgrade |
 | agent startup | `discovery.provider_urls` | `persist_provider_urls=True` on lifespan |
 

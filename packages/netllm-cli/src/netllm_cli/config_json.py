@@ -29,9 +29,22 @@ def import_config(data: dict[str, Any], path: Path | None = None) -> Path:
     # F-02 (this path previously skipped the guards entirely).
     from netllm_discovery.lan import own_agent_urls
 
-    cfg = apply_config_patch(load_config(path), data)
-    apply_config_guards(cfg, own_agent_urls=own_agent_urls(cfg.agent.listen))
-    return save_config(cfg, path)
+    stored = load_config(path)
+    cfg = apply_config_patch(stored, data)
+    # `previous=stored` is what keeps this path non-destructive on upgrade:
+    # the cloud verification gate refuses to newly-enable an unverified
+    # provider, but must never demote one this config already had on.
+    warnings: list[str] = []
+    apply_config_guards(
+        cfg,
+        own_agent_urls=own_agent_urls(cfg.agent.listen),
+        previous=stored,
+        warnings=warnings,
+    )
+    saved = save_config(cfg, path)
+    for warning in warnings:
+        sys.stderr.write(f"warning: {warning}\n")
+    return saved
 
 
 def emit_export(path: Path | None = None) -> None:

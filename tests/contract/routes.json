@@ -68,6 +68,12 @@
       ]
     },
     {
+      "path": "/netllm/v1/cloud/providers/{provider_id}/verify",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
       "path": "/netllm/v1/config",
       "methods": [
         "GET"

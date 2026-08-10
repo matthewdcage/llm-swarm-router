@@ -200,7 +200,29 @@ CONTROLS: tuple[ControlDescriptor, ...] = (
         swift_symbol="cloudTab",
         surfaces_required=("dashboard", "macos"),
         config_sections=("cloud",),
-        cli=("cloud list", "cloud enable", "cloud disable", "cloud set-key"),
+        cli=(
+            "cloud list",
+            "cloud enable",
+            "cloud disable",
+            "cloud set-key",
+            "cloud verify",
+        ),
+    ),
+    ControlDescriptor(
+        key="cloud_verify",
+        kind="action",
+        title="Verify a cloud provider's credential",
+        dashboard_renderer="renderCloudVerificationRow",
+        swift_symbol="verifyCloudProvider",
+        # Not a tab: a per-provider button, and the only way a provider can be
+        # enabled at all (config_guards.enforce_cloud_provider_verification
+        # refuses an unverified one on every write path). A surface that
+        # cannot run the check is a surface on which cloud failover cannot be
+        # configured, so all three are required rather than the usual two.
+        surfaces_required=("dashboard", "macos", "cli"),
+        admin_route="/netllm/v1/cloud/providers/{provider_id}/verify",
+        cli=("cloud verify",),
+        is_tab=False,
     ),
     ControlDescriptor(
         key="ui",

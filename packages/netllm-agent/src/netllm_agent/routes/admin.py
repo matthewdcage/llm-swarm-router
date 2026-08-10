@@ -116,6 +116,63 @@ def register(ctx: RouteContext) -> None:
             raise HTTPException(status_code=404, detail="unknown cloud provider")
         return payload
 
+    @app.post("/netllm/v1/cloud/providers/{provider_id}/verify")
+    async def netllm_cloud_provider_verify(
+        provider_id: str, request: Request
+    ) -> dict[str, Any]:
+        """Check a provider's credential against the provider, and record it.
+
+        A provider cannot be enabled until this has passed
+        (netllm_core.config_guards.enforce_cloud_provider_verification), so
+        this route is the only way to earn that. The body may carry
+        `{"api_key": "..."}` -- a key the user has typed but not saved -- and
+        that key is used for the probe and then dropped: nothing logs it,
+        nothing stores it, and the response carries only its fingerprint.
+        That is what stops the UI from having to save a broken key in order
+        to find out that it is broken.
+
+        The outcome IS persisted, onto the four read-only
+        `[cloud.providers.<id>].verified_*` fields, because it has to
+        outlive both a page reload and the agent process: `netllm cloud
+        enable` runs in a different process and reads the same record.
+        """
+        gates.require_admin_access(request)
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 — an empty body is the common case
+            body = {}
+        api_key = ""
+        if isinstance(body, dict):
+            raw = body.get("api_key")
+            api_key = raw.strip() if isinstance(raw, str) else ""
+        payload = await service.verify_cloud_provider(provider_id, api_key or None)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="unknown cloud provider")
+
+        from netllm_core.cloud_verification import record_verification
+        from netllm_core.models import CloudProviderConfig, save_config
+
+        provider_cfg = cfg.cloud.providers.get(provider_id)
+        if provider_cfg is None:
+            provider_cfg = CloudProviderConfig()
+            cfg.cloud.providers[provider_id] = provider_cfg
+        record_verification(provider_cfg, payload)
+        persisted = False
+        if config_path is not None:
+            save_config(cfg, config_path)
+            persisted = True
+        # The live config object is updated either way, so a check still
+        # survives a page reload on an agent started without a config file
+        # -- it just does not survive a restart, and the response says so
+        # rather than letting the UI imply otherwise.
+        #
+        # `key_fingerprint` is dropped on the way out. It is one-way and the
+        # caller has no use for it; the gate compares it server-side. Not
+        # sending a derivative of a credential anywhere it is not needed is
+        # the cheaper habit.
+        public = {k: v for k, v in payload.items() if k != "key_fingerprint"}
+        return {**public, "persisted": persisted}
+
     @app.post("/netllm/v1/admin/drain")
     async def netllm_admin_drain(request: Request) -> dict[str, Any]:
         """Toggle this agent's drain state ahead of a planned restart or

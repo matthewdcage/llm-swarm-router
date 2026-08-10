@@ -30,8 +30,10 @@ struct CloudSettingsView: View {
                 CloudProviderCard(model: model, provider: provider)
             }
 
-            Text("Changes to provider enable/region apply after Save. Key changes apply "
-                + "after Save + Restart Agent.")
+            Text("A provider can only be enabled once its key has been verified against "
+                + "the provider — Verify key does that without saving the key. Changes to "
+                + "provider enable/region apply after Save. Key changes apply after Save "
+                + "+ Restart Agent.")
                 .font(.caption)
                 .foregroundStyle(DesignTokens.warnText)
         }
@@ -89,6 +91,13 @@ private struct CloudProviderCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Toggle("Enable \(provider.displayName)", isOn: binding.enabled)
+                // Disabled, not hidden: a control that vanishes reads as a
+                // missing feature, a disabled one with the blocker printed
+                // under it reads as a step not yet done. The agent refuses
+                // the save either way (config_guards), so an operable toggle
+                // here would only promise something Save would undo.
+                .disabled(!model.cloudProviderCanEnable(provider.id))
+            verificationRow
             if provider.regions.count > 1 {
                 Picker("Region / profile", selection: Binding(
                     get: { binding.wrappedValue.region.isEmpty ? provider.regions[0] : binding.wrappedValue.region },
@@ -120,6 +129,10 @@ private struct CloudProviderCard: View {
                 .onSubmit { model.saveCloudKey(provider) }
             HStack {
                 Button("Save key") { model.saveCloudKey(provider) }
+                Button("Verify key") { model.verifyCloudProvider(provider) }
+                    .disabled(
+                        !model.agentReachable || model.cloudVerifying.contains(provider.id)
+                    )
                 Button("Clear key", role: .destructive) { model.clearCloudKey(provider) }
             }
             .buttonStyle(.bordered)
@@ -133,6 +146,44 @@ private struct CloudProviderCard: View {
         .background(.quaternary.opacity(0.25))
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .onAppear { model.loadCloudKeyDraftIfNeeded(provider) }
+    }
+
+    /// The credential's verified state, and the blocker when it has one.
+    ///
+    /// Every word is the agent's (`CloudVerification.blocker`), never
+    /// composed here — the surface that ran the check is the only one that
+    /// knows whether the key was refused, the endpoint was unreachable, or
+    /// nobody has looked yet, and those are three different fixes.
+    @ViewBuilder
+    private var verificationRow: some View {
+        if model.cloudVerifying.contains(provider.id) {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text("Checking the key against \(provider.displayName)…")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        } else if let verification = model.cloudVerification(provider.id) {
+            if verification.ok {
+                Text("Key verified. \(verification.detail)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(verification.blocker)
+                    .font(.caption2)
+                    .foregroundStyle(DesignTokens.warnText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else {
+            Text(
+                "Not checked from this app yet — press Verify key to check the "
+                    + "credential against \(provider.displayName)."
+            )
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// Model allowlist editor: fetch the provider's full catalog from

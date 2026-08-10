@@ -223,6 +223,43 @@ class CloudMixin:
         # providers survive here.
         self.pool.prune_cloud_provider_rows(keep_ids)
 
+    async def verify_cloud_provider(
+        self, provider_id: str, api_key: str | None = None
+    ) -> dict[str, Any] | None:
+        """Check one provider's credential against the provider itself.
+
+        Deliberately NOT derived from `cloud_provider_models_probe`, which is
+        the obvious-looking shortcut and is wrong three times over:
+
+          * it answers HTTP 200 with `status: "static_catalog"` for a
+            provider that has no model-list API, without contacting the
+            provider at all -- so "verified" would mean "a key is present",
+            which is the exact claim that made a keyless failover look armed;
+          * it is a GET, and it must stay one: verification records its
+            outcome in config, and a GET that writes config is a
+            cache-and-prefetch hazard on a route the dashboard polls;
+          * it reads only the *stored* key, and the whole unsaved-key problem
+            is that a user must be able to check a pasted credential without
+            first saving a broken one.
+
+        The probe itself lives in `netllm_core.cloud_verification` because
+        `netllm cloud enable` runs the identical check in the CLI process,
+        where no agent is necessarily running.
+
+        `api_key`, when given, is a key the user has typed but not saved. It
+        is never persisted, never logged and never echoed back -- only its
+        fingerprint is recorded, which is what lets the later save of that
+        same key be recognised as verified.
+        """
+        from netllm_core.cloud_verification import probe_cloud_provider
+
+        spec = get_provider_spec(provider_id)
+        if spec is None:
+            return None
+        provider_cfg = self.config.cloud.providers.get(provider_id)
+        result = await probe_cloud_provider(provider_cfg, spec, api_key=api_key)
+        return {"provider": provider_id, **result}
+
     async def cloud_provider_models_probe(
         self, provider_id: str
     ) -> dict[str, Any] | None:
