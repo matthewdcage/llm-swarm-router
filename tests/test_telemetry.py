@@ -117,6 +117,103 @@ def test_telemetry_persists_alltime(tmp_path: Path) -> None:
     assert svc2._alltime.completion_tokens == 3
 
 
+def test_a_pre_ui2_stats_file_drops_its_fabricated_durations(
+    tmp_path: Path,
+) -> None:
+    """A stats.json written before UI-2 holds `latency*0.3` / `latency*0.7`.
+
+    Recognisable in the wild by the ratio: a real file from a running mesh had
+    137796.6 / 305841.7, i.e. 31%/69%. Those totals are dropped on load and
+    throughput reads `None` until a real stream measures one. The request and
+    token counts beside them are genuine and are kept — the history was real,
+    only its derivation into a rate was invented.
+    """
+    stats_path = tmp_path / "stats.json"
+    stats_path.write_text(
+        json.dumps(
+            {
+                "requests": 83269,
+                "prompt_tokens": 334786738,
+                "completion_tokens": 15336451,
+                "total_prefill_duration": 137796.6083361518,
+                "total_generation_duration": 305841.7066232752,
+                "started_at": 1784857333.612004,
+            }
+        ),
+        encoding="utf-8",
+    )
+    svc = TelemetryService(stats_path=stats_path)
+
+    assert svc._alltime.requests == 83269
+    assert svc._alltime.prompt_tokens == 334786738
+    assert svc._alltime.total_prefill_duration == 0.0
+    assert svc._alltime.total_generation_duration == 0.0
+    assert svc._alltime.avg_prefill_tps() is None
+    assert svc._alltime.avg_generation_tps() is None
+
+
+def test_history_tokens_do_not_inflate_the_first_measured_rate(
+    tmp_path: Path,
+) -> None:
+    """The trap in dropping only the durations.
+
+    The average divides cumulative tokens by cumulative duration, so zeroing
+    the duration while keeping 334M historical tokens would divide them by the
+    first stream's handful of seconds — a far more wrong number than the one
+    being removed. Only tokens from requests that produced a measured duration
+    count towards the rate.
+    """
+    stats_path = tmp_path / "stats.json"
+    stats_path.write_text(
+        json.dumps(
+            {
+                "requests": 1000,
+                "prompt_tokens": 10_000_000,
+                "completion_tokens": 500_000,
+                "total_prefill_duration": 300.0,
+                "total_generation_duration": 700.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    svc = TelemetryService(stats_path=stats_path)
+    # One measured streaming request: 100 prompt tokens over 2s of prefill.
+    svc.record_usage(
+        prompt_tokens=100,
+        completion_tokens=50,
+        prefill_duration=2.0,
+        generation_duration=5.0,
+    )
+    assert svc._alltime.avg_prefill_tps() == pytest.approx(50.0)
+    assert svc._alltime.avg_generation_tps() == pytest.approx(10.0)
+
+
+def test_measured_durations_survive_a_restart(tmp_path: Path) -> None:
+    """The marker is what distinguishes a migrated file from a pre-UI-2 one."""
+    stats_path = tmp_path / "stats.json"
+    svc = TelemetryService(stats_path=stats_path)
+    svc.record_usage(
+        prompt_tokens=100,
+        completion_tokens=50,
+        prefill_duration=2.0,
+        generation_duration=5.0,
+    )
+    assert json.loads(stats_path.read_text())["durations_measured"] is True
+
+    reloaded = TelemetryService(stats_path=stats_path)
+    assert reloaded._alltime.avg_prefill_tps() == pytest.approx(50.0)
+
+
+def test_unmeasured_requests_do_not_dilute_the_rate(tmp_path: Path) -> None:
+    """A non-streaming request adds tokens with no observable prefill time."""
+    svc = TelemetryService(stats_path=tmp_path / "stats.json")
+    svc.record_usage(prompt_tokens=100, completion_tokens=50, prefill_duration=2.0)
+    svc.record_usage(prompt_tokens=9000, completion_tokens=9000)  # non-streaming
+    # 100/2, not 9100/2 — the unmeasured request contributed no prefill time.
+    assert svc._alltime.avg_prefill_tps() == pytest.approx(50.0)
+    assert svc._alltime.prompt_tokens == 9100  # display total still counts it
+
+
 def test_normalize_omlx_activity_payload() -> None:
     from netllm_discovery.local import _normalize_omlx_activity_payload
 
@@ -487,7 +584,14 @@ def test_prefill_rate_is_absent_rather_than_a_rescaled_latency() -> None:
         ttft_s=0.5,
     )
     scope = svc._session.to_dict()
-    assert scope["avg_prefill_tps"] == pytest.approx(400.0)
+    # 200, not 400. This assertion used to read 400 — total prompt tokens (200,
+    # across both requests) over the measured 0.5s — which counted the first
+    # request's tokens even though nothing timed their prefill. That is the
+    # same error as the 0.3-of-latency split in miniature: attributing a
+    # measurement to traffic that was never measured. Only the 100 tokens whose
+    # prefill was actually observed belong in the rate.
+    assert scope["avg_prefill_tps"] == pytest.approx(200.0)
+    assert scope["prompt_tokens"] == 200  # the display total still counts both
 
 
 # --------------------------------------------------------------------------- #

@@ -33,6 +33,13 @@ class _RouterCounters:
     completion_tokens: int = 0
     total_prefill_duration: float = 0.0
     total_generation_duration: float = 0.0
+    # Tokens belonging to the requests that actually contributed a measured
+    # duration. Throughput must divide these, not the display totals: a
+    # non-streaming request adds tokens with no observable prefill time, so
+    # dividing every token by the measured seconds would inflate the rate by
+    # however much traffic was unmeasurable.
+    measured_prompt_tokens: int = 0
+    measured_completion_tokens: int = 0
     started_at: float = field(default_factory=time.time)
 
     def avg_prefill_tps(self) -> float | None:
@@ -48,14 +55,14 @@ class _RouterCounters:
         """
         if self.total_prefill_duration <= 0:
             return None
-        return self.prompt_tokens / self.total_prefill_duration
+        return self.measured_prompt_tokens / self.total_prefill_duration
 
     def avg_generation_tps(self) -> float | None:
         """Completion tokens per second of measured generation time, or
         ``None``. Same rule as :meth:`avg_prefill_tps`."""
         if self.total_generation_duration <= 0:
             return None
-        return self.completion_tokens / self.total_generation_duration
+        return self.measured_completion_tokens / self.total_generation_duration
 
     def to_dict(self) -> dict[str, Any]:
         prefill = self.avg_prefill_tps()
@@ -76,13 +83,33 @@ class _RouterCounters:
         counter.requests = int(data.get("requests") or 0)
         counter.prompt_tokens = int(data.get("prompt_tokens") or 0)
         counter.completion_tokens = int(data.get("completion_tokens") or 0)
-        counter.total_prefill_duration = float(
-            data.get("total_prefill_duration") or 0.0
-        )
-        counter.total_generation_duration = float(
-            data.get("total_generation_duration") or 0.0
-        )
         counter.started_at = float(data.get("started_at") or time.time())
+
+        # One-time migration. Before UI-2 the duration accumulators were fed
+        # `latency * 0.3` and `latency * 0.7`, so a stats.json written by an
+        # older agent holds a fabricated split, not measurements — recognisable
+        # in the wild by the ratio sitting on 0.31/0.69. Those two totals are
+        # dropped rather than carried, because an average over them is exactly
+        # the wrong number this release removed, and there is no way to
+        # reconstruct the real durations after the fact.
+        #
+        # `requests`, `prompt_tokens` and `completion_tokens` are genuine
+        # counts and are kept: the history is real, only its derivation into a
+        # rate was invented. Throughput restarts from the first measured
+        # stream and reads `None` until then.
+        if bool(data.get("durations_measured")):
+            counter.total_prefill_duration = float(
+                data.get("total_prefill_duration") or 0.0
+            )
+            counter.total_generation_duration = float(
+                data.get("total_generation_duration") or 0.0
+            )
+            counter.measured_prompt_tokens = int(
+                data.get("measured_prompt_tokens") or 0
+            )
+            counter.measured_completion_tokens = int(
+                data.get("measured_completion_tokens") or 0
+            )
         return counter
 
     def persist_dict(self) -> dict[str, Any]:
@@ -92,6 +119,11 @@ class _RouterCounters:
             "completion_tokens": self.completion_tokens,
             "total_prefill_duration": self.total_prefill_duration,
             "total_generation_duration": self.total_generation_duration,
+            "measured_prompt_tokens": self.measured_prompt_tokens,
+            "measured_completion_tokens": self.measured_completion_tokens,
+            # Marks this file as holding measured durations. Its absence is
+            # what identifies a pre-UI-2 file on load; never write False.
+            "durations_measured": True,
             "started_at": self.started_at,
         }
 
@@ -755,6 +787,12 @@ class TelemetryService:
             counter.completion_tokens += max(0, completion_tokens)
             counter.total_prefill_duration += max(0.0, prefill_duration)
             counter.total_generation_duration += max(0.0, generation_duration)
+            # Only tokens from a request that produced a real duration count
+            # towards the rate — see `measured_prompt_tokens`.
+            if prefill_duration > 0:
+                counter.measured_prompt_tokens += max(0, prompt_tokens)
+            if generation_duration > 0:
+                counter.measured_completion_tokens += max(0, completion_tokens)
         self._save_alltime_debounced()
         self._ledger.record(
             backend_id=backend_id,
