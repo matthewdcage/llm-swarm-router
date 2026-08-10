@@ -149,6 +149,15 @@ def _field_spec(name: str, field: FieldInfo) -> dict[str, Any]:
         spec["write_only"] = True
     if extra.get("read_only"):
         spec["read_only"] = True
+    # A row's stable opaque identity (netllm_core.config_identity). Always
+    # read_only as well -- no surface renders a control for it -- but the
+    # two flags mean opposite things to a patch builder: read_only says
+    # "drop it", identity says "send it back exactly as received, so the
+    # merge can find the row this edit belongs to". A client that honours
+    # read_only and ignores identity re-opens the erase-on-rename bug, which
+    # is why the flag is on the wire rather than a hardcoded field name.
+    if extra.get("identity"):
+        spec["identity"] = True
     if "group" in extra:
         spec["group"] = extra["group"]
     if "options_from" in extra:

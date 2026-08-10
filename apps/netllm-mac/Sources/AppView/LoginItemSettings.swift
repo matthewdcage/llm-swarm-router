@@ -20,7 +20,7 @@ struct LoginItemSettings: View {
             if let feedback {
                 Text(feedback)
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(DesignTokens.warnText)
             }
         }
         .onAppear {

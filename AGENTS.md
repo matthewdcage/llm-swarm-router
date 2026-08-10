@@ -86,7 +86,8 @@ Prefer `./netllm` from the repo root, works without global PATH (`uv run` wrappe
 | `./netllm config schema` | Config form schema JSON (same as `GET /netllm/v1/config/schema`; works without a running agent) |
 | `./scripts/ci.sh` | Lint + test (same as CI) |
 | `./scripts/ci.sh lint` | Ruff check + format --check (repo-wide) + dashboard token drift |
-| `./scripts/ci.sh test` | Run tests |
+| `./scripts/ci.sh test` | Run tests (`tests/e2e/` self-skips without a chromium binary) |
+| `./scripts/ci.sh e2e` | Browser end-to-end for the web dashboard — installs chromium, drives the real agent (minutes, own CI job) |
 | `./scripts/ci.sh types` | basedpyright (non-blocking while the backlog is triaged) |
 | `./scripts/ci.sh packaging` | Build deb/rpm (Linux) or zip (Windows) smoke artifacts |
 | `scripts/verify-before-pr.sh` | Pre-push gate: lint + test + macOS `swift build -c release` |
@@ -181,7 +182,8 @@ Editor wiring reference: [docs/editor-integration.md](docs/editor-integration.md
 ## Testing
 
 - Runner: pytest (`tests/`, asyncio mode auto)
-- CI: `./scripts/ci.sh lint` (Ubuntu) then `./scripts/ci.sh test` + `./scripts/ci.sh packaging` (Ubuntu + Windows); macOS `menubar-lifecycle` on PRs that touch `apps/netllm-mac/` or packaging
+- CI: `./scripts/ci.sh lint` (Ubuntu) then `./scripts/ci.sh test` + `./scripts/ci.sh packaging` (Ubuntu + Windows) + `./scripts/ci.sh e2e` (Ubuntu); macOS `menubar-lifecycle` on PRs that touch `apps/netllm-mac/` or packaging
+- **Browser tests** (`tests/e2e/`, Playwright + chromium): drive the *real* agent — a uvicorn server on an ephemeral port serving `create_app(cfg)`, plus a stub OpenAI-compatible upstream. Nothing mocks the dashboard's own fetches, so a passing page rendered against the actual HTTP surface. One-time setup: `uv run playwright install chromium`. The fixtures skip themselves when that binary is absent, so `ci.sh test` stays green on a bare runner. A JS exception in any page renderer fails the test — `console_errors` is asserted empty, not ignored
 - Pre-push: `scripts/verify-before-pr.sh` (see [docs/ci-and-release.md](docs/ci-and-release.md))
 - Add tests only for real behavior; avoid trivial assertions
 
@@ -201,11 +203,7 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - Assume `netllm` is on PATH: prefer `./netllm` from repo root in instructions
 - Skip `./netllm doctor` before declaring setup complete
 - Add a config field to `models.py` without a control on the dashboard **and** the macOS app, or a dated row in `tests/conformance/ledgers/control-parity.toml` — `tests/conformance/kit_config_surfaces.py` fails by name (Axis D / F-21)
-<<<<<<< HEAD
 - **Add a provider, surface or harness id literal outside its registry.** `scripts/check-registry-mirrors.py` blocks it in `ci.sh lint`. Adding a row to `tests/conformance/ledgers/mirrors.toml` is **not** a fix — it also turns `tests/extending/test_worked_example_*.py` red until the new mirror is classified. The question is always whether the fact can be derived, generated with `--check`, or projection-tested ([docs/extending/README.md](docs/extending/README.md))
-=======
-- Add a provider, surface or harness id literal outside its registry (`tests/conformance/ledgers/mirrors.toml` blocks it)
->>>>>>> origin/main
 - Auto-edit user editor `settings.json` without explicit consent
 - macOS menubar in-app install only works from `/Applications/llm-swarm-router.app` or `netllm-mac.app`; web dashboard proxies update checks via `GET /netllm/v1/update/check`
 

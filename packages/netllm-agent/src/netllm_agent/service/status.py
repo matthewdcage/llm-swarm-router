@@ -9,18 +9,132 @@ this module with no outgoing edge back into either.
 from __future__ import annotations
 
 import asyncio
+import logging
+import socket
 from typing import Any
 
 from netllm_core.capabilities import model_capability
 from netllm_core.update import compare_versions, is_version_like, mesh_skew
 from netllm_core.version import get_version
-from netllm_discovery.local import find_omlx_admin_url, probe_omlx_admin_for_backends
+from netllm_discovery.lan import (
+    is_lan_reachable_agent_url,
+    last_peer_scan_at,
+    own_agent_urls,
+)
+from netllm_discovery.local import (
+    find_omlx_admin_url,
+    last_provider_scan_at,
+    probe_omlx_admin_for_backends,
+)
+from netllm_discovery.swarm import MAX_PEER_PROVIDERS
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["StatusMixin"]
 
 
 class StatusMixin:
     """What this agent believes about itself and its mesh."""
+
+    def local_provider_summary(self) -> list[dict[str, Any]]:
+        """`[{id, provider, model_count}]` for what THIS agent serves directly.
+
+        Gossiped in the heartbeat (UI-4a). A peer is materialised remotely as
+        a single ``Backend`` with ``provider="custom"``
+        (``SwarmRegistry.peer_agent_backends``), so without this summary no
+        other agent in the mesh can say what a peer actually runs.
+
+        Local rows only, and no model *names*: remote rows in this payload are
+        this agent's view of other agents, which would echo around the mesh,
+        and names are already reachable via this agent's own ``/v1/models``.
+        """
+        out: list[dict[str, Any]] = []
+        for b in self.pool.backends:
+            if not b.enabled or not b.local:
+                continue
+            count = b.health.model_count or len(b.health.models)
+            out.append(
+                {
+                    "id": b.id,
+                    "provider": b.provider,
+                    "model_count": max(0, int(count)),
+                }
+            )
+            if len(out) >= MAX_PEER_PROVIDERS:
+                break
+        return out
+
+    def own_alternate_urls(self) -> list[str]:
+        """LAN URLs other than the advertised one that also reach this agent.
+
+        Only a wildcard bind earns any: ``agent_url_from_listen`` picks ONE
+        address for a host with several interfaces (Wi-Fi + Ethernet, a VPN,
+        Docker), so the advertised ``listen_url`` is a peer's only way in even
+        though the socket answers on all of them. A bind to one concrete
+        address is reachable at exactly that address and gets ``[]`` — the
+        point of this key is to stop a client guessing, not to make it guess
+        more confidently.
+
+        Loopback addresses are excluded throughout: they resolve to the
+        *reader's* agent, not this one.
+
+        Memoized on ``agent.listen``: this runs on every heartbeat and every
+        ``/status`` read.
+        """
+        listen = self.config.agent.listen
+        cached = getattr(self, "_own_alt_urls_cache", None)
+        if cached is not None and cached[0] == listen:
+            return list(cached[1])
+        urls = self._compute_alternate_urls(listen)
+        self._own_alt_urls_cache = (listen, urls)
+        return list(urls)
+
+    def _compute_alternate_urls(self, listen: str) -> list[str]:
+        from netllm_core.models import split_listen
+
+        if listen.startswith("http"):
+            return []
+        host, port = split_listen(listen)
+        if host not in ("", "0.0.0.0", "::"):
+            return []
+        primary = self.swarm.local_agent_url().rstrip("/")
+        found: set[str] = {
+            url for url in own_agent_urls(listen) if is_lan_reachable_agent_url(url)
+        }
+        try:
+            import psutil
+
+            for addrs in psutil.net_if_addrs().values():
+                for addr in addrs:
+                    if addr.family != socket.AF_INET:
+                        continue
+                    ip = str(addr.address or "")
+                    if not ip:
+                        continue
+                    url = f"http://{ip}:{port}"
+                    if is_lan_reachable_agent_url(url):
+                        found.add(url)
+        except Exception:
+            # Interface enumeration is a nicety. A platform that refuses it
+            # leaves the caller with the primary address it already had.
+            logger.debug("interface enumeration unavailable", exc_info=True)
+        return sorted(found - {primary})
+
+    def discovery_scan_payload(self) -> dict[str, Any]:
+        """When each discovery pass last completed, in epoch seconds (UI-3).
+
+        ``None`` means "has not run in this process", which is a different
+        statement from "ran and found nothing" and must stay distinguishable.
+        Both clocks are stamped by the scans themselves, so a scan triggered
+        by the rediscovery timer moves them just as an admin-triggered one
+        does.
+        """
+        provider_at = last_provider_scan_at()
+        peer_at = last_peer_scan_at()
+        return {
+            "last_scan_at": provider_at or None,
+            "last_peer_scan_at": peer_at or None,
+        }
 
     def status_payload(self) -> dict[str, Any]:
         omlx_admin = find_omlx_admin_url(self.pool.backends)
@@ -44,6 +158,15 @@ class StatusMixin:
             "version": get_version(),
             "max_concurrency": self.config.agent.max_concurrency,
             "draining": self.draining,
+            # UI-4a. This body is sent verbatim as the heartbeat
+            # (`gossip_loop(status_provider=status_payload)`), so these two
+            # keys are how a peer learns what this machine serves and where
+            # else it answers. Additive: an older peer ignores both.
+            "providers": self.local_provider_summary(),
+            "also_reachable_at": self.own_alternate_urls(),
+            # UI-3. Wall clocks for the two discovery passes, so a client can
+            # age them without subtracting our monotonic clock from its own.
+            "discovery": self.discovery_scan_payload(),
             "cloud": {
                 "enabled": self.config.cloud.enabled,
                 "fallback": self.config.cloud.fallback,

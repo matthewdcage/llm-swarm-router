@@ -7,10 +7,11 @@
   <link rel="icon" href="logo-light.png" type="image/png" media="(prefers-color-scheme: light)" />
   <link rel="icon" href="logo-dark.png" type="image/png" media="(prefers-color-scheme: dark)" />
   <link rel="icon" href="logo-light.png" type="image/png" />
-  <link rel="stylesheet" href="dashboard-tokens.css?v=0.4.4.0" />
-  <link rel="stylesheet" href="dashboard.css?v=0.4.4.0" />
+  <link rel="stylesheet" href="dashboard-tokens.css?v=0.5.0.1" />
+  <link rel="stylesheet" href="dashboard.css?v=0.5.0.1" />
 </head>
 <body>
+  <a class="skip-link" href="#page-main">Skip to content</a>
   <div class="app">
     <nav class="sidebar" aria-label="Dashboard navigation">
       <div class="sidebar-brand">
@@ -18,48 +19,94 @@
           <source srcset="logo-dark.png" media="(prefers-color-scheme: dark)" />
           <img src="logo-light.png" alt="" width="32" height="32" />
         </picture>
-        <div>
+        <div class="sidebar-brand-text">
           <strong>llm-swarm-router</strong>
-          <span>Mesh router for local LLM backends</span>
+          <span id="sidebar-version">Mesh router</span>
         </div>
       </div>
-      <div class="nav-group-label">Server</div>
-      <button type="button" class="nav-item active" data-tab="status">Status</button>
-      <button type="button" class="nav-item" data-tab="serving">Serving</button>
-      <button type="button" class="nav-item" data-tab="backends">Backends</button>
-      <button type="button" class="nav-item" data-tab="models">Models</button>
-      <button type="button" class="nav-item" data-tab="peers">Peers</button>
-      <div class="nav-group-label">Config</div>
-      <button type="button" class="nav-item" data-tab="agent">Agent</button>
-      <button type="button" class="nav-item" data-tab="discovery">Servers</button>
-      <button type="button" class="nav-item" data-tab="swarm">Swarm</button>
-      <button type="button" class="nav-item" data-tab="routing">Routing</button>
-      <button type="button" class="nav-item" data-tab="sources">Sources</button>
-      <button type="button" class="nav-item" data-tab="cloud">Cloud</button>
-      <button type="button" class="nav-item" data-tab="ui">UI</button>
-      <div class="nav-group-label">Tools</div>
-      <button type="button" class="nav-item" data-tab="logs">Logs</button>
-      <button type="button" class="nav-item" data-tab="tools">Doctor &amp; Test</button>
+
+      <div class="nav-scroll">
+        <div class="nav-group-label" id="nav-group-mesh">Mesh</div>
+        <div class="nav-group" role="group" aria-labelledby="nav-group-mesh">
+          <button type="button" class="nav-item active" data-page="overview" aria-current="page">
+            <span class="nav-icon" aria-hidden="true">&#9678;</span>
+            <span class="nav-label">Overview</span>
+          </button>
+          <button type="button" class="nav-item" data-page="backends">
+            <span class="nav-icon" aria-hidden="true">&#9636;</span>
+            <span class="nav-label">Backends</span>
+            <span class="nav-count" id="nav-count-backends"></span>
+          </button>
+          <button type="button" class="nav-item" data-page="models">
+            <span class="nav-icon" aria-hidden="true">&#9767;</span>
+            <span class="nav-label">Models &amp; pools</span>
+            <span class="nav-count" id="nav-count-models"></span>
+          </button>
+          <button type="button" class="nav-item" data-page="peers">
+            <span class="nav-icon" aria-hidden="true">&#8286;</span>
+            <span class="nav-label">Peers</span>
+            <span class="nav-count" id="nav-count-peers"></span>
+          </button>
+        </div>
+
+        <div class="nav-group-label" id="nav-group-config">Config</div>
+        <div class="nav-group" role="group" aria-labelledby="nav-group-config">
+          <button type="button" class="nav-item" data-page="network">
+            <span class="nav-icon" aria-hidden="true">&#8779;</span>
+            <span class="nav-label">Network</span>
+          </button>
+          <div class="nav-sublabel">Agent · Discovery · Swarm</div>
+          <button type="button" class="nav-item" data-page="routing">
+            <span class="nav-icon" aria-hidden="true">&#8706;</span>
+            <span class="nav-label">Routing</span>
+          </button>
+          <button type="button" class="nav-item" data-page="cloud">
+            <span class="nav-icon" aria-hidden="true">&#9729;</span>
+            <span class="nav-label">Cloud failover</span>
+            <span class="nav-dot" id="nav-dot-cloud" hidden></span>
+          </button>
+          <button type="button" class="nav-item" data-page="preferences">
+            <span class="nav-icon" aria-hidden="true">&#9776;</span>
+            <span class="nav-label">Preferences</span>
+          </button>
+        </div>
+
+        <div class="nav-group-label" id="nav-group-tools">Tools</div>
+        <div class="nav-group" role="group" aria-labelledby="nav-group-tools">
+          <button type="button" class="nav-item" data-page="integrations">
+            <span class="nav-icon" aria-hidden="true">&#8703;</span>
+            <span class="nav-label">Integrations</span>
+          </button>
+          <button type="button" class="nav-item" data-page="logs">
+            <span class="nav-icon" aria-hidden="true">&#9634;</span>
+            <span class="nav-label">Logs</span>
+          </button>
+          <button type="button" class="nav-item" data-page="doctor">
+            <span class="nav-icon" aria-hidden="true">&#10010;</span>
+            <span class="nav-label">Doctor &amp; test</span>
+            <span class="nav-dot" id="nav-dot-doctor" hidden></span>
+          </button>
+        </div>
+      </div>
+
+      <div class="endpoint-card">
+        <div class="endpoint-label">Client endpoint</div>
+        <div class="endpoint-url" id="client-endpoint">—</div>
+        <div class="endpoint-actions">
+          <button type="button" id="btn-env">Copy env</button>
+          <button type="button" class="secondary" id="btn-snippets">Snippets</button>
+        </div>
+      </div>
     </nav>
 
     <div class="main">
       <header class="topbar">
         <div class="topbar-status">
-          <picture class="brand-logo topbar-logo">
-            <source srcset="logo-dark.png" media="(prefers-color-scheme: dark)" />
-            <img src="logo-light.png" alt="" width="28" height="28" />
-          </picture>
-          <div>
-            <div class="topbar-title">llm-swarm-router</div>
-            <div class="topbar-meta">
-              <span id="status-badge" class="badge warn"><span class="dot"></span>Checking…</span>
-              <span id="agent-status-line" class="sub">Loading…</span>
-            </div>
-          </div>
+          <span id="status-badge" class="pill warn"><span class="dot"></span>Checking…</span>
+          <span id="agent-status-line" class="topbar-meta">Loading…</span>
         </div>
         <div class="topbar-actions">
-          <button type="button" id="btn-discover">Discover</button>
-          <button type="button" class="secondary" id="btn-env">Copy client env</button>
+          <button type="button" class="secondary" id="btn-discover">Discover</button>
           <a class="btn secondary" id="btn-status-json" href="/netllm/v1/status" target="_blank" rel="noopener">Status JSON</a>
           <a class="btn secondary" id="btn-omlx-admin" href="http://127.0.0.1:8080/admin" target="_blank" rel="noopener">oMLX Admin</a>
           <button type="button" class="secondary" id="btn-drain">Drain</button>
@@ -68,27 +115,42 @@
         </div>
       </header>
 
-      <div id="global-banner" hidden></div>
+      <!-- setBanner() writes save results and "Could not reach the agent" here;
+           without a live region none of it is announced. -->
+      <div id="global-banner" role="status" aria-live="polite" hidden></div>
 
-      <main class="content">
-        <section id="tab-status" class="tab-panel active" aria-label="Status"></section>
-        <section id="tab-serving" class="tab-panel" aria-label="Serving stats"></section>
-        <section id="tab-backends" class="tab-panel" aria-label="Backends"></section>
-        <section id="tab-models" class="tab-panel" aria-label="Models"></section>
-        <section id="tab-peers" class="tab-panel" aria-label="Peers"></section>
-        <section id="tab-agent" class="tab-panel" aria-label="Agent config"></section>
-        <section id="tab-discovery" class="tab-panel" aria-label="Discovery config"></section>
-        <section id="tab-swarm" class="tab-panel" aria-label="Swarm config"></section>
-        <section id="tab-routing" class="tab-panel" aria-label="Routing config"></section>
-        <section id="tab-sources" class="tab-panel" aria-label="Sources config"></section>
-        <section id="tab-cloud" class="tab-panel" aria-label="Cloud config"></section>
-        <section id="tab-ui" class="tab-panel" aria-label="UI config"></section>
-        <section id="tab-logs" class="tab-panel" aria-label="Agent logs"></section>
-        <section id="tab-tools" class="tab-panel" aria-label="Doctor and tools"></section>
+      <main class="content" id="page-main" tabindex="-1">
+        <section id="page-overview" class="page active" aria-label="Overview"></section>
+        <section id="page-backends" class="page" aria-label="Backends"></section>
+        <section id="page-models" class="page" aria-label="Models and pools"></section>
+        <section id="page-peers" class="page" aria-label="Peers"></section>
+        <section id="page-network" class="page" aria-label="Network configuration"></section>
+        <section id="page-routing" class="page" aria-label="Routing configuration"></section>
+        <section id="page-cloud" class="page" aria-label="Cloud failover"></section>
+        <section id="page-preferences" class="page" aria-label="Preferences"></section>
+        <section id="page-integrations" class="page" aria-label="Integrations"></section>
+        <section id="page-logs" class="page" aria-label="Agent logs"></section>
+        <section id="page-doctor" class="page" aria-label="Doctor and test"></section>
       </main>
     </div>
   </div>
+
+  <div id="sheet-host" hidden></div>
   <div id="toast" role="status" aria-live="polite"></div>
-  <script src="dashboard.js?v=0.4.4.0"></script>
+
+  <script src="dashboard.js?v=0.5.0.1"></script>
+  <script src="schema-form.js?v=0.5.0.1"></script>
+  <script src="pages/overview.js?v=0.5.0.1"></script>
+  <script src="pages/backends.js?v=0.5.0.1"></script>
+  <script src="pages/models.js?v=0.5.0.1"></script>
+  <script src="pages/peers.js?v=0.5.0.1"></script>
+  <script src="pages/network.js?v=0.5.0.1"></script>
+  <script src="pages/routing.js?v=0.5.0.1"></script>
+  <script src="pages/cloud.js?v=0.5.0.1"></script>
+  <script src="pages/preferences.js?v=0.5.0.1"></script>
+  <script src="pages/integrations.js?v=0.5.0.1"></script>
+  <script src="pages/logs.js?v=0.5.0.1"></script>
+  <script src="pages/doctor.js?v=0.5.0.1"></script>
+  <script src="bootstrap.js?v=0.5.0.1"></script>
 </body>
 </html>

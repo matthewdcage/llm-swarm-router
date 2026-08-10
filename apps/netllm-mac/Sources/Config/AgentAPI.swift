@@ -81,11 +81,17 @@ enum AgentAPI {
         }
     }
 
-    static func logs(baseURL: URL, tail: Int = 200) async -> AgentLogsPayload? {
-        guard let json = await fetchJSON(
-            baseURL: baseURL,
-            path: "/netllm/v1/logs?tail=\(tail)"
-        ) else {
+    /// `before` is a 1-based line cursor: the window ends at `before - 1`, so
+    /// paging backwards is not clobbered by the tab's own refresh. Pass the
+    /// previous payload's `nextBefore`; nil means "the newest window".
+    static func logs(
+        baseURL: URL,
+        tail: Int = 200,
+        before: Int? = nil
+    ) async -> AgentLogsPayload? {
+        var path = "/netllm/v1/logs?tail=\(tail)"
+        if let before { path += "&before=\(before)" }
+        guard let json = await fetchJSON(baseURL: baseURL, path: path) else {
             return nil
         }
         let lines = json["tail"] as? [String] ?? []
@@ -95,7 +101,23 @@ enum AgentAPI {
             exists: json["exists"] as? Bool ?? false,
             sizeBytes: parseInt(json["size_bytes"]),
             tail: lines,
-            truncated: json["truncated"] as? Bool ?? false
+            truncated: json["truncated"] as? Bool ?? false,
+            records: (json["records"] as? [[String: Any]] ?? []).map(parseLogRecord),
+            totalLines: parseInt(json["total_lines"]),
+            nextBefore: parseOptionalInt(json["next_before"]),
+            downloadURL: json["download_url"] as? String
+        )
+    }
+
+    private static func parseLogRecord(_ dict: [String: Any]) -> AgentLogRecord {
+        AgentLogRecord(
+            lineNo: parseInt(dict["line_no"]),
+            ts: dict["ts"] as? String,
+            level: dict["level"] as? String,
+            levelLabel: dict["level_label"] as? String,
+            logger: dict["logger"] as? String,
+            message: dict["message"] as? String ?? "",
+            raw: dict["raw"] as? String ?? ""
         )
     }
 
@@ -254,12 +276,24 @@ enum AgentAPI {
         return 0
     }
 
+    /// Keeps a JSON `null` distinct from 0 — `next_before` is null at the
+    /// start of the file, and line 0 does not exist.
+    private static func parseOptionalInt(_ value: Any?) -> Int? {
+        if value == nil || value is NSNull { return nil }
+        if let value = value as? Int { return value }
+        if let value = value as? Double { return Int(value) }
+        if let value = value as? NSNumber { return value.intValue }
+        return nil
+    }
+
     private static func parsePeer(_ dict: [String: Any]) -> PeerStatus {
         PeerStatus(
             agentId: dict["agent_id"] as? String ?? "",
             listenURL: dict["listen_url"] as? String ?? "",
             role: dict["role"] as? String ?? "peer",
-            hostname: dict["hostname"] as? String ?? ""
+            hostname: dict["hostname"] as? String ?? "",
+            discoveredVia: dict["discovered_via"] as? String ?? "",
+            alsoReachableAt: dict["also_reachable_at"] as? [String] ?? []
         )
     }
 

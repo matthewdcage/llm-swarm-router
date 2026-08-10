@@ -10,10 +10,10 @@ Design as built: [../08-control-parity.md](../08-control-parity.md)
 
 ```python
     ControlDescriptor(
-        key="mytab",                       # also the dashboard tab key
+        key="mypage",                      # stable id, not necessarily the page key
         kind="view",                       # config | view | action
         title="My Tab",
-        dashboard_renderer="renderMyTab",  # must be a TAB_RENDERERS value
+        dashboard_renderer="renderMyPage", # defined in static/pages/mypage.js
         swift_symbol="myTab",              # must appear in the macOS settings source
         surfaces_required=("dashboard", "macos"),
         config_sections=(),
@@ -21,8 +21,11 @@ Design as built: [../08-control-parity.md](../08-control-parity.md)
     ),
 ```
 
-`is_tab=True` also obliges `index.html` to carry a `data-tab="mytab"` button
-**and** an `id="tab-mytab"` section.
+`is_tab=True` also obliges the page key to be in `const PAGES` in
+`dashboard.js`, to be registered by `registerPage("mypage", …)` in its own
+module, and for `index.html` to carry a `data-page="mypage"` button **and** an
+`id="page-mypage"` section. Add the page to `DASHBOARD_CONTROLS` in
+`tests/conformance/kit_config_surfaces.py`.
 
 ## An action
 
@@ -57,5 +60,5 @@ python3 scripts/generate-registry-artifacts.py
 ## Verify
 
 ```bash
-uv run pytest tests/conformance/kit_config_surfaces.py -k mytab
+uv run pytest tests/conformance/kit_config_surfaces.py -k mypage
 ```

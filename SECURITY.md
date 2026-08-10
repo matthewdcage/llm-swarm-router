@@ -69,6 +69,11 @@ When exposing the agent on a LAN:
 
 - Use `swarm.cluster_token` on untrusted networks
 - Prefer loopback (`127.0.0.1`) for single-machine development
+- `GET /netllm/v1/logs?download=1` returns the **unredacted** `agent.log` —
+  everything the agent wrote, including anything a backend or client put in a
+  log line. It is admin-gated (local client or `Bearer <cluster_token>`) like
+  the rest of `/netllm/v1/admin`, and should be treated as a secret-bearing
+  artifact when shared
 - See `./netllm doctor` and [docs/editor-integration.md](docs/editor-integration.md)
 
 Thank you for helping keep llm-swarm-router users safe.

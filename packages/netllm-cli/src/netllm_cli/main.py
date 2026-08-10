@@ -15,6 +15,7 @@ from netllm_cli.commands import (
     config_io,
     connect,
     diagnose,
+    ignore,
     init_install,
     join_swarm,
     observe,
@@ -72,6 +73,7 @@ app.command()(diagnose.doctor)
 app.add_typer(config_io.config_app, name="config")
 app.add_typer(cloud.cloud_app, name="cloud")
 app.add_typer(sources.sources_app, name="sources")
+app.add_typer(ignore.ignore_app, name="ignore")
 app.command()(serve_lifecycle.start)
 app.command()(serve_lifecycle.stop)
 app.command()(serve_lifecycle.restart)

@@ -14,6 +14,7 @@ Key modules: `local.py`, `swarm.py`, `mdns.py`, `lan.py`, `runtime.py`, `agent_l
 
 - Default probe ports: oMLX `:8080`, Ollama `:11434`, LM Studio `:1234`, vLLM `:8000`
 - Custom ports via `[discovery].custom_endpoints` or `[[routing.backends]]` in config
+- **`[discovery].ignored_urls` denylist**: `candidate_urls_for_provider` filters it out last (so a pin, an env hint and a default port are all covered) and `scan_local_providers` skips ignored `custom_endpoints`. The `[[routing.backends]]` probe loop is **deliberately unfiltered** — the explicit row wins, and `netllm_core.backend_credentials.ignored_url_keys` has already subtracted those URLs. Never mutate `provider_urls`/`custom_endpoints`/`routing.backends` to ignore something: one reversible line is the whole point
 - mDNS requires `zeroconf` from `uv sync`; LAN swarm needs agent `serve --host 0.0.0.0`
 - Open trusted-LAN mesh works with empty `cluster_token` (mDNS + subnet scan); set `swarm.cluster_token` only on untrusted networks or when using `join` pairing
 - **Agent-hop routing:** `SwarmRegistry.peer_agent_backends()` emits one `Backend` per peer at `{listen_url}/v1`; never merge peer loopback oMLX URLs into a gateway pool

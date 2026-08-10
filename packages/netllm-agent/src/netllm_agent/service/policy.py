@@ -21,7 +21,11 @@ from netllm_core.models import (
     Backend,
     SourceConfig,
 )
-from netllm_core.routing_policy import ResolvedRouting, resolve_routing
+from netllm_core.routing_policy import (
+    ResolvedRouting,
+    match_routing_policy,
+    resolve_routing,
+)
 from netllm_core.scenarios import Scenario, classify_scenario
 from netllm_core.source_identity import ResolvedSource, resolve_source
 from netllm_sdk_anthropic.client import AnthropicUpstreamError
@@ -179,6 +183,32 @@ class PolicyMixin:
             scenario=scenario,
             surface=surface.value if surface is not None else None,
         )
+
+    def _policy_key(self, model: str, api_format: str, source_id: str) -> str:
+        """UI-1's per-policy ledger dimension, ``"<index>:<name>"``.
+
+        Calls the *same* ``match_routing_policy`` the resolver uses rather
+        than re-deriving the match, so the dimension cannot drift from the
+        routing decision it claims to describe. ``ResolvedRouting`` does not
+        carry the matched policy, and widening that frozen dataclass is
+        UI-9's business; the second call is a walk over a list that is empty
+        in the default config.
+        """
+        policies = self.config.routing.policies
+        if not policies:
+            return ""
+        policy = match_routing_policy(
+            policies,
+            model=model,
+            api_format=api_format,  # type: ignore[arg-type]
+            source_id=source_id,
+        )
+        if policy is None:
+            return ""
+        for index, candidate in enumerate(policies):
+            if candidate is policy:
+                return f"{index}:{policy.name}"
+        return f"?:{policy.name}"
 
     def _attribute_source(self, headers: Mapping[str, str] | None) -> ResolvedSource:
         """Resolve and count the caller's source for this request.
@@ -370,4 +400,5 @@ class PolicyMixin:
             payload=payload,
             api_key=api_key,
             exact_model_only=exact_model_only,
+            policy_key=self._policy_key(model, api_format, resolved_source.id),
         )

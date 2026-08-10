@@ -12,7 +12,7 @@ Settings "Known harnesses" badges — docs/cli-source-routing-plan.md Phase 4c/4
 | `cursor.svg` | simple-icons `cursor` slug | CC0-1.0 |
 | `honcho.svg` | Generated in-repo — no published Honcho mark exists in simple-icons | N/A (original, trivial) |
 | `buzz.svg` | Generated in-repo — no published Buzz mark exists in simple-icons | N/A (original, trivial) |
-| `hermes-agent.svg` | Generated in-repo — NousResearch Hermes Agent has no simple-icons slug | N/A (original, trivial) |
+| `hermes-agent.svg` | Generated in-repo — Hermes Agent has no simple-icons slug. Drawn as a **caduceus**, the mark Hermes uses for itself at small sizes: its own `website/static/img/favicon.svg` is the `⚕` glyph and its TUI banner imports `caduceus` art. The project's full logo is a detailed raster illustration that collapses to a blob at 16px, so it is deliberately not used here. | N/A (original, trivial) |
 
 The four simple-icons files are used as pulled from
 `https://cdn.jsdelivr.net/npm/simple-icons@latest/icons/<slug>.svg`, unmodified

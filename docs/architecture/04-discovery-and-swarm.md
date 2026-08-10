@@ -10,6 +10,7 @@ flowchart TB
         ENV["env hints: OLLAMA_HOST,<br/>OMLX_PORT, LMSTUDIO_PORT, VLLM_PORT"] --> PROBE
         PORTS["default ports:<br/>oMLX 8080/8088/8081 · Ollama 11434<br/>LM Studio 1234/41334 · vLLM 8000/8001"] --> PROBE
         CUST["discovery.custom_endpoints<br/>+ [[routing.backends]]"] --> PROBE
+        DENY["discovery.ignored_urls<br/>(denylist; overrides win)"] -.->|filters| PROBE
         PROBE["GET &lt;base&gt;/models on 127.0.0.1 and localhost<br/>(all candidates concurrently, first hit wins)"] --> BE1["Backend rows (local=true)"]
         BE1 --> PERSIST["merge_discovered_provider_urls()<br/>→ discovery.provider_urls (startup only)"]
     end
@@ -39,6 +40,16 @@ flowchart TB
   auth-gated LM Studio shows `in_flight = 0`, wins every `least_load` pick, and starves the
   real backends. Cloud injects stay blind candidates because their key arrives per-request.
 - Failed probes **keep the last known model catalog** rather than wiping it to `[]`.
+- `discovery.ignored_urls` is a **denylist applied to the candidate list**, not to the
+  results: an ignored URL is never probed, never becomes a pool row, and never appears in
+  `/netllm/v1/status`. It exists because 401 counts as reachable, so an unrelated service
+  squatting a provider's default port (`:8000` for vLLM) was rediscovered forever.
+  Comparison is `normalize_backend_url`, so `http://h:8000`, `.../` and `.../v1` are one
+  entry. **An explicit `[[routing.backends]]` row wins** — an entry naming a pinned URL is
+  stored but inert, and the save path reports the conflict rather than deleting a backend
+  the user configured (`netllm_core.backend_credentials.ignored_url_keys`). Managed from
+  Network → Ignored endpoints, the Backends page's per-card **Ignore** action, the macOS
+  discovery tab, and `netllm ignore list|add|remove`.
 
 ### Plane 2 details
 

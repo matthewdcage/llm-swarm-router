@@ -101,64 +101,23 @@ def toml_table_ids(rel_path: str, prefix: str) -> Projection:
     return Projection(tuple(pattern.findall(text)), f"{path.name}:{line}")
 
 
-def _js_object_after(rel_path: str, marker: str) -> tuple[dict[str, str], str]:
-    """Parse the first brace-balanced `{...}` literal following `marker`."""
-    text, path = _read(rel_path)
-    start = text.find(marker)
-    assert start != -1, f"{rel_path}: marker not found: {marker!r}"
-    open_at = text.find("{", start)
-    assert open_at != -1, f"{rel_path}: no '{{' after marker {marker!r}"
-    depth = 0
-    close_at = -1
-    for index in range(open_at, len(text)):
-        if text[index] == "{":
-            depth += 1
-        elif text[index] == "}":
-            depth -= 1
-            if depth == 0:
-                close_at = index
-                break
-    assert close_at != -1, f"{rel_path}: unterminated '{{' after {marker!r}"
-    inner = text[open_at + 1 : close_at]
-    pairs = re.findall(
-        r"""^\s*["']?([A-Za-z_][A-Za-z0-9_-]*)["']?\s*:\s*([^,\n]+?)\s*,?\s*$""",
-        inner,
-        re.M,
-    )
-    return {
-        key: value for key, value in pairs
-    }, f"{path.name}:{_line_of(text, open_at)}"
-
-
-def dict_keys_after(rel_path: str, marker: str) -> Projection:
-    """Keys of the first object literal after `marker`.
-
-    `TAB_RENDERERS` in dashboard.js is the shape this exists for -- a map of
-    tab key -> renderer function, which neither `string_array_after` (no
-    brackets) nor `switch_case_labels` (no `case`) can read.
-
-    Anchored on the identifier, never a line number. PROGRAM.md cites
-    `TAB_RENDERERS` at `:2499`; this docstring corrected that to `:2524` in
-    Phase 4; by Phase 8 the symbol had moved again. Both numbers were true
-    when written and neither is now, which is the entire argument for
-    searching for the marker and *reporting* the line rather than asserting
-    one.
-    """
-    pairs, location = _js_object_after(rel_path, marker)
-    return Projection(tuple(pairs), location)
-
-
-def dict_values_after(rel_path: str, marker: str) -> Projection:
-    """Values of the first object literal after `marker` (bare identifiers)."""
-    pairs, location = _js_object_after(rel_path, marker)
-    return Projection(tuple(pairs.values()), location)
+# `dict_keys_after` / `dict_values_after` / `_js_object_after` lived here to
+# read one shape: `const TAB_RENDERERS = {tab: renderer}` in dashboard.js, the
+# single object literal that was simultaneously the dashboard's page roster and
+# its renderer map. The 11-page split deleted it -- the roster is now
+# `const PAGES` (a string array, `string_array_after`) and each page module
+# registers its own renderer -- so the three helpers had no callers left.
+# Deleted rather than kept "in case": an unused reader of a shape that no
+# longer exists is the same dead code the kits assert against elsewhere, and
+# its docstring was already the only place in the tree still claiming
+# `TAB_RENDERERS` was real.
 
 
 def attribute_values(rel_path: str, attribute: str, prefix: str = "") -> Projection:
     """Values of every `attribute="…"` in an HTML file, optionally prefixed.
 
-    `index.html`'s `data-tab="…"` buttons and `id="tab-…"` sections are the
-    dashboard's two other presence units for a tab, and they are attributes,
+    `index.html`'s `data-page="…"` buttons and `id="page-…"` sections are the
+    dashboard's two other presence units for a page, and they are attributes,
     not literals in an array or an object.
     """
     text, path = _read(rel_path)

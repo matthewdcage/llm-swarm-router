@@ -266,12 +266,15 @@ def test_section_roster_three_way_equality() -> None:
 
 
 def test_merge_sources_allowlist_matches_source_config_fields() -> None:
-    # `id` is the identity key (set separately); `secret` is write-only
-    # (empty patch value keeps the stored one). Everything else must be
-    # copyable from a patch or it is silently unsavable on every surface.
+    # `row_id` is the stable identity and `id` the legacy fallback key --
+    # both resolved by the merge, neither settable from a patch. `secret` is
+    # write-only (an empty patch value keeps the stored one). Everything else
+    # must be copyable from a patch or it is silently unsavable on every
+    # surface.
     from netllm_core.config_merge import _MERGE_SOURCE_FIELDS
 
     assert set(_MERGE_SOURCE_FIELDS) == set(SourceConfig.model_fields) - {
+        "row_id",
         "id",
         "secret",
     }

@@ -38,6 +38,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from netllm_core.config_identity import (
+    BACKEND_ROW_PREFIX,
+    SOURCE_ROW_PREFIX,
+    derive_row_id,
+)
 from netllm_core.models import (
     NON_SECTION_FIELDS,
     BackendOverride,
@@ -88,8 +93,11 @@ def deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
 # `api_key` is write-only (handled separately: empty keeps the stored value);
 # `cloud_provider` is server-materialized from [cloud.providers.<id>] and is
 # marked read_only in the schema document, so a patch echoing it back must
-# not be able to retag a hand-authored row.
-_BACKEND_CLIENT_SET_EXCLUDED = frozenset({"api_key", "cloud_provider"})
+# not be able to retag a hand-authored row. `row_id` is the identity the
+# match below resolves -- a patch's value selects which prior row this entry
+# means, it does not assign one, so a client cannot rename a row's identity
+# or make two rows collide on it.
+_BACKEND_CLIENT_SET_EXCLUDED = frozenset({"api_key", "cloud_provider", "row_id"})
 # Fields preserved from the prior row rather than accepted from a patch.
 #
 # This used to hold `api_key_env` on the stated grounds that it "has no editor
@@ -103,6 +111,83 @@ _BACKEND_CLIENT_SET_EXCLUDED = frozenset({"api_key", "cloud_provider"})
 _BACKEND_PRESERVE_ONLY: frozenset[str] = frozenset()
 
 
+class _RowIdentityIndex:
+    """Resolves one patch entry to the stored row it is an edit *of*.
+
+    This is the whole fix for the erase-on-rename bug. Two keys are tried,
+    in this order:
+
+    1. `row_id` -- the stable opaque identity (netllm_core.config_identity).
+       A client that round-trips it may edit every user-visible field on the
+       row, including the one that used to be the merge key, and the row is
+       still recognised -- so its write-only `api_key`/`secret`, which the
+       server deliberately never sends to a client and therefore can never
+       get back, survives the edit.
+    2. the legacy user-editable key (`base_url` for a backend, `id` for a
+       source) -- exactly the pre-row_id behavior. Kept, not removed, for
+       two real cases: a client too old to know about `row_id` (dropping the
+       fallback would make *every* row it sends an orphan, blanking every
+       secret at once -- a far worse bug than the one being fixed), and a
+       row a user hand-added to config.toml without an id.
+
+    Each stored row can be claimed at most once. Without that, two patch
+    entries naming the same URL would both merge onto it and the secret
+    would be copied onto a row the user meant to be new.
+    """
+
+    def __init__(self, rows: list[Any], seed_field: str) -> None:
+        self._rows = list(rows)
+        self._seed_field = seed_field
+        self._claimed: set[int] = set()
+        self._by_row_id: dict[str, int] = {}
+        for index, row in enumerate(self._rows):
+            row_id = str(getattr(row, "row_id", "") or "")
+            # First wins: a duplicated row_id (hand-edited config) must not
+            # let the second row shadow the first.
+            if row_id and row_id not in self._by_row_id:
+                self._by_row_id[row_id] = index
+
+    @property
+    def known_row_ids(self) -> set[str]:
+        return set(self._by_row_id)
+
+    def take(self, row_id: str, seed: str) -> Any | None:
+        index = self._by_row_id.get(row_id) if row_id else None
+        if index is None or index in self._claimed:
+            index = next(
+                (
+                    i
+                    for i, row in enumerate(self._rows)
+                    if i not in self._claimed
+                    and str(getattr(row, self._seed_field, "") or "") == seed
+                ),
+                None,
+            )
+        if index is None:
+            return None
+        self._claimed.add(index)
+        return self._rows[index]
+
+
+def _resolve_row_id(prior: Any | None, prefix: str, seed: str, taken: set[str]) -> str:
+    """The id this merged row will carry, minted if it does not have one yet.
+
+    A prior row that already has an id keeps it -- that is what makes the id
+    stable across the edit. A prior row *without* one (a config a user
+    hand-edited, or one written by a build older than the 2 -> 3 migration
+    and never re-saved) is self-healing: it gains an id here, so the very
+    next edit is protected even though this one had to fall back to matching
+    on the user-editable field.
+    """
+    existing = str(getattr(prior, "row_id", "") or "") if prior is not None else ""
+    if existing:
+        taken.add(existing)
+        return existing
+    minted = derive_row_id(prefix, seed, taken)
+    taken.add(minted)
+    return minted
+
+
 def _merge_backends(cfg: NetllmConfig, entries: list[Any]) -> list[dict[str, Any]]:
     """Rebuild [[routing.backends]] from a patch, preserving stored secrets.
 
@@ -114,9 +199,15 @@ def _merge_backends(cfg: NetllmConfig, entries: list[Any]) -> list[dict[str, Any
     `max_concurrency` and `cloud_provider` (see
     docs/architecture/07-findings-register.md F-01). `tests/test_config_merge.py`
     asserts the merged dict still covers every model field.
+
+    Which prior row an entry merges onto is `_RowIdentityIndex`'s decision --
+    `row_id` first, `base_url` as the back-compat fallback. Keying on
+    `base_url` alone is what made a corrected port typo erase the row's
+    api_key and max_concurrency.
     """
     merged_backends: list[dict[str, Any]] = []
-    existing_by_url = {b.base_url: b for b in cfg.routing.backends}
+    index = _RowIdentityIndex(list(cfg.routing.backends), "base_url")
+    taken_ids = index.known_row_ids
     known_fields = set(BackendOverride.model_fields)
     for entry in entries or []:
         if not isinstance(entry, dict):
@@ -124,7 +215,7 @@ def _merge_backends(cfg: NetllmConfig, entries: list[Any]) -> list[dict[str, Any
         base_url = str(entry.get("base_url", "")).strip()
         if not base_url:
             continue
-        prior = existing_by_url.get(base_url)
+        prior = index.take(str(entry.get("row_id", "") or ""), base_url)
         merged: dict[str, Any] = (
             prior.model_dump(mode="json")
             if prior is not None
@@ -139,6 +230,9 @@ def _merge_backends(cfg: NetllmConfig, entries: list[Any]) -> list[dict[str, Any
             if field in _BACKEND_PRESERVE_ONLY:
                 continue
             merged[field] = value
+        merged["row_id"] = _resolve_row_id(
+            prior, BACKEND_ROW_PREFIX, base_url, taken_ids
+        )
         # Write-only: an empty/omitted key keeps the previously stored one.
         if entry.get("api_key"):
             merged["api_key"] = str(entry["api_key"])
@@ -174,9 +268,10 @@ def _merge_policies(entries: list[Any]) -> list[dict[str, Any]]:
     return merged_policies
 
 
-# Fields a patch may set on a [[routing.sources]] row. `id` is the identity
-# key (copied separately) and `secret` is write-only (an empty/omitted value
-# keeps the stored one), so the roster is every other SourceConfig field --
+# Fields a patch may set on a [[routing.sources]] row. `row_id` is the stable
+# identity and `id` the legacy fallback key (both resolved separately, and
+# neither settable from a patch), and `secret` is write-only (an empty/omitted
+# value keeps the stored one), so the roster is every other field --
 # asserted as such in tests/test_config_forward_compat.py. Hand-written
 # rather than derived so that adding a field is a deliberate decision about
 # whether clients may set it; the parity test is what makes forgetting loud
@@ -211,17 +306,30 @@ _MERGE_CLOUD_PROVIDER_FIELDS: tuple[str, ...] = (
 
 
 def _merge_sources(cfg: NetllmConfig, entries: list[Any]) -> list[dict[str, Any]]:
+    """Rebuild [[routing.sources]] from a patch, preserving stored secrets.
+
+    Same identity contract as `_merge_backends`: `row_id` first, the legacy
+    `id` as the back-compat fallback. `id` is a name the user types into an
+    editor and renames -- keying on it meant a rename erased the row's
+    write-only `secret`, and on a LAN bind that then hard-fails
+    `config_guards`'s elevated-source check on a config the user had set up
+    correctly.
+    """
     merged_sources: list[dict[str, Any]] = []
-    existing_by_id = {s.id: s for s in cfg.routing.sources}
+    index = _RowIdentityIndex(list(cfg.routing.sources), "id")
+    taken_ids = index.known_row_ids
     for entry in entries or []:
         if not isinstance(entry, dict):
             continue
         source_id = str(entry.get("id", "")).strip()
         if not source_id:
             continue
-        prior = existing_by_id.get(source_id)
+        prior = index.take(str(entry.get("row_id", "") or ""), source_id)
         merged_source: dict[str, Any] = prior.model_dump(mode="json") if prior else {}
         merged_source["id"] = source_id
+        merged_source["row_id"] = _resolve_row_id(
+            prior, SOURCE_ROW_PREFIX, source_id, taken_ids
+        )
         for field in _MERGE_SOURCE_FIELDS:
             if field in entry:
                 merged_source[field] = entry[field]

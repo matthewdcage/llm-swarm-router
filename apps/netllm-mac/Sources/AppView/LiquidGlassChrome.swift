@@ -26,7 +26,7 @@ struct NetllmCardChrome: ViewModifier {
 
     private func fallbackChrome(content: Content, shape: RoundedRectangle) -> some View {
         content
-            .background(Color(nsColor: .controlBackgroundColor))
+            .background(DesignTokens.card)
             .clipShape(shape)
             .overlay(shape.strokeBorder(DesignTokens.cardStroke(), lineWidth: 1))
     }

@@ -41,6 +41,20 @@ jobs:
         run: bash scripts/ci.sh test
         shell: bash
 
+  # Browser end-to-end for the web dashboard. Its own job because it installs a
+  # chromium build and runs for minutes; `ci.sh test` self-skips these.
+  e2e:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Browser end-to-end
+        run: bash scripts/ci.sh e2e
+        shell: bash
+
   types:
     needs: lint
     runs-on: ubuntu-latest

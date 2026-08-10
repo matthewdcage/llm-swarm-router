@@ -18,6 +18,24 @@ DEFAULT_AGENT_PORT = 11400
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
+# Wall clock of the last completed LAN agent scan (UI-3). Stamped by the scan
+# itself, not by the route handler that happened to trigger it: the subnet
+# scan also runs from startup, the mDNS fallback and the rediscovery loop, and
+# a UI that read the handler's clock would report "last scan 2m ago" for a
+# scan that ran ten seconds ago from a timer.
+_last_peer_scan_at: float = 0.0
+
+
+def last_peer_scan_at() -> float:
+    """Epoch seconds of the last completed LAN agent scan (0.0 = never)."""
+    return _last_peer_scan_at
+
+
+def _stamp_peer_scan() -> float:
+    global _last_peer_scan_at
+    _last_peer_scan_at = time.time()
+    return _last_peer_scan_at
+
 
 def is_loopback_url(url: str) -> bool:
     """True when the URL host is loopback (unreachable from other LAN hosts)."""
@@ -130,6 +148,10 @@ async def fetch_agent_status(
         if reported:
             data["reported_listen_url"] = reported
         data["listen_url"] = base_url.rstrip("/")
+        # UI-3: when *this row* was probed. Per-row rather than per-scan
+        # because dedupe_agents_by_id collapses several probes into one row
+        # and a scan may be minutes wide on a /16.
+        data["probed_at"] = time.time()
         return data
     except Exception as exc:
         logger.debug("agent status failed %s: %s", base_url, exc)
@@ -230,6 +252,7 @@ async def subnet_scan_agents(
 
         await asyncio.gather(*(check(h) for h in hosts))
 
+    _stamp_peer_scan()
     return dedupe_agents_by_id(found)
 
 
@@ -340,6 +363,7 @@ async def discover_lan_agents(
                 status["source"] = entry.get("source", "scan")
                 enriched.append(status)
 
+    _stamp_peer_scan()
     local_id = cfg.agent.agent_id
     enriched = [p for p in enriched if p.get("agent_id", "") != local_id]
     enriched.sort(key=lambda p: (p.get("hostname", ""), p.get("agent_id", "")))

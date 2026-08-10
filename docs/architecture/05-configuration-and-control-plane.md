@@ -11,7 +11,7 @@ so an empty file is a valid config.
 flowchart TD
     ROOT["NetllmConfig"]
     ROOT --> AG["[agent]<br/>listen · role · advertise<br/>agent_id · hostname · max_concurrency"]
-    ROOT --> DI["[discovery]<br/>providers · custom_endpoints · provider_urls"]
+    ROOT --> DI["[discovery]<br/>providers · custom_endpoints · provider_urls<br/>ignored_urls (denylist)"]
     ROOT --> SW["[swarm]<br/>peers · mdns · subnet_scan · subnet_cidrs<br/>cluster_token · require_token_for_inference<br/>heartbeat_interval_s · peer_stale_after_s · rediscover_interval_s"]
     ROOT --> RT["[routing]"]
     ROOT --> UI["[ui]<br/>auto_start_on_launch · log_dir · update check<br/>model_favorites · 6 menubar_* toggles"]
@@ -33,7 +33,8 @@ flowchart TD
 | Marker | Meaning | Examples |
 |--------|---------|----------|
 | `widget: "secret"` + `write_only: true` | never returned by read APIs; empty on save = keep stored value | `cluster_token`, `api_key`, `sources[].secret` |
-| `read_only: true` | server-owned, never form-editable | `agent_id`, `hostname`, `lan_defaults_applied`, `cloud_defaults_applied`, `BackendOverride.cloud_provider` |
+| `read_only: true` | server-owned, never form-editable, and dropped from a patch | `agent_id`, `hostname`, `lan_defaults_applied`, `cloud_defaults_applied`, `BackendOverride.cloud_provider` |
+| `identity: true` (always with `read_only`) | server-minted stable row id; not rendered, but **must** be echoed back in a patch so the merge can find the row an edit belongs to | `BackendOverride.row_id`, `SourceConfig.row_id` |
 | `widget: "select"` + `options_from` | populated from a server registry | `CloudProviderConfig.region` |
 | `default_factory: "<name>"` | client-side named builder for "Add row" | `routing.policies` |
 
@@ -139,10 +140,11 @@ not eliminated (F-16).
 |----------|--------|------|-------|
 | `/netllm/v1/config` | GET | local/token | values, secrets blanked |
 | `/netllm/v1/config/schema` | GET | local/token | form shape, version-cacheable |
-| `/netllm/v1/doctor` | GET | local/token | subset of CLI doctor |
+| `/netllm/v1/doctor` | GET | local/token | subset of CLI doctor; `checks[]` + derived `issues`/`notes` |
 | `/netllm/v1/version` | GET | local/token | + resolved SDK versions |
 | `/netllm/v1/update/check` | GET | local/token | GitHub latest, 15-min cache |
-| `/netllm/v1/logs?tail=N` | GET | local/token | reverse-block tail, N clamped 1..2000 |
+| `/netllm/v1/logs?tail=N&before=L` | GET | local/token | reverse-block tail, N clamped 1..2000; `before` pages backwards by absolute line number |
+| `/netllm/v1/logs?download=1` | GET | local/token | the **unredacted** agent.log as a `text/plain` attachment |
 | `/netllm/v1/harnesses` | GET | local/token | registry × configured sources × PATH detection |
 | `/netllm/v1/cloud/providers` | GET | local/token | static registry |
 | `/netllm/v1/cloud/providers/{id}/models` | GET | local/token | live probe, static fallback |
@@ -151,6 +153,26 @@ not eliminated (F-16).
 | `/netllm/v1/admin/peers-scan?save=1` | POST | local/token | subnet scan, optional persist |
 | `/netllm/v1/admin/drain` | POST | local/token | runtime-only drain toggle |
 | `/netllm/v1/client-env` | GET | **none** | env-var snippet (non-secret) |
+
+### Doctor payload shape (UI-6)
+
+`GET /netllm/v1/doctor` and `netllm doctor --json` both return
+`{ok, checks[], issues[], notes[]}`. `checks[]` is one row per check that ran —
+passing ones included — as `{id, subject, title, ok, severity, detail, fix?,
+action}`; `id` is a stable dotted string and is the join key a client uses to
+attach a fix button. `issues` and `notes` are *derived* from `checks` and keep
+their pre-UI-6 meaning exactly (`netllm_core.doctor_checks`):
+
+```
+issues == [{title, fix} for c in checks if not c.ok and c.severity == "error"]
+notes  == [c.detail     for c in checks if not c.ok and c.severity == "warn"]
+```
+
+`action.kind` is a closed set — `config_patch`, `admin_post`, `navigate`,
+`none`. `config_patch`/`admin_post` name an *existing* admin route and carry the
+body; there is deliberately no `POST /netllm/v1/admin/doctor/fix {id}`, because
+a route whose effect is chosen by server code the caller cannot inspect turns
+one admin route into an open-ended one.
 
 `require_admin_access()` allows any client whose source IP is in
 `local_admin_client_hosts()` — loopback, `localhost`, `testclient`, plus every address

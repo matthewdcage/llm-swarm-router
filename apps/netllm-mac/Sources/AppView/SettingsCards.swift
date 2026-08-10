@@ -31,14 +31,14 @@ struct StatusBadge: View {
     var body: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(isPositive ? Color.green : Color.red)
+                .fill(isPositive ? DesignTokens.ok : DesignTokens.danger)
                 .frame(width: 8, height: 8)
             Text(label)
                 .font(.subheadline.weight(.medium))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background((isPositive ? Color.green : Color.red).opacity(0.12))
+        .background(isPositive ? DesignTokens.okTint : DesignTokens.dangerTint)
         .clipShape(Capsule())
     }
 }
@@ -238,7 +238,7 @@ struct UpdateBannerCard: View {
                 case .failed(let message):
                     Label(message, systemImage: "exclamationmark.triangle.fill")
                         .font(.subheadline)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(DesignTokens.dangerText)
                 }
             }
         }

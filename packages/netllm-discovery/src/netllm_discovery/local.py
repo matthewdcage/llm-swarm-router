@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 import uuid
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-from netllm_core.backend_credentials import resolve_api_key_for_url
+from netllm_core.backend_credentials import ignored_url_keys, resolve_api_key_for_url
 from netllm_core.health import diagnose_backend, probe_openai_compat
 from netllm_core.local_providers import (
     LOCAL_PROVIDERS,
@@ -33,6 +34,23 @@ DEFAULT_API_KEYS: dict[str, str] = {
     for spec in LOCAL_PROVIDERS.values()
     if spec.default_api_key
 }
+
+# Wall clock of the last completed provider scan (UI-3). Stamped by the
+# discovery pass itself, never by a route handler: `/netllm/v1/admin/discover`
+# is only one of four callers (the TTL refresh, the rediscovery loop and
+# `netllm discover` are the others), so stamping in the handler would let the
+# UI claim the last scan happened whenever someone last clicked the button.
+#
+# Module-level rather than per-service on purpose — the scan probes this
+# machine's loopback ports, so "when did this process last look" is a property
+# of the process, not of an AgentService instance. Same shape as
+# netllm_core.update._RELEASE_CACHE.
+_last_provider_scan_at: float = 0.0
+
+
+def last_provider_scan_at() -> float:
+    """Epoch seconds of the last completed provider scan (0.0 = never)."""
+    return _last_provider_scan_at
 
 
 def loopback_async_client(**kwargs: Any) -> httpx.AsyncClient:
@@ -135,7 +153,14 @@ def _env_port_candidates(provider_id: str) -> list[str]:
 
 
 def candidate_urls_for_provider(provider_id: str, config: NetllmConfig) -> list[str]:
-    """Build probe list: saved overrides, env, then default port scan."""
+    """Build probe list: saved overrides, env, then default port scan.
+
+    Filtered by ``discovery.ignored_urls`` last, so a denied URL is dropped
+    whichever rung it entered on -- a pinned `provider_urls` entry, a
+    `VLLM_PORT` hint or the default port scan. Nothing is deleted from the
+    config: the entry stays in `provider_urls` and comes back the moment the
+    ignore entry is removed.
+    """
     urls: list[str] = []
     urls.extend(config.discovery.provider_urls.get(provider_id, []))
     urls.extend(_host_env_candidates(provider_id))
@@ -145,15 +170,32 @@ def candidate_urls_for_provider(provider_id: str, config: NetllmConfig) -> list[
         for port in spec.default_ports:
             urls.extend(_urls_for_host_port("127.0.0.1", port))
             urls.extend(_urls_for_host_port("localhost", port))
-    return _dedupe_preserve_order(urls)
+    ignored = ignored_url_keys(config)
+    return [u for u in _dedupe_preserve_order(urls) if u not in ignored]
 
 
 def merge_discovered_provider_urls(
     config: NetllmConfig, results: list[dict[str, Any]]
 ) -> NetllmConfig:
-    """Persist online provider base URLs into discovery.provider_urls."""
+    """Persist online provider base URLs into discovery.provider_urls.
+
+    URLs owned by ``[[routing.backends]]`` are deliberately *not* learned.
+    ``scan_local_providers`` probes every enabled override too, and those
+    rows carry the override's ``provider`` id — so a hand-authored vLLM
+    override on port 44397 used to be written into
+    ``discovery.provider_urls["vllm"]`` on the first scan. Deleting the
+    override then changed nothing: the URL was still a discovery candidate,
+    the scan rediscovered it, and the backend reappeared in /status forever.
+    Overrides live and die with ``routing.backends``; discovery only learns
+    what its own candidates (env hints, default ports) turned up.
+    """
     urls = dict(config.discovery.provider_urls)
     known_ids = {pid for pid, _, _ in KNOWN_PROVIDERS}
+    override_urls = {
+        normalize_openai_base_url(o.base_url)
+        for o in config.routing.backends
+        if o.base_url
+    }
     for row in results:
         if row.get("status") != "online":
             continue
@@ -162,6 +204,8 @@ def merge_discovered_provider_urls(
         if pid not in known_ids or not base:
             continue
         norm = normalize_openai_base_url(str(base))
+        if norm in override_urls:
+            continue
         existing = urls.get(str(pid), [])
         if norm not in existing:
             urls[str(pid)] = [norm, *[u for u in existing if u != norm]]
@@ -283,6 +327,10 @@ async def scan_local_providers(
     """
     cfg = config or NetllmConfig()
     enabled = set(cfg.discovery.providers)
+    # Computed once: `ignored_url_keys` already subtracts every URL an
+    # explicit [[routing.backends]] row claims, which is what makes the
+    # override loop below safe to leave unfiltered.
+    ignored = ignored_url_keys(cfg)
     results: list[dict[str, Any]] = []
 
     # Two clients: verification is disabled only for loopback targets, where
@@ -310,6 +358,8 @@ async def scan_local_providers(
         if include_custom:
             for url in cfg.discovery.custom_endpoints:
                 norm = normalize_openai_base_url(url)
+                if norm in ignored:
+                    continue
                 tasks.append(
                     _probe_provider(
                         "custom",
@@ -320,6 +370,9 @@ async def scan_local_providers(
                         diagnose=diagnose,
                     )
                 )
+        # Deliberately NOT filtered by `ignored`: a [[routing.backends]] row is
+        # the user's explicit "always route here", and it already won the
+        # conflict inside `ignored_url_keys`, so no entry here can match one.
         for override in cfg.routing.backends:
             if override.enabled and override.base_url:
                 norm = normalize_openai_base_url(override.base_url)
@@ -344,6 +397,8 @@ async def scan_local_providers(
             continue
         seen_urls.add(url)
         deduped.append(r)
+    global _last_provider_scan_at
+    _last_provider_scan_at = time.time()
     return deduped
 
 

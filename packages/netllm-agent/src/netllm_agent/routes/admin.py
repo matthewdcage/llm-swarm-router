@@ -11,8 +11,11 @@ import asyncio
 from typing import Any
 
 from fastapi import HTTPException, Request
+from fastapi.responses import FileResponse
 from netllm_core.config_schema import config_schema_document
 from netllm_core.update import build_update_check_payload, version_payload
+from netllm_discovery.lan import last_peer_scan_at
+from netllm_discovery.local import last_provider_scan_at
 
 from netllm_agent.admin import (
     apply_config_patch,
@@ -21,6 +24,7 @@ from netllm_agent.admin import (
     doctor_payload,
     harness_registry_payload,
     local_provider_registry_payload,
+    log_file_path,
     logs_payload,
     peers_scan_payload,
     save_config_patch,
@@ -129,9 +133,36 @@ def register(ctx: RouteContext) -> None:
         return {"ok": True, "draining": service.draining}
 
     @app.get("/netllm/v1/logs")
-    async def netllm_logs(request: Request, tail: int = 200) -> dict[str, Any]:
+    async def netllm_logs(
+        request: Request,
+        tail: int = 200,
+        before: int | None = None,
+        download: bool = False,
+    ) -> Any:
+        """Structured + raw agent log window, or the whole file.
+
+        `before` is a 1-based line cursor: the window ends at `before - 1`, so
+        a client can page backwards without the 10 s poll clobbering what it
+        already fetched (see admin.logs_payload).
+
+        `download=1` streams the *entire* agent.log as text/plain rather than
+        adding a `/netllm/v1/logs/download` route. Same resource, same admin
+        gate, different representation -- and the route table (and therefore
+        `tests/contract/route-auth-gates.json`, which is derived from a pinned
+        pre-split app.py and cannot express a post-split route) is unchanged.
+        The file is unredacted: everything the agent logged, secrets included.
+        """
         gates.require_admin_access(request)
-        return logs_payload(cfg, tail=tail)
+        if download:
+            path = log_file_path(cfg)
+            if not path.is_file():
+                raise HTTPException(status_code=404, detail="No agent.log yet")
+            return FileResponse(
+                path,
+                media_type="text/plain; charset=utf-8",
+                filename="agent.log",
+            )
+        return logs_payload(cfg, tail=tail, before=before)
 
     @app.post("/netllm/v1/admin/discover")
     async def netllm_admin_discover(request: Request) -> dict[str, Any]:
@@ -147,10 +178,15 @@ def register(ctx: RouteContext) -> None:
             for backend in local
             if backend.enabled and backend.health.status == "online"
         )
+        # Echo the scan clock the pass just stamped. `status.discovery`
+        # carries it too, so a client that refreshes gets it either way —
+        # this saves the extra round-trip for one that only wants to say
+        # "scanned just now" after its own button press.
         return {
             "ok": True,
             "backends_registered": len(local),
             "online": online,
+            "last_scan_at": last_provider_scan_at() or None,
         }
 
     @app.post("/netllm/v1/admin/config")
@@ -186,8 +222,12 @@ def register(ctx: RouteContext) -> None:
         save: bool = False,
     ) -> dict[str, Any]:
         gates.require_admin_access(request)
-        return await peers_scan_payload(
+        payload = await peers_scan_payload(
             cfg,
             save=save,
             config_path=config_path,
         )
+        # Same reasoning as /admin/discover: the scan stamps its own clock,
+        # this just spares the caller a follow-up /status read.
+        payload.setdefault("last_peer_scan_at", last_peer_scan_at() or None)
+        return payload

@@ -47,7 +47,7 @@ Three things, all of which are tested:
    box's keys are still in the file. Without this the five-machine scenario
    is lossy every time.
 2. **A newer config is never downgraded.** A config stamped
-   `schema_version = 3` loaded by a build that understands 2 is returned
+   `schema_version = 4` loaded by a build that understands 3 is returned
    untouched, keeps its stamp, and is reported by `netllm doctor`. Lowering
    the stamp would tell the next newer agent that a migration it needs had
    already run.

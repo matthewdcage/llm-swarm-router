@@ -49,6 +49,7 @@ dev = [
     "venvstacks>=0.5",
     "pre-commit>=4.0",
     "hypothesis>=6.100",
+    "pytest-playwright>=0.8.0",
 ]
 
 [tool.pytest.ini_options]
@@ -62,6 +63,17 @@ testpaths = [
     "packages/netllm-sdk-openai/tests",
     "packages/netllm-sdk-anthropic/tests",
 ]
+markers = [
+    "browser: drives a real chromium (tests/e2e). Needs `uv run playwright install chromium`; run with `scripts/ci.sh e2e`.",
+]
+# Browser tests are deselected by default and run in their own process.
+# Playwright's *sync* API drives its own greenlet loop, which `asyncio_mode =
+# "auto"` cannot share: collecting tests/e2e alongside the async suites leaves
+# a running loop behind and every later `asyncio.run()` dies with
+# "Runner.run() cannot be called from a running event loop" (74 failures, in
+# telemetry/swarm/update — none of them actually broken). Opt in with
+# `-m browser`, which `ci.sh e2e` does.
+addopts = "-m 'not browser'"
 
 [tool.ruff]
 line-length = 88

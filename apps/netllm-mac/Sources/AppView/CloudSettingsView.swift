@@ -33,7 +33,7 @@ struct CloudSettingsView: View {
             Text("Changes to provider enable/region apply after Save. Key changes apply "
                 + "after Save + Restart Agent.")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(DesignTokens.warnText)
         }
     }
 }
@@ -125,7 +125,7 @@ private struct CloudProviderCard: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             if let feedback = model.cloudKeyFeedback[provider.id] {
-                Text(feedback).font(.caption2).foregroundStyle(.orange)
+                Text(feedback).font(.caption2).foregroundStyle(DesignTokens.warnText)
             }
             modelsSection
         }
@@ -186,7 +186,7 @@ private struct CloudProviderCard: View {
             }
             Text("Model changes apply after Save + Restart Agent. Enabled models appear on the Models tab for pool assignment.")
                 .font(.caption2)
-                .foregroundStyle(.orange)
+                .foregroundStyle(DesignTokens.warnText)
                 .fixedSize(horizontal: false, vertical: true)
         } else if !allowlist.isEmpty {
             Text("Restricted to: \(allowlist.joined(separator: ", ")). Fetch the model list to edit.")

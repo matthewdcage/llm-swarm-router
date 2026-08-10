@@ -35,6 +35,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from netllm_core.config_identity import (
+    BACKEND_ROW_PREFIX,
+    SOURCE_ROW_PREFIX,
+    derive_row_id,
+)
+
 __all__ = [
     "CURRENT_SCHEMA_VERSION",
     "LEGACY_SCHEMA_VERSION",
@@ -49,12 +55,16 @@ __all__ = [
 
 SCHEMA_VERSION_KEY = "schema_version"
 
+# The per-row identity key the 2 -> 3 migration stamps. Spelled once here
+# rather than repeated as a literal in every helper below.
+ROW_ID_KEY = "row_id"
+
 # A config written before this key existed. Absent => 1, always; that is the
 # definition, not a default, and every consumer must agree on it.
 LEGACY_SCHEMA_VERSION = 1
 
 # The shape this build writes. Bump ONLY together with a new Migration.
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -90,6 +100,75 @@ def _v1_to_v2(document: dict[str, Any]) -> dict[str, Any]:
     return document
 
 
+def _stamp_row_ids(rows: Any, prefix: str, seed_key: str) -> tuple[list[Any], bool]:
+    """Give every well-formed row in `rows` a `row_id`, preserving any it has.
+
+    Returns the (possibly new) list and whether anything changed. Rows that
+    are not dicts are passed through untouched: a migration transforms shape,
+    it does not repair -- pydantic gets the malformed row exactly as
+    malformed as it arrived, so the error the user sees is the real one.
+    """
+    if not isinstance(rows, list):
+        return rows, False
+    taken = {
+        row[ROW_ID_KEY]
+        for row in rows
+        if isinstance(row, dict) and isinstance(row.get(ROW_ID_KEY), str)
+        if row.get(ROW_ID_KEY)
+    }
+    out: list[Any] = []
+    changed = False
+    for row in rows:
+        if not isinstance(row, dict) or row.get(ROW_ID_KEY):
+            out.append(row)
+            continue
+        seed = row.get(seed_key)
+        row_id = derive_row_id(prefix, seed if isinstance(seed, str) else "", taken)
+        taken.add(row_id)
+        # row_id first: tomli_w emits a table's keys in insertion order, so
+        # the id lands above the fields it identifies rather than at the
+        # bottom of the row where a reader would miss it.
+        out.append({ROW_ID_KEY: row_id, **row})
+        changed = True
+    return out, changed
+
+
+def _v2_to_v3(document: dict[str, Any]) -> dict[str, Any]:
+    """Mint a stable `row_id` for every `[[routing.backends]]` and
+    `[[routing.sources]]` row that does not already have one.
+
+    Additive and idempotent: no key is removed, renamed or retyped, and a row
+    that already carries an id keeps it (so a config already migrated on
+    another machine and copied here is untouched). Ids are derived from the
+    row's existing identity key -- `base_url` for a backend, `id` for a
+    source -- so this migration has a reviewable golden pair and so two
+    machines migrating the same file agree on the result. See
+    netllm_core.config_identity.
+
+    Why it exists: before row_id, the save-path merge keyed rows on those
+    same user-editable fields, so editing one read as "delete this row and
+    create a different one" and the replacement came back with its
+    write-only secret (`api_key` / `secret`) blank.
+    """
+    routing = document.get("routing")
+    if not isinstance(routing, dict):
+        return document
+    backends, backends_changed = _stamp_row_ids(
+        routing.get("backends"), BACKEND_ROW_PREFIX, "base_url"
+    )
+    sources, sources_changed = _stamp_row_ids(
+        routing.get("sources"), SOURCE_ROW_PREFIX, "id"
+    )
+    if not backends_changed and not sources_changed:
+        return document
+    next_routing = dict(routing)
+    if backends_changed:
+        next_routing["backends"] = backends
+    if sources_changed:
+        next_routing["sources"] = sources
+    return {**document, "routing": next_routing}
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
         from_version=1,
@@ -99,6 +178,18 @@ MIGRATIONS: tuple[Migration, ...] = (
             "Stamp schema_version. No key is added, removed, renamed or "
             "retyped; an unstamped config and a schema_version = 2 config "
             "describe the same settings."
+        ),
+    ),
+    Migration(
+        from_version=2,
+        to_version=3,
+        apply=_v2_to_v3,
+        notes=(
+            "Add a stable row_id to every [[routing.backends]] and "
+            "[[routing.sources]] row. Purely additive: no key is removed, "
+            "renamed or retyped, and a row that already has one keeps it. "
+            "Without it, editing a backend's base_url or a source's id "
+            "erased that row's stored API key or secret."
         ),
     ),
 )

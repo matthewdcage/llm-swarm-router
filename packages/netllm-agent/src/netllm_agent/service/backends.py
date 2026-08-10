@@ -83,13 +83,14 @@ class BackendsMixin:
         # The registry is authoritative for peers: rows for peers it no
         # longer tracks must not linger in the pool.
         self.pool.prune_peer_rows({b.base_url for b in remote})
-        # The scan is authoritative for discovery providers: a provider
-        # removed from config (or vanished from the scan) must not keep
-        # a stale routable row around until restart.
-        self.pool.prune_local_provider_rows(
-            {b.base_url for b in local},
-            set(self.config.discovery.providers),
-        )
+        # `local` is authoritative for every non-peer, non-cloud row: it is
+        # the current scan *plus* a synthesised row per enabled
+        # [[routing.backends]] override. Anything else in the pool came
+        # from a config that no longer exists (a removed override, a
+        # provider dropped from discovery.providers) and must not stay
+        # routable until restart. An enabled-but-unreachable override still
+        # has a row in `local`, so a failed probe never prunes it.
+        self.pool.prune_local_rows({b.base_url for b in local})
         self._update_health_metrics()
         return local
 

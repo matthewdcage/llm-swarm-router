@@ -34,9 +34,8 @@ from netllm_core.models import BackendOverride, RoutingPolicy, SourceConfig
 from conformance.projections import (
     REPO_ROOT,
     attribute_values,
-    dict_keys_after,
-    dict_values_after,
     source_region,
+    string_array_after,
 )
 
 
@@ -124,11 +123,16 @@ def _swift_struct_fields(struct_name: str) -> tuple[set[str], str]:
 # are the destructive ones and the surface must carry every field.
 IDENTITYLESS = [(RoutingPolicy, "RoutingPolicy")]
 
-# Row types WITH an identity key (BackendOverride keys on base_url,
-# SourceConfig on id). config_merge seeds each row from the prior model dump,
-# so omission is non-destructive -- the field simply is not editable from that
-# surface, which is an Axis D parity question, not data loss. Asserted as
-# non-destructive rather than as present.
+# Row types WITH an identity key. config_merge seeds each row from the prior
+# model dump, so omission is non-destructive -- the field simply is not
+# editable from that surface, which is an Axis D parity question, not data
+# loss. Asserted as non-destructive rather than as present.
+#
+# `key_field` is the LEGACY key (base_url / id), not `row_id`. The stable
+# identity is what a current client sends; the legacy key is the fallback for
+# a client that does not, and it is the weaker of the two, so it is the one
+# worth pinning here. Keying on it *alone* is what erased a row's api_key
+# when the user corrected a port typo -- see tests/test_config_row_identity.py.
 IDENTITY_KEYED = [
     (BackendOverride, "BackendOverride", "base_url"),
 ]
@@ -395,9 +399,71 @@ def test_the_ledger_tripwire_is_not_yet_tripped() -> None:
 SWIFT_SETTINGS = "apps/netllm-mac/Sources/AppView/SettingsWindowView.swift"
 SWIFT_VIEWMODEL = "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift"
 SWIFT_CLOUD = "apps/netllm-mac/Sources/AppView/CloudSettingsView.swift"
-DASHBOARD_JS = "packages/netllm-agent/src/netllm_agent/static/dashboard.js"
-INDEX_HTML = "packages/netllm-agent/src/netllm_agent/static/index.html"
 CONTROL_LEDGER = "tests/conformance/ledgers/control-parity.toml"
+
+# --- the dashboard, after the 14-tab -> 11-page split ----------------------
+#
+# `dashboard.js` used to be the whole dashboard: fourteen `renderXTab()`
+# functions in one file, dispatched through a `const TAB_RENDERERS = {...}`
+# object literal. It is now the *core* only -- state, `api()`, the DOM
+# primitives, the `const PAGES` roster, `registerPage()`, the patch builders
+# and the chrome. Each page is its own module under `pages/`, ending in
+# `registerPage("<key>", render<Name>Page)`, and the generic schema form lives
+# in `schema-form.js`.
+#
+# That split is why almost every `Slice` below is now a WHOLE FILE
+# (`Slice(NETWORK_JS, "")` -- `source_region`'s empty start marker means "top
+# of file"). The old scheme anchored each region between two function names,
+# so a region's end was whatever renderer happened to be declared next; moving
+# or renaming that neighbour silently re-cut every region around it, and a
+# field could start reading as rendered by a renderer that never touched it.
+# One config subtree per file makes the file itself the region, which cannot
+# be broken by reordering. Where a file genuinely carries more than one
+# subtree (network.js holds agent + discovery + swarm) the regions overlap on
+# purpose: their field names are disjoint, so no region can match a field it
+# does not render -- asserted by
+# `test_overlapping_dashboard_regions_have_disjoint_field_names`.
+STATIC = "packages/netllm-agent/src/netllm_agent/static"
+DASHBOARD_JS = f"{STATIC}/dashboard.js"
+SCHEMA_FORM_JS = f"{STATIC}/schema-form.js"
+BOOTSTRAP_JS = f"{STATIC}/bootstrap.js"
+INDEX_HTML = f"{STATIC}/index.html"
+
+OVERVIEW_JS = f"{STATIC}/pages/overview.js"
+BACKENDS_JS = f"{STATIC}/pages/backends.js"
+MODELS_JS = f"{STATIC}/pages/models.js"
+PEERS_JS = f"{STATIC}/pages/peers.js"
+NETWORK_JS = f"{STATIC}/pages/network.js"
+ROUTING_JS = f"{STATIC}/pages/routing.js"
+CLOUD_JS = f"{STATIC}/pages/cloud.js"
+PREFERENCES_JS = f"{STATIC}/pages/preferences.js"
+INTEGRATIONS_JS = f"{STATIC}/pages/integrations.js"
+LOGS_JS = f"{STATIC}/pages/logs.js"
+DOCTOR_JS = f"{STATIC}/pages/doctor.js"
+
+#: Page key -> the module that registers it. The roster itself is read from
+#: `const PAGES` in dashboard.js, not from this dict -- this only says which
+#: file each key's renderer has to be in.
+PAGE_FILES: dict[str, str] = {
+    "overview": OVERVIEW_JS,
+    "backends": BACKENDS_JS,
+    "models": MODELS_JS,
+    "peers": PEERS_JS,
+    "network": NETWORK_JS,
+    "routing": ROUTING_JS,
+    "cloud": CLOUD_JS,
+    "preferences": PREFERENCES_JS,
+    "integrations": INTEGRATIONS_JS,
+    "logs": LOGS_JS,
+    "doctor": DOCTOR_JS,
+}
+
+#: Every JavaScript file the agent ships, in load order.
+SHIPPED_JS: tuple[str, ...] = (
+    (DASHBOARD_JS, SCHEMA_FORM_JS)
+    + tuple(PAGE_FILES[key] for key in PAGE_FILES)
+    + (BOOTSTRAP_JS,)
+)
 
 
 @dataclass(frozen=True)
@@ -436,89 +502,64 @@ class EditingSurface:
 DASHBOARD = EditingSurface(
     name="dashboard",
     regions={
-        "agent": Region(
-            (
-                Slice(
-                    DASHBOARD_JS,
-                    "function renderAgentTab",
-                    "function renderDiscoveryTab",
-                ),
-            )
-        ),
-        "discovery": Region(
-            (
-                Slice(
-                    DASHBOARD_JS,
-                    "function renderDiscoveryTab",
-                    "function renderSwarmTab",
-                ),
-            )
-        ),
-        "swarm": Region(
-            (
-                Slice(
-                    DASHBOARD_JS,
-                    "function renderSwarmTab",
-                    "const SCHEMA_ITEM_FACTORIES",
-                ),
-            ),
-            mode="generic",
-            marker='renderSchemaForm("swarm"',
-        ),
+        # network.js is the old Agent + Discovery + Swarm tabs merged behind
+        # one jump rail. Three regions over the same whole file: their leaf
+        # names are disjoint, so widening to the file cannot make one section
+        # answer for another's field.
+        "agent": Region((Slice(NETWORK_JS, ""),)),
+        "discovery": Region((Slice(NETWORK_JS, ""),)),
+        "swarm": Region((Slice(NETWORK_JS, ""),)),
         "routing": Region(
-            (
-                Slice(
-                    DASHBOARD_JS, "function renderRoutingTab", "function knownHostRefs"
-                ),
-            ),
-            # Scalars are named explicitly in an ordered array; every
-            # collection's item_schema goes through the generic widgets.
-            nested_marker="renderSchemaField(byName",
+            (Slice(ROUTING_JS, ""),),
+            # Scalars are named explicitly in an ordered array; the policy
+            # rows go through the generic item-level form. routing.backends,
+            # routing.sources, routing.model_aliases and routing.model_pools
+            # moved to their own pages and have their own regions below.
+            nested_marker="schemaFieldsCard(itemSchema, entry",
         ),
-        "routing.sources": Region(
-            (
-                Slice(
-                    DASHBOARD_JS,
-                    "function renderSourcesTab",
-                    "function renderHarnessCard",
-                ),
-            ),
+        "routing.backends": Region(
+            # Edited from two pages: the Backends page owns the row editor,
+            # and the Routing page's "Backend overrides" panel renders the
+            # same schema field. Either one is a real control; the marker
+            # pins the Backends page's, which is the primary.
+            (Slice(BACKENDS_JS, ""), Slice(ROUTING_JS, "")),
             mode="generic",
-            marker="renderSchemaField(byName.sources",
-            nested_marker="renderSchemaField(byName.sources",
+            marker='renderSchemaField(body, "routing", field',
+            nested_marker='renderSchemaField(body, "routing", field',
+        ),
+        "routing.model_aliases": Region((Slice(MODELS_JS, ""),)),
+        "routing.model_pools": Region((Slice(MODELS_JS, ""),)),
+        "routing.sources": Region(
+            (Slice(INTEGRATIONS_JS, ""),),
+            mode="generic",
+            marker='renderSchemaField(body, "routing", byName.sources',
+            nested_marker='renderSchemaField(body, "routing", byName.sources',
         ),
         "ui": Region(
-            (Slice(DASHBOARD_JS, "function renderUiTab", "async function loadLogs"),),
+            (Slice(PREFERENCES_JS, ""),),
             mode="generic",
-            marker='renderSchemaForm("ui"',
+            # Two calls render the section: one hides the `menubar_*` fields,
+            # the other shows only those. The first is the multi-line
+            # `renderSchemaForm(\n body,\n "ui",` form -- markers are matched
+            # on whitespace-collapsed text so a reformat cannot break it. The
+            # menubar half is pinned separately, in
+            # `test_the_generic_schema_machinery_exists_on_both_surfaces`.
+            marker='renderSchemaForm( body, "ui",',
         ),
         "cloud": Region(
-            (
-                Slice(
-                    DASHBOARD_JS,
-                    "function renderCloudTab",
-                    "function renderCloudProviderCard",
-                ),
-            ),
+            (Slice(CLOUD_JS, ""),),
             mode="generic",
-            marker='renderSchemaForm("cloud"',
+            marker='renderSchemaForm(root, "cloud"',
             # `providers: { hidden: true }` -- a per-provider card needs live
             # registry metadata (display name, regions, api_key_set) the
             # shape-only schema does not carry. Own region below.
             excludes=frozenset({"providers"}),
         ),
-        "cloud.providers": Region(
-            (
-                Slice(
-                    DASHBOARD_JS,
-                    "function renderCloudProviderCard",
-                    "function cloudModelEnabled",
-                ),
-                Slice(
-                    DASHBOARD_JS, "function cloudModelEnabled", "function renderUiTab"
-                ),
-            )
-        ),
+        # Same file as `cloud`, but hand-written per-provider cards rather
+        # than the generic form, so it needs its own disposition. `_owning_
+        # region` prefers it for every `cloud.providers[]` key because it is
+        # the longer prefix.
+        "cloud.providers": Region((Slice(CLOUD_JS, ""),)),
     },
 )
 
@@ -672,10 +713,21 @@ def _ledger_entry_for(surface: str, key: str) -> dict | None:
     return None
 
 
-def _names(text: str, leaf: str) -> bool:
+def _flat(text: str) -> str:
+    """Collapse runs of whitespace, so a marker survives a reformat.
+
+    `renderSchemaForm(body, "ui", …)` is wrapped across four lines by the
+    formatter and would be one line if the argument list were a character
+    shorter. A marker that only matches one of those two layouts pins the
+    formatter, not the call.
+    """
+    return " ".join(text.split())
+
+
+def _names(text: str, leaf: str, write_only: bool = False) -> bool:
     """`leaf` used as a quoted key or a property access, not as prose.
 
-    A comment or a sentence naming a field is not that field: dashboard.js
+    A comment or a sentence naming a field is not that field: the dashboard
     contains the string "an above-default max_concurrency" in help text, and a
     naive substring scan reads that as a control. Comments are stripped by
     `source_region`; this adds the shape requirement.
@@ -683,9 +735,20 @@ def _names(text: str, leaf: str) -> bool:
     Word-bounded on purpose -- `.api_key` must not match `.api_key_env`, which
     is how a hand-written editor carrying only the env-var field reads as
     carrying the secret field too.
+
+    `write_only` fields get two extra shapes, and only they do. A secret's
+    control never binds the field name: the value the server sends back is
+    always blank, so a typed secret is stashed on a *pending* key --
+    `_pending_<name>` by default (schema-form.js `schemaSecretRow`), or an
+    explicit one that `buildConfigPatch` maps back (`swarm.cluster_token` is
+    written as `_cluster_token`). Refusing to see those would report every
+    hand-written secret editor in the tree as an absent control.
     """
     escaped = re.escape(leaf)
-    return re.search(rf'"{escaped}"|\.{escaped}\b', text) is not None
+    shapes = [rf'"{escaped}"', rf"\.{escaped}\b"]
+    if write_only:
+        shapes += [rf'"_{escaped}"', rf"\._{escaped}\b", rf"_pending_{escaped}\b"]
+    return re.search("|".join(shapes), text) is not None
 
 
 def _owning_region(surface: EditingSurface, key: str) -> str | None:
@@ -713,49 +776,72 @@ def _excluded_ancestor(key: str, region_name: str, excluded: frozenset[str]) -> 
     return head in excluded
 
 
+def _evidence_route(surface: EditingSurface, key: str) -> tuple[str, str, str]:
+    """Which evidence path decides `key`: `(route, region_name, marker)`.
+
+    `route` is one of `derived`, `unowned`, `own-region`, `excluded-field`,
+    `excluded-ancestor`, `marker`, `name`. Extracted so `disposition` and
+    `test_overlapping_dashboard_regions_have_disjoint_field_names` cannot
+    disagree about *which* keys are decided by scanning the region text for a
+    name -- those, and only those, are the ones a shared file can confuse.
+    """
+    if key in DERIVED_KEYS:
+        return "derived", "", ""
+    region_name = _owning_region(surface, key)
+    if region_name is None:
+        return "unowned", "", ""
+    # A collection with its own region IS the control: the region is that
+    # subtree's editor, so the collection key needs no separate mention.
+    if region_name == key:
+        return "own-region", region_name, ""
+
+    region = surface.regions[region_name]
+    leaf = key.rsplit(".", 1)[-1]
+    direct_child = key in (f"{region_name}.{leaf}", f"{region_name}[].{leaf}")
+    if direct_child and leaf in region.excludes:
+        return "excluded-field", region_name, ""
+    if not direct_child and _excluded_ancestor(key, region_name, region.excludes):
+        return "excluded-ancestor", region_name, ""
+
+    marker = region.marker if direct_child else region.nested_marker
+    if not direct_child and not marker and region.mode == "generic":
+        marker = region.marker
+    return ("marker" if marker else "name"), region_name, marker
+
+
 def disposition(surface: EditingSurface, key: str) -> tuple[str, str]:
     """`(disposition, evidence)` for one schema key on one editing surface.
 
     Returns `("absent", why)` rather than raising, so the parameterized test
     is the single place a missing control becomes a named failure.
     """
-    if key in DERIVED_KEYS:
+    route, region_name, marker = _evidence_route(surface, key)
+    if route == "derived":
         return "derived", "read_only; dropped by both generic renderers"
-
-    region_name = _owning_region(surface, key)
-    if region_name is None:
+    if route == "unowned":
         return "absent", f"no {surface.name} region renders {key!r}"
 
-    region = surface.regions[region_name]
     text, location = _region_text(surface, region_name)
     leaf = key.rsplit(".", 1)[-1]
 
-    # A collection with its own region IS the control: the region is that
-    # subtree's editor, so the collection key needs no separate mention.
-    if region_name == key:
+    if route == "own-region":
         return "hand_rendered", f"{location} renders {key}"
-
-    direct_child = key in (f"{region_name}.{leaf}", f"{region_name}[].{leaf}")
-
-    if direct_child and leaf in region.excludes:
+    if route == "excluded-field":
         # Named in the renderer's *exclusion list*, which is the opposite of
         # rendered: the literal is there precisely because the field is not.
         return "absent", f"{location}: {leaf!r} is filtered out of the form"
-    if not direct_child and _excluded_ancestor(key, region_name, region.excludes):
+    if route == "excluded-ancestor":
         return "absent", f"{location}: nested under a field the form filters out"
 
-    marker = region.marker if direct_child else region.nested_marker
-    if not direct_child and not marker and region.mode == "generic":
-        marker = region.marker
     if marker:
-        assert marker in text, (
+        assert _flat(marker) in _flat(text), (
             f"{location}: {surface.name} claims to render {region_name!r} "
             f"through the generic schema form, but {marker!r} is gone. Restore "
             f"the generic renderer, or hand-render every field it covered."
         )
         return "schema_rendered", f"{location} via {marker}"
 
-    if _names(text, leaf):
+    if _names(text, leaf, bool(SCHEMA_SPECS.get(key, {}).get("write_only"))):
         return "hand_rendered", f"{location} names {leaf!r}"
     return "absent", f"{location} does not name {leaf!r}"
 
@@ -784,17 +870,69 @@ def test_every_config_field_has_a_disposition_on_every_surface(key: str) -> None
         )
 
 
+def test_overlapping_dashboard_regions_have_disjoint_field_names() -> None:
+    """What makes a whole-file region safe when a file carries two subtrees.
+
+    `network.js` is the old Agent, Discovery and Swarm tabs merged, and
+    `cloud.js` carries both `cloud` and `cloud.providers`, so those regions
+    scan the *same* text. Widening them to the file is only sound while no two
+    of them own a field with the same leaf name -- otherwise one section's
+    control would read as evidence for the other's missing one, which is
+    exactly the failure the anchored slices were there to prevent.
+
+    Asserted rather than assumed: adding `mdns` to AgentConfig would make the
+    Swarm page's mDNS switch answer for it, and this fails instead.
+
+    Only keys decided by a *name scan* are at risk, which is why the route is
+    taken from `_evidence_route` rather than guessed: `cloud` and
+    `cloud.providers` share cloud.js and both own an `enabled`, but `cloud`'s
+    evidence is its `renderSchemaForm(root, "cloud"` call, so the two can
+    never be confused for one another.
+    """
+    owners: dict[str, set[str]] = {}
+    for key in PARITY_KEYS:
+        route, region, _marker = _evidence_route(DASHBOARD, key)
+        if route != "name":
+            continue
+        owners.setdefault(region, set()).add(key.rsplit(".", 1)[-1])
+
+    files = {
+        name: frozenset(s.path for s in DASHBOARD.regions[name].slices)
+        for name in DASHBOARD.regions
+    }
+    clashes = []
+    names = sorted(owners)
+    for i, left in enumerate(names):
+        for right in names[i + 1 :]:
+            if not (files[left] & files[right]):
+                continue
+            shared = owners[left] & owners[right]
+            if shared:
+                clashes.append(f"{left} / {right} both own {sorted(shared)}")
+    assert not clashes, (
+        "these dashboard regions share a source file AND a field name, so a "
+        "control for one would be read as a control for the other:\n  "
+        + "\n  ".join(clashes)
+        + "\nSplit the regions back onto function-name anchors within the file."
+    )
+
+
 def test_read_only_fields_are_derived_on_every_surface() -> None:
-    """The five read_only keys are absent everywhere, correctly and forever.
+    """Every read_only key is absent everywhere, correctly and forever.
 
     Both generic renderers drop them by construction, so counting them as
-    parity failures would open with five permanent ledger rows and a
+    parity failures would open with a handful of permanent ledger rows and a
     distorted percentage. They are excluded from the denominator instead --
     pinned here so a change to either filter is visible.
+
+    Note that `row_id` is read_only AND `identity`: no surface renders a
+    control for it (so it belongs here), but both patch builders must send it
+    back regardless, which is a separate flag and a separate contract --
+    tests/test_config_row_identity.py owns that half.
     """
     assert DERIVED_KEYS, "no read_only fields found — did the schema hints move?"
     js = source_region(
-        DASHBOARD_JS, "function schemaFieldsCard", "function renderSchemaForm"
+        SCHEMA_FORM_JS, "function schemaFieldsCard", "function renderSchemaForm"
     )
     assert "!f.read_only" in js.text, f"{js.location}: the read_only filter is gone"
     swift = source_region(
@@ -891,28 +1029,117 @@ def test_descriptors_are_served_additively_on_the_schema_endpoint() -> None:
     assert served == set(CONTROL_IDS)
 
 
+#: control key -> (the page that carries it, the file defining its renderer).
+#:
+#: The old kit read this out of `const TAB_RENDERERS = {tab: renderer}` in
+#: dashboard.js: one literal that happened to state both halves at once. There
+#: is no such literal any more -- the roster is `const PAGES` (keys only) and
+#: each renderer registers itself from its own module -- and the mapping is no
+#: longer one-to-one either: three config controls (agent, discovery, swarm)
+#: share the Network page, and `status`/`serving` share Overview. So the
+#: control -> page/file edge is declared here, beside the region map, which is
+#: where this tree already keeps its knowledge of the dashboard's shape.
+#: `test_every_dashboard_control_is_placed` fails when a descriptor is added
+#: without one.
+DASHBOARD_CONTROLS: dict[str, tuple[str, str]] = {
+    "status": ("overview", OVERVIEW_JS),
+    "serving": ("overview", OVERVIEW_JS),
+    "backends": ("backends", BACKENDS_JS),
+    "models": ("models", MODELS_JS),
+    "peers": ("peers", PEERS_JS),
+    "agent": ("network", NETWORK_JS),
+    "discovery": ("network", NETWORK_JS),
+    "swarm": ("network", NETWORK_JS),
+    "routing": ("routing", ROUTING_JS),
+    "sources": ("integrations", INTEGRATIONS_JS),
+    "cloud": ("cloud", CLOUD_JS),
+    "ui": ("preferences", PREFERENCES_JS),
+    "logs": ("logs", LOGS_JS),
+    "tools": ("doctor", DOCTOR_JS),
+    # Not tabs: buttons in the persistent chrome, defined in the core module.
+    "drain": ("", DASHBOARD_JS),
+    "rediscover": ("", DASHBOARD_JS),
+}
+
+
+def _registered_page_keys() -> dict[str, str]:
+    """`registerPage("<key>", …)` -> the file that made the call."""
+    out: dict[str, str] = {}
+    for path in SHIPPED_JS:
+        text = source_region(path).text
+        for key in re.findall(r'registerPage\(\s*"([^"]+)"', text):
+            assert key not in out, f"{path}: page {key!r} is registered twice"
+            out[key] = path
+    return out
+
+
+def test_the_dashboard_page_roster_agrees_across_all_three_places() -> None:
+    """Router roster == registered pages == nav buttons == page sections.
+
+    Strictly stronger than the `TAB_RENDERERS` projection it replaces. That one
+    read a single object literal, so "registered but not reachable" was not
+    expressible: the map WAS the nav's source of truth. Now the roster
+    (`const PAGES` in dashboard.js), the registrations (`registerPage(...)` in
+    eleven page modules) and the markup (`data-page=` buttons and `id="page-…"`
+    sections in index.html) are four independent statements of the same fact,
+    and every pair of them has to agree -- so a page that is registered but
+    never linked, or linked but never registered, fails here.
+    """
+    roster = string_array_after(DASHBOARD_JS, "const PAGES")
+    assert len(roster.values) > 1, (
+        f"{roster.location}: the PAGES roster parsed to "
+        f"{len(roster.values)} entry — the array literal shape changed"
+    )
+    expected = set(roster.values)
+
+    registered = _registered_page_keys()
+    assert set(registered) == expected, (
+        f"{roster.location}: const PAGES is {sorted(expected)} but the page "
+        f"modules register {sorted(registered)}"
+    )
+    for key, path in registered.items():
+        assert path == PAGE_FILES[key], f"{key!r} is registered by {path}"
+
+    attribute_values(INDEX_HTML, "data-page").assert_exactly(expected)
+    sections = attribute_values(INDEX_HTML, "id", prefix="page-")
+    # `page-main` is the <main> element the skip link targets, not a page.
+    sections.assert_exactly({f"page-{key}" for key in expected} | {"page-main"})
+
+
+def test_every_dashboard_control_is_placed() -> None:
+    """A new ControlDescriptor must say which page carries it."""
+    claimed = {c.key for c in CONTROLS if "dashboard" in c.surfaces_required}
+    missing = claimed - set(DASHBOARD_CONTROLS)
+    assert not missing, (
+        f"{sorted(missing)} claim the dashboard but DASHBOARD_CONTROLS does "
+        "not say which page carries them"
+    )
+    stale = set(DASHBOARD_CONTROLS) - {c.key for c in CONTROLS}
+    assert not stale, f"DASHBOARD_CONTROLS names controls that do not exist: {stale}"
+    pages = set(string_array_after(DASHBOARD_JS, "const PAGES").values)
+    for key, (page, _path) in DASHBOARD_CONTROLS.items():
+        assert page in pages or not page, f"{key} points at unknown page {page!r}"
+
+
 @pytest.mark.parametrize("control", CONTROLS, ids=CONTROL_IDS)
 def test_control_exists_on_the_dashboard(control) -> None:
     if "dashboard" not in control.surfaces_required:
         pytest.skip(f"{control.key} does not claim the dashboard")
     if _ledgered_control("dashboard", control.key):
         pytest.skip("ledgered absent")
-    renderers = dict_values_after(DASHBOARD_JS, "const TAB_RENDERERS")
-    tabs = dict_keys_after(DASHBOARD_JS, "const TAB_RENDERERS")
-    assert len(tabs.values) > 1, (
-        f"{tabs.location}: the TAB_RENDERERS parse collapsed to "
-        f"{len(tabs.values)} entries — the object literal shape changed"
-    )
+    page, path = DASHBOARD_CONTROLS[control.key]
     if control.is_tab:
-        assert control.key in tabs.values, f"{tabs.location} has no tab {control.key!r}"
-        renderers.assert_covers({control.dashboard_renderer})
-        attribute_values(INDEX_HTML, "data-tab").assert_covers({control.key})
-        attribute_values(INDEX_HTML, "id", prefix="tab-").assert_covers(
-            {f"tab-{control.key}"}
+        roster = string_array_after(DASHBOARD_JS, "const PAGES")
+        assert page, f"{control.key} is a tab control but names no page"
+        roster.assert_covers({page})
+        attribute_values(INDEX_HTML, "data-page").assert_covers({page})
+        attribute_values(INDEX_HTML, "id", prefix="page-").assert_covers(
+            {f"page-{page}"}
         )
-    body = source_region(DASHBOARD_JS)
+    body = source_region(path)
     assert f"function {control.dashboard_renderer}(" in body.text, (
-        f"dashboard.js defines no {control.dashboard_renderer}()"
+        f"{body.location}: no {control.dashboard_renderer}() for control "
+        f"{control.key!r}"
     )
 
 
@@ -1155,26 +1382,59 @@ def test_the_generic_schema_machinery_exists_on_both_surfaces() -> None:
     field depends on -- and pins the superseded hand-written editors as gone,
     not merely unused.
     """
-    js = source_region(DASHBOARD_JS)
-    for marker in (
-        "function renderSchemaForm",
-        "function renderSchemaField",
-        "function schemaListOfObjectsRow",
-        "function schemaDictOfObjectsRow",
-        "function schemaDictListStringsRow",
-        "function schemaNestedObjectRow",
-        "function buildSchemaSectionPatch",
-        "function schemaItemToPatch",
-        "SCHEMA_ITEM_FACTORIES",
-        "loadConfigSchema",
-        "/netllm/v1/config/schema",
+    # The engine moved out of dashboard.js into schema-form.js in the 11-page
+    # split; the patch builders stayed in the core module. Each marker is
+    # pinned to the file that now owns it rather than to "somewhere in the
+    # dashboard", so a function quietly duplicated into a page module still
+    # fails.
+    for path, markers in (
+        (
+            SCHEMA_FORM_JS,
+            (
+                "function renderSchemaForm",
+                "function renderSchemaField",
+                "function schemaFieldsCard",
+                "function schemaSecretRow",
+                "function schemaListOfObjectsRow",
+                "function schemaDictOfObjectsRow",
+                "function schemaDictListStringsRow",
+                "function schemaNestedObjectRow",
+                "SCHEMA_ITEM_FACTORIES",
+            ),
+        ),
+        (
+            DASHBOARD_JS,
+            (
+                "function buildSchemaSectionPatch",
+                "function schemaItemToPatch",
+                "function buildCloudPatch",
+                "loadConfigSchema",
+                "/netllm/v1/config/schema",
+            ),
+        ),
+        (
+            # Both halves of the `ui` section's generic form: one hides the
+            # menubar fields, one shows only those. The region's own marker
+            # covers the first; without this the second could vanish and six
+            # menubar toggles with it, still reading as schema_rendered.
+            PREFERENCES_JS,
+            ('renderSchemaForm( body, "ui",', 'renderSchemaForm(menubar, "ui"'),
+        ),
     ):
-        assert marker in js.text, f"dashboard.js: missing {marker!r}"
+        js = source_region(path)
+        for marker in markers:
+            assert _flat(marker) in _flat(js.text), f"{js.location}: missing {marker!r}"
+
+    # Superseded hand-written editors are gone from EVERY shipped module, not
+    # just from dashboard.js -- a split is exactly when dead code gets carried
+    # into a new file instead of deleted.
     for dead in (
         "function renderRoutingPoliciesEditor",
         "function renderBackendOverridesEditor",
     ):
-        assert dead not in js.text, f"dashboard.js: dead code still present: {dead!r}"
+        for path in SHIPPED_JS:
+            js = source_region(path)
+            assert dead not in js.text, f"{js.location}: dead code: {dead!r}"
 
     swift = source_region(
         "apps/netllm-mac/Sources/AppView/SchemaFormView.swift", "struct SchemaFormView"
@@ -1191,10 +1451,16 @@ def test_drain_is_wired_end_to_end_on_the_dashboard() -> None:
     dashboard path to take an agent out of rotation was stopping it, which
     kills in-flight requests -- the exact thing drain exists to avoid.
     """
+    # Drain survived the 11-page split as persistent chrome rather than as a
+    # page: the button lives in the topbar, so all three legs are still in
+    # index.html and the core module. Named explicitly so a later move to a
+    # page module fails here instead of passing on a stale pointer.
     html = (REPO_ROOT / INDEX_HTML).read_text(encoding="utf-8")
     js = source_region(DASHBOARD_JS)
     assert 'id="btn-drain"' in html, "no drain control in index.html"
     assert "btn-drain" in js.text, "the drain control is not bound to a handler"
+    assert "function renderDrainButton(" in js.text, "nothing renders drain's state"
+    assert "function toggleDrain(" in js.text, "the drain button has no handler"
     assert "/netllm/v1/admin/drain" in js.text, "the drain handler calls no endpoint"
 
 

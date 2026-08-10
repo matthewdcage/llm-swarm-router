@@ -1,0 +1,85 @@
+# Generation 3 of the file above. The ONLY difference is that every
+# [[routing.backends]] and [[routing.sources]] row now carries a `row_id`.
+#
+# Nothing else moved. Every unknown key, the unknown cloud provider and the
+# deprecated key are still here, unchanged and in place, and no api_key or
+# secret was touched -- a migration that tidied any of that would be a
+# migration that deletes settings.
+#
+# What a reviewer should check by eye, since the digests themselves are
+# opaque by construction:
+#
+#   * every row has exactly one row_id, and rows that had none all gained one
+#   * the third backend keeps "b-already-minted" verbatim -- a config already
+#     migrated elsewhere and copied here is never re-minted, which is what
+#     makes the step idempotent
+#   * the two backends sharing a base_url do NOT share an id: the second one
+#     takes the "-2" suffix, so a legal-but-awkward config still ends up with
+#     one identity per row
+#   * backends are prefixed "b-", sources "s-"
+#   * the id is derived from the row's OLD identity key (base_url / id), so
+#     the same file migrated on a second machine produces the same ids
+
+schema_version = 3
+
+[agent]
+agent_id = "8f14e45f-ea8f-4f0a-b4a1-000000000001"
+hostname = "workshop-mini"
+listen = "0.0.0.0:11400"
+role = "gateway"
+future_field = "written by a newer netllm"
+
+[discovery]
+providers = ["omlx", "ollama"]
+
+[swarm]
+mdns = true
+subnet_scan = true
+
+[routing]
+default_strategy = "local_spillover"
+require_same_model_for_shard = false
+
+[[routing.backends]]
+row_id = "b-e765dd174ef1"
+base_url = "http://10.0.0.5:1234/v1"
+provider = "lmstudio"
+api_key = "sk-lmstudio-do-not-lose-me"
+max_concurrency = 2
+
+[[routing.backends]]
+row_id = "b-e765dd174ef1-2"
+base_url = "http://10.0.0.5:1234/v1"
+provider = "custom"
+
+[[routing.backends]]
+row_id = "b-already-minted"
+base_url = "https://api.moonshot.ai/v1"
+provider = "custom"
+local = false
+
+[[routing.sources]]
+row_id = "s-f183d3e64a79"
+id = "cursor"
+secret = "cursor-secret-do-not-lose-me"
+allow_cloud = true
+
+[[routing.sources]]
+row_id = "s-d7f4090bd57e"
+id = "claude-code"
+description = "Claude Code CLI"
+
+[cloud]
+enabled = true
+fallback = "cloud"
+
+[cloud.providers.openai]
+enabled = true
+region = ""
+
+[cloud.providers.future_provider]
+enabled = true
+region = "moon-1"
+
+[future_section]
+knob = 3

@@ -111,6 +111,11 @@ def test_sources_list_of_object_carries_item_schema() -> None:
     assert routing_fields["sources"]["widget"] == "list"
     item_names = {f["name"] for f in routing_fields["sources"]["item_schema"]}
     assert item_names == {
+        # Stable opaque row identity. read_only (no control renders it) and
+        # identity (both patch builders send it straight back), so an edit to
+        # `id` no longer reads server-side as delete+create and no longer
+        # erases the row's write-only secret.
+        "row_id",
         "id",
         "known_id",
         "enabled",

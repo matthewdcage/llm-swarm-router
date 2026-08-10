@@ -18,6 +18,10 @@ final class SettingsViewModel {
     var routedModels: [ModelRow] = []
     var localModels: [ModelRow] = []
     var doctorIssues: [DoctorIssue] = []
+    /// Structured `checks[]` (UI-6) — every check the last run performed,
+    /// passed included. Empty on an agent that predates it; `doctorIssues`
+    /// is then the only inventory available.
+    var doctorChecks: [DoctorCheck] = []
     var doctorOK = true
     var agentReachable = false
     var isLoading = false
@@ -137,6 +141,27 @@ final class SettingsViewModel {
             rows.append((norm, "custom"))
         }
         return rows
+    }
+
+    /// Entries of `discovery.ignored_urls` that a `[[routing.backends]]` row
+    /// overrules, normalized and de-duplicated.
+    ///
+    /// Mirrors `netllm_core.backend_credentials.ignored_url_conflicts`. The
+    /// precedence rule is that the explicit configuration wins: such an entry
+    /// is stored but inert, and the discovery tab says so rather than leaving
+    /// the user to wonder why an endpoint they ignored keeps appearing.
+    func ignoredURLsOverruledByBackends() -> [String] {
+        let pinned = Set(
+            document.routing.backends.map { Self.normalizeDiscoveryURL($0.base_url) }
+        )
+        var seen = Set<String>()
+        var out: [String] = []
+        for raw in document.discovery.stringArray("ignored_urls") {
+            let norm = Self.normalizeDiscoveryURL(raw)
+            guard !norm.isEmpty, pinned.contains(norm), seen.insert(norm).inserted else { continue }
+            out.append(norm)
+        }
+        return out
     }
 
     func discoveryServerAPIKeySet(for url: String) -> Bool {
@@ -748,14 +773,39 @@ final class SettingsViewModel {
             await runAction("Running doctor…") {
                 let json = try parseCLIJSON(command: ["doctor", "--json"], allowFailure: true)
                 doctorOK = json["ok"] as? Bool ?? false
-                doctorIssues = (json["issues"] as? [[String: Any]] ?? []).map {
-                    DoctorIssue(
-                        title: $0["title"] as? String ?? "",
-                        fix: $0["fix"] as? String ?? ""
+                // UI-6: `checks[]` is the structured form — every check, passed
+                // or not, with a stable id. `issues[]` is derived from it
+                // server-side and kept verbatim, so it is also exactly what an
+                // agent older than UI-6 sends and nothing else. Parse both:
+                // `checks` when present, `issues` as the fallback inventory.
+                doctorChecks = (json["checks"] as? [[String: Any]] ?? []).map { row in
+                    DoctorCheck(
+                        checkID: row["id"] as? String ?? "",
+                        subject: row["subject"] as? String ?? "",
+                        title: row["title"] as? String ?? "",
+                        ok: row["ok"] as? Bool ?? false,
+                        severity: row["severity"] as? String ?? "error",
+                        detail: row["detail"] as? String ?? "",
+                        fix: row["fix"] as? String ?? "",
+                        actionKind: (row["action"] as? [String: Any])?["kind"] as? String
+                            ?? "none"
                     )
                 }
+                doctorIssues = (json["issues"] as? [[String: Any]] ?? [])
+                    .enumerated()
+                    .map { index, row in
+                        DoctorIssue(
+                            ordinal: index,
+                            title: row["title"] as? String ?? "",
+                            fix: row["fix"] as? String ?? ""
+                        )
+                    }
                 if doctorOK {
-                    setSuccess("Doctor: all checks passed.")
+                    if doctorChecks.isEmpty {
+                        setSuccess("Doctor: all checks passed.")
+                    } else {
+                        setSuccess("Doctor: \(doctorChecks.count) checks, all passed.")
+                    }
                 } else {
                     setSuccess("Doctor found \(doctorIssues.count) issue(s).")
                 }

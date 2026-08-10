@@ -29,6 +29,10 @@ class _HealthEntry:
     last_check: float = 0.0
     online: bool = True
     failures: int = 0
+    # Wall-clock sibling of last_check (UI-3). Never used for freshness
+    # arithmetic — a wall clock can jump backwards (NTP, sleep/wake) and
+    # that must never widen or collapse the health TTL. Published only.
+    last_check_epoch_s: float = 0.0
 
 
 # Capacity rejections: the backend is healthy but full right now (busy
@@ -130,6 +134,7 @@ class RouterPool:
                 if cached is not None and cached.last_check > 0:
                     b.health.status = "online" if cached.online else "offline"
                     b.health.last_check = cached.last_check
+                    b.health.last_check_epoch_s = cached.last_check_epoch_s
                 if existing is not None and cached is not None and not cached.online:
                     if existing.health.detail:
                         b.health.detail = existing.health.detail
@@ -159,24 +164,32 @@ class RouterPool:
             by_url[b.base_url] = b
         self._backends = list(by_url.values())
 
-    def prune_local_provider_rows(
-        self, keep_urls: set[str], providers: set[str]
-    ) -> None:
-        """Drop local rows for discovery providers no longer scanned.
+    def prune_local_rows(self, keep_urls: set[str]) -> None:
+        """Drop non-peer, non-cloud rows the current config no longer backs.
 
-        Removing a provider from discovery (or a backend disappearing
-        from the scan) must remove its pool row — otherwise a stale row
-        (e.g. an auth-gated LM Studio) keeps attracting selection until
-        restart. Rows for providers outside the discovery set (cloud
-        injects, config overrides) are untouched. In-flight requests
-        hold their own Backend reference, so dropping the row is safe.
+        ``keep_urls`` is the caller's authoritative set: the URLs the
+        current provider scan returned *plus* the URLs of every enabled
+        ``[[routing.backends]]`` override (the agent synthesises a row for
+        each, reachable or not, so an override whose probe merely failed is
+        never pruned here).
+
+        This used to be gated on ``b.provider in discovery.providers``,
+        which inverted the intent: a row could only be pruned while its
+        provider was still enabled, so removing a `[[routing.backends]]`
+        override whose provider sits outside the discovery roster (or
+        removing the provider from ``discovery.providers`` at all) left the
+        row routable until restart. Peer rows (``prune_peer_rows``) and
+        cloud rows (``prune_cloud_provider_rows``) own their own lifecycle
+        and are skipped here — the only other producers of pool rows.
+
+        In-flight requests hold their own Backend reference, so dropping
+        the row is safe.
         """
         self._backends = [
             b
             for b in self._backends
             if b.id.startswith("peer:")
-            or not b.local
-            or b.provider not in providers
+            or bool(b.cloud_provider)
             or b.base_url in keep_urls
         ]
 
@@ -271,7 +284,9 @@ class RouterPool:
             # Stamp the trip time so the offline re-probe window
             # (offline_retry_s) counts from now, not the last probe.
             entry.last_check = time.monotonic()
+            entry.last_check_epoch_s = time.time()
             backend.health.status = "offline"
+            backend.health.last_check_epoch_s = entry.last_check_epoch_s
 
     def mark_success(self, backend: Backend, latency_ms: float | None = None) -> None:
         key = backend.cache_key()
@@ -279,7 +294,9 @@ class RouterPool:
         entry.failures = 0
         entry.online = True
         entry.last_check = time.monotonic()
+        entry.last_check_epoch_s = time.time()
         backend.health.status = "online"
+        backend.health.last_check_epoch_s = entry.last_check_epoch_s
         self.routed_counts[backend.id] = self.routed_counts.get(backend.id, 0) + 1
         if latency_ms is not None:
             if backend.latency_ema_ms <= 0:
@@ -336,8 +353,9 @@ class RouterPool:
         else:
             status = probe_openai_compat_sync(backend.base_url, api_key=probe_key)
         online = is_online(status)
+        now_epoch = time.time()
         self._health_cache[key] = _HealthEntry(
-            last_check=now, online=online, failures=0
+            last_check=now, online=online, failures=0, last_check_epoch_s=now_epoch
         )
         backend.health.status = status.get("status", "unknown")
         backend.health.http_status = status.get("http_status")
@@ -355,6 +373,7 @@ class RouterPool:
             backend.health.models = probed_models
             backend.health.model_count = status.get("model_count", 0)
         backend.health.last_check = now
+        backend.health.last_check_epoch_s = now_epoch
         return online
 
     def refresh_peer_health(self, *, force: bool = False) -> None:

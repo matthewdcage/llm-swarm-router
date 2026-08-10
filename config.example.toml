@@ -36,6 +36,14 @@ advertise = true
 providers = ["omlx", "ollama", "lmstudio", "vllm"]
 # netllm:generated:end:local-provider-ids
 custom_endpoints = []
+# Base URLs discovery must never register — e.g. an unrelated service squatting
+# a provider's default port (something on :8000 that answers 401 is *reachable*,
+# so the scan would keep offering it as a backend that needs a key).
+# Compared after normalisation: "http://127.0.0.1:8000", ".../" and ".../v1" are
+# one entry. A URL also pinned in [[routing.backends]] is NOT ignored — the
+# explicit backend wins and the entry here does nothing.
+# Manage from the CLI: netllm ignore list | add <url> | remove <url>
+ignored_urls = []
 # Per-machine overrides (tried before default port scan). Example desktop node with oMLX on 8088:
 # [discovery.provider_urls]
 # omlx = ["http://127.0.0.1:8088/v1"]

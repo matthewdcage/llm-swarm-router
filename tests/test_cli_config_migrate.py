@@ -92,7 +92,11 @@ def test_json_output_is_machine_readable(tmp_path: Path) -> None:
     assert report["from_version"] == 1
     assert report["to_version"] == CURRENT_SCHEMA_VERSION
     assert report["written"] is False
-    assert [step["from_version"] for step in report["pending"]] == [1]
+    # Every step from the file's generation up to this build's, in order --
+    # not just the first. A legacy config is 1 -> 2 (stamp) -> 3 (row ids).
+    assert [step["from_version"] for step in report["pending"]] == list(
+        range(1, CURRENT_SCHEMA_VERSION)
+    )
 
 
 def test_a_newer_config_is_reported_and_not_touched(tmp_path: Path) -> None:

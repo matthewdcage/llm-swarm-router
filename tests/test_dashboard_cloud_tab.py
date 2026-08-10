@@ -29,20 +29,42 @@ def client() -> TestClient:
         yield test_client
 
 
+def shipped_js() -> list[Path]:
+    """Every JavaScript file the agent serves, core and pages."""
+    files = sorted(STATIC_DIR.glob("*.js")) + sorted(STATIC_DIR.glob("pages/*.js"))
+    assert len(files) > 12, f"only found {len(files)} JS files — did they move?"
+    return files
+
+
 def test_index_html_has_cloud_nav_item_and_panel(client: TestClient) -> None:
     resp = client.get("/ui/")
     assert resp.status_code == 200
-    assert 'data-tab="cloud"' in resp.text
-    assert 'id="tab-cloud"' in resp.text
+    assert 'data-page="cloud"' in resp.text
+    assert 'id="page-cloud"' in resp.text
 
 
-def test_dashboard_js_serves_cloud_tab_renderer(client: TestClient) -> None:
-    resp = client.get("/ui/dashboard.js")
-    assert resp.status_code == 200
-    body = resp.text
-    assert "renderCloudTab" in body
-    assert "cloud: renderCloudTab" in body
-    assert "buildCloudPatch" in body
+def test_dashboard_serves_the_cloud_page_renderer(client: TestClient) -> None:
+    """The Cloud tab became `pages/cloud.js`, registered against the router.
+
+    Both halves are asserted over the *served* bytes, not the repo files: a
+    page module that exists on disk but is not reachable under /ui/ (missing
+    from the static mount, or missing its <script> tag) is the same outage as
+    a deleted renderer.
+    """
+    page = client.get("/ui/pages/cloud.js")
+    assert page.status_code == 200
+    assert "function renderCloudPage(" in page.text
+    assert 'registerPage("cloud", renderCloudPage)' in page.text
+
+    index = client.get("/ui/")
+    assert "pages/cloud.js" in index.text, "cloud.js is never loaded by index.html"
+
+    # The patch builder and the offline provider roster stayed in the core
+    # module — cloud.js deliberately carries no provider id literal.
+    core = client.get("/ui/dashboard.js")
+    assert core.status_code == 200
+    assert "buildCloudPatch" in core.text
+    assert '"cloud"' in core.text, "cloud is not in the PAGES roster"
     for provider_id in (
         "moonshot",
         "zai",
@@ -51,21 +73,29 @@ def test_dashboard_js_serves_cloud_tab_renderer(client: TestClient) -> None:
         "openrouter",
         "dashscope",
     ):
-        assert provider_id in body
+        assert provider_id in core.text
 
 
-def test_dashboard_js_syntax_is_valid() -> None:
-    """Catches JS syntax errors without requiring a browser — every brace
-    and function in the new Cloud tab code must actually parse."""
+def test_every_shipped_js_file_parses() -> None:
+    """Catches JS syntax errors without requiring a browser.
+
+    Widened from `dashboard.js` to every module the split produced: the pages
+    load as plain <script> tags into one shared global scope, so a syntax
+    error in any one of them takes the dashboard down exactly as it did when
+    there was a single file.
+    """
     import subprocess
 
-    js_path = STATIC_DIR / "dashboard.js"
-    result = subprocess.run(
-        ["node", "--check", str(js_path)],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
+    broken = []
+    for js_path in shipped_js():
+        result = subprocess.run(
+            ["node", "--check", str(js_path)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            broken.append(f"{js_path.name}: {result.stderr.strip()}")
+    assert not broken, "\n".join(broken)
 
 
 def test_cloud_patch_never_sends_key_when_not_provided(tmp_path: Path) -> None:

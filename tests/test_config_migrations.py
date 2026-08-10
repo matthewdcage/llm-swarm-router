@@ -131,21 +131,49 @@ def test_every_migration_step_is_declared_pure_of_the_stamp() -> None:
 # --- proof 2: no-op on a config full of keys this build does not model ----
 
 
-def test_no_op_migration_preserves_unknown_keys(tmp_path: Path) -> None:
-    """Phase 2's forward-compat property, re-proved through the rail."""
-    before = tomllib.loads(
-        (GENERATIONS / "v1-to-v2/before.toml").read_text(encoding="utf-8")
+def _apply_step(step: object, document: dict) -> dict:
+    """One migration in isolation, stamped the way the runner stamps it.
+
+    Golden pairs are per STEP, one directory per step (see the fixtures'
+    README), while `migrate_document` runs the whole chain. Once there was
+    more than one migration those two stopped being the same thing: running
+    the chain on `v1-to-v2/before.toml` produces a generation-3 document, so
+    comparing it to `v1-to-v2/after.toml` would force that pair to describe
+    two steps at once and stop being reviewable. Each pair is checked against
+    its own step; the chain is checked separately, below and by
+    `test_migrations_form_one_unbroken_chain`.
+    """
+    produced = step.apply(copy.deepcopy(document))  # type: ignore[attr-defined]
+    produced[SCHEMA_VERSION_KEY] = step.to_version  # type: ignore[attr-defined]
+    return produced
+
+
+@pytest.mark.parametrize(
+    "step",
+    MIGRATIONS,
+    ids=[f"v{m.from_version}-to-v{m.to_version}" for m in MIGRATIONS],
+)
+def test_every_migration_step_has_a_golden_pair(step: object) -> None:
+    """A step with no hand-written before/after pair is an unreviewed step."""
+    folder = (
+        GENERATIONS / f"v{step.from_version}-to-v{step.to_version}"  # type: ignore[attr-defined]
     )
-    expected = tomllib.loads(
-        (GENERATIONS / "v1-to-v2/after.toml").read_text(encoding="utf-8")
+    assert folder.is_dir(), (
+        f"{folder} does not exist. Every migration needs a golden pair a "
+        "human wrote and reviewed -- see the fixtures' README."
     )
-    result = migrate_document(before)
-    assert result.document == expected, (
-        "the golden pair in tests/fixtures/config-generations/v1-to-v2 no "
-        "longer describes what the migration does"
+    before = tomllib.loads((folder / "before.toml").read_text(encoding="utf-8"))
+    expected = tomllib.loads((folder / "after.toml").read_text(encoding="utf-8"))
+    assert _apply_step(step, before) == expected, (
+        f"the golden pair in {folder} no longer describes what the migration "
+        "does. Hand-edit after.toml and say why in the commit -- do not "
+        "record it from the code under test."
     )
 
-    # And the same document through the real load path keeps its unknowns.
+
+def test_no_op_migration_preserves_unknown_keys(tmp_path: Path) -> None:
+    """Phase 2's forward-compat property, re-proved through the rail."""
+    # The same document through the real load path keeps its unknowns.
     path = tmp_path / "config.toml"
     path.write_text(
         (GENERATIONS / "v1-to-v2/before.toml").read_text(encoding="utf-8"),

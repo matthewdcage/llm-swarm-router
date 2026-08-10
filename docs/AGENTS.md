@@ -19,6 +19,7 @@ User-facing install, troubleshoot, editor wiring, platform matrix, CI/release, a
 | Developer plans | `dev-docs/` — phased intent docs (e.g. agent singleton hardening) |
 | Architecture & audit | `architecture/` (diagrams, dependency map, findings register) |
 | Closure / release planning | `closure-roadmap-2026-08-03.md` (open items, adversarial PR reviews, merge path) |
+| Dashboard redesign gap spec | `ui-redesign-feature-spec.md` (94 gaps → 12 features `UI-0`…`UI-12`, tranched; §5 lists gaps to close by changing the design) |
 
 Parent rail: [../AGENTS.md](../AGENTS.md).
 
