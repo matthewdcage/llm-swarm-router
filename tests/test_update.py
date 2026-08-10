@@ -131,6 +131,34 @@ def test_find_sha256_sidecar() -> None:
     assert find_sha256_sidecar(assets, "llm-swarm-router.dmg") == "https://x/hash"
 
 
+@pytest.mark.asyncio
+async def test_the_sidecar_fetch_follows_github_redirects() -> None:
+    """Release-asset URLs 302 to objects.githubusercontent.com.
+
+    httpx does not follow redirects by default (requests does), so this
+    returned None for every release that ships a checksum — and because a
+    missing sha256 rendered as nothing at all, the failure was invisible for
+    as long as it existed. Asserted on the call, not the outcome: a mock that
+    returns 200 regardless would pass either way.
+    """
+    from netllm_core.update import fetch_sha256_for_asset
+
+    assets = (
+        ReleaseAsset("netllm_1.0_amd64.deb", 1, "https://x/deb"),
+        ReleaseAsset("netllm_1.0_amd64.deb.sha256", 1, "https://x/deb.sha256"),
+    )
+    client = AsyncMock()
+    response = MagicMock()
+    response.status_code = 200
+    response.text = "abc123  netllm_1.0_amd64.deb\n"
+    client.get.return_value = response
+
+    got = await fetch_sha256_for_asset(client, assets, "netllm_1.0_amd64.deb")
+
+    assert got == "abc123"
+    assert client.get.await_args.kwargs["follow_redirects"] is True
+
+
 def test_parse_sha256_sidecar_text() -> None:
     text = "abc123  llm-swarm-router.dmg\n"
     assert parse_sha256_sidecar_text(text, "llm-swarm-router.dmg") == "abc123"

@@ -407,7 +407,15 @@ async def fetch_sha256_for_asset(
     url = find_sha256_sidecar(assets, asset_name)
     if not url:
         return None
-    response = await client.get(url, headers={"User-Agent": USER_AGENT})
+    # follow_redirects is mandatory, not defensive: a release-asset URL always
+    # 302s to objects.githubusercontent.com, and httpx (unlike requests) does
+    # not follow by default. Without it every published checksum resolved to
+    # None and the UI reported "no checksum for this release" for releases that
+    # ship one — the failure was invisible because a missing sha256 rendered as
+    # nothing at all.
+    response = await client.get(
+        url, headers={"User-Agent": USER_AGENT}, follow_redirects=True
+    )
     if response.status_code != 200:
         return None
     if url.endswith("SHA256SUMS"):
