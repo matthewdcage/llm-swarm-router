@@ -105,9 +105,28 @@ button {
   margin-bottom: 8px;
 }
 
+/* The mark is one monochrome black glyph, inverted for dark surfaces rather
+   than shipped twice. It cannot be a <picture> media swap: that only sees the
+   OS preference, so a theme pinned in Preferences left a black logo on a dark
+   background. Layered exactly like dashboard-tokens.css — OS preference, then
+   explicit override wins. */
 .brand-logo img {
   display: block;
   border-radius: var(--radius-sm);
+}
+
+@media (prefers-color-scheme: dark) {
+  .brand-logo img {
+    filter: invert(1);
+  }
+}
+
+:root[data-theme="light"] .brand-logo img {
+  filter: none;
+}
+
+:root[data-theme="dark"] .brand-logo img {
+  filter: invert(1);
 }
 
 .sidebar-brand-text {

@@ -174,6 +174,37 @@ def test_theme_choice_survives_reload(agent: RunningServer, browser) -> None:  #
     context.close()
 
 
+@pytest.mark.parametrize("os_scheme", ["light", "dark"])
+@pytest.mark.parametrize("override", [None, "light", "dark"])
+def test_the_brand_mark_follows_the_effective_theme(  # noqa: ANN001
+    agent: RunningServer, browser, os_scheme: str, override: str | None
+) -> None:
+    """The logo must track the theme actually in force, not the OS preference.
+
+    It was a `<picture>` with `media="(prefers-color-scheme: dark)"`, whose
+    media query can only ever see the OS setting. Pinning a theme in
+    Preferences therefore left the black mark on a dark background — and the
+    reverse. The two off-diagonal cases below are the ones that were broken,
+    which is why this is a cross-product and not two cases.
+    """
+    context = browser.new_context(color_scheme=os_scheme)
+    page = context.new_page()
+    page.goto(f"{agent.base_url}/ui/", wait_until="networkidle")
+    if override:
+        page.evaluate(f"applyTheme('{override}')")
+
+    effective = override or os_scheme
+    applied = page.evaluate(
+        "getComputedStyle(document.querySelector('.sidebar-brand .brand-logo img'))"
+        ".filter"
+    )
+    if effective == "dark":
+        assert applied == "invert(1)", f"logo not inverted on {effective}: {applied}"
+    else:
+        assert applied in ("none", ""), f"logo wrongly inverted on {effective}"
+    context.close()
+
+
 # ---------------------------------------------------------------- config save
 
 

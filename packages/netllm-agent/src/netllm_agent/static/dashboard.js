@@ -597,18 +597,27 @@ function codeEl(content) {
   return textEl("code", "", content);
 }
 
+/**
+ * The brand mark, correct in both themes.
+ *
+ * This used to be a <picture> with `media="(prefers-color-scheme: dark)"`
+ * switching between logo-light.png and logo-dark.png. A picture's media query
+ * can only ever see the *OS* preference, so pinning a theme in Preferences
+ * (which sets `data-theme` on the root) left the black mark on a dark
+ * background. The two files are the same monochrome glyph inverted, so one
+ * asset plus a CSS inversion is both correct and half the bytes — see
+ * `.brand-logo img` in dashboard.css, layered like dashboard-tokens.css:
+ * OS preference first, explicit override wins.
+ */
 function brandLogoEl(size) {
-  const picture = el("picture", "brand-logo");
-  const source = el("source");
-  source.srcset = "logo-dark.png";
-  source.media = "(prefers-color-scheme: dark)";
+  const wrap = el("span", "brand-logo");
   const img = el("img");
   img.src = "logo-light.png";
   img.alt = "";
   img.width = size;
   img.height = size;
-  picture.append(source, img);
-  return picture;
+  wrap.appendChild(img);
+  return wrap;
 }
 
 /** Standard page heading. `aside` may be a string or a node. */
