@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Local and CI checks. Usage: scripts/ci.sh [lint|test|sdk|packaging|all]
 #   lint      — ruff check + format --check (~1s)
-#   test      — pytest (~12s)
+#   test      — pytest (~12s; tests/e2e self-skips without chromium)
+#   e2e       — browser end-to-end vs a real agent (installs chromium; minutes)
 #   sdk       — vendor SDK adapter + bridge contract tests (~5s)
 #   types     — basedpyright (non-blocking; see F-27)
 #   packaging — build deb/rpm (Linux) or windows zip (Windows); smoke only
@@ -26,6 +27,7 @@ run_lint() {
   uv run ruff check .
   uv run ruff format --check .
   python3 scripts/generate-dashboard-tokens.py --check
+  python3 scripts/generate-swift-tokens.py --check
   # Anti-erosion gate (F-24/F-26 plan §1): the failover loop must stay
   # surface-agnostic. Cheap, no imports, fails loudly.
   python3 scripts/check-engine-erosion.py
@@ -57,7 +59,17 @@ run_types() {
 }
 
 run_test() {
+  # tests/e2e is marked `browser` and deselected by pyproject's addopts — it
+  # must run in its own process (see the comment there). `ci.sh e2e` runs it.
   uv run pytest tests/ -v
+}
+
+run_e2e() {
+  # Browser end-to-end against a real agent. Its own leg because it installs a
+  # ~150MB chromium, takes minutes, and cannot share a process with the async
+  # suites. `-m browser` opts back in past the default deselection.
+  uv run playwright install chromium
+  uv run pytest tests/e2e/ -m browser -v
 }
 
 run_sdk() {
@@ -122,11 +134,12 @@ case "$mode" in
   lint) run_lint ;;
   types) run_types ;;
   test) run_test ;;
+  e2e) run_e2e ;;
   sdk) run_sdk ;;
   packaging) run_packaging ;;
   all) run_lint && run_test ;;
   *)
-    echo "usage: $0 [lint|test|types|sdk|packaging|all]" >&2
+    echo "usage: $0 [lint|test|types|e2e|sdk|packaging|all]" >&2
     exit 2
     ;;
 esac

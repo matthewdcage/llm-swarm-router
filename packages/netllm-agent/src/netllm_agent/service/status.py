@@ -9,18 +9,142 @@ this module with no outgoing edge back into either.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from netllm_core.capabilities import model_capability
 from netllm_core.update import compare_versions, is_version_like, mesh_skew
 from netllm_core.version import get_version
-from netllm_discovery.local import find_omlx_admin_url, probe_omlx_admin_for_backends
+from netllm_discovery.lan import (
+    classified_agent_endpoints,
+    is_lan_reachable_agent_url,
+    last_peer_scan_at,
+    local_ipv4_interfaces,
+    local_lan_ip,
+)
+from netllm_discovery.local import (
+    find_omlx_admin_url,
+    last_provider_scan_at,
+    probe_omlx_admin_for_backends,
+)
+from netllm_discovery.swarm import MAX_PEER_ALSO_REACHABLE, MAX_PEER_PROVIDERS
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["StatusMixin"]
 
 
 class StatusMixin:
     """What this agent believes about itself and its mesh."""
+
+    def local_provider_summary(self) -> list[dict[str, Any]]:
+        """`[{id, provider, model_count}]` for what THIS agent serves directly.
+
+        Gossiped in the heartbeat (UI-4a). A peer is materialised remotely as
+        a single ``Backend`` with ``provider="custom"``
+        (``SwarmRegistry.peer_agent_backends``), so without this summary no
+        other agent in the mesh can say what a peer actually runs.
+
+        Local rows only, and no model *names*: remote rows in this payload are
+        this agent's view of other agents, which would echo around the mesh,
+        and names are already reachable via this agent's own ``/v1/models``.
+        """
+        out: list[dict[str, Any]] = []
+        for b in self.pool.backends:
+            if not b.enabled or not b.local:
+                continue
+            count = b.health.model_count or len(b.health.models)
+            out.append(
+                {
+                    "id": b.id,
+                    "provider": b.provider,
+                    "model_count": max(0, int(count)),
+                }
+            )
+            if len(out) >= MAX_PEER_PROVIDERS:
+                break
+        return out
+
+    def own_reachable_endpoints(self) -> list[dict[str, str]]:
+        """Where this agent answers, classified and ordered (UI-4a).
+
+        ``[{"url", "kind", "interface"}]`` with the advertised ``listen_url``
+        first and the rest ordered by ``lan.ADDRESS_KINDS``. This is the
+        producer for ``also_reachable_at`` as well — the two keys are never
+        computed separately, so they cannot disagree about the order.
+
+        Only a wildcard bind earns any: ``agent_url_from_listen`` picks ONE
+        address for a host with several interfaces (Wi-Fi + Ethernet, a VPN,
+        Docker), so the advertised ``listen_url`` is a peer's only way in even
+        though the socket answers on all of them. A bind to one concrete
+        address is reachable at exactly that address and gets ``[]`` — the
+        point of these keys is to stop a client guessing, not to make it guess
+        more confidently.
+
+        Loopback is excluded: it resolves to the *reader's* agent, not this
+        one. Container-bridge addresses are kept, because "the host is
+        reachable from your containers at 172.17.0.1" is an answer somebody
+        wants — they are just labelled and ranked below the LAN address
+        instead of being listed above it.
+
+        Memoized on ``agent.listen``: this runs on every heartbeat and every
+        ``/status`` read.
+        """
+        listen = self.config.agent.listen
+        cached = getattr(self, "_own_endpoints_cache", None)
+        if cached is not None and cached[0] == listen:
+            return [dict(entry) for entry in cached[1]]
+        endpoints = self._compute_reachable_endpoints(listen)
+        self._own_endpoints_cache = (listen, endpoints)
+        return [dict(entry) for entry in endpoints]
+
+    def own_alternate_urls(self) -> list[str]:
+        """The URLs from ``own_reachable_endpoints`` other than the advertised one."""
+        primary = self.swarm.local_agent_url().rstrip("/")
+        return [e["url"] for e in self.own_reachable_endpoints() if e["url"] != primary]
+
+    def _compute_reachable_endpoints(self, listen: str) -> list[dict[str, str]]:
+        from netllm_core.models import split_listen
+
+        if listen.startswith("http"):
+            return []
+        host, port = split_listen(listen)
+        if host not in ("", "0.0.0.0", "::"):
+            return []
+        primary = self.swarm.local_agent_url().rstrip("/")
+        rows = local_ipv4_interfaces()
+        # The socket-derived primary LAN IP is authoritative even on a
+        # platform that refuses interface enumeration; an unnamed interface
+        # classifies as "lan", and a named row for the same address (from
+        # psutil, listed first) wins the dedupe in classified_agent_endpoints.
+        lan_ip = local_lan_ip()
+        if lan_ip:
+            rows.append(("", lan_ip))
+        endpoints = classified_agent_endpoints(
+            port, interfaces=rows, primary_url=primary
+        )
+        # Loopback never goes on the wire; the cap is the same one the
+        # receiving side applies to also_reachable_at, so a host with a
+        # pathological interface list cannot inflate every heartbeat. The
+        # ordering above means truncation drops the least useful addresses.
+        usable = [e for e in endpoints if is_lan_reachable_agent_url(e["url"])]
+        return usable[: MAX_PEER_ALSO_REACHABLE + 1]
+
+    def discovery_scan_payload(self) -> dict[str, Any]:
+        """When each discovery pass last completed, in epoch seconds (UI-3).
+
+        ``None`` means "has not run in this process", which is a different
+        statement from "ran and found nothing" and must stay distinguishable.
+        Both clocks are stamped by the scans themselves, so a scan triggered
+        by the rediscovery timer moves them just as an admin-triggered one
+        does.
+        """
+        provider_at = last_provider_scan_at()
+        peer_at = last_peer_scan_at()
+        return {
+            "last_scan_at": provider_at or None,
+            "last_peer_scan_at": peer_at or None,
+        }
 
     def status_payload(self) -> dict[str, Any]:
         omlx_admin = find_omlx_admin_url(self.pool.backends)
@@ -44,6 +168,22 @@ class StatusMixin:
             "version": get_version(),
             "max_concurrency": self.config.agent.max_concurrency,
             "draining": self.draining,
+            # UI-4a. This body is sent verbatim as the heartbeat
+            # (`gossip_loop(status_provider=status_payload)`), so these two
+            # keys are how a peer learns what this machine serves and where
+            # else it answers. Additive: an older peer ignores both.
+            "providers": self.local_provider_summary(),
+            "also_reachable_at": self.own_alternate_urls(),
+            # UI-4a. The same addresses, classified and ordered
+            # (`netllm_discovery.lan.ADDRESS_KINDS`), so a client can tell a
+            # LAN address from a Docker bridge gateway without re-deriving
+            # "is 172.x a bridge?" — which it cannot, having no view of this
+            # host's interfaces. Strictly additive: `also_reachable_at` is
+            # unchanged and still complete on its own.
+            "reachable_at": self.own_reachable_endpoints(),
+            # UI-3. Wall clocks for the two discovery passes, so a client can
+            # age them without subtracting our monotonic clock from its own.
+            "discovery": self.discovery_scan_payload(),
             "cloud": {
                 "enabled": self.config.cloud.enabled,
                 "fallback": self.config.cloud.fallback,

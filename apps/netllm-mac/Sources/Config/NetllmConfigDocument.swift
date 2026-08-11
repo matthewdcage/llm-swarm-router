@@ -100,7 +100,21 @@ struct NetllmConfigDocument: Codable, Sendable {
     }
 
     struct BackendOverride: Codable, Sendable, Identifiable {
-        var id: String { base_url }
+        /// SwiftUI list identity. `row_id` when the agent has minted one,
+        /// `base_url` only as the fallback for a row this app just added
+        /// (no id until the first Save round-trips through the agent).
+        /// It used to be `base_url` alone, which meant a ForEach row lost
+        /// its identity mid-edit as the user typed into the URL field.
+        var id: String { row_id.isEmpty ? base_url : row_id }
+        /// The agent's stable opaque row identity. Read-only and never
+        /// rendered — but it MUST be encoded back on Save. The agent
+        /// matches this row to the stored one by it; without it, correcting
+        /// a port typo in `base_url` reads as "delete that row and create a
+        /// different one", and the new row arrives with its write-only
+        /// `api_key` blank because a client can never send that value back.
+        /// Empty means "not minted yet"; the agent mints one and the next
+        /// load carries it. Do not bind a control to this.
+        var row_id: String = ""
         var base_url: String = ""
         var provider: String = "custom"
         var api_format: String?
@@ -259,12 +273,100 @@ struct CloudModelCatalog: Sendable {
     var models: [String]
 }
 
+/// One provider's credential-verification state, as the agent reports it
+/// (netllm_core.cloud_verification.verification_state — carried on
+/// GET /netllm/v1/config and returned by POST .../verify).
+///
+/// Every field is the server's answer, including `blocker`, the sentence
+/// shown to the user, and `canEnable`, the write-path gate's own verdict.
+/// Nothing here is derived on this side on purpose: the same rule is
+/// enforced when config is saved, and a Swift re-derivation would be a
+/// second rule that drifts from the one that decides.
+struct CloudVerification: Sendable, Equatable {
+    var status: String
+    var ok: Bool
+    var blocker: String
+    var detail: String
+    var checkedAt: String
+    var canEnable: Bool
+
+    static func from(_ json: [String: Any]) -> CloudVerification {
+        CloudVerification(
+            status: json["status"] as? String ?? "",
+            ok: json["ok"] as? Bool ?? false,
+            blocker: json["blocker"] as? String ?? "",
+            detail: json["detail"] as? String ?? "",
+            checkedAt: json["checked_at"] as? String ?? "",
+            // Absent on an agent too old to know about verification: no
+            // verdict means no gate, and refusing every provider because the
+            // agent is old would be a worse answer than allowing them.
+            canEnable: json["can_enable"] as? Bool ?? true
+        )
+    }
+}
+
+/// `reachable_at[].kind` — how an address on another machine relates to the
+/// person reading it (`netllm_discovery.lan.ADDRESS_KINDS`).
+///
+/// A wildcard-bound agent answers on every address its host has, and on a
+/// machine running Docker most of those are bridge gateways: real, but only
+/// dialable from a container on that same host. The agent classifies, because
+/// only it can see its own interface names — 10.0.0.29 and 172.17.0.1 are
+/// both RFC1918 and nothing here can tell them apart. This mirrors the wire
+/// order rather than deciding it; an unrecognised kind sorts last and is
+/// shown verbatim, the same convention `discoveredVia` already uses.
+enum PeerAddressKind {
+    static let ordered = ["lan", "vpn", "container", "link_local", "loopback"]
+
+    /// Absent ranks with the LAN — an address an older agent never classified
+    /// must not be demoted for that; an unrecognised name ranks last.
+    static func rank(_ kind: String) -> Int {
+        if kind.isEmpty { return 0 }
+        return ordered.firstIndex(of: kind) ?? ordered.count
+    }
+
+    static func label(_ kind: String) -> String {
+        switch kind {
+        case "", "lan": return ""
+        case "vpn": return "over VPN"
+        case "container": return "from containers"
+        case "link_local": return "link-local, no DHCP lease"
+        case "loopback": return "same machine only"
+        default: return kind.replacingOccurrences(of: "_", with: " ")
+        }
+    }
+
+    /// `alsoReachableAt` ordered by usefulness. Stable: equal ranks keep wire
+    /// order, so a 2s poll does not reshuffle the line under the cursor.
+    static func sorted(_ urls: [String], kinds: [String: String]) -> [String] {
+        urls.enumerated()
+            .sorted { lhs, rhs in
+                let l = rank(kinds[lhs.element] ?? "")
+                let r = rank(kinds[rhs.element] ?? "")
+                return l == r ? lhs.offset < rhs.offset : l < r
+            }
+            .map(\.element)
+    }
+}
+
 struct PeerStatus: Identifiable, Sendable {
     var id: String { agentId }
     var agentId: String
     var listenURL: String
     var role: String
     var hostname: String
+    /// `PeerRecord.discovered_via` — `mdns` / `subnet_scan` / `static` /
+    /// `heartbeat` / `join` (UI-4a). This agent's own knowledge, not
+    /// something the peer claims about itself. Empty on an older agent, and
+    /// on a `peers-scan` result that has no registry row to answer from.
+    var discoveredVia: String = ""
+    /// Alternate LAN URLs the peer also answers on (wildcard binds only).
+    var alsoReachableAt: [String] = []
+    /// `reachable_at` flattened to url -> kind (UI-4a). A lookup, not a
+    /// replacement for `alsoReachableAt`: this agent also observes addresses
+    /// the peer never advertised, and those stay in the list unclassified.
+    /// Empty for a peer whose build predates the key.
+    var addressKinds: [String: String] = [:]
 }
 
 struct DiscoverProvider: Identifiable, Sendable {
@@ -283,8 +385,50 @@ struct ModelRow: Identifiable, Sendable {
     var scope: String
 }
 
+/// A failing, error-severity doctor finding — the pre-UI-6 `issues[]` shape,
+/// which the agent still derives from `checks[]` and which is the only thing
+/// an agent older than UI-6 sends. See `DoctorCheck` for the structured form.
 struct DoctorIssue: Identifiable, Sendable {
-    var id: String { title }
+    /// `title` alone is NOT unique: a check that fans out (one row per
+    /// backend, one per deprecated key) repeats its title, and duplicate
+    /// ForEach ids make SwiftUI silently drop the later rows. `ordinal` is
+    /// the payload's own array position, which is unique by construction and
+    /// stable for as long as the list is.
+    var id: String { "\(ordinal)|\(title)" }
+    var ordinal: Int = 0
     var title: String
     var fix: String
+}
+
+/// One row of `checks[]` from `netllm doctor --json` / `/netllm/v1/doctor`.
+///
+/// Mirrors `netllm_core.doctor_checks.doctor_check`. The point of the
+/// structured form is that a client keys a fix on a stable `id` instead of
+/// regex-matching prose, and can report what *passed* rather than only what
+/// broke.
+struct DoctorCheck: Identifiable, Sendable {
+    /// `(checkID, subject)` is the unique key the agent guarantees;
+    /// `checkID` alone is what a fix action keys on, so it survives fan-out.
+    var id: String { subject.isEmpty ? checkID : "\(checkID)|\(subject)" }
+    /// Stable dotted id, e.g. `config.deprecated_keys`. Never match wording.
+    var checkID: String
+    /// Distinguishes rows of a check that fans out over several things (one
+    /// backend per row). Empty for a check that emits a single row.
+    var subject: String = ""
+    var title: String
+    var ok: Bool
+    /// `info` whenever `ok` — the agent rewrites a passing row's severity, so
+    /// this never describes a passing check's hypothetical failure. Otherwise
+    /// `error` (a real problem; clears top-level `ok`) or `warn` (advisory).
+    var severity: String = "error"
+    var detail: String = ""
+    var fix: String = ""
+    /// `action.kind` from the closed set in `DOCTOR_ACTION_KINDS`:
+    /// `config_patch`, `admin_post`, `navigate`, `none`. Modelled but not yet
+    /// executed by this app — the patch/route body is deliberately not
+    /// carried here until something acts on it.
+    var actionKind: String = "none"
+
+    var isFailure: Bool { !ok && severity == "error" }
+    var isAdvisory: Bool { !ok && severity == "warn" }
 }

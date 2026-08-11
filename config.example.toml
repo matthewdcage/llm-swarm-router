@@ -36,6 +36,14 @@ advertise = true
 providers = ["omlx", "ollama", "lmstudio", "vllm"]
 # netllm:generated:end:local-provider-ids
 custom_endpoints = []
+# Base URLs discovery must never register — e.g. an unrelated service squatting
+# a provider's default port (something on :8000 that answers 401 is *reachable*,
+# so the scan would keep offering it as a backend that needs a key).
+# Compared after normalisation: "http://127.0.0.1:8000", ".../" and ".../v1" are
+# one entry. A URL also pinned in [[routing.backends]] is NOT ignored — the
+# explicit backend wins and the entry here does nothing.
+# Manage from the CLI: netllm ignore list | add <url> | remove <url>
+ignored_urls = []
 # Per-machine overrides (tried before default port scan). Example desktop node with oMLX on 8088:
 # [discovery.provider_urls]
 # omlx = ["http://127.0.0.1:8088/v1"]
@@ -268,10 +276,24 @@ fallback_enabled = true
 
 # One entry per provider you want pre-configured. `netllm cloud list`
 # shows all five with their current state; `netllm cloud enable/disable/
-# set-key/fallback/test/connect` manage this section without hand-editing
-# the file. Keys are best kept out of this file — set via env
+# set-key/verify/fallback/test/connect` manage this section without
+# hand-editing the file. Keys are best kept out of this file — set via env
 # (api_key_env, or the provider's default env var from the registry) or,
 # on macOS, via Settings -> Cloud (stored in Keychain, never written here).
+#
+# `enabled = true` has to be EARNED. The agent checks the credential
+# against the provider and records the outcome in four server-owned keys
+# (verified_status / verified_at / verified_detail /
+# verified_key_fingerprint); a provider switched on here without a current,
+# passing record is switched back off with a warning on the next save, from
+# whichever surface saves it. Setting the verified_* keys by hand does not
+# work — they are not accepted from a config patch, and hand-editing them
+# here only lies to yourself. Run `netllm cloud verify <id>` (or press
+# Verify key on the dashboard's Cloud page) instead.
+#
+# The one exception is upgrade: a provider that was ALREADY enabled keeps
+# working and is only warned about, because failover that has been serving
+# requests for months must not stop because this release grew a field.
 #
 # [cloud.providers.moonshot]
 # enabled = true

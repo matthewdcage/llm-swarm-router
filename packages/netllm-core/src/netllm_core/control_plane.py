@@ -46,7 +46,12 @@ class ControlDescriptor:
     """One unit of control and the surfaces obliged to carry it."""
 
     key: str
-    """Stable id. For tab controls this is also the dashboard tab key."""
+    """Stable id. It used to double as the dashboard tab key; since the
+    dashboard collapsed fourteen tabs into eleven pages it no longer can --
+    `agent`, `discovery` and `swarm` all live on the Network page and
+    `status`/`serving` share Overview. The control -> page edge is declared in
+    `tests/conformance/kit_config_surfaces.py` (`DASHBOARD_CONTROLS`), beside
+    that kit's map of which file renders which config subtree."""
 
     kind: ControlKind
 
@@ -54,7 +59,12 @@ class ControlDescriptor:
     """Human label, for the generated docs table."""
 
     dashboard_renderer: str
-    """Identifier that must appear as a `TAB_RENDERERS` value in dashboard.js."""
+    """Function that must be defined in the dashboard module carrying this
+    control -- `static/pages/<page>.js` for a page control, `dashboard.js` for
+    the chrome-level actions. It is the *presence unit*, so for a page that
+    merged several old tabs it names the section renderer (`swarm` ->
+    `networkSwarmDiscoverySection`) rather than the whole page, which would
+    say nothing about that section still existing."""
 
     swift_symbol: str
     """Identifier or `sectionHeader("…")` call that must appear in the macOS
@@ -78,10 +88,11 @@ class ControlDescriptor:
     """`config_schema` sections this control edits, if any."""
 
     is_tab: bool = True
-    """True when the dashboard presence unit is a tab: `dashboard_renderer`
-    must then be a `TAB_RENDERERS` value and `key` must have both a
-    `data-tab=` button and an `id="tab-<key>"` section in index.html.
-    False for actions that live inside another tab (drain, rediscover)."""
+    """True when the dashboard presence unit is a whole page. The page it maps
+    to must then be in `const PAGES` in dashboard.js, be registered by its own
+    module, and have both a `data-page=` button and an `id="page-<page>"`
+    section in index.html. False for actions that live in the chrome or inside
+    another page (drain, rediscover)."""
 
 
 CONTROLS: tuple[ControlDescriptor, ...] = (
@@ -89,7 +100,7 @@ CONTROLS: tuple[ControlDescriptor, ...] = (
         key="status",
         kind="view",
         title="Status",
-        dashboard_renderer="renderStatusTab",
+        dashboard_renderer="renderOverviewPage",
         swift_symbol="statusTab",
         surfaces_required=("dashboard", "macos"),
         admin_route="/netllm/v1/status",
@@ -99,7 +110,7 @@ CONTROLS: tuple[ControlDescriptor, ...] = (
         key="serving",
         kind="view",
         title="Serving stats",
-        dashboard_renderer="renderServingTab",
+        dashboard_renderer="ovRenderThroughput",
         swift_symbol="servingTab",
         surfaces_required=("dashboard", "macos"),
         admin_route="/netllm/v1/telemetry",
@@ -108,7 +119,7 @@ CONTROLS: tuple[ControlDescriptor, ...] = (
         key="backends",
         kind="view",
         title="Backends",
-        dashboard_renderer="renderBackendsTab",
+        dashboard_renderer="renderBackendsPage",
         swift_symbol="backendsTab",
         surfaces_required=("dashboard", "macos"),
         admin_route="/netllm/v1/backends",
@@ -117,7 +128,7 @@ CONTROLS: tuple[ControlDescriptor, ...] = (
         key="models",
         kind="view",
         title="Models",
-        dashboard_renderer="renderModelsTab",
+        dashboard_renderer="renderModelsPage",
         swift_symbol="modelsTab",
         surfaces_required=("dashboard", "macos"),
         cli=("models",),
@@ -126,7 +137,7 @@ CONTROLS: tuple[ControlDescriptor, ...] = (
         key="peers",
         kind="view",
         title="Swarm peers",
-        dashboard_renderer="renderPeersTab",
+        dashboard_renderer="renderPeersPage",
         swift_symbol="peersTab",
         surfaces_required=("dashboard", "macos"),
         admin_route="/netllm/v1/peers",
@@ -136,7 +147,7 @@ CONTROLS: tuple[ControlDescriptor, ...] = (
         key="agent",
         kind="config",
         title="Agent settings",
-        dashboard_renderer="renderAgentTab",
+        dashboard_renderer="networkThisNodeSection",
         swift_symbol="agentTab",
         surfaces_required=("dashboard", "macos"),
         config_sections=("agent",),
@@ -145,17 +156,17 @@ CONTROLS: tuple[ControlDescriptor, ...] = (
         key="discovery",
         kind="config",
         title="Discovery & known servers",
-        dashboard_renderer="renderDiscoveryTab",
+        dashboard_renderer="networkLocalProvidersSection",
         swift_symbol="discoveryTab",
         surfaces_required=("dashboard", "macos"),
         config_sections=("discovery",),
-        cli=("discover",),
+        cli=("discover", "ignore list", "ignore add", "ignore remove"),
     ),
     ControlDescriptor(
         key="swarm",
         kind="config",
         title="Swarm",
-        dashboard_renderer="renderSwarmTab",
+        dashboard_renderer="networkSwarmDiscoverySection",
         swift_symbol="swarmTab",
         surfaces_required=("dashboard", "macos"),
         config_sections=("swarm",),
@@ -165,7 +176,7 @@ CONTROLS: tuple[ControlDescriptor, ...] = (
         key="routing",
         kind="config",
         title="Routing",
-        dashboard_renderer="renderRoutingTab",
+        dashboard_renderer="renderRoutingPage",
         swift_symbol="routingTab",
         surfaces_required=("dashboard", "macos"),
         config_sections=("routing",),
@@ -174,7 +185,7 @@ CONTROLS: tuple[ControlDescriptor, ...] = (
         key="sources",
         kind="config",
         title="Sources",
-        dashboard_renderer="renderSourcesTab",
+        dashboard_renderer="renderSourcesSection",
         # A section inside `routingTab`, not a tab. Landmine: a naive
         # tab-set diff calls this absent on macOS; a human calls it present.
         swift_symbol='sectionHeader("Sources")',
@@ -185,17 +196,39 @@ CONTROLS: tuple[ControlDescriptor, ...] = (
         key="cloud",
         kind="config",
         title="Cloud providers",
-        dashboard_renderer="renderCloudTab",
+        dashboard_renderer="renderCloudPage",
         swift_symbol="cloudTab",
         surfaces_required=("dashboard", "macos"),
         config_sections=("cloud",),
-        cli=("cloud list", "cloud enable", "cloud disable", "cloud set-key"),
+        cli=(
+            "cloud list",
+            "cloud enable",
+            "cloud disable",
+            "cloud set-key",
+            "cloud verify",
+        ),
+    ),
+    ControlDescriptor(
+        key="cloud_verify",
+        kind="action",
+        title="Verify a cloud provider's credential",
+        dashboard_renderer="renderCloudVerificationRow",
+        swift_symbol="verifyCloudProvider",
+        # Not a tab: a per-provider button, and the only way a provider can be
+        # enabled at all (config_guards.enforce_cloud_provider_verification
+        # refuses an unverified one on every write path). A surface that
+        # cannot run the check is a surface on which cloud failover cannot be
+        # configured, so all three are required rather than the usual two.
+        surfaces_required=("dashboard", "macos", "cli"),
+        admin_route="/netllm/v1/cloud/providers/{provider_id}/verify",
+        cli=("cloud verify",),
+        is_tab=False,
     ),
     ControlDescriptor(
         key="ui",
         kind="config",
         title="App UI settings",
-        dashboard_renderer="renderUiTab",
+        dashboard_renderer="prefsBehaviourSection",
         swift_symbol="uiTab",
         surfaces_required=("dashboard", "macos"),
         config_sections=("ui",),
@@ -204,7 +237,7 @@ CONTROLS: tuple[ControlDescriptor, ...] = (
         key="logs",
         kind="view",
         title="Agent logs",
-        dashboard_renderer="renderLogsTab",
+        dashboard_renderer="renderLogsPage",
         swift_symbol="logsTab",
         surfaces_required=("dashboard", "macos"),
         admin_route="/netllm/v1/logs",
@@ -213,7 +246,7 @@ CONTROLS: tuple[ControlDescriptor, ...] = (
         key="tools",
         kind="action",
         title="Doctor & Test",
-        dashboard_renderer="renderToolsTab",
+        dashboard_renderer="renderDoctorPage",
         swift_symbol="toolsTab",
         surfaces_required=("dashboard", "macos", "cli"),
         admin_route="/netllm/v1/doctor",
@@ -235,7 +268,7 @@ CONTROLS: tuple[ControlDescriptor, ...] = (
         key="rediscover",
         kind="action",
         title="Re-run local discovery",
-        dashboard_renderer="renderStatusTab",
+        dashboard_renderer="runDiscover",
         swift_symbol="runDiscover",
         surfaces_required=("dashboard", "macos", "cli"),
         admin_route="/netllm/v1/admin/discover",

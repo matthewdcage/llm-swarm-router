@@ -16,6 +16,7 @@ import httpx
 from netllm_core.install_detect import (
     can_applications_auto_install,
     get_install_method,
+    get_upgrade_channel,
 )
 from netllm_core.sdk_versions import sdk_versions_payload
 from netllm_core.version import get_version
@@ -301,7 +302,9 @@ def select_asset(
     release: GitHubReleaseInfo,
     install_method: str | None = None,
 ) -> dict[str, Any]:
-    method = install_method or get_install_method()
+    # Upgrade channel, not lifecycle channel: an editable checkout run by a
+    # systemd unit is started with systemctl but upgraded with git.
+    method = install_method or get_upgrade_channel()
     version = release.version
 
     if method == "homebrew":
@@ -321,15 +324,27 @@ def select_asset(
         }
 
     asset: ReleaseAsset | None = None
-    if method == "app" or sys.platform == "darwin":
-        asset = _asset_by_name(assets=release.assets, name="llm-swarm-router.dmg")
-    elif method == "windows-service" or sys.platform == "win32":
+    # Explicit upgrade channel wins over sys.platform — dev machines on macOS
+    # still need linux-systemd hints when the channel is patched in tests or
+    # when probing cross-platform upgrade copy.
+    if method == "linux-systemd":
+        asset = _linux_package_asset(release.assets, version)
+    elif method == "windows-service":
         asset = _asset_by_name(
             assets=release.assets,
             name=f"netllm-{version}-windows-x64.zip",
         ) or _asset_by_glob(release.assets, "netllm-*-windows-x64.zip")
-    elif method == "linux-systemd" or sys.platform.startswith("linux"):
+    elif method == "app":
+        asset = _asset_by_name(assets=release.assets, name="llm-swarm-router.dmg")
+    elif sys.platform.startswith("linux"):
         asset = _linux_package_asset(release.assets, version)
+    elif sys.platform == "win32":
+        asset = _asset_by_name(
+            assets=release.assets,
+            name=f"netllm-{version}-windows-x64.zip",
+        ) or _asset_by_glob(release.assets, "netllm-*-windows-x64.zip")
+    elif sys.platform == "darwin":
+        asset = _asset_by_name(assets=release.assets, name="llm-swarm-router.dmg")
 
     if asset is None:
         return {
@@ -343,8 +358,29 @@ def select_asset(
         "download_url": asset.download_url,
         "asset_name": asset.name,
         "asset_size": asset.size,
-        "upgrade_hint": None,
+        "upgrade_hint": _package_install_hint(asset.name),
     }
+
+
+def _package_install_hint(asset_name: str) -> str | None:
+    """The command that installs a downloaded package, or None.
+
+    Homebrew and source installs already told the user what to run; the OS
+    package channels handed over a file and said nothing, which left "click
+    Download" as the whole of the upgrade instructions. The hint is derived
+    from the asset's own extension because .deb and .rpm do not share a
+    command, and guessing the wrong one is worse than staying silent.
+    """
+    name = asset_name.lower()
+    if name.endswith(".deb"):
+        # apt over dpkg: it resolves dependencies, and the ./ prefix is what
+        # makes apt treat the argument as a file rather than a package name.
+        return f"sudo apt install ./{asset_name}"
+    if name.endswith(".rpm"):
+        return f"sudo dnf install ./{asset_name}"
+    if name.endswith(".zip"):
+        return None  # Windows: unpacking location is the user's choice
+    return None
 
 
 def find_sha256_sidecar(
@@ -383,7 +419,15 @@ async def fetch_sha256_for_asset(
     url = find_sha256_sidecar(assets, asset_name)
     if not url:
         return None
-    response = await client.get(url, headers={"User-Agent": USER_AGENT})
+    # follow_redirects is mandatory, not defensive: a release-asset URL always
+    # 302s to objects.githubusercontent.com, and httpx (unlike requests) does
+    # not follow by default. Without it every published checksum resolved to
+    # None and the UI reported "no checksum for this release" for releases that
+    # ship one — the failure was invisible because a missing sha256 rendered as
+    # nothing at all.
+    response = await client.get(
+        url, headers={"User-Agent": USER_AGENT}, follow_redirects=True
+    )
     if response.status_code != 200:
         return None
     if url.endswith("SHA256SUMS"):

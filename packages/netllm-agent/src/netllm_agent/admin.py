@@ -3,18 +3,27 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException, Request
 from netllm_core import config_guards, config_merge
-from netllm_core.backend_credentials import backend_override_for_url
+from netllm_core.backend_credentials import (
+    backend_override_for_url,
+    ignored_url_conflicts,
+)
 from netllm_core.cloud_providers import CLOUD_PROVIDERS, get_provider_spec
 from netllm_core.config_report import (
     deprecated_key_issues,
     schema_version_issues,
     unknown_cloud_provider_issues,
+)
+from netllm_core.doctor_checks import (
+    doctor_check,
+    doctor_report,
+    extend_or_pass,
 )
 from netllm_core.harness_detection import detect as detect_harness
 from netllm_core.known_harnesses import KNOWN_HARNESSES
@@ -47,6 +56,41 @@ def require_admin_access(request: Request, cfg: NetllmConfig) -> None:
     )
 
 
+# --- structured doctor (UI-6) ------------------------------------------------
+#
+# Row shape, severities, action kinds and the issues/notes derivation all live
+# in `netllm_core.doctor_checks` so this payload and `netllm doctor --json`
+# cannot drift apart -- read that module's docstring for the contract.
+
+#: Every check id `doctor_payload` can emit, in emission order. Stable strings:
+#: they are the join key for a client's fix button and the thing a support
+#: bundle is diffed on. A check that fans out over several subjects emits one
+#: row per subject with the same `id` and a distinct `subject`.
+#:
+#: `agent.port_conflict` is deliberately NOT here. `netllm serve` acquires the
+#: singleton lock in the same process that runs the app
+#: (`serve_lifecycle._acquire_serve_lock`), so an agent answering this route is
+#: always the lock holder and the check could only ever report a tautology.
+#: The detection that means something runs in the CLI, which probes the port
+#: it is about to bind -- and §5 of docs/ui-redesign-feature-spec.md puts the
+#: remediation there too, because stopping an arbitrary pid is not a power the
+#: web admin surface should acquire for one button.
+DOCTOR_CHECK_IDS = (
+    "swarm.open_lan_no_token",
+    "swarm.token_but_open_inference",
+    "agent.gateway_advertise",
+    "backends.healthy",
+    "backends.auth_required",
+    "cloud.provider_key",
+    "cloud.provider_verified",
+    "cloud.unknown_provider",
+    "config.deprecated_key",
+    "config.schema_version",
+    "swarm.mdns_available",
+    "swarm.peer_config",
+)
+
+
 def doctor_payload(
     cfg: NetllmConfig,
     service: AgentService,
@@ -59,40 +103,120 @@ def doctor_payload(
     model carries every field at its default and so cannot say which keys the
     user wrote. Optional, defaulting to the standard location, so existing
     two-argument callers keep working.
+
+    Returns `{ok, checks, issues, notes}`. See the block comment above
+    `DOCTOR_CHECK_IDS` for the derivation contract between the three lists.
     """
-    issues: list[dict[str, str]] = []
-    notes: list[str] = []
+    checks: list[dict[str, Any]] = []
 
-    if is_lan_listen(cfg.agent.listen) and not cfg.swarm.cluster_token:
-        notes.append(
-            "LAN swarm is open (no cluster token). Enable Require cluster token "
-            "in Settings on untrusted networks."
+    open_lan = is_lan_listen(cfg.agent.listen) and not cfg.swarm.cluster_token
+    checks.append(
+        doctor_check(
+            "swarm.open_lan_no_token",
+            ok=not open_lan,
+            severity="warn",
+            title=(
+                "LAN swarm is open (no cluster token)"
+                if open_lan
+                else "LAN exposure is gated by a cluster token"
+            ),
+            # For a warn-severity row `detail` IS the legacy note string, so
+            # `notes` derives byte-identically. Do not reword without moving
+            # the wording assertion in tests/test_doctor_structured.py.
+            detail=(
+                "LAN swarm is open (no cluster token). Enable Require cluster token "
+                "in Settings on untrusted networks."
+                if open_lan
+                else f"agent.listen is {cfg.agent.listen}"
+            ),
+            fix=(
+                "Set swarm.cluster_token (Settings → Require cluster token) on "
+                "untrusted networks"
+                if open_lan
+                else ""
+            ),
+            action={"kind": "navigate", "label": "Open Network", "target": "network"}
+            if open_lan
+            else None,
         )
+    )
 
-    if (
+    # The token secures gossip and remote admin, but /v1/* stays open to
+    # the LAN until this second flag is set — an easy and consequential
+    # thing to get wrong (F-14). New `init --swarm --secure` runs set it;
+    # configs written before that need telling rather than rewriting.
+    inference_open = (
         is_lan_listen(cfg.agent.listen)
-        and cfg.swarm.cluster_token
+        and bool(cfg.swarm.cluster_token)
         and not cfg.swarm.require_token_for_inference
-    ):
-        # The token secures gossip and remote admin, but /v1/* stays open to
-        # the LAN until this second flag is set — an easy and consequential
-        # thing to get wrong (F-14). New `init --swarm --secure` runs set it;
-        # configs written before that need telling rather than rewriting.
-        issues.append(
-            {
-                "title": "Cluster token is set but inference is open to the LAN",
-                "fix": "Set swarm.require_token_for_inference = true (Settings → "
-                "Require cluster token) so /v1/* needs the token too",
+    )
+    checks.append(
+        doctor_check(
+            "swarm.token_but_open_inference",
+            ok=not inference_open,
+            title=(
+                "Cluster token is set but inference is open to the LAN"
+                if inference_open
+                else "Inference is gated the same way gossip is"
+            ),
+            detail=(
+                f"agent.listen is {cfg.agent.listen} and a cluster token is set, "
+                "but swarm.require_token_for_inference is false, so /v1/* is "
+                "reachable without it."
+                if inference_open
+                else f"agent.listen is {cfg.agent.listen}"
+            ),
+            fix=(
+                "Set swarm.require_token_for_inference = true (Settings → "
+                "Require cluster token) so /v1/* needs the token too"
+                if inference_open
+                else ""
+            ),
+            action={
+                "kind": "config_patch",
+                "label": "Require the token for inference",
+                "endpoint": "/netllm/v1/admin/config",
+                "method": "POST",
+                "params": {"swarm": {"require_token_for_inference": True}},
             }
+            if inference_open
+            else None,
         )
+    )
 
-    if cfg.agent.role == "gateway" and not cfg.agent.advertise:
-        issues.append(
-            {
-                "title": "Gateway not advertising",
-                "fix": "Set agent.advertise = true so workers can find the gateway",
+    gateway_silent = cfg.agent.role == "gateway" and not cfg.agent.advertise
+    checks.append(
+        doctor_check(
+            "agent.gateway_advertise",
+            ok=not gateway_silent,
+            title=(
+                "Gateway not advertising"
+                if gateway_silent
+                else f"Role {cfg.agent.role} advertises correctly"
+            ),
+            detail=(
+                "agent.role is gateway but agent.advertise is false, so workers "
+                "cannot discover it."
+                if gateway_silent
+                else f"agent.role={cfg.agent.role}, "
+                f"agent.advertise={cfg.agent.advertise}"
+            ),
+            fix=(
+                "Set agent.advertise = true so workers can find the gateway"
+                if gateway_silent
+                else ""
+            ),
+            action={
+                "kind": "config_patch",
+                "label": "Advertise this gateway",
+                "endpoint": "/netllm/v1/admin/config",
+                "method": "POST",
+                "params": {"agent": {"advertise": True}},
             }
+            if gateway_silent
+            else None,
         )
+    )
 
     enabled = [b for b in service.pool.backends if b.enabled]
     service.pool.refresh_peer_health(force=True)
@@ -100,45 +224,95 @@ def doctor_payload(
         if b.local:
             service.pool.is_healthy(b, force_refresh=True)
     healthy = [b for b in enabled if service.pool.is_healthy(b)]
-    if not healthy:
-        issues.append(
-            {
-                "title": "No healthy inference backends",
-                "fix": "Start Ollama, LM Studio, or vLLM, then run Discover",
-            }
+    checks.append(
+        doctor_check(
+            "backends.healthy",
+            ok=bool(healthy),
+            title=(
+                f"{len(healthy)} of {len(enabled)} enabled backends healthy"
+                if healthy
+                else "No healthy inference backends"
+            ),
+            detail=(
+                ", ".join(b.base_url for b in healthy)
+                if healthy
+                else f"{len(enabled)} enabled backend(s), none answering."
+            ),
+            fix=(
+                "" if healthy else "Start Ollama, LM Studio, or vLLM, then run Discover"
+            ),
+            action=None
+            if healthy
+            else {
+                "kind": "admin_post",
+                "label": "Run discovery",
+                "endpoint": "/netllm/v1/admin/discover",
+                "method": "POST",
+                "params": {},
+            },
+        )
+    )
+
+    needs_key = [
+        b for b in enabled if b.health.http_status in (401, 403) and not b.api_key
+    ]
+    for b in needs_key:
+        # Empty for `custom`, `peer:*` and cloud ids, which must fall
+        # through to the generic message rather than be told to set a
+        # CUSTOM_API_KEY nothing reads. That miss is why this map was
+        # never derivable from `provider.upper()_API_KEY` alone.
+        hint = api_key_env_for(b.provider)
+        override = backend_override_for_url(cfg, b.base_url)
+        if override and (override.api_key or override.api_key_env):
+            fix = (
+                f"Set api_key on the Servers tab for {b.base_url} "
+                f"(routing.backends override)"
+            )
+        elif hint:
+            fix = (
+                f"Set {hint}, set api_key on the Servers tab for {b.base_url}, "
+                f"or add api_key under [[routing.backends]]"
+            )
+        else:
+            fix = (
+                f"Set api_key on the Servers tab or under "
+                f"[[routing.backends]] for {b.base_url}"
+            )
+        if override is None:
+            # A *discovered* 401 is often not a netllm backend at all -- an
+            # unrelated service squatting a provider's default port. Naming
+            # the denylist here is the difference between "supply a key you
+            # do not have" and "this is not yours; stop offering it".
+            fix += (
+                f". If it is not a backend of yours, ignore it: "
+                f"netllm ignore add {b.base_url}"
+            )
+        checks.append(
+            doctor_check(
+                "backends.auth_required",
+                ok=False,
+                title=f"{b.provider} backend requires an API token ({b.base_url})",
+                detail=f"HTTP {b.health.http_status} from {b.base_url} with no key.",
+                fix=fix,
+                subject=b.base_url,
+                action={
+                    "kind": "navigate",
+                    "label": "Open Backends",
+                    "target": "backends",
+                },
+            )
+        )
+    if not needs_key:
+        checks.append(
+            doctor_check(
+                "backends.auth_required",
+                ok=True,
+                title="No backend is rejecting requests for a missing key",
+                detail=f"{len(enabled)} enabled backend(s) checked.",
+            )
         )
 
-    for b in enabled:
-        if b.health.http_status in (401, 403) and not b.api_key:
-            # Empty for `custom`, `peer:*` and cloud ids, which must fall
-            # through to the generic message rather than be told to set a
-            # CUSTOM_API_KEY nothing reads. That miss is why this map was
-            # never derivable from `provider.upper()_API_KEY` alone.
-            hint = api_key_env_for(b.provider)
-            override = backend_override_for_url(cfg, b.base_url)
-            if override and (override.api_key or override.api_key_env):
-                fix = (
-                    f"Set api_key on the Servers tab for {b.base_url} "
-                    f"(routing.backends override)"
-                )
-            elif hint:
-                fix = (
-                    f"Set {hint}, set api_key on the Servers tab for {b.base_url}, "
-                    f"or add api_key under [[routing.backends]]"
-                )
-            else:
-                fix = (
-                    f"Set api_key on the Servers tab or under "
-                    f"[[routing.backends]] for {b.base_url}"
-                )
-            issues.append(
-                {
-                    "title": f"{b.provider} backend requires an API token "
-                    f"({b.base_url})",
-                    "fix": fix,
-                }
-            )
-
+    cloud_missing_key: list[tuple[str, Any]] = []
     if cfg.cloud.enabled:
         for provider_id, provider_cfg in cfg.cloud.providers.items():
             if not provider_cfg.enabled or provider_cfg.auth != "api_key":
@@ -152,61 +326,208 @@ def doctor_payload(
                 or os.environ.get(spec.api_key_env)
             )
             if not has_key:
-                issues.append(
-                    {
-                        "title": f"Cloud provider {spec.display_name} is enabled "
-                        "but has no API key",
-                        "fix": f"Set {spec.api_key_env} or add an api_key under "
-                        f"[cloud.providers.{provider_id}]",
-                    }
-                )
+                cloud_missing_key.append((provider_id, spec))
+    for provider_id, spec in cloud_missing_key:
+        checks.append(
+            doctor_check(
+                "cloud.provider_key",
+                ok=False,
+                title=f"Cloud provider {spec.display_name} is enabled but has no "
+                "API key",
+                detail=f"[cloud.providers.{provider_id}] is enabled with "
+                f"auth = api_key and neither api_key, api_key_env nor "
+                f"${spec.api_key_env} resolves.",
+                fix=f"Set {spec.api_key_env} or add an api_key under "
+                f"[cloud.providers.{provider_id}]",
+                subject=provider_id,
+                action={"kind": "navigate", "label": "Open Cloud", "target": "cloud"},
+            )
+        )
+    if not cloud_missing_key:
+        checks.append(
+            doctor_check(
+                "cloud.provider_key",
+                ok=True,
+                title="Every enabled cloud provider has a key",
+                detail=(
+                    "cloud.enabled is false"
+                    if not cfg.cloud.enabled
+                    else f"{len(cfg.cloud.providers)} provider entr"
+                    f"{'y' if len(cfg.cloud.providers) == 1 else 'ies'} checked."
+                ),
+            )
+        )
+
+    # Enabled and keyed, but never actually checked against the provider —
+    # the state a config written before UI-7a lands in, and the one the write
+    # gate deliberately grandfathers rather than switching off. Grandfathering
+    # is the right call for a provider that has been serving requests, and
+    # exactly wrong if it never worked, and doctor is the only surface that
+    # can tell the user which of the two they have.
+    from netllm_core.cloud_verification import verification_state
+
+    cloud_unverified: list[tuple[str, Any, dict[str, Any]]] = []
+    if cfg.cloud.enabled:
+        for provider_id, provider_cfg in cfg.cloud.providers.items():
+            if not provider_cfg.enabled:
+                continue
+            spec = get_provider_spec(provider_id)
+            if spec is None or any(pid == provider_id for pid, _ in cloud_missing_key):
+                continue
+            state = verification_state(provider_cfg, spec)
+            if not state["ok"]:
+                cloud_unverified.append((provider_id, spec, state))
+    for provider_id, spec, state in cloud_unverified:
+        checks.append(
+            doctor_check(
+                "cloud.provider_verified",
+                ok=False,
+                title=f"Cloud provider {spec.display_name} is enabled but its "
+                "credential is not verified",
+                detail=state["blocker"],
+                fix=f"Run `netllm cloud verify {provider_id}`, or press Verify "
+                "key on the dashboard's Cloud page",
+                subject=provider_id,
+                action={"kind": "navigate", "label": "Open Cloud", "target": "cloud"},
+            )
+        )
+    if not cloud_unverified:
+        checks.append(
+            doctor_check(
+                "cloud.provider_verified",
+                ok=True,
+                title="Every enabled cloud provider has a verified credential",
+                detail=(
+                    "cloud.enabled is false"
+                    if not cfg.cloud.enabled
+                    else "Each enabled provider's key passed a check against "
+                    "the provider itself."
+                ),
+            )
+        )
 
     # Unknown [cloud.providers.*] ids are preserved on save rather than
     # deleted (models.CloudConfig), so doctor is where they become visible.
-    issues.extend(unknown_cloud_provider_issues(cfg))
+    extend_or_pass(
+        checks,
+        "cloud.unknown_provider",
+        unknown_cloud_provider_issues(cfg),
+        ok_title="Every [cloud.providers.*] id is recognised",
+        ok_detail="No inert provider sections in this config.",
+    )
 
     # Same two reports the CLI doctor runs, from the same helpers, so the
     # dashboard panel and `netllm doctor` cannot disagree about what is wrong
     # with a config.
-    issues.extend(deprecated_key_issues(config_path or default_config_path()))
-    issues.extend(schema_version_issues(cfg))
+    extend_or_pass(
+        checks,
+        "config.deprecated_key",
+        deprecated_key_issues(config_path or default_config_path()),
+        ok_title="No deprecated config keys",
+        ok_detail="Nothing in this config.toml is on the deprecation clock.",
+    )
+    extend_or_pass(
+        checks,
+        "config.schema_version",
+        schema_version_issues(cfg),
+        ok_title=f"config.toml generation {cfg.schema_version} is understood",
+        ok_detail="This build can apply every migration the file needs.",
+    )
 
-    if cfg.swarm.mdns and cfg.agent.advertise:
+    mdns_wanted = cfg.swarm.mdns and cfg.agent.advertise
+    mdns_ok = True
+    if mdns_wanted:
         try:
             import zeroconf  # noqa: F401
-
-            mdns_ok = True
         except ImportError:
             mdns_ok = False
-        if not mdns_ok:
-            issues.append(
-                {
-                    "title": "mDNS enabled but zeroconf unavailable",
-                    "fix": "Reinstall netllm (uv sync) or use static swarm.peers",
-                }
+    checks.append(
+        doctor_check(
+            "swarm.mdns_available",
+            ok=mdns_ok,
+            title=(
+                "mDNS enabled but zeroconf unavailable"
+                if not mdns_ok
+                else "mDNS advertising is available"
+                if mdns_wanted
+                else "mDNS advertising is off"
+            ),
+            detail=(
+                "swarm.mdns and agent.advertise are on but the zeroconf package "
+                "is not importable."
+                if not mdns_ok
+                else f"swarm.mdns={cfg.swarm.mdns}, "
+                f"agent.advertise={cfg.agent.advertise}"
+            ),
+            fix=(
+                "Reinstall netllm (uv sync) or use static swarm.peers"
+                if not mdns_ok
+                else ""
+            ),
+            action={
+                "kind": "admin_post",
+                "label": "Scan LAN for peers",
+                "endpoint": "/netllm/v1/admin/peers-scan",
+                "method": "POST",
+                "params": {},
+            }
+            if not mdns_ok
+            else None,
+        )
+    )
+
+    peer_warnings = list(service.peer_config_warnings())
+    for warning in peer_warnings:
+        checks.append(
+            doctor_check(
+                "swarm.peer_config",
+                ok=False,
+                severity="warn",
+                title="Peer configuration warning",
+                # warn-severity `detail` is the legacy note string verbatim.
+                detail=warning,
+                action={"kind": "navigate", "label": "Open Peers", "target": "peers"},
             )
+        )
+    if not peer_warnings:
+        checks.append(
+            doctor_check(
+                "swarm.peer_config",
+                ok=True,
+                title="Peer configuration is consistent",
+                detail="No peer reported a conflicting view of this mesh.",
+            )
+        )
 
-    for warning in service.peer_config_warnings():
-        notes.append(warning)
-
-    payload: dict[str, Any] = {"ok": not issues, "issues": issues}
-    if notes:
-        payload["notes"] = notes
-    return payload
+    return doctor_report(checks)
 
 
 def _backend_override_export(cfg: NetllmConfig) -> list[dict[str, Any]]:
-    return [
-        {
-            "base_url": b.base_url,
-            "provider": b.provider,
-            "api_format": b.api_format,
-            "enabled": b.enabled,
-            "local": b.local,
-            "api_key_set": bool(b.api_key or b.api_key_env),
-        }
-        for b in cfg.routing.backends
-    ]
+    """Full editable shape of each routing.backends row, api_key blanked.
+
+    Derived from the model rather than hand-listed, which is what the
+    hand-listed version got wrong: it exported six of the eight fields, so
+    `api_key_env`, `max_concurrency`, `cloud_provider` and (now) `row_id`
+    never reached a client and could not be round-tripped back. Combined
+    with a merge that keyed rows on `base_url`, editing a URL therefore
+    reset `max_concurrency` to 0 along with erasing the key. The twin of
+    `_source_export` below, and allowlisted for the same F-59 reason:
+    `extra="allow"` means unknown keys live on the model, and streaming them
+    to every reader of GET /netllm/v1/config would be a disclosure channel.
+
+    `api_key` is write-only, so it goes out empty and `api_key_set` carries
+    the only thing a client legitimately needs to know about it -- the
+    omit-preserves contract in config_merge is what lets that empty value
+    round-trip harmlessly.
+    """
+    out: list[dict[str, Any]] = []
+    for b in cfg.routing.backends:
+        dumped = b.model_dump(mode="json")
+        dumped = {k: v for k, v in dumped.items() if k in type(b).model_fields}
+        dumped["api_key"] = ""
+        dumped["api_key_set"] = bool(b.api_key or b.api_key_env)
+        out.append(dumped)
+    return out
 
 
 def _source_export(cfg: NetllmConfig) -> list[dict[str, Any]]:
@@ -233,6 +554,8 @@ def _source_export(cfg: NetllmConfig) -> list[dict[str, Any]]:
 
 
 def _cloud_provider_export(cfg: NetllmConfig) -> dict[str, Any]:
+    from netllm_core.cloud_verification import verification_state
+
     out: dict[str, Any] = {}
     for provider_id, spec in CLOUD_PROVIDERS.items():
         provider_cfg = cfg.cloud.providers.get(provider_id)
@@ -259,6 +582,13 @@ def _cloud_provider_export(cfg: NetllmConfig) -> dict[str, Any]:
             "auth_modes": list(spec.auth_modes),
             "default_api_format": spec.default_api_format,
             "notes": spec.notes,
+            # The credential-verification state, computed server-side so the
+            # dashboard, the macOS app and the CLI all print the same
+            # sentence about the same provider instead of each deriving its
+            # own from `api_key_set` -- which is exactly how a page came to
+            # show a keyless provider as ready. Carries `can_enable`, the
+            # gate's own answer, so no client re-implements the rule.
+            "verification": verification_state(provider_cfg, spec),
         }
     return out
 
@@ -369,6 +699,12 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
             "providers": list(cfg.discovery.providers),
             "provider_urls": dict(cfg.discovery.provider_urls),
             "custom_endpoints": list(cfg.discovery.custom_endpoints),
+            # Every entry as stored. The dashboard derives "which of these is
+            # overruled by a routing.backends row" client-side from the same
+            # draft it is editing, so no derived key is exported here -- one
+            # would be echoed straight back into the patch by the no-schema
+            # fallback in buildSchemaSectionPatch and persisted as an extra.
+            "ignored_urls": list(cfg.discovery.ignored_urls),
         },
         "swarm": {
             "mdns": cfg.swarm.mdns,
@@ -431,7 +767,11 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
     }
 
 
-def apply_config_patch(cfg: NetllmConfig, patch: dict[str, Any]) -> NetllmConfig:
+def apply_config_patch(
+    cfg: NetllmConfig,
+    patch: dict[str, Any],
+    warnings: list[str] | None = None,
+) -> NetllmConfig:
     """Merge dashboard-editable config sections, apply the shared write-path
     guards, and validate.
 
@@ -440,13 +780,21 @@ def apply_config_patch(cfg: NetllmConfig, patch: dict[str, Any]) -> NetllmConfig
     (netllm_cli.config_json.import_config) so the two writers can no longer
     diverge on what they enforce. See docs/config-guards-audit.md and
     docs/architecture/07-findings-register.md F-02.
+
+    `cfg` doubles as the guards' `previous`: config_merge never mutates it,
+    so it is still the pre-patch state the cloud verification gate needs to
+    tell "the user just switched this provider on" (refuse, unverified) from
+    "this config has had it on since before the feature existed" (warn).
     """
     from netllm_discovery.lan import own_agent_urls
 
     updated = config_merge.apply_config_patch(cfg, patch)
     try:
         config_guards.apply_config_guards(
-            updated, own_agent_urls=own_agent_urls(updated.agent.listen)
+            updated,
+            own_agent_urls=own_agent_urls(updated.agent.listen),
+            previous=cfg,
+            warnings=warnings,
         )
     except config_guards.ConfigGuardError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -467,8 +815,11 @@ def save_config_patch(
             detail="Agent was started without a config file path; cannot save",
         )
     before = listen_before or cfg.agent.listen
-    updated = apply_config_patch(cfg, patch)
     warnings: list[str] = []
+    # Guard warnings first: a provider demoted for having no key is the most
+    # important thing this response can say, and it has to be said before the
+    # peer/ignore notes rather than appended after them.
+    updated = apply_config_patch(cfg, patch, warnings)
     swarm_patch = patch.get("swarm") if isinstance(patch.get("swarm"), dict) else None
     if swarm_patch is not None and "peers" in swarm_patch:
         from netllm_discovery.lan import own_agent_urls
@@ -484,6 +835,17 @@ def save_config_patch(
                 f"Removed {len(rejected)} self peer URL(s) from swarm.peers: "
                 + ", ".join(rejected)
             )
+    # An ignore entry that names a [[routing.backends]] URL is stored but
+    # inert -- the explicit row wins (backend_credentials.ignored_url_keys).
+    # Saying so is the difference between a documented precedence rule and a
+    # user watching an endpoint they told the agent to ignore keep appearing.
+    conflicts = ignored_url_conflicts(updated)
+    if conflicts:
+        warnings.append(
+            f"{len(conflicts)} ignored URL(s) are also pinned in "
+            "routing.backends and stay routable — the explicit backend wins: "
+            + ", ".join(conflicts)
+        )
     saved = save_config(updated, config_path)
     needs_restart = updated.agent.listen != before
     result: dict[str, Any] = {
@@ -578,21 +940,197 @@ def tail_log_file(path: Path, n: int) -> tuple[list[str], bool]:
         return [], False
 
 
-def logs_payload(cfg: NetllmConfig, *, tail: int = 200) -> dict[str, Any]:
-    """Read-only agent log summary for the local dashboard."""
-    limit = max(1, min(tail, 2000))
+# --- structured logs (UI-11) -------------------------------------------------
+#
+# The agent's file handler writes
+# "%(asctime)s %(levelname)s %(name)s: %(message)s"
+# (netllm_cli/commands/serve_lifecycle.py). Parsing that belongs here, next to
+# the format string, not in the browser: the page used to carry its own copy of
+# these two regexes and would silently mis-render the day the format changed.
+#
+# Two shapes are recognised -- the formatter above, and a bare "LEVEL: message"
+# console line (uvicorn's default, which reaches agent.log when the macOS app
+# pipes stdout instead of installing the handler). A line matching neither is
+# still emitted, with `level`/`logger`/`ts` null and the raw text as `message`:
+# a stack-trace continuation is exactly the thing that will not match, and
+# dropping it would make the page lie about what the agent logged.
+_LOG_STD_LINE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?)\s+"
+    r"([A-Za-z]{3,9})\s+([\w.-]+):\s?(.*)$",
+    re.DOTALL,
+)
+_LOG_BARE_LEVEL = re.compile(r"^([A-Z]{3,9}):\s+(.*)$", re.DOTALL)
+
+#: Python level names -> the four levels every client filters on. Kept here so
+#: the dashboard, the macOS app and any future client agree on the vocabulary
+#: instead of each mapping "CRITICAL" for themselves.
+LOG_LEVELS = ("error", "warn", "info", "debug")
+_LOG_LEVEL_ALIASES = {
+    "warning": "warn",
+    "warn": "warn",
+    "error": "error",
+    "critical": "error",
+    "fatal": "error",
+    "exception": "error",
+    "info": "info",
+    "debug": "debug",
+    "trace": "debug",
+}
+
+#: Hard ceiling on how many lines one request may return, unchanged from the
+#: pre-UI-11 payload. Server-side parsing of an unbounded log has to stay
+#: bounded by the same cap the raw tail always had.
+LOGS_MAX_TAIL = 2000
+
+
+def log_file_path(cfg: NetllmConfig) -> Path:
+    """The agent log this host writes. Single definition; the tail, the record
+    view and the download all resolve it through here."""
+    return cfg.resolved_log_dir() / "agent.log"
+
+
+def parse_log_line(raw: str, line_no: int) -> dict[str, Any]:
+    """One raw log line as a record. Never returns None -- see the note above."""
+    line = raw
+    std = _LOG_STD_LINE.match(line)
+    if std:
+        return {
+            "line_no": line_no,
+            "ts": std.group(1),
+            "level": _LOG_LEVEL_ALIASES.get(std.group(2).lower()),
+            "level_label": std.group(2),
+            "logger": std.group(3),
+            "message": std.group(4),
+            "raw": line,
+        }
+    bare = _LOG_BARE_LEVEL.match(line)
+    if bare and bare.group(1).lower() in _LOG_LEVEL_ALIASES:
+        return {
+            "line_no": line_no,
+            "ts": None,
+            "level": _LOG_LEVEL_ALIASES[bare.group(1).lower()],
+            "level_label": bare.group(1),
+            "logger": None,
+            "message": bare.group(2),
+            "raw": line,
+        }
+    return {
+        "line_no": line_no,
+        "ts": None,
+        "level": None,
+        "level_label": None,
+        "logger": None,
+        "message": line,
+        "raw": line,
+    }
+
+
+def count_log_lines(path: Path) -> int:
+    """Total lines in *path*, counted without decoding it.
+
+    A byte scan for b"\\n" is memchr-fast, so `total_lines` costs a read of the
+    file and no allocation per line. A final line with no trailing newline
+    still counts as a line, matching how the window reader splits.
+    """
+    total = 0
+    last = b""
+    try:
+        with path.open("rb") as handle:
+            while chunk := handle.read(1 << 20):
+                total += chunk.count(b"\n")
+                last = chunk[-1:]
+    except OSError:
+        return 0
+    if last and last != b"\n":
+        total += 1
+    return total
+
+
+def _read_log_window(
+    path: Path, *, limit: int, before: int | None, total_lines: int
+) -> list[tuple[int, str]]:
+    """Up to *limit* lines ending just before 1-based line *before*.
+
+    `before=None` means "the newest page". That case keeps the reverse-block
+    read the tail always used, so the common poll never touches the whole
+    file; a `before` cursor walks forward in binary and only decodes the
+    window, so paging back through a large log stays proportional to the page
+    and not to the page's distance from the end.
+    """
+    end = total_lines if before is None else min(before - 1, total_lines)
+    if end <= 0 or limit <= 0:
+        return []
+    start = max(1, end - limit + 1)
+    if before is None:
+        lines, _ = tail_log_file(path, limit)
+        # tail_log_file splits on every Unicode line boundary; renumber against
+        # what it actually returned so line_no stays self-consistent.
+        first = max(1, end - len(lines) + 1)
+        return [(first + offset, text) for offset, text in enumerate(lines)]
+    out: list[tuple[int, str]] = []
+    try:
+        with path.open("rb") as handle:
+            for index, raw in enumerate(handle, start=1):
+                if index < start:
+                    continue
+                if index > end:
+                    break
+                out.append(
+                    (index, raw.rstrip(b"\r\n").decode("utf-8", errors="replace"))
+                )
+    except OSError:
+        return []
+    return out
+
+
+def logs_payload(
+    cfg: NetllmConfig, *, tail: int = 200, before: int | None = None
+) -> dict[str, Any]:
+    """Read-only agent log summary for the local dashboard.
+
+    `tail`, `log_dir`, `log_file`, `exists`, `size_bytes` and `truncated` keep
+    exactly the meaning they had before UI-11 -- the macOS app and any older
+    dashboard read `tail` as raw formatter text and must keep working. Added
+    additively: `records` (the same window parsed server-side), `total_lines`,
+    and the cursor fields that make paging survive the 10 s poll.
+
+    `before` is a 1-based line number: the returned window ends at
+    `before - 1`. `next_before` is the cursor for the next older page, or
+    `None` at the start of the file.
+    """
+    limit = max(1, min(tail, LOGS_MAX_TAIL))
     log_dir = cfg.resolved_log_dir()
-    log_file = log_dir / "agent.log"
+    log_file = log_file_path(cfg)
     exists = log_file.is_file()
     size_bytes = log_file.stat().st_size if exists else 0
-    lines, truncated = tail_log_file(log_file, limit) if exists else ([], False)
+    total_lines = count_log_lines(log_file) if exists else 0
+    window = (
+        _read_log_window(log_file, limit=limit, before=before, total_lines=total_lines)
+        if exists
+        else []
+    )
+    first_line_no = window[0][0] if window else None
+    last_line_no = window[-1][0] if window else None
     return {
         "log_dir": str(log_dir),
         "log_file": str(log_file),
         "exists": exists,
         "size_bytes": size_bytes,
-        "tail": lines,
-        "truncated": truncated,
+        "tail": [text for _, text in window],
+        # `truncated` has always meant "earlier lines were omitted", which is
+        # still exactly what it means when paging: it is about the window, not
+        # about the file.
+        "truncated": bool(first_line_no and first_line_no > 1),
+        "records": [parse_log_line(text, line_no) for line_no, text in window],
+        "total_lines": total_lines,
+        "first_line_no": first_line_no,
+        "last_line_no": last_line_no,
+        "next_before": first_line_no if first_line_no and first_line_no > 1 else None,
+        "levels": list(LOG_LEVELS),
+        # Same route, `download=1`. Named in the payload so a client never has
+        # to build the URL, and so the page can hide the button on an agent
+        # that predates it.
+        "download_url": "/netllm/v1/logs?download=1",
     }
 
 

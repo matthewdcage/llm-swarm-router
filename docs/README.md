@@ -41,6 +41,7 @@ Overview: [platform-matrix.md](platform-matrix.md)
 | **Extending netllm** | [extending/](extending/README.md) — add a cloud provider, a local inference server, an API surface, a control, a harness; each checklist row names its test or is marked unguarded |
 | **Compatibility across versions** | [compatibility-policy.md](compatibility-policy.md) — what netllm promises, and separately what is actually enforced today |
 | **Closure roadmap (open items, release path)** | [closure-roadmap-2026-08-03.md](closure-roadmap-2026-08-03.md) |
+| **Web dashboard redesign — backend gap spec** | [ui-redesign-feature-spec.md](ui-redesign-feature-spec.md) — the 94 UI/API gaps clustered into 12 features, tranched, with the gaps that should be closed by changing the design |
 | CI, macOS build, release | [ci-and-release.md](ci-and-release.md) |
 | macOS Developer ID + notarization | [macos-code-signing.md](macos-code-signing.md) |
 | Pre-push verification | `scripts/verify-before-pr.sh` from repo root |

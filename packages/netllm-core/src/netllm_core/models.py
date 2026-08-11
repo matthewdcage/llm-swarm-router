@@ -103,6 +103,22 @@ def infer_api_format(provider: ProviderId) -> ApiFormat:
 
 
 class BackendOverride(ConfigModel):
+    # Stable opaque row identity -- NOT base_url. Keying the save-path merge
+    # on base_url meant editing the URL read as "delete this row, create a
+    # new one", and the new row came back with the write-only api_key blank:
+    # a port typo silently erased the key and max_concurrency. See
+    # netllm_core.config_identity for how ids are minted and
+    # config_merge._merge_backends for how a patch is matched against them.
+    #
+    # `read_only` keeps it out of both generic form renderers; `identity`
+    # tells both patch builders to carry it back verbatim anyway (a
+    # read_only field is otherwise dropped from the patch, which would be
+    # exactly the bug again). Empty is legal and means "not minted yet":
+    # such a row falls back to base_url matching and is assigned an id by
+    # the first save that touches it.
+    row_id: str = Field(
+        default="", json_schema_extra={"read_only": True, "identity": True}
+    )
     base_url: str
     provider: ProviderId = "custom"
     api_format: ApiFormat | None = None
@@ -139,6 +155,29 @@ class DiscoveryLocalConfig(ConfigModel):
     custom_endpoints: list[str] = Field(default_factory=list)
     # Per-machine overrides, e.g. omlx on :8088 — tried before default port scan.
     provider_urls: dict[str, list[str]] = Field(default_factory=dict)
+    # Denylist: base URLs the port scan must never register as a backend.
+    #
+    # The motivating case is a *foreign* service squatting a provider's
+    # default port — something unrelated on 127.0.0.1:8000 (vLLM's first
+    # default) that answers 401, which health.py correctly calls "reachable"
+    # and the Backends page correctly calls "needs a key". It is not a netllm
+    # backend at all, and before this field the only way to silence it was to
+    # pin it as a [[routing.backends]] override and disable it — turning a
+    # discovered endpoint into a hand-authored config row, which
+    # docs/ui-redesign-feature-spec.md §5 names as a design error.
+    #
+    # Compared after `normalize_backend_url`, so "http://h:8000",
+    # "http://h:8000/" and "http://h:8000/v1" are one entry. An entry that
+    # collides with a [[routing.backends]] row is INERT — the explicit
+    # configuration wins; see netllm_core.backend_credentials.ignored_url_keys.
+    ignored_urls: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Base URLs discovery must never register. Ignored on compare after "
+            "normalisation; an explicit [[routing.backends]] row overrules an "
+            "entry here."
+        ),
+    )
 
 
 class DiscoverySwarmConfig(ConfigModel):
@@ -247,6 +286,14 @@ class SourceConfig(ConfigModel):
     loopback; enforced at config-apply time (admin._validate_elevated_sources).
     """
 
+    # Stable opaque row identity -- NOT `id`, which is a name the user types
+    # and changes. Keying the merge on `id` meant renaming a source erased
+    # its write-only `secret`, which on a LAN bind then fails the
+    # elevated-source guard outright. Same contract as
+    # BackendOverride.row_id above.
+    row_id: str = Field(
+        default="", json_schema_extra={"read_only": True, "identity": True}
+    )
     id: str
     # Links this row back to a netllm_core.known_harnesses.KnownHarness id
     # for detection/badge purposes only (docs/cli-source-routing-plan.md
@@ -471,6 +518,32 @@ class CloudProviderConfig(ConfigModel):
     models: list[str] = Field(default_factory=list)
     base_url: str = ""
 
+    # --- verification record (server-owned, read_only) --------------------
+    #
+    # Written only by netllm_core.cloud_verification.record_verification,
+    # after a live check against the provider. Read by config_guards, which
+    # refuses to newly-enable a provider whose credential has not been
+    # checked -- so a client that could set these could walk straight
+    # through the gate. Three things stop that: they are read_only in the
+    # schema (no generic renderer emits them, buildSchemaSectionPatch drops
+    # them), they are absent from config_merge's cloud-provider allowlist
+    # (a patch naming them is ignored, the prior value is preserved), and
+    # tests/test_cloud_verification.py asserts both.
+    #
+    # Persisted rather than held in agent memory because the CLI is a
+    # separate process: `netllm cloud enable` has to see the record a
+    # dashboard check wrote, and a running agent has to see the record the
+    # CLI wrote. Runtime state satisfies neither.
+    verified_status: str = Field(default="", json_schema_extra={"read_only": True})
+    verified_at: str = Field(default="", json_schema_extra={"read_only": True})
+    verified_detail: str = Field(default="", json_schema_extra={"read_only": True})
+    #: Truncated SHA-256 of the credential the check passed with -- never the
+    #: credential. A key replaced after a successful check no longer matches,
+    #: which is what turns a stale "verified" badge into "key changed".
+    verified_key_fingerprint: str = Field(
+        default="", json_schema_extra={"read_only": True}
+    )
+
 
 class CloudConfig(ConfigModel):
     """[cloud] — master switch, fallback policy, and per-provider config.
@@ -583,7 +656,16 @@ class BackendHealth(BaseModel):
     models: list[str] = Field(default_factory=list)
     detail: str | None = None
     latency_p50_ms: float | None = None
+    # time.monotonic() at the last probe. Process-relative: pool.py does all
+    # its freshness arithmetic with it (_freshness_s and callers), so it is
+    # NOT convertible to a wall clock and must not be repurposed.
     last_check: float = 0.0
+    # time.time() sibling of last_check, stamped by the same probe (UI-3).
+    # The only value a client can age: a browser cannot subtract another
+    # process's monotonic clock from its own. 0.0 means "never probed" —
+    # the same sentinel last_check uses, so "never" stays distinguishable
+    # from "probed at the epoch".
+    last_check_epoch_s: float = 0.0
 
 
 class Backend(BaseModel):

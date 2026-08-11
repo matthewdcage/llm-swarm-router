@@ -55,15 +55,47 @@ struct TelemetrySnapshot {
         return routerAlltime
     }
 
-    var livePP: Double {
-        let live = (raw["omlx"] as? [String: Any])?["live"] as? [String: Any]
-        return (live?["prefill_tps"] as? NSNumber)?.doubleValue ?? 0
+    /// `router.live` — measured over the agent's own rolling window. Present
+    /// on every mesh, unlike `omlx.live` which needs an oMLX admin API.
+    var routerLive: [String: Any] {
+        (raw["router"] as? [String: Any])?["live"] as? [String: Any] ?? [:]
     }
 
-    var liveTG: Double {
-        let live = (raw["omlx"] as? [String: Any])?["live"] as? [String: Any]
-        return (live?["generation_tps"] as? NSNumber)?.doubleValue ?? 0
+    /// `router.latency` — TTFT percentiles. Values are null until a streaming
+    /// request has been observed, so callers must keep nil distinct from 0.
+    var routerLatency: [String: Any] {
+        (raw["router"] as? [String: Any])?["latency"] as? [String: Any] ?? [:]
     }
+
+    /// Live prefill throughput, preferring oMLX's reading and falling back to
+    /// the router's own. Reported 0 on any non-oMLX mesh before the fallback
+    /// existed, which read as "idle" rather than "not measured here".
+    ///
+    /// `nil` means neither source has measured one: `router.live.prefill_tps`
+    /// is `null` until a streaming request has been seen, and `NSNull` must
+    /// not fold to 0 — "idle" and "never measured" are different claims and
+    /// the second is what produced the fabricated figures UI-2 removed.
+    var livePrefillTps: Double? {
+        let live = (raw["omlx"] as? [String: Any])?["live"] as? [String: Any]
+        if let value = (live?["prefill_tps"] as? NSNumber)?.doubleValue, value > 0 {
+            return value
+        }
+        return (routerLive["prefill_tps"] as? NSNumber)?.doubleValue
+    }
+
+    var liveGenerationTps: Double? {
+        let live = (raw["omlx"] as? [String: Any])?["live"] as? [String: Any]
+        if let value = (live?["generation_tps"] as? NSNumber)?.doubleValue, value > 0 {
+            return value
+        }
+        return (routerLive["generation_tps"] as? NSNumber)?.doubleValue
+    }
+
+    /// Zero-coalesced convenience for callers that only compare against 0.
+    /// Prefer the optional forms above anywhere the value is displayed.
+    var livePP: Double { livePrefillTps ?? 0 }
+
+    var liveTG: Double { liveGenerationTps ?? 0 }
 
     var loadedModels: [String] {
         (raw["omlx"] as? [String: Any])?["loaded_models"] as? [String] ?? []

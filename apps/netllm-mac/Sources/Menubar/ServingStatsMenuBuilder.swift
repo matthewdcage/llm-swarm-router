@@ -16,6 +16,25 @@ enum ServingStatsMenuBuilder {
         menu.addItem(.separator())
         appendRouterSection(menu, title: "Router (all-time)", scope: snapshot.routerAlltime, includeRequests: true)
 
+        // Time to first token, measured on the streaming path. `router.latency`
+        // is one rolling window for the whole router, not per session/all-time,
+        // so it is added once rather than inside appendRouterSection.
+        let latency = snapshot.routerLatency
+        if !latency.isEmpty {
+            menu.addItem(.separator())
+            let header = NSMenuItem(title: "Latency", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            addStat(menu, "TTFT p50", formatOptionalMs(optionalDouble(latency["ttft_p50_ms"])))
+            addStat(menu, "TTFT p95", formatOptionalMs(optionalDouble(latency["ttft_p95_ms"])))
+            let samples = int(latency["ttft_samples"])
+            if samples == 0 {
+                addStat(menu, "TTFT samples", "none yet (streaming only)")
+            } else {
+                addStat(menu, "TTFT samples", CompactCountFormatter.format(samples), raw: samples)
+            }
+        }
+
         if snapshot.routerInFlight > 0 {
             menu.addItem(.separator())
             addStat(menu, "In-flight now", CompactCountFormatter.format(snapshot.routerInFlight))
@@ -37,11 +56,18 @@ enum ServingStatsMenuBuilder {
             appendOmlxSection(menu, title: "oMLX (session)", scope: snapshot.omlxSession)
             menu.addItem(.separator())
             appendOmlxSection(menu, title: "oMLX (all-time)", scope: snapshot.omlxAlltime, includeRequests: true)
-            if snapshot.livePP > 0 || snapshot.liveTG > 0 {
-                menu.addItem(.separator())
-                addStat(menu, "Live PP", CompactCountFormatter.formatTps(snapshot.livePP))
-                addStat(menu, "Live TG", CompactCountFormatter.formatTps(snapshot.liveTG))
-            }
+        }
+
+        // Live throughput is router-wide (`router.live`, with oMLX's own
+        // reading preferred when its admin API answers), so it is no longer
+        // gated on an oMLX backend being present — a mesh of Ollama or vLLM
+        // backends has these figures too. nil is "never measured", which is
+        // why the section appears at all rather than being hidden by a
+        // `> 0` test that cannot tell idle from unmeasured.
+        if snapshot.livePrefillTps != nil || snapshot.liveGenerationTps != nil {
+            menu.addItem(.separator())
+            addStat(menu, "Live PP", formatOptionalTps(snapshot.livePrefillTps))
+            addStat(menu, "Live TG", formatOptionalTps(snapshot.liveGenerationTps))
         }
     }
 
@@ -66,16 +92,10 @@ enum ServingStatsMenuBuilder {
         addStat(menu, "Prompt tokens", CompactCountFormatter.format(prompt), raw: prompt)
         addStat(menu, "Completion tokens", CompactCountFormatter.format(completion), raw: completion)
         addStat(menu, "Total tokens", CompactCountFormatter.format(totalTokens), raw: totalTokens)
-        addStat(
-            menu,
-            "Avg prefill",
-            CompactCountFormatter.formatTps(double(scope["avg_prefill_tps"]))
-        )
-        addStat(
-            menu,
-            "Avg generation",
-            CompactCountFormatter.formatTps(double(scope["avg_generation_tps"]))
-        )
+        // Null-aware: these are measured only on streaming requests, so a mesh
+        // that has only served non-streaming calls reports null, not zero.
+        addStat(menu, "Avg prefill", formatOptionalTps(optionalDouble(scope["avg_prefill_tps"])))
+        addStat(menu, "Avg generation", formatOptionalTps(optionalDouble(scope["avg_generation_tps"])))
     }
 
     private static func appendOmlxSection(
@@ -137,6 +157,40 @@ enum ServingStatsMenuBuilder {
         if let value = value as? Int { return Double(value) }
         if let value = value as? NSNumber { return value.doubleValue }
         return 0
+    }
+
+    /// Numeric read that keeps "absent" distinct from zero.
+    ///
+    /// `double(_:)` folds a missing key and a JSON `null` into 0, which would
+    /// print "0.00 tok/s" for a figure that was never measured. The agent now
+    /// sends `null` for prefill/generation throughput when no streaming
+    /// request has been observed (TTFT is unobservable on a non-streaming
+    /// response), so coercing to zero would reintroduce exactly the invented
+    /// number that was just removed from the payload.
+    ///
+    /// `NSNull` is what `JSONSerialization` yields for `null`; a plain `nil`
+    /// covers the key being absent on an older agent.
+    private static func optionalDouble(_ value: Any?) -> Double? {
+        if value == nil || value is NSNull { return nil }
+        if let value = value as? Double { return value }
+        if let value = value as? Int { return Double(value) }
+        if let value = value as? NSNumber { return value.doubleValue }
+        return nil
+    }
+
+    /// Throughput, or an em dash when the agent has nothing to report.
+    /// Takes `Double?` rather than `Any?` so the JSON sites have to go
+    /// through `optionalDouble` explicitly and there is no overload for the
+    /// compiler to pick between.
+    private static func formatOptionalTps(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return CompactCountFormatter.formatTps(value)
+    }
+
+    /// Milliseconds, or an em dash when never measured.
+    private static func formatOptionalMs(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return String(format: "%.0f ms", value)
     }
 }
 

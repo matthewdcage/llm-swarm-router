@@ -65,16 +65,50 @@ def test_status_json_link_points_at_the_status_endpoint() -> None:
     )
 
 
+def shipped_js() -> list[Path]:
+    """Every JavaScript file the agent serves, core and pages.
+
+    The dashboard used to be one `dashboard.js`; it is now the core module,
+    `schema-form.js`, `bootstrap.js` and one module per page under `pages/`.
+    Globbed rather than listed so a new page cannot be added outside the
+    invariant below simply by not being named here.
+    """
+    files = sorted(STATIC.glob("*.js")) + sorted(STATIC.glob("pages/*.js"))
+    assert len(files) > 12, f"only found {len(files)} JS files — did they move?"
+    return files
+
+
 def test_every_html_id_the_js_binds_exists() -> None:
     """Both directions are silent failures: getElementById on a missing id
-    returns null, and an unbound id is simply dead."""
+    returns null, and an unbound id is simply dead.
+
+    Widened from `dashboard.js` alone to every shipped module: the split moved
+    most of the DOM binding into `pages/*.js`, so scanning only the core file
+    would have left thirteen files unchecked. An id may be satisfied either by
+    `index.html` (the static chrome) or by an `elem.id = "…"` assignment in the
+    JS itself — pages build their own subtrees, and a search box the page
+    creates and then re-focuses by id is correctly wired.
+    """
     import re
 
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    js = (STATIC / "dashboard.js").read_text(encoding="utf-8")
     html_ids = set(re.findall(r'id="([^"]+)"', html))
-    bound = set(re.findall(r'getElementById\("([^"]+)"\)', js))
-    missing = bound - html_ids
+
+    bound: dict[str, list[str]] = {}
+    created: set[str] = set()
+    for path in shipped_js():
+        source = path.read_text(encoding="utf-8")
+        for name in re.findall(r'getElementById\("([^"]+)"\)', source):
+            bound.setdefault(name, []).append(path.name)
+        created |= set(re.findall(r'\.id\s*=\s*"([^"]+)"', source))
+
+    assert bound, "no getElementById() calls found at all — the scan is broken"
+    missing = {
+        name: sorted(set(files))
+        for name, files in bound.items()
+        if name not in html_ids and name not in created
+    }
     assert not missing, (
-        f"dashboard.js binds ids absent from index.html: {sorted(missing)}"
+        "these ids are bound by the dashboard JS but nothing in index.html or "
+        f"the JS ever creates them: {missing}"
     )

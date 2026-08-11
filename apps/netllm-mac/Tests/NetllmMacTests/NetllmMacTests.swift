@@ -30,6 +30,36 @@ final class TelemetryPayloadDecodeTests: XCTestCase {
         XCTAssertEqual(snap.livePP, 10)
         XCTAssertEqual(snap.liveTG, 5)
     }
+
+    /// UI-2: `router.live.{prefill,generation}_tps` are `null` until a
+    /// streaming request has been served. A client that folds `null` to 0
+    /// reports "idle" for a figure that was never measured — which is the
+    /// invented number the agent just stopped sending.
+    func testNullRouterThroughputStaysNil() throws {
+        let json = """
+        {"schema_version":1,"omlx":{"available":false},\
+        "router":{"live":{"prefill_tps":null,"generation_tps":null,\
+        "requests_per_s":0.0,"window_s":10}}}
+        """.data(using: .utf8)!
+        let obj = try JSONSerialization.jsonObject(with: json) as? [String: Any]
+        let snap = TelemetrySnapshot(raw: obj ?? [:])
+        XCTAssertNil(snap.livePrefillTps)
+        XCTAssertNil(snap.liveGenerationTps)
+    }
+
+    /// The router's own reading is the fallback when no oMLX admin API
+    /// answers — before it existed the menubar showed 0 on every non-oMLX
+    /// mesh, which read as "idle" rather than "not measured here".
+    func testRouterLiveIsUsedWhenOmlxIsAbsent() throws {
+        let json = """
+        {"schema_version":1,"omlx":{"available":false},\
+        "router":{"live":{"prefill_tps":123.5,"generation_tps":40.25}}}
+        """.data(using: .utf8)!
+        let obj = try JSONSerialization.jsonObject(with: json) as? [String: Any]
+        let snap = TelemetrySnapshot(raw: obj ?? [:])
+        XCTAssertEqual(snap.livePrefillTps, 123.5)
+        XCTAssertEqual(snap.liveGenerationTps, 40.25)
+    }
 }
 
 @MainActor

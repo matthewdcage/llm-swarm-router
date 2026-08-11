@@ -66,6 +66,15 @@ final class MenuBarGaugeController {
     private func liveTitle() -> String {
         guard let model else { return "LIV —" }
         let snap = model.telemetrySnapshot
-        return String(format: "P:%.0f T:%.0f", snap.livePP, snap.liveTG)
+        return "P:\(gaugeTps(snap.livePrefillTps)) T:\(gaugeTps(snap.liveGenerationTps))"
+    }
+
+    /// An em dash, not 0, for a throughput nothing has measured yet.
+    /// `router.live.{prefill,generation}_tps` are `null` until a streaming
+    /// request has been served, and a gauge reading "P:0 T:0" claims the
+    /// router is idle when the truth is that it has never been timed.
+    private func gaugeTps(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return String(format: "%.0f", value)
     }
 }

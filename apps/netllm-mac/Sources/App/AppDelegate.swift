@@ -274,7 +274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: hosting)
         window.title = AppBranding.welcomeTitle
-        window.setContentSize(NSSize(width: 520, height: 400))
+        window.setContentSize(NSSize(width: 680, height: 500))
         window.center()
         window.makeKeyAndOrderFront(nil)
         welcomeWindow = window

@@ -1,7 +1,8 @@
 """Telemetry key-set contract (F-49, plan-f24-f26.md §3 Phase 10).
 
 ``docs/telemetry-api.md`` is normative. Three telemetry clients — the web
-dashboard (``static/dashboard.js``) and the two Swift menubar files — used to
+dashboard (``static/pages/overview.js``) and the two Swift menubar files — used
+to
 hand-mirror the payload shape and re-derive ``total_tokens`` client-side, which
 is the whole of F-49: a server-side key rename or drop showed up as a silently
 wrong number in the UI rather than as a failure.
@@ -32,14 +33,18 @@ from netllm_core.models import NetllmConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TELEMETRY_DOC = REPO_ROOT / "docs" / "telemetry-api.md"
-DASHBOARD_JS = (
+# The dashboard's telemetry panels moved out of the monolithic dashboard.js
+# into the Overview page when the UI was split into eleven page modules; the
+# Serving tab merged into Overview. Same renderer, new file.
+OVERVIEW_JS = (
     REPO_ROOT
     / "packages"
     / "netllm-agent"
     / "src"
     / "netllm_agent"
     / "static"
-    / "dashboard.js"
+    / "pages"
+    / "overview.js"
 )
 
 # --------------------------------------------------------------------------- #
@@ -56,7 +61,35 @@ ROUTER_KEYS = {
     "capacity_rejections",
     "shardless_fallbacks",
     "in_flight_total",
+    "windows",
+    "latency",
+    "live",
     "backends",
+}
+
+# UI-1: the windowed, dimensioned ledger.
+ROUTER_WINDOWS_KEYS = {
+    "counters_since",
+    "spans_s",
+    "by_backend",
+    "by_model",
+    "by_policy",
+    "by_source",
+    "truncated",
+}
+
+ROUTER_WINDOWS_TRUNCATED_KEYS = {"by_backend", "by_model", "by_policy", "by_source"}
+
+ROUTER_SOURCE_KEYS = {"requests", "surfaces", "top_models", "last_seen_at"}
+
+# UI-2: real TTFT percentiles and rolling throughput.
+ROUTER_LATENCY_KEYS = {"ttft_p50_ms", "ttft_p95_ms", "ttft_samples", "window_s"}
+
+ROUTER_LIVE_KEYS = {
+    "prefill_tps",
+    "generation_tps",
+    "requests_per_s",
+    "window_s",
 }
 
 ROUTER_SCOPE_KEYS = {
@@ -69,7 +102,17 @@ ROUTER_SCOPE_KEYS = {
     "uptime_s",
 }
 
-ROUTER_BACKEND_KEYS = {"id", "provider", "base_url", "health", "in_flight"}
+ROUTER_BACKEND_KEYS = {
+    "id",
+    "provider",
+    "base_url",
+    "health",
+    "in_flight",
+    "p50_ms",
+    "p95_ms",
+    "samples",
+    "window_s",
+}
 
 OMLX_KEYS = {
     "available",
@@ -102,12 +145,16 @@ OMLX_LIVE_KEYS = {
 
 HOST_KEYS = {"cpu_percent", "memory_used_gb", "memory_total_gb", "memory_percent"}
 
-HISTORY_KEYS = {"router_rps", "omlx_pp_tps", "omlx_tg_tps"}
+HISTORY_KEYS = {"router_rps", "router_tps", "omlx_pp_tps", "omlx_tg_tps"}
 
 ALL_DOCUMENTED_KEYS = (
     TOP_LEVEL_ALWAYS
     | TOP_LEVEL_OPTIONAL
     | ROUTER_KEYS
+    | ROUTER_WINDOWS_KEYS
+    | ROUTER_SOURCE_KEYS
+    | ROUTER_LATENCY_KEYS
+    | ROUTER_LIVE_KEYS
     | ROUTER_SCOPE_KEYS
     | ROUTER_BACKEND_KEYS
     | OMLX_KEYS
@@ -150,6 +197,61 @@ def test_router_block_key_set_is_exactly_documented(client: TestClient) -> None:
     assert set(router) == ROUTER_KEYS
     assert set(router["session"]) == ROUTER_SCOPE_KEYS
     assert set(router["alltime"]) == ROUTER_SCOPE_KEYS
+
+
+def test_router_windows_block_key_set_is_exactly_documented(client: TestClient) -> None:
+    """UI-1. Asserted on a *populated* ledger: an empty one cannot show the
+    per-dimension row shape, which is where the contract actually lives."""
+    service = client.app.state.service  # type: ignore[attr-defined]
+    service.telemetry.record_usage(
+        prompt_tokens=3,
+        completion_tokens=4,
+        backend_id="alpha",
+        model="gemma4:27b",
+        source_id="cursor",
+        policy_key="0:local-openai",
+        surface="openai",
+    )
+    windows = client.get("/netllm/v1/telemetry?watch=0").json()["router"]["windows"]
+    assert set(windows) == ROUTER_WINDOWS_KEYS
+    assert set(windows["truncated"]) == ROUTER_WINDOWS_TRUNCATED_KEYS
+    assert windows["spans_s"], "spans are server-declared; the list may not be empty"
+    span_keys = {str(span) for span in windows["spans_s"]}
+    for dimension in ("by_backend", "by_model", "by_policy"):
+        assert windows[dimension], f"{dimension} should carry the recorded request"
+        for row in windows[dimension].values():
+            assert set(row) == span_keys
+    source = windows["by_source"]["cursor"]
+    assert set(source) == ROUTER_SOURCE_KEYS
+    assert set(source["requests"]) == span_keys
+    assert source["top_models"] == [{"model": "gemma4:27b", "count": 1}]
+
+
+def test_router_latency_and_live_key_sets_are_exactly_documented(
+    client: TestClient,
+) -> None:
+    """UI-2. With no traffic every percentile must be null, never 0.0."""
+    router = client.get("/netllm/v1/telemetry?watch=0").json()["router"]
+    assert set(router["latency"]) == ROUTER_LATENCY_KEYS
+    assert set(router["live"]) == ROUTER_LIVE_KEYS
+    assert router["latency"]["ttft_samples"] == 0
+    assert router["latency"]["ttft_p50_ms"] is None
+    assert router["latency"]["ttft_p95_ms"] is None
+    assert router["live"]["prefill_tps"] is None
+    assert router["live"]["generation_tps"] is None
+
+
+def test_router_scope_reports_null_not_zero_without_measured_durations(
+    client: TestClient,
+) -> None:
+    """The UI-2 regression guard, stated as a wire assertion: a request that
+    reported prompt tokens but no measured prefill leaves the rate absent."""
+    service = client.app.state.service  # type: ignore[attr-defined]
+    service.telemetry.record_usage(prompt_tokens=100, completion_tokens=50)
+    session = client.get("/netllm/v1/telemetry?watch=0").json()["router"]["session"]
+    assert session["prompt_tokens"] == 100
+    assert session["avg_prefill_tps"] is None
+    assert session["avg_generation_tps"] is None
 
 
 def test_router_backend_rows_key_set_is_exactly_documented(
@@ -262,8 +364,14 @@ def test_doc_declares_itself_normative() -> None:
 
 def test_dashboard_does_not_re_derive_total_tokens() -> None:
     """F-49's concrete defect: the client-side ``total_tokens`` sum is gone."""
-    js = DASHBOARD_JS.read_text(encoding="utf-8")
+    js = OVERVIEW_JS.read_text(encoding="utf-8")
     assert "total_tokens ??" not in js
     assert "prompt_tokens + scope.completion_tokens" not in js
-    # And it still reads the server-supplied key.
-    assert "scope.total_tokens" in js
+    # Broader than the literal F-49 expression, which named the one accumulator
+    # the old code happened to use: any client-side sum of the two component
+    # counters re-derives the key, whatever it is spelled.
+    assert "prompt_tokens +" not in js
+    # And it still reads the server-supplied key. The scope block is now walked
+    # by key name rather than by attribute (``session[key]`` over a ``[label,
+    # key, format]`` table), so the assertion is on the key literal.
+    assert '"total_tokens"' in js

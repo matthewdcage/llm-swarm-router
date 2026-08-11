@@ -11,6 +11,10 @@ struct SettingsWindowView: View {
     @State private var tab = "status"
     @State private var portText = "11400"
 
+    /// How many alternate addresses a peer row lists before the rest are
+    /// counted instead (UI-4a) — the dashboard's `PEERS_INLINE_ALTERNATES`.
+    static let inlinePeerAddresses = 2
+
     var body: some View {
         NavigationSplitView {
             List(selection: $tab) {
@@ -121,11 +125,11 @@ struct SettingsWindowView: View {
                 if let err = model.errorMessage {
                     Label(err, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(DesignTokens.dangerText)
                 } else if let msg = model.message {
                     Label(msg, systemImage: "checkmark.circle.fill")
                         .font(.caption)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(DesignTokens.okText)
                 }
             }
             .padding(10)
@@ -376,7 +380,7 @@ struct SettingsWindowView: View {
             // the resolved LAN URL the live agent actually advertises.
             gridRow("LAN address", model.status?.listenURL ?? "agent not running")
             Text("Changes apply after Save + Restart Agent.")
-                .font(.caption).foregroundStyle(.orange)
+                .font(.caption).foregroundStyle(DesignTokens.warnText)
             if model.document.isLanMode && !model.requireClusterToken {
                 Label("Open trusted-LAN swarm. Enable Require cluster token on the Swarm tab for untrusted networks.", systemImage: "info.circle")
                     .foregroundStyle(.secondary)
@@ -415,6 +419,25 @@ struct SettingsWindowView: View {
                 placeholder: "http://127.0.0.1:8080/v1",
                 defaultNew: "http://127.0.0.1:8080/v1"
             )
+            sectionHeader("Ignored endpoints")
+            Text(
+                "Base URLs discovery must never register — something else on a provider's default port, a server that is not yours. Matched after normalisation, so http://host:8000 and http://host:8000/v1 are one entry."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            // discovery.ignored_urls. Same raw-dict binding as
+            // custom_endpoints above: the discovery section is an untyped
+            // pass-through on this side, so a list[str] needs no Swift model.
+            EditableStringList(
+                items: $model.document.discovery.stringArray("ignored_urls"),
+                placeholder: "http://127.0.0.1:8000",
+                defaultNew: "http://127.0.0.1:8000"
+            )
+            ForEach(model.ignoredURLsOverruledByBackends(), id: \.self) { url in
+                Text("\(url) is also pinned in routing.backends — the backend wins and this entry does nothing.")
+                    .font(.caption2)
+                    .foregroundStyle(DesignTokens.warnText)
+            }
             sectionHeader("Server API keys")
             Text(
                 "Per-endpoint keys are stored in routing.backends. Global env vars still apply when no per-URL key is set."
@@ -664,7 +687,7 @@ struct SettingsWindowView: View {
             )
         }
         .padding(8)
-        .background(Color.gray.opacity(0.08))
+        .background(DesignTokens.inset)
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
@@ -709,7 +732,7 @@ struct SettingsWindowView: View {
             )
         }
         .padding(8)
-        .background(Color.gray.opacity(0.08))
+        .background(DesignTokens.inset)
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
@@ -759,7 +782,7 @@ struct SettingsWindowView: View {
                 }
             }
             .padding(8)
-            .background(Color.gray.opacity(0.06))
+            .background(DesignTokens.inset)
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }
     }
@@ -770,8 +793,8 @@ struct SettingsWindowView: View {
             .font(.caption2.weight(.medium))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(detected ? Color.green.opacity(0.15) : Color.orange.opacity(0.15))
-            .foregroundStyle(detected ? .green : .orange)
+            .background(detected ? DesignTokens.okTint : DesignTokens.warnTint)
+            .foregroundStyle(detected ? DesignTokens.okText : DesignTokens.warnText)
             .clipShape(Capsule())
     }
 
@@ -793,7 +816,7 @@ struct SettingsWindowView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 3))
             } else {
                 RoundedRectangle(cornerRadius: 3)
-                    .fill(Color.gray.opacity(0.15))
+                    .fill(DesignTokens.inset)
             }
         }
         .frame(width: 16, height: 16)
@@ -845,7 +868,7 @@ struct SettingsWindowView: View {
             .foregroundStyle(.secondary)
         }
         .padding(8)
-        .background(Color.gray.opacity(0.08))
+        .background(DesignTokens.inset)
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
@@ -931,16 +954,12 @@ struct SettingsWindowView: View {
                     logs.exists ? "\(logs.sizeBytes) bytes" : "File not created yet"
                 )
                 if logs.truncated {
-                    Text("Showing the last 200 lines.")
+                    Text(logWindowCaption(logs))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 ScrollView {
-                    Text(logs.tail.joined(separator: "\n"))
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                        .padding(8)
+                    logWindow(logs)
                 }
                 .frame(minHeight: 220)
                 .background(.quaternary.opacity(0.25))
@@ -949,6 +968,9 @@ struct SettingsWindowView: View {
                     Button("Refresh") { Task { await model.fetchLogs() } }
                     Button("Reveal in Finder") { revealLogFile(logs) }
                     Button("Open in Console") { openLogInConsole(logs) }
+                    if logs.downloadURL != nil {
+                        Button("Download full log") { downloadFullLog(logs) }
+                    }
                 }
             } else {
                 actionButtons {
@@ -962,6 +984,70 @@ struct SettingsWindowView: View {
                 await model.fetchLogs()
             }
         }
+    }
+
+    /// Structured `records[]` when the agent parsed the window for us,
+    /// otherwise the raw `tail[]` blob exactly as before. An agent older than
+    /// UI-11 sends only `tail`, and losing the log view entirely would be a
+    /// worse trade than losing the level column.
+    @ViewBuilder
+    private func logWindow(_ logs: AgentLogsPayload) -> some View {
+        if logs.records.isEmpty {
+            Text(logs.tail.joined(separator: "\n"))
+                .font(.system(.caption, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+                .padding(8)
+        } else {
+            LazyVStack(alignment: .leading, spacing: 1) {
+                ForEach(logs.records) { record in
+                    logRecordRow(record)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
+            .padding(8)
+        }
+    }
+
+    private func logRecordRow(_ record: AgentLogRecord) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text(record.levelLabel ?? "—")
+                .font(.system(.caption2, design: .monospaced).weight(.medium))
+                .foregroundStyle(logLevelColor(record.level))
+                .frame(width: 58, alignment: .leading)
+            Text(record.message.isEmpty ? record.raw : record.message)
+                .font(.system(.caption, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// nil level means the line was not formatter-produced (a traceback
+    /// continuation, a bare print) — muted rather than coloured, because
+    /// giving it a severity would be inventing one.
+    private func logLevelColor(_ level: String?) -> Color {
+        switch level {
+        case "error": return DesignTokens.dangerText
+        case "warn": return DesignTokens.warnText
+        case "info": return DesignTokens.text
+        default: return DesignTokens.muted
+        }
+    }
+
+    private func logWindowCaption(_ logs: AgentLogsPayload) -> String {
+        guard logs.totalLines > 0 else { return "Showing the last 200 lines." }
+        return "Showing \(logs.tail.count) of \(logs.totalLines) lines."
+    }
+
+    /// Opens `download_url` in the browser rather than fetching it here: the
+    /// route is admin-gated on the same loopback origin the dashboard uses,
+    /// and the file is unredacted, so handing it to the user's own download
+    /// flow keeps this app from holding secrets it has no reason to.
+    private func downloadFullLog(_ logs: AgentLogsPayload) {
+        guard let path = logs.downloadURL,
+              let url = AgentHTTP.url(base: model.agentBaseURL, path: path)
+        else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func revealLogFile(_ logs: AgentLogsPayload) {
@@ -991,10 +1077,26 @@ struct SettingsWindowView: View {
                 Button("Run test") { model.runTest() }
                 Button("Enable gateway") { model.runGateway() }
             }
-            if model.doctorOK && model.doctorIssues.isEmpty && model.message == nil {
-                Label("Run doctor to check configuration", systemImage: "info.circle")
-                    .font(.caption).foregroundStyle(.secondary)
+            doctorResults
+        }
+    }
+
+    /// Structured `checks[]` when the agent sends them, the derived
+    /// `issues[]` otherwise. Passing rows are listed too — "N checks · M
+    /// passed" is the only way this panel can say what it actually verified
+    /// rather than only what broke.
+    @ViewBuilder
+    private var doctorResults: some View {
+        if !model.doctorChecks.isEmpty {
+            Text(doctorSummary(model.doctorChecks))
+                .font(.caption).foregroundStyle(.secondary)
+            ForEach(model.doctorChecks) { check in
+                doctorCheckRow(check)
             }
+        } else if model.doctorOK && model.doctorIssues.isEmpty && model.message == nil {
+            Label("Run doctor to check configuration", systemImage: "info.circle")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
             ForEach(model.doctorIssues) { issue in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(issue.title).font(.headline)
@@ -1002,6 +1104,43 @@ struct SettingsWindowView: View {
                 }
                 .padding(.vertical, 4)
             }
+        }
+    }
+
+    private func doctorSummary(_ checks: [DoctorCheck]) -> String {
+        let passed = checks.filter(\.ok).count
+        return "\(checks.count) checks · \(passed) passed"
+    }
+
+    private func doctorCheckRow(_ check: DoctorCheck) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Circle()
+                .fill(doctorSeverityColor(check.severity))
+                .frame(width: 8, height: 8)
+                .padding(.top, 5)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(check.title)
+                    .font(check.ok ? .caption : .headline)
+                if !check.detail.isEmpty, check.detail != check.title {
+                    Text(check.detail).font(.caption).foregroundStyle(.secondary)
+                }
+                if !check.fix.isEmpty {
+                    Text(check.fix).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// `info` is a check that passed; `warn` is advisory and deliberately
+    /// does NOT clear the run's top-level `ok` (an open trusted-LAN swarm
+    /// has always been a note, not a failure); `error` is a real problem.
+    private func doctorSeverityColor(_ severity: String) -> Color {
+        switch severity {
+        case "error": return DesignTokens.danger
+        case "warn": return DesignTokens.warn
+        default: return DesignTokens.ok
         }
     }
 
@@ -1148,9 +1287,38 @@ struct SettingsWindowView: View {
     private func peerRow(_ peer: PeerStatus) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("\(peer.agentId) @ \(peer.hostname)").font(.headline)
-            Text("\(peer.listenURL) · \(peer.role)").font(.caption).foregroundStyle(.secondary)
+            Text(peerSubtitle(peer)).font(.caption).foregroundStyle(.secondary)
+            // Alternate URLs the same peer answers on (wildcard binds). Worth
+            // showing because "unreachable at the address we cached" and
+            // "down" look identical without them — but a peer running Docker
+            // has a bridge gateway per compose network, and listing those
+            // flat buried the address anyone can actually dial. Ranked by
+            // the peer's own classification (UI-4a), labelled, and cut to the
+            // useful few; the rest are counted, not hidden.
+            let alternates = PeerAddressKind.sorted(
+                peer.alsoReachableAt, kinds: peer.addressKinds)
+            ForEach(alternates.prefix(Self.inlinePeerAddresses), id: \.self) { url in
+                let label = PeerAddressKind.label(peer.addressKinds[url] ?? "")
+                Text("also at \(url)\(label.isEmpty ? "" : " — \(label)")")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if alternates.count > Self.inlinePeerAddresses {
+                Text("+\(alternates.count - Self.inlinePeerAddresses) more addresses")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .help(alternates.dropFirst(Self.inlinePeerAddresses).joined(separator: ", "))
+            }
         }
         .padding(.vertical, 4)
+    }
+
+    private func peerSubtitle(_ peer: PeerStatus) -> String {
+        var line = "\(peer.listenURL) · \(peer.role)"
+        if !peer.discoveredVia.isEmpty {
+            line += " · via \(peer.discoveredVia)"
+        }
+        return line
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -1167,7 +1335,7 @@ struct SettingsWindowView: View {
 
     private func statusDot(_ online: Bool) -> some View {
         Circle()
-            .fill(online ? Color.green : Color.red)
+            .fill(online ? DesignTokens.ok : DesignTokens.danger)
             .frame(width: 8, height: 8)
             .padding(.top, 6)
     }
@@ -1195,7 +1363,7 @@ struct EditableStringList: View {
                         TextField(placeholder, text: binding(for: index))
                         if isUnknownValue(at: index) {
                             Image(systemName: "exclamationmark.triangle")
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(DesignTokens.warnText)
                                 .help("Not currently known — check spelling or bring the host online.")
                         }
                         Button(role: .destructive) { remove(rowID: rowID) } label: {

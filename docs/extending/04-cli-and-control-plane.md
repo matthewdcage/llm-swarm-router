@@ -33,8 +33,15 @@ Anything else fails by name. There is no fifth option and "we forgot" is not
 a reason.
 
 Widget and secrecy hints come from `Field(json_schema_extra={...})` —
-`"widget"`, `"write_only"`, `"read_only"`, `"group"`, `"options_from"`,
-`"default_factory"`. Grep `models.py` for live examples.
+`"widget"`, `"write_only"`, `"read_only"`, `"identity"`, `"group"`,
+`"options_from"`, `"default_factory"`. Grep `models.py` for live examples.
+
+`"identity"` is the one that trips people up: it always sits alongside
+`read_only`, but the two say opposite things to a patch builder. `read_only`
+means "drop it"; `identity` means "send it back verbatim", because it is how
+the agent tells which stored row an edit belongs to. Drop `row_id` and
+editing a backend's `base_url` reads server-side as delete-then-create, which
+erases that row's write-only `api_key`.
 
 **The destructive case to understand.** `config_merge` rebuilds row types
 that have no identity key (`RoutingPolicy`) from the model's defaults plus
@@ -54,14 +61,14 @@ Add a `ControlDescriptor` to `CONTROLS` in
 
 | Field | Means |
 |---|---|
-| `key` | stable id; for tabs, also the dashboard tab key |
+| `key` | stable id (no longer the dashboard page key — several controls share a page) |
 | `kind` | `config` / `view` / `action` |
-| `dashboard_renderer` | identifier that must appear as a `TAB_RENDERERS` value |
+| `dashboard_renderer` | function defined in the module that carries the control (`static/pages/<page>.js`, or `dashboard.js` for chrome actions) |
 | `swift_symbol` | identifier or `sectionHeader("…")` call in the macOS settings source |
 | `surfaces_required` | genuinely per-control — `ui.menubar_*` is a macOS concept, `netllm install` is CLI-only |
 | `admin_route` | discriminating for `action`; left empty for `config` (all fields go through one route, so asserting it would be a tautology) |
 | `cli` | leaf command paths as Typer renders them |
-| `is_tab` | `False` for actions living inside another tab |
+| `is_tab` | `True` when the presence unit is a whole page; `False` for actions living in the chrome or another page |
 
 Then write the UI on each required surface by hand, and add the Typer command
 in `packages/netllm-cli/src/netllm_cli/commands/` (`main.py` is wiring only).

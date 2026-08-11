@@ -18,6 +18,10 @@ final class SettingsViewModel {
     var routedModels: [ModelRow] = []
     var localModels: [ModelRow] = []
     var doctorIssues: [DoctorIssue] = []
+    /// Structured `checks[]` (UI-6) — every check the last run performed,
+    /// passed included. Empty on an agent that predates it; `doctorIssues`
+    /// is then the only inventory available.
+    var doctorChecks: [DoctorCheck] = []
     var doctorOK = true
     var agentReachable = false
     var isLoading = false
@@ -69,6 +73,14 @@ final class SettingsViewModel {
     /// in-flight marker for the fetch button.
     var cloudCatalogs: [String: CloudModelCatalog] = [:]
     var cloudCatalogFetching: Set<String> = []
+    /// Per-provider credential verification (UI-7a), keyed by provider id.
+    ///
+    /// Refreshed from the agent on every poll rather than remembered here,
+    /// because the record lives in the agent's config — it has to survive a
+    /// window close, an app restart and a check run from the dashboard or the
+    /// CLI, and only the agent sees all three.
+    var cloudVerifications: [String: CloudVerification] = [:]
+    var cloudVerifying: Set<String> = []
     /// Monotonic counter bumped on every live-data refresh.
     ///
     /// **Never key a view on this with `.id(uiRevision)`.** Changing a view's
@@ -137,6 +149,27 @@ final class SettingsViewModel {
             rows.append((norm, "custom"))
         }
         return rows
+    }
+
+    /// Entries of `discovery.ignored_urls` that a `[[routing.backends]]` row
+    /// overrules, normalized and de-duplicated.
+    ///
+    /// Mirrors `netllm_core.backend_credentials.ignored_url_conflicts`. The
+    /// precedence rule is that the explicit configuration wins: such an entry
+    /// is stored but inert, and the discovery tab says so rather than leaving
+    /// the user to wonder why an endpoint they ignored keeps appearing.
+    func ignoredURLsOverruledByBackends() -> [String] {
+        let pinned = Set(
+            document.routing.backends.map { Self.normalizeDiscoveryURL($0.base_url) }
+        )
+        var seen = Set<String>()
+        var out: [String] = []
+        for raw in document.discovery.stringArray("ignored_urls") {
+            let norm = Self.normalizeDiscoveryURL(raw)
+            guard !norm.isEmpty, pinned.contains(norm), seen.insert(norm).inserted else { continue }
+            out.append(norm)
+        }
+        return out
     }
 
     func discoveryServerAPIKeySet(for url: String) -> Bool {
@@ -485,6 +518,12 @@ final class SettingsViewModel {
             if let harnesses = await AgentAPI.harnesses(baseURL: agentBaseURL) {
                 harnessRegistry = harnesses
             }
+            // Per-provider, per-key state — unlike the registry above this
+            // changes whenever anyone verifies a key, from any surface, so it
+            // is re-read rather than fetched once per session.
+            if let verifications = await AgentAPI.cloudVerifications(baseURL: agentBaseURL) {
+                cloudVerifications = verifications
+            }
         } else {
             status = nil
             agentVersion = nil
@@ -748,14 +787,39 @@ final class SettingsViewModel {
             await runAction("Running doctor…") {
                 let json = try parseCLIJSON(command: ["doctor", "--json"], allowFailure: true)
                 doctorOK = json["ok"] as? Bool ?? false
-                doctorIssues = (json["issues"] as? [[String: Any]] ?? []).map {
-                    DoctorIssue(
-                        title: $0["title"] as? String ?? "",
-                        fix: $0["fix"] as? String ?? ""
+                // UI-6: `checks[]` is the structured form — every check, passed
+                // or not, with a stable id. `issues[]` is derived from it
+                // server-side and kept verbatim, so it is also exactly what an
+                // agent older than UI-6 sends and nothing else. Parse both:
+                // `checks` when present, `issues` as the fallback inventory.
+                doctorChecks = (json["checks"] as? [[String: Any]] ?? []).map { row in
+                    DoctorCheck(
+                        checkID: row["id"] as? String ?? "",
+                        subject: row["subject"] as? String ?? "",
+                        title: row["title"] as? String ?? "",
+                        ok: row["ok"] as? Bool ?? false,
+                        severity: row["severity"] as? String ?? "error",
+                        detail: row["detail"] as? String ?? "",
+                        fix: row["fix"] as? String ?? "",
+                        actionKind: (row["action"] as? [String: Any])?["kind"] as? String
+                            ?? "none"
                     )
                 }
+                doctorIssues = (json["issues"] as? [[String: Any]] ?? [])
+                    .enumerated()
+                    .map { index, row in
+                        DoctorIssue(
+                            ordinal: index,
+                            title: row["title"] as? String ?? "",
+                            fix: row["fix"] as? String ?? ""
+                        )
+                    }
                 if doctorOK {
-                    setSuccess("Doctor: all checks passed.")
+                    if doctorChecks.isEmpty {
+                        setSuccess("Doctor: all checks passed.")
+                    } else {
+                        setSuccess("Doctor: \(doctorChecks.count) checks, all passed.")
+                    }
                 } else {
                     setSuccess("Doctor found \(doctorIssues.count) issue(s).")
                 }
@@ -1002,6 +1066,69 @@ final class SettingsViewModel {
         cloudKeyDrafts[provider.id] = ""
         cloudKeyFeedback[provider.id] = "Cleared. Restart the agent to drop the injected credential."
         bumpUI()
+    }
+
+    /// May this provider's Enable toggle be operated?
+    ///
+    /// A provider already on always can be — turning a working failover off
+    /// must never be blocked, and an upgrade from a build before this feature
+    /// has `enabled = true` with no record anywhere. Anything else defers to
+    /// the agent's `can_enable`, which is the same verdict
+    /// `config_guards.enforce_cloud_provider_verification` applies when the
+    /// Save button writes config, so the toggle cannot promise a save the
+    /// agent will undo.
+    func cloudProviderCanEnable(_ providerID: String) -> Bool {
+        if document.cloud.providers[providerID]?.enabled == true { return true }
+        guard let verification = cloudVerifications[providerID] else { return true }
+        return verification.canEnable
+    }
+
+    func cloudVerification(_ providerID: String) -> CloudVerification? {
+        cloudVerifications[providerID]
+    }
+
+    /// Check one provider's credential against the provider.
+    ///
+    /// Sends the Keychain draft rather than relying on the stored key: on
+    /// macOS a key is injected into the agent at launch, so a key saved since
+    /// then is one the agent has never seen. Checking the draft is what makes
+    /// the button answer about what the user is looking at.
+    func verifyCloudProvider(_ provider: CloudProviderInfo) {
+        guard agentReachable, !cloudVerifying.contains(provider.id) else {
+            if !agentReachable {
+                cloudKeyFeedback[provider.id] =
+                    "Start the agent to verify — the check runs against the provider."
+                bumpUI()
+            }
+            return
+        }
+        cloudVerifying.insert(provider.id)
+        cloudKeyFeedback[provider.id] = "Checking…"
+        bumpUI()
+        // Hoisted so the task captures two plain values, never the provider
+        // struct — the same shape fetchCloudCatalog uses.
+        let providerID = provider.id
+        let draft = (cloudKeyDrafts[providerID] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        Task { [weak self] in
+            guard let self else { return }
+            let result = await AgentAPI.verifyCloudProvider(
+                baseURL: agentBaseURL,
+                providerID: providerID,
+                apiKey: draft.isEmpty ? nil : draft
+            )
+            cloudVerifying.remove(providerID)
+            if let result {
+                cloudVerifications[providerID] = result
+                cloudKeyFeedback[providerID] = result.ok
+                    ? "Verified. \(result.detail)"
+                    : result.blocker
+            } else {
+                cloudKeyFeedback[providerID] =
+                    "The agent did not answer the check — is it running?"
+            }
+            bumpUI()
+        }
     }
 
     func fetchCloudCatalog(_ providerID: String) {

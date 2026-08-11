@@ -56,11 +56,23 @@ def test_config_summary_never_returns_raw_key() -> None:
 
 
 def test_admin_config_save_enables_provider_and_stores_key() -> None:
+    from netllm_core.cloud_verification import key_fingerprint
+
     with tempfile.TemporaryDirectory() as tmp:
         cfg_path = Path(tmp) / "config.toml"
         cfg = NetllmConfig()
         cfg.swarm.mdns = False
         cfg.agent.advertise = False
+        # A provider may only be enabled once its credential has been checked
+        # (UI-7a), so the flow this test models is verify-then-save: the
+        # record below is what POST /cloud/providers/moonshot/verify writes,
+        # fingerprinted against the very key the save then stores.
+        cfg.cloud.providers["moonshot"] = CloudProviderConfig(
+            verified_status="ok",
+            verified_at="2026-08-10T00:00:00+00:00",
+            verified_detail="Key accepted — 3 model(s) listed.",
+            verified_key_fingerprint=key_fingerprint("mk-inline"),
+        )
         save_config(cfg, cfg_path)
         app = create_app(cfg, config_path=cfg_path)
         with TestClient(app) as client:
@@ -158,12 +170,46 @@ def test_doctor_flags_enabled_provider_without_key() -> None:
 
 
 def test_doctor_does_not_flag_provider_with_key(monkeypatch) -> None:
+    """A key that has passed a check clears both cloud checks.
+
+    Both, deliberately: "has a key" and "the key works" are separate
+    questions with separate fixes, so they are separate check ids. A keyed
+    but never-checked provider clears `cloud.provider_key` and is still
+    flagged by `cloud.provider_verified` — asserted below.
+    """
+    from netllm_core.cloud_verification import key_fingerprint
+
     monkeypatch.setenv("MOONSHOT_API_KEY", "mk-env")
     cfg = NetllmConfig()
-    cfg.cloud.providers["moonshot"] = CloudProviderConfig(enabled=True)
+    cfg.cloud.providers["moonshot"] = CloudProviderConfig(
+        enabled=True,
+        verified_status="ok",
+        verified_at="2026-08-10T00:00:00+00:00",
+        verified_key_fingerprint=key_fingerprint("mk-env"),
+    )
     service = AgentService(cfg)
     payload = doctor_payload(cfg, service)
     assert not any("Moonshot" in issue["title"] for issue in payload["issues"])
+
+
+def test_doctor_flags_a_keyed_but_unverified_provider(monkeypatch) -> None:
+    """The state the write gate grandfathers on upgrade.
+
+    It is left enabled on purpose — failover that has been serving requests
+    must not stop because this release grew a field — so doctor is the only
+    place that can tell the user it was never actually checked.
+    """
+    monkeypatch.setenv("MOONSHOT_API_KEY", "mk-env")
+    cfg = NetllmConfig()
+    cfg.cloud.providers["moonshot"] = CloudProviderConfig(enabled=True)
+    payload = doctor_payload(cfg, AgentService(cfg))
+    by_id = {c["id"]: c for c in payload["checks"] if not c["ok"]}
+    flagged = by_id.get("cloud.provider_verified")
+    assert flagged is not None, sorted(by_id)
+    assert "Moonshot" in flagged["title"]
+    assert "verify" in flagged["fix"].lower()
+    # Not as a missing key, which it is not: the env var resolves.
+    assert "cloud.provider_key" not in by_id
 
 
 def test_doctor_ignores_disabled_master_switch() -> None:

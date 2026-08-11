@@ -8,6 +8,8 @@ import pytest
 from netllm_core.models import NetllmConfig
 from netllm_discovery.lan import (
     agent_url_from_listen,
+    classified_agent_endpoints,
+    classify_interface_address,
     default_subnet_cidrs,
     discover_lan_agents,
     filter_own_peer_urls,
@@ -16,6 +18,22 @@ from netllm_discovery.lan import (
     models_from_status,
     own_agent_urls,
 )
+
+# One host as `ip -o -4 addr` actually reports it: a Wi-Fi LAN address, a
+# Tailscale tunnel, Docker's default bridge plus three compose bridges, a
+# libvirt bridge, an interface that never got a DHCP lease, and loopback.
+# Deliberately in the order the kernel lists them, which is not useful order.
+MULTI_HOMED_INTERFACES = [
+    ("lo", "127.0.0.1"),
+    ("docker0", "172.17.0.1"),
+    ("br-1a2b3c4d5e6f", "172.18.0.1"),
+    ("br-9f8e7d6c5b4a", "172.19.0.1"),
+    ("br-0011223344ff", "172.20.0.1"),
+    ("virbr0", "192.168.122.1"),
+    ("tailscale0", "100.101.102.103"),
+    ("enp0s31f6", "169.254.11.7"),
+    ("wlp3s0", "10.0.0.29"),
+]
 
 
 def test_is_loopback_url_detects_local_hosts() -> None:
@@ -29,6 +47,90 @@ def test_own_agent_urls_includes_lan_and_loopback() -> None:
         urls = own_agent_urls("0.0.0.0:11400")
     assert "http://10.0.0.32:11400" in urls
     assert "http://127.0.0.1:11400" in urls
+
+
+def test_rfc1918_membership_is_not_the_classifier() -> None:
+    """The address range cannot answer this question and never could.
+
+    10.0.0.29 and 172.17.0.1 are both RFC1918; one is the LAN, the other is a
+    Docker bridge gateway. Only the interface distinguishes them — which is
+    why the *agent* classifies and the clients do not.
+    """
+    assert classify_interface_address("wlp3s0", "10.0.0.29") == "lan"
+    assert classify_interface_address("docker0", "172.17.0.1") == "container"
+    # Same address, ordinary NIC: a home router handing out 172.16/12 is
+    # unusual but legal, and this must not be filed as container noise.
+    assert classify_interface_address("eth0", "172.17.0.1") == "lan"
+    # Same interface, LAN address: a bridge is a bridge whatever it hands out.
+    assert classify_interface_address("docker0", "10.0.0.29") == "container"
+    # `br-<hash>` is Docker compose. Plain `br0` is a Linux host bridging its
+    # own NIC (libvirt, Proxmox) and carries the machine's real LAN address.
+    assert classify_interface_address("br-1a2b3c4d5e6f", "172.18.0.1") == "container"
+    assert classify_interface_address("br0", "10.0.0.29") == "lan"
+    # Address facts win over interface names where the RFC settles it.
+    assert classify_interface_address("eth0", "169.254.11.7") == "link_local"
+    assert classify_interface_address("eth0", "127.0.0.1") == "loopback"
+    # A tunnel reaches peers that are on the tunnel — useful, below the LAN.
+    assert classify_interface_address("tailscale0", "100.101.102.103") == "vpn"
+    # An interface nobody has heard of is LAN: showing a real address is a far
+    # cheaper mistake than hiding one.
+    assert classify_interface_address("some-nic-from-2030", "10.0.0.29") == "lan"
+
+
+def test_classified_agent_endpoints_orders_by_who_can_actually_dial_it() -> None:
+    """The reported bug: five Docker bridge gateways above the one address a
+    LAN peer can use. Nothing is dropped — the order carries the meaning."""
+    endpoints = classified_agent_endpoints(
+        11400,
+        interfaces=MULTI_HOMED_INTERFACES,
+        primary_url="http://10.0.0.29:11400",
+    )
+    assert [(e["url"], e["kind"]) for e in endpoints] == [
+        # Advertised first, whatever kind it is: it is what peers were told.
+        ("http://10.0.0.29:11400", "lan"),
+        ("http://100.101.102.103:11400", "vpn"),
+        ("http://172.17.0.1:11400", "container"),
+        ("http://172.18.0.1:11400", "container"),
+        ("http://172.19.0.1:11400", "container"),
+        ("http://172.20.0.1:11400", "container"),
+        ("http://192.168.122.1:11400", "container"),
+        ("http://169.254.11.7:11400", "link_local"),
+        ("http://127.0.0.1:11400", "loopback"),
+    ]
+    # The interface is carried so a client can say *which* container network
+    # — "the host is reachable from your containers at 172.17.0.1 (docker0)".
+    by_url = {e["url"]: e for e in endpoints}
+    assert by_url["http://172.17.0.1:11400"]["interface"] == "docker0"
+
+
+def test_classified_agent_endpoints_is_stable_and_dedupes_aliases() -> None:
+    """Polled every 2s by the dashboard: a set-derived order would reshuffle
+    the cell under the cursor. One address on two interfaces keeps the most
+    useful reading of itself."""
+    shuffled = list(reversed(MULTI_HOMED_INTERFACES))
+    assert classified_agent_endpoints(
+        11400, interfaces=shuffled, primary_url="http://10.0.0.29:11400"
+    ) == classified_agent_endpoints(
+        11400, interfaces=MULTI_HOMED_INTERFACES, primary_url="http://10.0.0.29:11400"
+    )
+
+    aliased = classified_agent_endpoints(
+        11400, interfaces=[("docker0", "10.0.0.29"), ("wlp3s0", "10.0.0.29")]
+    )
+    assert [(e["url"], e["kind"]) for e in aliased] == [
+        ("http://10.0.0.29:11400", "lan")
+    ]
+
+
+def test_classified_agent_endpoints_keeps_an_unenumerable_primary() -> None:
+    """Interface enumeration needs psutil. Without it the caller still has the
+    advertised address, and must not be handed an empty list instead."""
+    endpoints = classified_agent_endpoints(
+        11400, interfaces=[], primary_url="http://10.0.0.29:11400"
+    )
+    assert endpoints == [
+        {"url": "http://10.0.0.29:11400", "kind": "lan", "interface": ""}
+    ]
 
 
 def test_filter_own_peer_urls() -> None:

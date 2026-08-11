@@ -474,7 +474,15 @@ def test_auth_gated_blind_candidate_excluded() -> None:
     assert real in candidates
 
 
-def test_prune_local_provider_rows_drops_removed_provider() -> None:
+def test_prune_local_rows_drops_removed_provider() -> None:
+    """The caller's keep set is the whole truth for non-peer, non-cloud rows.
+
+    This used to take a second `providers` argument and spare any row whose
+    provider had left `discovery.providers` — which inverted the intent: a
+    row could only be pruned while its provider was still enabled. Removing
+    the provider (or a `[[routing.backends]]` override with a provider
+    outside the discovery roster) left the row routable until restart.
+    """
     pool = RouterPool()
     lms = Backend(
         id="lms",
@@ -488,13 +496,10 @@ def test_prune_local_provider_rows_drops_removed_provider() -> None:
         base_url="https://api.openai.com/v1",
         provider="openai",
         local=False,
+        cloud_provider="openai",
     )
     pool.set_backends([lms, omlx, cloud, _peer()])
-    # Scan no longer returns lmstudio; provider set no longer includes it.
-    pool.prune_local_provider_rows({omlx.base_url}, {"omlx", "ollama"})
-    urls = {b.base_url for b in pool.backends}
-    assert lms.base_url in urls  # provider not in scanned set -> untouched
-    pool.prune_local_provider_rows({omlx.base_url}, {"omlx", "ollama", "lmstudio"})
+    pool.prune_local_rows({omlx.base_url})
     urls = {b.base_url for b in pool.backends}
     assert lms.base_url not in urls
     assert omlx.base_url in urls

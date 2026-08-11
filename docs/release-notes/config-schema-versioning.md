@@ -112,6 +112,35 @@ Warnings also now say whether the skew is supported, degraded, or outside the
 compatibility promise, instead of the same "update it" for one patch and for
 two majors.
 
+## Later generations written on this rail
+
+### Generation 3 — stable row identity for backends and sources
+
+Every `[[routing.backends]]` and `[[routing.sources]]` row gains a `row_id`:
+
+```toml
+[[routing.backends]]
+row_id = "b-e765dd174ef1"
+base_url = "http://10.0.0.5:1234/v1"
+```
+
+Purely additive — no key is removed, renamed or retyped, and a row that
+already has an id (a config migrated on another machine and copied over)
+keeps it. Ids are **derived** from the row's existing identity key (a
+backend's `base_url`, a source's `id`) rather than random, so the migration
+has a reviewable golden pair and two machines migrating the same file agree
+on the result.
+
+**Why, for operators:** without it, the save path keyed each row on a field
+you can type into. Correcting a port typo on a backend erased that row's
+stored `api_key` and reset `max_concurrency` to 0; renaming a source erased
+its `secret`, which on a LAN bind then failed the elevated-source check on a
+config you had set up correctly. Both were silent. `row_id` is never rendered
+as a control and is not something to edit — the dashboard, the macOS app and
+`netllm config import` all just carry it back so the agent can tell which row
+an edit belongs to. A client too old to send it still merges on the old key,
+so a mixed-version mesh does not regress.
+
 ## What did not change
 
 - No `/v1/*` or `/netllm/v1/*` request-path behaviour. The 373 contract

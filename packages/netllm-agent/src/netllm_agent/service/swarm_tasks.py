@@ -15,7 +15,22 @@ import asyncio
 import logging
 from typing import Any
 
-from netllm_discovery.swarm import PeerRecord
+from netllm_discovery.swarm import (
+    PeerRecord,
+    normalize_peer_endpoints,
+    normalize_peer_providers,
+    normalize_peer_urls,
+)
+
+# discover_lan_agents tags every row with where it came from; PeerRecord
+# names the same four things slightly differently. Anything unrecognised
+# falls back to the honest default rather than guessing.
+_SCAN_SOURCE_TO_DISCOVERY = {
+    "mdns": "mdns",
+    "config": "static",
+    "subnet": "subnet_scan",
+    "scan": "subnet_scan",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +82,15 @@ class SwarmTasksMixin:
                 version=payload.get("version", ""),
                 max_concurrency=int(payload.get("max_concurrency", 0) or 0),
                 draining=bool(payload.get("draining", False)),
+                # UI-4a, absent-tolerant: a peer on an older build sends
+                # neither key and reads as [] / [], which is the correct
+                # outcome — the UI shows "—" rather than inventing a mix.
+                # discovered_via is deliberately NOT read from the body: the
+                # sender cannot know how we found it, and register_peer
+                # carries forward a more specific answer if one exists.
+                also_reachable_at=normalize_peer_urls(payload.get("also_reachable_at")),
+                reachable_at=normalize_peer_endpoints(payload.get("reachable_at")),
+                providers=normalize_peer_providers(payload.get("providers")),
             )
         )
         await self.refresh_local_backends()
@@ -107,7 +131,7 @@ class SwarmTasksMixin:
                         agent_id,
                     )
                     return
-                record = await self.swarm.fetch_peer(url)
+                record = await self.swarm.fetch_peer(url, discovered_via="mdns")
                 if record:
                     self.swarm.register_peer(record)
                 else:
@@ -116,6 +140,7 @@ class SwarmTasksMixin:
                             agent_id=agent_id,
                             listen_url=url,
                             role=props.get("role", "peer"),
+                            discovered_via="mdns",
                         )
                     )
                 await self.refresh_local_backends()
@@ -258,6 +283,17 @@ class SwarmTasksMixin:
                         role=data.get("role", "peer"),
                         hostname=data.get("hostname", ""),
                         backends=data.get("backends", []),
+                        # discover_lan_agents merges mDNS, static peers and
+                        # the subnet probe into one list and tags each row,
+                        # so this pass is not uniformly "subnet_scan".
+                        discovered_via=_SCAN_SOURCE_TO_DISCOVERY.get(
+                            str(data.get("source", "")), "subnet_scan"
+                        ),
+                        also_reachable_at=normalize_peer_urls(
+                            data.get("also_reachable_at")
+                        ),
+                        reachable_at=normalize_peer_endpoints(data.get("reachable_at")),
+                        providers=normalize_peer_providers(data.get("providers")),
                     )
                 )
             if peers:

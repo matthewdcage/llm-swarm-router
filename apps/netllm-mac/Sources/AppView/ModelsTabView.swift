@@ -221,14 +221,14 @@ struct ModelsTabView: View {
             groupHeader(group)
         }
         .padding(10)
-        .background(Color.gray.opacity(0.08))
+        .background(DesignTokens.inset)
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private func groupHeader(_ group: MachineGroup) -> some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(group.online ? Color.green : Color.red)
+                .fill(group.online ? DesignTokens.ok : DesignTokens.danger)
                 .frame(width: 8, height: 8)
                 .accessibilityLabel(group.online ? "Online" : "Offline")
             VStack(alignment: .leading, spacing: 1) {
@@ -284,13 +284,13 @@ struct ModelsTabView: View {
         let inactiveReason = model.poolInactiveReason(pool)
         return HStack(spacing: 4) {
             Circle()
-                .fill(inactiveReason == nil ? Color.green : Color.orange)
+                .fill(inactiveReason == nil ? DesignTokens.ok : DesignTokens.warn)
                 .frame(width: 6, height: 6)
             Text(pool.name).font(.caption2)
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
-        .background((pool.enabled ? Color.accentColor : Color.gray).opacity(0.15))
+        .background(pool.enabled ? DesignTokens.accentTint : DesignTokens.hoverBg)
         .clipShape(Capsule())
         .help(poolBadgeHelp(pool, inactiveReason: inactiveReason))
     }

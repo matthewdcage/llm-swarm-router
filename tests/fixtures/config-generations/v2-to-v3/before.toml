@@ -1,0 +1,76 @@
+# Generation 2: stamped, but with no per-row identity anywhere.
+#
+# This is what every config written before the 2 -> 3 migration looks like:
+# backend rows keyed only by the base_url the user can retype, source rows
+# keyed only by the id the user can rename. Both carry a write-only secret
+# the agent never sends to a client, so both were one edit away from losing
+# it.
+#
+# Deliberately not tidy, on the same rule as the v1-to-v2 pair. It carries
+# keys this build does not model ([future_section], agent.future_field, an
+# unknown cloud provider) and a deprecated key, so the pair also proves the
+# migration is additive rather than tidying. It carries two backends on the
+# SAME base_url, which nothing forbids, so the pair pins what the id
+# derivation does about a collision. And it carries one row that ALREADY has
+# a row_id -- a config migrated on another machine and copied here -- so the
+# pair proves the migration is idempotent and never re-mints.
+
+schema_version = 2
+
+[agent]
+agent_id = "8f14e45f-ea8f-4f0a-b4a1-000000000001"
+hostname = "workshop-mini"
+listen = "0.0.0.0:11400"
+role = "gateway"
+future_field = "written by a newer netllm"
+
+[discovery]
+providers = ["omlx", "ollama"]
+
+[swarm]
+mdns = true
+subnet_scan = true
+
+[routing]
+default_strategy = "local_spillover"
+require_same_model_for_shard = false
+
+[[routing.backends]]
+base_url = "http://10.0.0.5:1234/v1"
+provider = "lmstudio"
+api_key = "sk-lmstudio-do-not-lose-me"
+max_concurrency = 2
+
+[[routing.backends]]
+base_url = "http://10.0.0.5:1234/v1"
+provider = "custom"
+
+[[routing.backends]]
+row_id = "b-already-minted"
+base_url = "https://api.moonshot.ai/v1"
+provider = "custom"
+local = false
+
+[[routing.sources]]
+id = "cursor"
+secret = "cursor-secret-do-not-lose-me"
+allow_cloud = true
+
+[[routing.sources]]
+id = "claude-code"
+description = "Claude Code CLI"
+
+[cloud]
+enabled = true
+fallback = "cloud"
+
+[cloud.providers.openai]
+enabled = true
+region = ""
+
+[cloud.providers.future_provider]
+enabled = true
+region = "moon-1"
+
+[future_section]
+knob = 3

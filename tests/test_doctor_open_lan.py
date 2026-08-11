@@ -58,7 +58,9 @@ def test_doctor_open_lan_ok_json(
     assert any("open" in note.lower() for note in payload.get("notes", []))
 
 
-def test_doctor_endpoint_open_lan_note(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_doctor_endpoint_open_lan_note(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     # Hermetic: the agent's own scan + health probe must not touch live
     # local providers (a real LM Studio requiring auth would otherwise
     # add a legitimate doctor issue and flip ok to False).
@@ -84,7 +86,9 @@ def test_doctor_endpoint_open_lan_note(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg.agent.listen = "0.0.0.0:11400"
     cfg.swarm.mdns = False
     cfg.agent.advertise = False
-    with TestClient(create_app(cfg)) as client:
+    cfg_path = tmp_path / "config.toml"
+    save_config(cfg, cfg_path)
+    with TestClient(create_app(cfg, config_path=cfg_path)) as client:
         data = client.get("/netllm/v1/doctor").json()
     titles = [issue["title"] for issue in data["issues"]]
     assert "LAN exposure without cluster token" not in titles

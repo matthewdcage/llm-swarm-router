@@ -87,7 +87,7 @@ async def run_with_failover(adapter: SurfaceAdapter, plan: RequestPlan) -> Any:
     try:
         await service.refresh_local_backends()
         schedule = adapter.candidates(plan)
-        recorder = service.new_attempt_recorder()
+        recorder = service.new_attempt_recorder(plan)
         last_error: Exception | None = None
         tried: set[str] = set()
 
@@ -234,7 +234,7 @@ async def open_stream(adapter: SurfaceAdapter, plan: RequestPlan) -> StreamSessi
     try:
         await service.refresh_local_backends()
         schedule = adapter.candidates(plan)
-        recorder = service.new_attempt_recorder()
+        recorder = service.new_attempt_recorder(plan)
         last_error: Exception | None = None
         tried: set[str] = set()
 
@@ -409,6 +409,12 @@ class StreamSession:
             if pending is None:
                 self._record_success()
             while pending is not None:
+                # UI-2: time-to-first-token is stamped by the recorder at the
+                # first content-bearing frame, one call site for every
+                # streaming surface. A no-op once the stamp is taken.
+                self._recorder.observe_stream_chunk(
+                    pending, started_at=self._started_at
+                )
                 p, c = adapter.extract_stream_usage(pending)
                 self._prompt_tokens = max(self._prompt_tokens, p)
                 self._completion_tokens = max(self._completion_tokens, c)

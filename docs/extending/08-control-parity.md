@@ -63,12 +63,20 @@ endpoint, and a client that has never heard of the key ignores it.
 
 Each descriptor names a *presence unit per surface*, which is the point:
 
-- `sources` is a **tab** on the web (`renderSourcesTab`, `data-tab="sources"`)
-  and a **section inside `routingTab`** on macOS (`sectionHeader("Sources")`).
-  A naive tab-set diff calls that absent; a human calls it present, and the
-  human is right. `swift_symbol` carries the section header, so it passes.
-- `drain` and `rediscover` are not tabs at all (`is_tab=False`); they are
-  buttons inside other tabs and a CLI command each.
+- `sources` is a **section of the Integrations page** on the web
+  (`renderSourcesSection` in `static/pages/integrations.js`) and a **section
+  inside `routingTab`** on macOS (`sectionHeader("Sources")`). A naive tab-set
+  diff calls that absent on both; a human calls it present, and the human is
+  right. `swift_symbol` carries the section header, so it passes.
+- The presence unit is a *section*, not necessarily a whole page. When the
+  dashboard collapsed fourteen tabs into eleven pages, `agent`, `discovery`
+  and `swarm` all landed on the Network page: each descriptor names its own
+  section renderer (`networkThisNodeSection`, `networkLocalProvidersSection`,
+  `networkSwarmDiscoverySection`), so deleting one section still fails even
+  though the page survives. Which page carries which control is declared in
+  `DASHBOARD_CONTROLS` in `tests/conformance/kit_config_surfaces.py`.
+- `drain` and `rediscover` are not pages at all (`is_tab=False`); they are
+  buttons in the persistent chrome and a CLI command each.
 - `surfaces_required` is genuinely per-control. `ui.menubar_*` is a macOS
   concept; `netllm install` / `connect` / `env` / `swarm-token` are CLI-only by
   nature. A uniform roster would be a lie.
@@ -106,9 +114,18 @@ covers nine dashboard fields with zero name literals. Without this
 disposition, every schema-driven field is a false positive.
 
 **`derived` is excluded from the denominator.** Both generic renderers drop
-`read_only` fields, so all five are absent on every surface, correctly and
-forever. Counting them would open with five permanent ledger rows and a
+`read_only` fields, so every one of them is absent on every surface, correctly
+and forever. Counting them would open with a permanent ledger row each and a
 distorted percentage.
+
+**`derived` is about *rendering*, not about the wire.** `row_id` on a
+`routing.backends`/`routing.sources` row is `read_only` — no surface renders a
+control for it — but it is also flagged `identity`, and both patch builders
+must send it straight back so the agent can tell which stored row an edit
+belongs to. Treating "read_only" as "drop it from the patch" is exactly what
+made editing a backend's `base_url` erase its stored API key. Absent from the
+form is not the same as absent from the payload; see
+`tests/test_config_row_identity.py`.
 
 **A name in prose is not a control.** `source_region` strips `//`, `///` and
 `/* */` comments before scanning, and `_names` requires the field name as
@@ -147,22 +164,23 @@ assertion passes vacuously. The walk duck-types on `.commands`, and
 <!-- netllm:generated:begin:control-parity-table -->
 | Control | Kind | Dashboard | macOS | CLI |
 | --- | --- | --- | --- | --- |
-| `status` | view | `renderStatusTab` | `statusTab` | `netllm status` |
-| `serving` | view | `renderServingTab` | absent — ledgered, expires phase-8 | n/a |
-| `backends` | view | `renderBackendsTab` | `backendsTab` | n/a |
-| `models` | view | `renderModelsTab` | `modelsTab` | `netllm models` |
-| `peers` | view | `renderPeersTab` | `peersTab` | `netllm peers` |
-| `agent` | config | `renderAgentTab` | `agentTab` | n/a |
-| `discovery` | config | `renderDiscoveryTab` | `discoveryTab` | `netllm discover` |
-| `swarm` | config | `renderSwarmTab` | `swarmTab` | `netllm join`, `netllm swarm-token` |
-| `routing` | config | `renderRoutingTab` | `routingTab` | n/a |
-| `sources` | config | `renderSourcesTab` | `sectionHeader("Sources")` | `netllm sources list`, `netllm sources toggle` |
-| `cloud` | config | `renderCloudTab` | `cloudTab` | `netllm cloud list`, `netllm cloud enable`, `netllm cloud disable`, `netllm cloud set-key` |
-| `ui` | config | `renderUiTab` | `uiTab` | n/a |
-| `logs` | view | `renderLogsTab` | `logsTab` | n/a |
-| `tools` | action | `renderToolsTab` | `toolsTab` | `netllm doctor`, `netllm test`, `netllm gateway` |
+| `status` | view | `renderOverviewPage` | `statusTab` | `netllm status` |
+| `serving` | view | `ovRenderThroughput` | absent — ledgered, expires phase-8 | n/a |
+| `backends` | view | `renderBackendsPage` | `backendsTab` | n/a |
+| `models` | view | `renderModelsPage` | `modelsTab` | `netllm models` |
+| `peers` | view | `renderPeersPage` | `peersTab` | `netllm peers` |
+| `agent` | config | `networkThisNodeSection` | `agentTab` | n/a |
+| `discovery` | config | `networkLocalProvidersSection` | `discoveryTab` | `netllm discover`, `netllm ignore list`, `netllm ignore add`, `netllm ignore remove` |
+| `swarm` | config | `networkSwarmDiscoverySection` | `swarmTab` | `netllm join`, `netllm swarm-token` |
+| `routing` | config | `renderRoutingPage` | `routingTab` | n/a |
+| `sources` | config | `renderSourcesSection` | `sectionHeader("Sources")` | `netllm sources list`, `netllm sources toggle` |
+| `cloud` | config | `renderCloudPage` | `cloudTab` | `netllm cloud list`, `netllm cloud enable`, `netllm cloud disable`, `netllm cloud set-key`, `netllm cloud verify` |
+| `cloud_verify` | action | `renderCloudVerificationRow` | `verifyCloudProvider` | `netllm cloud verify` |
+| `ui` | config | `prefsBehaviourSection` | `uiTab` | n/a |
+| `logs` | view | `renderLogsPage` | `logsTab` | n/a |
+| `tools` | action | `renderDoctorPage` | `toolsTab` | `netllm doctor`, `netllm test`, `netllm gateway` |
 | `drain` | action | `renderDrainButton` | absent — ledgered, expires phase-8 | `netllm drain` |
-| `rediscover` | action | `renderStatusTab` | `runDiscover` | `netllm discover` |
+| `rediscover` | action | `runDiscover` | `runDiscover` | `netllm discover` |
 <!-- netllm:generated:end:control-parity-table -->
 
 Regenerate with `python3 scripts/generate-registry-artifacts.py`; `--check`
@@ -256,7 +274,6 @@ in its sharpest form.
 ```bash
 uv run pytest tests/conformance/kit_config_surfaces.py -q
 # the ledger's own health -- reasons, expiries, staleness, the tripwire
-<<<<<<< HEAD
 uv run pytest tests/conformance/kit_config_surfaces.py -k "ledger or parity"
 python3 scripts/generate-registry-artifacts.py --check
 ```
@@ -266,13 +283,6 @@ The second selector is the ledger half: `-k control-parity` selected **nothing**
 `control-parity` is the *ledger file's* name, not a test name. `"ledger or
 parity"` selects the seven that read it.
 
-
-=======
-uv run pytest tests/conformance/kit_config_surfaces.py -k ledger
-python3 scripts/generate-registry-artifacts.py --check
-```
-
->>>>>>> origin/main
 Adding a config field with no control fails as:
 
 ```

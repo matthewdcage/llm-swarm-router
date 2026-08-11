@@ -266,23 +266,37 @@ def test_section_roster_three_way_equality() -> None:
 
 
 def test_merge_sources_allowlist_matches_source_config_fields() -> None:
-    # `id` is the identity key (set separately); `secret` is write-only
-    # (empty patch value keeps the stored one). Everything else must be
-    # copyable from a patch or it is silently unsavable on every surface.
+    # `row_id` is the stable identity and `id` the legacy fallback key --
+    # both resolved by the merge, neither settable from a patch. `secret` is
+    # write-only (an empty patch value keeps the stored one). Everything else
+    # must be copyable from a patch or it is silently unsavable on every
+    # surface.
     from netllm_core.config_merge import _MERGE_SOURCE_FIELDS
 
     assert set(_MERGE_SOURCE_FIELDS) == set(SourceConfig.model_fields) - {
+        "row_id",
         "id",
         "secret",
     }
 
 
 def test_merge_cloud_providers_allowlist_matches_provider_config_fields() -> None:
-    from netllm_core.config_merge import _MERGE_CLOUD_PROVIDER_FIELDS
+    # `api_key` is write-only (an empty patch value keeps the stored one).
+    # The verification record is server-owned: it is what config_guards reads
+    # to decide whether a provider may be enabled, so a client able to patch
+    # it could certify its own credentials. Everything else must be copyable
+    # from a patch or it is silently unsavable on every surface.
+    from netllm_core.config_merge import (
+        _MERGE_CLOUD_PROVIDER_FIELDS,
+        _SERVER_OWNED_CLOUD_PROVIDER_FIELDS,
+    )
 
-    assert set(_MERGE_CLOUD_PROVIDER_FIELDS) == set(
-        CloudProviderConfig.model_fields
-    ) - {"api_key"}
+    assert set(_MERGE_CLOUD_PROVIDER_FIELDS) == (
+        set(CloudProviderConfig.model_fields)
+        - {"api_key"}
+        - _SERVER_OWNED_CLOUD_PROVIDER_FIELDS
+    )
+    assert _SERVER_OWNED_CLOUD_PROVIDER_FIELDS <= set(CloudProviderConfig.model_fields)
 
 
 # --- dict-field classification completeness (item 5) -----------------------

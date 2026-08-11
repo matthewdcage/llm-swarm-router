@@ -1,4 +1,11 @@
-"""Per-URL backend credential resolution and routing.backends sync helpers."""
+"""Per-URL backend credential resolution, routing.backends sync helpers, and
+the `discovery.ignored_urls` denylist.
+
+The ignore-list lives here rather than in `netllm-discovery` because
+`normalize_backend_url` — the comparison key every one of those questions is
+asked in — already lives here, and because `netllm-cli` and `netllm-agent`
+both need to answer "is this URL ignored?" without importing the scanner.
+"""
 
 from __future__ import annotations
 
@@ -33,6 +40,97 @@ def backend_override_for_url(cfg: NetllmConfig, url: str) -> BackendOverride | N
         if normalize_backend_url(override.base_url) == norm:
             return override
     return None
+
+
+def configured_backend_urls(cfg: NetllmConfig) -> set[str]:
+    """Normalized base URLs of every ``[[routing.backends]]`` row.
+
+    Disabled rows count. A row a user hand-authored and then switched off is
+    still an explicit statement about that URL, and the ignore-list must not
+    quietly change what it means.
+    """
+    return {
+        norm
+        for norm in (normalize_backend_url(o.base_url) for o in cfg.routing.backends)
+        if norm
+    }
+
+
+def ignored_url_keys(cfg: NetllmConfig) -> set[str]:
+    """Normalized ``discovery.ignored_urls`` entries that actually take effect.
+
+    **Conflict rule: the explicit configuration wins.** A URL named in both
+    ``discovery.ignored_urls`` and ``[[routing.backends]]`` is *not* ignored —
+    the override keeps working exactly as before and the ignore entry is
+    inert, reported by `ignored_url_conflicts` so the surfaces can say so.
+
+    The alternative (ignore wins) was rejected: `routing.backends` is the only
+    place a user states "always route to this endpoint", it carries the
+    per-URL API key, and it is the row `scan_local_providers` synthesises a
+    backend from whether or not a probe succeeds. Letting a denylist entry
+    silently delete one would be a data-loss-grade surprise — the user's
+    configured endpoint would vanish from /status with nothing to point at.
+    Ignoring is for endpoints discovery *guessed* at (default port scan, env
+    hints, custom_endpoints); it is not a way to disable configuration.
+    """
+    explicit = configured_backend_urls(cfg)
+    return {
+        norm
+        for norm in (normalize_backend_url(u) for u in cfg.discovery.ignored_urls)
+        if norm and norm not in explicit
+    }
+
+
+def is_url_ignored(cfg: NetllmConfig, url: str) -> bool:
+    """True when discovery must not register `url` as a backend."""
+    norm = normalize_backend_url(url)
+    return bool(norm) and norm in ignored_url_keys(cfg)
+
+
+def ignored_url_conflicts(cfg: NetllmConfig) -> list[str]:
+    """Ignore entries overruled by an explicit ``[[routing.backends]]`` row.
+
+    Returned normalized, so the caller reports the URL the two settings
+    actually agree on rather than whichever spelling was typed last.
+    """
+    explicit = configured_backend_urls(cfg)
+    seen: set[str] = set()
+    conflicts: list[str] = []
+    for raw in cfg.discovery.ignored_urls:
+        norm = normalize_backend_url(raw)
+        if norm and norm in explicit and norm not in seen:
+            seen.add(norm)
+            conflicts.append(norm)
+    return conflicts
+
+
+def add_ignored_url(cfg: NetllmConfig, url: str) -> bool:
+    """Add `url` to ``discovery.ignored_urls``. False when already present.
+
+    Stores the normalized form so the list on disk is the same shape the
+    comparison uses; never touches ``routing.backends`` or
+    ``discovery.provider_urls`` (an ignored endpoint must stay recoverable by
+    removing exactly one line).
+    """
+    norm = normalize_backend_url(url)
+    if not norm:
+        return False
+    if any(normalize_backend_url(u) == norm for u in cfg.discovery.ignored_urls):
+        return False
+    cfg.discovery.ignored_urls = [*cfg.discovery.ignored_urls, norm]
+    return True
+
+
+def remove_ignored_url(cfg: NetllmConfig, url: str) -> bool:
+    """Drop every entry matching `url`. False when nothing matched."""
+    norm = normalize_backend_url(url)
+    if not norm:
+        return False
+    kept = [u for u in cfg.discovery.ignored_urls if normalize_backend_url(u) != norm]
+    if len(kept) == len(cfg.discovery.ignored_urls):
+        return False
+    cfg.discovery.ignored_urls = kept
+    return True
 
 
 def _api_key_for_provider_id(provider_id: str) -> str:

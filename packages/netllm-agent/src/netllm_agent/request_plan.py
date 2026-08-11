@@ -80,6 +80,11 @@ class RequestPlan:
     # neither an ``x-api-key`` header nor ``ANTHROPIC_API_KEY``. Decides the
     # keyless-401 vs generic exhaustion split (D11).
     api_key: str = ""
+    # UI-1's per-policy dimension: ``"<index>:<name>"`` for the routing policy
+    # that matched, "" when none did. Composite because ``RoutingPolicy`` has
+    # no id — index alone breaks on reorder, and name alone breaks on the
+    # empty default name. A stable ``RoutingPolicy.id`` is UI-9's job.
+    policy_key: str = ""
 
     @property
     def api_format(self) -> str:

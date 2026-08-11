@@ -73,7 +73,8 @@ Prefer `./netllm` from the repo root, works without global PATH (`uv run` wrappe
 | `./netllm doctor` | PATH, mDNS, backend misconfig checks |
 | `./netllm cloud list` | Pre-configured cloud providers (Moonshot, Z.ai, OpenAI, Anthropic, OpenRouter, DashScope) + enabled/key state |
 | `./netllm cloud enable/disable <id>` | Toggle a cloud provider (`--region`, `--auth`) |
-| `./netllm cloud set-key <id>` | Store an API key (prompt or `--env VAR`) |
+| `./netllm cloud set-key <id>` | Store an API key (prompt or `--env VAR`) — verifies it immediately |
+| `./netllm cloud verify <id>` | Check the credential against the provider and record the result — a provider cannot be enabled until this passes |
 | `./netllm cloud fallback <cloud\|local\|none\|on\|off>` | Cloud fallback direction / toggle |
 | `./netllm cloud connect openrouter` | OAuth PKCE sign-in (the only provider with sanctioned 3rd-party OAuth) |
 | `./netllm cloud test <id>` | Probe a cloud provider's reachability + model catalog |
@@ -86,7 +87,8 @@ Prefer `./netllm` from the repo root, works without global PATH (`uv run` wrappe
 | `./netllm config schema` | Config form schema JSON (same as `GET /netllm/v1/config/schema`; works without a running agent) |
 | `./scripts/ci.sh` | Lint + test (same as CI) |
 | `./scripts/ci.sh lint` | Ruff check + format --check (repo-wide) + dashboard token drift |
-| `./scripts/ci.sh test` | Run tests |
+| `./scripts/ci.sh test` | Run tests (`tests/e2e/` self-skips without a chromium binary) |
+| `./scripts/ci.sh e2e` | Browser end-to-end for the web dashboard — installs chromium, drives the real agent (minutes, own CI job) |
 | `./scripts/ci.sh types` | basedpyright (non-blocking while the backlog is triaged) |
 | `./scripts/ci.sh packaging` | Build deb/rpm (Linux) or zip (Windows) smoke artifacts |
 | `scripts/verify-before-pr.sh` | Pre-push gate: lint + test + macOS `swift build -c release` |
@@ -181,7 +183,8 @@ Editor wiring reference: [docs/editor-integration.md](docs/editor-integration.md
 ## Testing
 
 - Runner: pytest (`tests/`, asyncio mode auto)
-- CI: `./scripts/ci.sh lint` (Ubuntu) then `./scripts/ci.sh test` + `./scripts/ci.sh packaging` (Ubuntu + Windows); macOS `menubar-lifecycle` on PRs that touch `apps/netllm-mac/` or packaging
+- CI: `./scripts/ci.sh lint` (Ubuntu) then `./scripts/ci.sh test` + `./scripts/ci.sh packaging` (Ubuntu + Windows) + `./scripts/ci.sh e2e` (Ubuntu); macOS `menubar-lifecycle` on PRs that touch `apps/netllm-mac/` or packaging
+- **Browser tests** (`tests/e2e/`, Playwright + chromium): drive the *real* agent — a uvicorn server on an ephemeral port serving `create_app(cfg)`, plus a stub OpenAI-compatible upstream. Nothing mocks the dashboard's own fetches, so a passing page rendered against the actual HTTP surface. One-time setup: `uv run playwright install chromium`. The fixtures skip themselves when that binary is absent, so `ci.sh test` stays green on a bare runner. A JS exception in any page renderer fails the test — `console_errors` is asserted empty, not ignored
 - Pre-push: `scripts/verify-before-pr.sh` (see [docs/ci-and-release.md](docs/ci-and-release.md))
 - Add tests only for real behavior; avoid trivial assertions
 
@@ -201,18 +204,14 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - Assume `netllm` is on PATH: prefer `./netllm` from repo root in instructions
 - Skip `./netllm doctor` before declaring setup complete
 - Add a config field to `models.py` without a control on the dashboard **and** the macOS app, or a dated row in `tests/conformance/ledgers/control-parity.toml` — `tests/conformance/kit_config_surfaces.py` fails by name (Axis D / F-21)
-<<<<<<< HEAD
 - **Add a provider, surface or harness id literal outside its registry.** `scripts/check-registry-mirrors.py` blocks it in `ci.sh lint`. Adding a row to `tests/conformance/ledgers/mirrors.toml` is **not** a fix — it also turns `tests/extending/test_worked_example_*.py` red until the new mirror is classified. The question is always whether the fact can be derived, generated with `--check`, or projection-tested ([docs/extending/README.md](docs/extending/README.md))
-=======
-- Add a provider, surface or harness id literal outside its registry (`tests/conformance/ledgers/mirrors.toml` blocks it)
->>>>>>> origin/main
 - Auto-edit user editor `settings.json` without explicit consent
 - macOS menubar in-app install only works from `/Applications/llm-swarm-router.app` or `netllm-mac.app`; web dashboard proxies update checks via `GET /netllm/v1/update/check`
 
 ## Learned User Preferences
 
 - Validate macOS updater/install fixes locally (`tests/test_bundled_install_scripts.sh`, `scripts/test-menubar-e2e.sh`) before release commits or tags; for menubar **Agent exited with code 0. Auto-restart failed**, check `lsof -i :11400` and `~/Library/Application Support/netllm/logs/agent.log` before rebuilding or reinstalling
-- Run `./scripts/verify-before-pr.sh` (or `--full` with menubar e2e) before pushing macOS menubar PRs; after editing `design-tokens.json`, run `scripts/generate-dashboard-tokens.py` (CI enforces via `--check`)
+- Run `./scripts/verify-before-pr.sh` (or `--full` with menubar e2e) before pushing macOS menubar or dashboard/UI PRs; run `./scripts/ci.sh e2e` (198 Playwright tests) when dashboard pages change; after editing `design-tokens.json`, run `scripts/generate-dashboard-tokens.py` (CI enforces via `--check`); do not dismiss macOS-local pytest failures as "expected" without fixing root causes
 - macOS in-app update must stop the agent and free `:11400` as part of install — not require manual **Stop** first
 - Commit macOS update/install fixes as focused slices separate from unrelated feature work when possible
 - Run local agent smoke (`./netllm test`, menubar e2e) before PR, merge, and release
@@ -226,7 +225,7 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 
 ## Learned Workspace Facts
 
-- Local web dashboard at http://127.0.0.1:11400/ui/ on all platforms; macOS menubar has **Open Dashboard**; same-host `http://<LAN-IP>:11400/ui/` has full admin; remote LAN browsers are read-only unless `swarm.cluster_token` is set
+- Local web dashboard at http://127.0.0.1:11400/ui/ on all platforms; macOS menubar has **Open Dashboard**; same-host `http://<LAN-IP>:11400/ui/` has full admin; remote LAN browsers are read-only unless `swarm.cluster_token` is set; UI is served by the installed app's bundled agent — hard-refresh (Cmd+Shift+R) after app updates if the browser shows stale pages
 - Linux/Windows **alpha** use `/ui/` + CLI; macOS stable adds menubar app: same agent core
 - Published GitHub Releases attach DMG (macOS), `.deb`/`.rpm` (Linux), Windows zip, and `netllm.yaml` via `.github/workflows/release.yml`: see [docs/platform-matrix.md](docs/platform-matrix.md)
 - `./netllm` wrapper runs `uv run --directory $ROOT netllm`: no global install needed; `scripts/agent-verify-setup.sh` prefers global `netllm` when on PATH — use `./netllm` for repo-local smoke; for live mesh tuning edit `~/.config/netllm/config.toml` directly and apply via menubar **Restart Agent** (global `netllm` on PATH outside the repo — `./netllm` only exists at repo root); multi-node strategy alignment, model pools, `follow_gateway`, and per-node LM Studio/oMLX auth are **maintainer-local** choices — stock single-machine defaults need no LAN alignment pass
@@ -281,10 +280,10 @@ Human contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) for fork/PR workflow,
 - **Routing hardening (phase 5, mesh utilization):** `default_strategy = "auto"` (shard context → batch_shard, else least_load — recommended for interactive traffic); capacity errors (409/429/503/507, `prefill_memory_exceeded`, wrapped peer 502s) exclude a backend per-request without tripping it offline (`capacity_rejections` in status); `routing.max_in_flight_per_backend` back-pressure cap applies to every strategy; peer rows in status hydrate real health from the pool cache (no more perpetual `unknown/0`); heartbeats carry `routing_strategy` + `version` → drift warnings in status (`peer_warnings`) and doctor notes; `shardless_fallbacks` counter replaces per-request log spam; `plan_batch_shard`/`BatchShardPlan` removed (`require_same_model_for_shard` is a kept-for-compat no-op) — [docs/routing-hardening-plan.md](docs/routing-hardening-plan.md)
 - Do not run the macOS menubar app and `./netllm serve` together; both bind `:11400`. Before quitting the app, use **Stop** so the agent subprocess exits. Orphans show as menubar **Agent exited with code 0. Auto-restart failed** — `lsof -i :11400` to confirm; after max auto-restarts the app stays in `.failed` until fully quit/killed (re-`open` alone reuses the failed instance). Agent stdout/stderr: `~/Library/Application Support/netllm/logs/agent.log`
 - oMLX discovery probes `:8080` by default; backends on other ports need `[discovery].custom_endpoints` or `[[routing.backends]]` in `~/.config/netllm/config.toml`.
-- macOS menubar install/update: **recommended on macOS 26+:** clone release tag → `apps/netllm-mac/Scripts/build.sh release` → `packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app` ([docs/macos-install.md](docs/macos-install.md)); GitHub DMG + menubar **Updates** when notarized; bundled `macos-app-install.sh` under `Contents/Resources/Scripts/`; `scripts/upgrade-mac-app.sh` is repo-only; in-app update stops agent via `--in-app-update`, logs under `~/Library/Application Support/netllm/logs/`; **v0.3.0.2** fixes menubar **Agent: starting…** when `listen = "0.0.0.0:11400"` — [docs/release-notes/v0.3.0.2.md](docs/release-notes/v0.3.0.2.md)
+- macOS menubar install/update: **recommended on macOS 26+:** clone release tag → `apps/netllm-mac/Scripts/build.sh release` → `packaging/scripts/macos-app-install.sh --source apps/netllm-mac/build/Stage/llm-swarm-router.app` ([docs/macos-install.md](docs/macos-install.md)); **building a DMG alone does not replace `/Applications`** — run `macos-app-install.sh --source` (or drag-install from DMG) to pick up UI/agent changes; GitHub DMG + menubar **Updates** when notarized; bundled `macos-app-install.sh` under `Contents/Resources/Scripts/`; `scripts/upgrade-mac-app.sh` is repo-only; in-app update stops agent via `--in-app-update`, logs under `~/Library/Application Support/netllm/logs/`; **v0.3.0.2** fixes menubar **Agent: starting…** when `listen = "0.0.0.0:11400"` — [docs/release-notes/v0.3.0.2.md](docs/release-notes/v0.3.0.2.md)
 - `packaging/scripts/macos-app-install.sh`: do not call `resolve_source_app` inside `$()` — an EXIT trap on `local mount` fires after the subshell exits (`mount: unbound variable` under `set -u`), can leave a stale/wrong bundle in `/Applications`; use script-level `DMG_MOUNT`/`SOURCE_APP` globals and register the detach trap in main script scope
 - In-app auto-update (menubar + web dashboard) notifies only when the latest GitHub release includes a `llm-swarm-router.dmg` asset; menubar builds before **0.2.3.2** lack `UpdateController` and need one manual DMG/source install to bootstrap
-- **macOS Gatekeeper (26+):** ad-hoc GitHub DMGs fail launch (`no usable signature`); user docs point to **source build + install script** until notarized Developer ID releases ship — [docs/macos-code-signing.md](docs/macos-code-signing.md), [docs/macos-install.md](docs/macos-install.md). Personal Apple Developer account (matthewdcage@gmail.com) is active as of Jun 2026: Developer ID signing needs the `MACOS_CERTIFICATE_P12` GitHub secret + notarization app-specific password; cert exports and that password stay in 1Password / local gitignored `.env`, never in the repo
+- **macOS Gatekeeper (26+):** ad-hoc GitHub DMGs fail launch (`no usable signature`); user docs point to **source build + install script** until notarized Developer ID releases ship — [docs/macos-code-signing.md](docs/macos-code-signing.md), [docs/macos-install.md](docs/macos-install.md). Personal Apple Developer account (matthewdcage@gmail.com) is active as of Jun 2026: Developer ID signing needs the `MACOS_CERTIFICATE_P12` GitHub secret + notarization app-specific password; `packaging/scripts/local-notarized-dmg.sh` can build/sign/DMG successfully while Apple notary returns HTTP 403 when the Program License Agreement is expired — accept at developer.apple.com and re-run; cert exports and that password stay in 1Password / local gitignored `.env`, never in the repo
 - Release tag must match root `pyproject.toml` version; bump all workspace packages + `uv lock` before `gh release create`; `build.sh` sets `CFBundleShortVersionString` from root `[project].version` — CI release gate compares plist to `NETLLM_VERSION`
 - `.cursor/coordinator/` and `.cursor/agents/` are **local-only** (gitignored; never on remote): PR overseer scripts, state, drafts, subagent prompts, and their `AGENTS.md` DOX tree; load [`.cursor/coordinator/AGENTS.md`](.cursor/coordinator/AGENTS.md) on the maintainer machine only; run `run-coordinator-pass.sh` (harvest → `coordinator-dispatch.sh --try-cursor`) + `test-coordinator-loop.sh` before paste work; `test-discovery.sh` for offline discover-all smoke; `coordinator-platform` skill lives under gitignored `.agents/skills/coordinator-platform/` locally
 - `.cursor/outreach/` is gitignored local outreach research/drafts; paste-ready convention: **Target:** / **Title:** / body after `---` (plain markdown, no YAML); neither tree belongs in the remote repo

@@ -77,7 +77,71 @@ emitted but undocumented until the Phase 10 contract test caught it.
 | `capacity_rejections` | object | backend id → count |
 | `shardless_fallbacks` | int | requests that fell back off a shard assignment |
 | `in_flight_total` | int | sum over enabled backends |
-| `backends` | array | per row: `id`, `provider`, `base_url`, `health`, `in_flight` |
+| `windows` | object | windowed, dimensioned request ledger — table below (UI-1) |
+| `latency` | object | rolling TTFT percentiles — table below (UI-2) |
+| `live` | object | rolling throughput — table below (UI-2) |
+| `backends` | array | per row: `id`, `provider`, `base_url`, `health`, `in_flight`, `p50_ms`, `p95_ms`, `samples`, `window_s` |
+
+`backends[].p50_ms` / `p95_ms` are that backend's request latency over the last
+`window_s` seconds, interpolated from a fixed log-spaced histogram, and are
+**`null` when `samples` is 0** — a backend that has been health-probed but
+never routed to has no latency to report, and `0.0` would be a lie. Per-backend
+histograms are capped at 64 backends; past that a row reports `null`/`0`
+rather than mixing several backends into one percentile.
+
+**`router.windows`** (`telemetry.RequestLedger.windows_payload`) — the windowed
+counters. Every other request counter in the agent is cumulative since process
+start; these are not.
+
+| Key | Type | Notes |
+|-----|------|-------|
+| `counters_since` | float | epoch seconds; when this ledger started counting |
+| `spans_s` | array | **server-declared** span widths in seconds, e.g. `[60, 300, 86400]` |
+| `by_backend` | object | backend id → `{"<span>": count}` |
+| `by_model` | object | requested model → `{"<span>": count}` |
+| `by_policy` | object | `"<index>:<name>"` of the matched routing policy → `{"<span>": count}`; `{}` means no policy ever matched |
+| `by_source` | object | source id → `{requests, surfaces, top_models, last_seen_at}` |
+| `truncated` | object | per dimension, requests folded into `__other__` because the key cap was hit |
+
+Clients read the span keys present under a dimension; they never assume
+`spans_s` and never sum buckets themselves (same rule as `total_tokens`).
+
+Each `by_source` row: `requests` (`{"<span>": count}`), `surfaces`
+(API dialect → cumulative count), `top_models` (array of `{model, count}`,
+at most 5), `last_seen_at` (epoch seconds of that source's last completed
+request — this, not a PATH check, is what a per-client live dot reads).
+
+Cardinality is attacker-controlled — `by_model` is keyed on the client's
+requested model string, and a LAN peer's models are republished through
+`/v1/models` — so every dimension is capped at 256 keys. Keys past the cap are
+accounted to a single `__other__` row and counted in `truncated`; a non-zero
+`truncated` value means any top-N list built from that dimension is partial.
+
+**`router.latency`** (`telemetry.RequestLedger.latency_payload`)
+
+| Key | Type | Notes |
+|-----|------|-------|
+| `ttft_p50_ms` | float \| null | `null` when `ttft_samples` is 0 |
+| `ttft_p95_ms` | float \| null | `null` when `ttft_samples` is 0 |
+| `ttft_samples` | int | population size of the percentile |
+| `window_s` | int | rolling window the percentiles describe |
+
+Time-to-first-token is measured on the streaming path only: the wall-clock
+gap between the attempt starting and the first SSE frame carrying generated
+content. Non-streaming responses have **no observable TTFT** and are excluded
+from the population rather than folded in as total latency — a mixed
+population makes the percentile describe nothing. A deployment that only ever
+issues non-streaming requests therefore reports `ttft_samples: 0` and two
+`null`s, and the UI must render `—`.
+
+**`router.live`** (`telemetry.RequestLedger.live_payload`)
+
+| Key | Type | Notes |
+|-----|------|-------|
+| `prefill_tps` | float \| null | prompt tokens ÷ measured TTFT over the window; `null` when nothing streamed |
+| `generation_tps` | float \| null | completion tokens ÷ measured generation time; `null` when nothing streamed |
+| `requests_per_s` | float | completed requests ÷ `window_s` |
+| `window_s` | int | rolling window, seconds |
 
 **`router.session` / `router.alltime` scope block** (`_RouterCounters.to_dict`)
 
@@ -87,9 +151,17 @@ emitted but undocumented until the Phase 10 contract test caught it.
 | `prompt_tokens` | int | |
 | `completion_tokens` | int | |
 | `total_tokens` | int | **server-computed**; clients must not sum |
-| `avg_prefill_tps` | float | 2dp |
-| `avg_generation_tps` | float | 2dp |
+| `avg_prefill_tps` | float \| null | 2dp; `null` when no request has contributed a measured prefill duration |
+| `avg_generation_tps` | float \| null | 2dp; `null` when no request has contributed a measured generation duration |
 | `uptime_s` | float | 1dp |
+
+`avg_prefill_tps` and `avg_generation_tps` are `null`, not `0.0`, until a
+streaming request has been served. They used to be
+`prompt_tokens / (0.3 × total_latency)` and
+`completion_tokens / (0.7 × total_latency)` — two invented constants presented
+as measurements (UI-2). Both denominators are now real measured seconds, so
+the figures change for existing users: that is a correction, and clients must
+render `null` as `—` rather than coercing it to zero.
 
 **`omlx`** — `{"available": false}` when no oMLX backend is reachable, and
 `{"available": false, "admin_url": …}` when one is configured but every probe
@@ -119,8 +191,15 @@ fails is `{"prefill_tps": 0.0, "generation_tps": 0.0}`.
 **`host`** — `cpu_percent`, `memory_used_gb`, `memory_total_gb`,
 `memory_percent`; the whole block is `null` only if the `psutil` import fails.
 
-**`history`** — `router_rps`, `omlx_pp_tps`, `omlx_tg_tps`, each a list of at
-most 60 floats.
+**`history`** — `router_rps`, `router_tps`, `omlx_pp_tps`, `omlx_tg_tps`, each
+a list of at most 60 floats.
+
+`router_rps` (requests per second) and `router_tps` (total tokens per second)
+are read straight off the ledger's second-resolution ring, oldest first, one
+entry per real second. They used to be appended only from inside
+`record_usage`, so an idle router never sampled: the sparkline held its last
+values instead of decaying to zero, and the 60 entries spanned an unknown
+wall-clock duration. An idle second now reads `0.0`.
 
 The `host` block (CPU %, memory used/total/percent) is populated on all platforms — `psutil` is a hard dependency of netllm-agent; it is `null` only if the `psutil` import fails. Richer host metrics (E/P CPU split, memory breakdown) remain macOS menubar-only (native, not from this API).
 
