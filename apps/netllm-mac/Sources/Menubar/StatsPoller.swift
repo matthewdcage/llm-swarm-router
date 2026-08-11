@@ -85,6 +85,15 @@ struct StatsSnapshot: Sendable {
     var lastScanAt: Double?
     /// `status.discovery.last_peer_scan_at`, same rule.
     var lastPeerScanAt: Double?
+    var routingStrategy: String = ""
+    var draining: Bool = false
+    /// `status.reachable` — false when loopback-only and not LAN-routable.
+    var reachable: Bool = true
+    var sourceRequests: [String: Int] = [:]
+    var scenarioRequests: [String: Int] = [:]
+    var capacityRejections: Int = 0
+    var shardlessFallbacks: Int = 0
+    var peerWarnings: [String] = []
 
     var isGateway: Bool { role == "gateway" }
 
@@ -135,12 +144,36 @@ final class StatsPoller {
         task = nil
     }
 
+    func pollOnce() {
+        Task { await poll() }
+    }
+
     private func poll() async {
         var snap = StatsSnapshot()
         if let status = await fetchJSON(path: "/netllm/v1/status") {
             snap.role = status["role"] as? String ?? "peer"
+            snap.routingStrategy = status["routing_strategy"] as? String ?? ""
+            snap.draining = status["draining"] as? Bool ?? false
+            snap.reachable = status["reachable"] as? Bool ?? true
             snap.agentID = status["agent_id"] as? String ?? ""
             snap.hostname = status["hostname"] as? String ?? ""
+            snap.capacityRejections = jsonInt(status["capacity_rejections"])
+            snap.shardlessFallbacks = jsonInt(status["shardless_fallbacks"])
+            snap.peerWarnings = status["peer_warnings"] as? [String] ?? []
+            if let sources = status["source_requests"] as? [String: Any] {
+                var counts: [String: Int] = [:]
+                for (key, value) in sources {
+                    counts[key] = jsonInt(value)
+                }
+                snap.sourceRequests = counts
+            }
+            if let scenarios = status["scenario_requests"] as? [String: Any] {
+                var counts: [String: Int] = [:]
+                for (key, value) in scenarios {
+                    counts[key] = jsonInt(value)
+                }
+                snap.scenarioRequests = counts
+            }
             snap.omlxAdminURL = status["omlx_admin_url"] as? String
             if let omlxStats = status["omlx_stats"] as? [String: Any] {
                 snap.omlxLoadedModel = omlxStats["primary_loaded_model"] as? String

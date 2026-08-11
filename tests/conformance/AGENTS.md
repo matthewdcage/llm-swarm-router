@@ -19,7 +19,7 @@ edits**. That property is the reason the registries are worth having.
 | `projections.py` | read a fact back out of Swift / JS / TOML / Markdown, returning `(values, source_location)` |
 | `ledgers/mirrors.toml` | files allowed to restate a provider id |
 | `ledgers/surface-seams.toml` | `Surface`-keyed branches allowed outside `surfaces/` (**empty**) |
-| `ledgers/control-parity.toml` | controls and row fields allowed to be absent from a surface |
+| `ledgers/control-parity.toml` | controls and row fields allowed to be absent from a surface (`current_phase = phase-9`; phases through `phase-10` in `kit_config_surfaces.py::PHASE_ORDER`) |
 
 ## Local Contracts
 
@@ -44,6 +44,7 @@ edits**. That property is the reason the registries are worth having.
 - **Adding a ledger row is not a fix.** It also turns
   `tests/extending/test_worked_example_*.py::test_the_companion_list_is_exhaustive`
   red until the worked example classifies the new mirror.
+- **Axis D macOS slices:** `routing.sources` disposition reads `IntegrationsTabView.swift` (`SchemaFormView` over full item schema); Settings **Home** tab (`homeTab` / `HomeTabView`) carries serving telemetry parity with web overview; `control_plane.py` maps the `serving` control to `homeTab` (comments are stripped by `source_region` — symbols must appear in code)
 - **Tripwires**: `intentionally_absent` over **20%** of control descriptors,
   or a local-exceptions ledger reaching **5** entries, means the spec is
   wrong — redesign, do not add entries.
@@ -70,3 +71,5 @@ python3 scripts/check-engine-erosion.py --seams
 ## Child DOX Index
 
 None — flat directory plus `ledgers/`.
+
+Updated: 2026-08-11 (phase-9 control parity; macOS Integrations/Home slices)

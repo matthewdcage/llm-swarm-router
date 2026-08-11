@@ -95,12 +95,30 @@ final class MenubarAppModel {
     }
 
     var statusTitle: String {
-        // Read live supervisor state — cached serverState can lag one frame
-        // behind server.isRunning when adoptHealthyListener races menu rebuild.
-        Self.menubarStatusTitle(
-            state: server.state,
-            port: config.port,
-            peerCount: stats.peerCount
+        menubarHeaderLines.primary
+    }
+
+    var statusSubtitle: String? {
+        menubarHeaderLines.secondary
+    }
+
+    private var menubarHeaderLines: (primary: String, secondary: String?) {
+        MenubarStatusFormatter.headerLines(
+            for: MenubarStatusFormatter.Context(
+                state: server.state,
+                port: config.port,
+                stats: stats,
+                primaryModel: telemetrySnapshot.primaryModel
+            )
+        )
+    }
+
+    var servingStatsStatusContext: ServingStatsStatusContext {
+        ServingStatsStatusContext(
+            sourceRequests: stats.sourceRequests,
+            scenarioRequests: stats.scenarioRequests,
+            capacityRejections: stats.capacityRejections,
+            shardlessFallbacks: stats.shardlessFallbacks
         )
     }
 
@@ -168,6 +186,29 @@ final class MenubarAppModel {
     func copyEnv() {
         let host = AppConfig.connectableHost(for: config.bindHost)
         ClientEnvExporter.copyToPasteboard(host: host, port: config.port)
+    }
+
+    func restartAgent() {
+        Task {
+            _ = try? await server.forceRestart()
+        }
+    }
+
+    func toggleDrain() {
+        guard isRunning else { return }
+        let host = AppConfig.connectableHost(for: config.bindHost)
+        let baseURL = URL(string: "http://\(host):\(config.port)")!
+        let next = !stats.draining
+        Task {
+            let ok = await AgentAPI.setDrain(baseURL: baseURL, draining: next)
+            if ok {
+                statsPoller?.pollOnce()
+            }
+        }
+    }
+
+    func checkForUpdates() {
+        Task { await updateController.checkOnce(force: true) }
     }
 
     func openSettings() { callbacks.openSettings() }

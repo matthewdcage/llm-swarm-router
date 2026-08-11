@@ -196,13 +196,17 @@ Subnet scan is **off by default** and only auto-enabled when the agent listens o
 
 ## Menubar stats or Serving tab empty
 
-**Serving Stats / web Serving tab:** Router metrics always appear after at least one routed request (`router.session.requests`, token totals, `routed_requests` by backend id). Counters persist in `~/.config/netllm/stats.json`. oMLX PP/TG, cache efficiency, and live rates require a local **oMLX 0.5.2+** backend with admin API reachable (default `:8080/admin/api/stats`).
+**Settings Home / web Home:** Throughput and source/scenario counters poll `/netllm/v1/telemetry` while the Home tab is visible (5s). Drain state shows a pill when `status.draining` is true.
+
+**Serving Stats / web Home:** Router metrics always appear after at least one routed request (`router.session.requests`, token totals, `routed_requests` by backend id). Counters persist in `~/.config/netllm/stats.json`. oMLX PP/TG, cache efficiency, and live rates require a local **oMLX 0.5.2+** backend with admin API reachable (default `:8080/admin/api/stats`).
 
 **macOS Serving Stats stays at zero while curl works:** Rebuild/reinstall the menubar app from a current source build — older builds used a broken telemetry URL (`appendingPathComponent` on `?watch=1`). Fixed builds use `AgentHTTP.url` in `TelemetryPoller`.
 
+**Menubar popover (2026-08+):** Left-click the menu-bar icon for the SwiftUI popover (mesh load, throughput strip, Drain/Resume, copy env). Right-click for the classic AppKit menu including **Serving Stats** and **System Stats** submenus. Settings **Home** tab shows the same throughput and source/scenario counters as the web dashboard overview.
+
 **System Stats fly-out:** CPU/GPU/memory sparklines come from native macOS sampling in the menubar app. The web dashboard **Serving** tab shows router panels first, then oMLX when available; detailed host charts are menubar-only unless `psutil` is installed on the agent host (Linux optional host block in telemetry).
 
-**Appearance gauges:** Settings → Appearance toggles optional CPU/GPU/MEM/LIV items in the menu bar (`ui.menubar_show_*` in config). They poll telemetry only while the menu is open.
+**Appearance gauges:** Settings → Preferences → Appearance toggles optional CPU/GPU/MEM/LIV items in the menu bar (`ui.menubar_show_*` in config). They poll telemetry only while the menu is open.
 
 **Verify:**
 

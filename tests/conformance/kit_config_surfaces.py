@@ -291,6 +291,8 @@ PHASE_ORDER = [
     "phase-6",
     "phase-7",
     "phase-8",
+    "phase-9",
+    "phase-10",
 ]
 
 
@@ -399,6 +401,8 @@ def test_the_ledger_tripwire_is_not_yet_tripped() -> None:
 SWIFT_SETTINGS = "apps/netllm-mac/Sources/AppView/SettingsWindowView.swift"
 SWIFT_VIEWMODEL = "apps/netllm-mac/Sources/AppView/SettingsViewModel.swift"
 SWIFT_CLOUD = "apps/netllm-mac/Sources/AppView/CloudSettingsView.swift"
+SWIFT_INTEGRATIONS = "apps/netllm-mac/Sources/AppView/IntegrationsTabView.swift"
+SWIFT_PREFERENCES = "apps/netllm-mac/Sources/AppView/PreferencesTabView.swift"
 CONTROL_LEDGER = "tests/conformance/ledgers/control-parity.toml"
 
 # --- the dashboard, after the 14-tab -> 11-page split ----------------------
@@ -530,13 +534,22 @@ DASHBOARD = EditingSurface(
         "routing.model_aliases": Region((Slice(MODELS_JS, ""),)),
         "routing.model_pools": Region((Slice(MODELS_JS, ""),)),
         "routing.sources": Region(
-            (Slice(INTEGRATIONS_JS, ""),),
+            (
+                Slice(
+                    SWIFT_INTEGRATIONS,
+                    "private func sourceEditor",
+                    "private func safeSourceBinding",
+                ),
+            ),
             mode="generic",
-            marker='renderSchemaField(body, "routing", byName.sources',
-            nested_marker='renderSchemaField(body, "routing", byName.sources',
+            marker="SchemaFormView(fields: sourceFields",
+            nested_marker="SchemaFormView(fields: sourceFields",
         ),
         "ui": Region(
-            (Slice(PREFERENCES_JS, ""),),
+            (
+                Slice(SWIFT_PREFERENCES, "struct PreferencesTabView", None),
+                Slice(PREFERENCES_JS, ""),
+            ),
             mode="generic",
             # Two calls render the section: one hides the `menubar_*` fields,
             # the other shows only those. The first is the multi-line
@@ -615,7 +628,7 @@ MACOS = EditingSurface(
                 Slice(
                     SWIFT_SETTINGS,
                     "private func modelPoolEditor",
-                    "private var unregisteredHarnessesSection",
+                    "private var cloudTab",
                 ),
             ),
             mode="generic",
@@ -624,26 +637,20 @@ MACOS = EditingSurface(
         "routing.sources": Region(
             (
                 Slice(
-                    SWIFT_SETTINGS, "private func sourceEditor", "private var cloudTab"
+                    SWIFT_INTEGRATIONS,
+                    "private func sourceEditor",
+                    "private func safeSourceBinding",
                 ),
             ),
             mode="generic",
             marker="SchemaFormView(",
-            # sourceEditor filters these out before handing the item schema to
-            # SchemaFormView: it has no dict_strings/object/dict-of-object
-            # widget, and the text fallback binds a TextField to `.stringValue`
-            # (nil for those), so typing would overwrite the object with a
-            # plain string. Declared here so the exclusion is asserted rather
-            # than silently read as coverage -- the literals in that filter
-            # array are the names of fields NOT rendered.
-            excludes=_swift_filter_names(
-                SWIFT_SETTINGS, "let renderedFields = (sourceFields ?? []).filter"
-            ),
         ),
         "ui": Region(
             (
                 Slice(
-                    SWIFT_SETTINGS, "private var uiTab", "private func pushUiSettings"
+                    SWIFT_PREFERENCES,
+                    "struct PreferencesTabView",
+                    "private func revealLogDirectory",
                 ),
             ),
             mode="generic",

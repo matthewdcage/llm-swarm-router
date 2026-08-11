@@ -108,6 +108,57 @@ struct TelemetrySnapshot {
     var modelMemoryUsed: Int {
         Int(truncating: (raw["omlx"] as? [String: Any])?["model_memory_used"] as? NSNumber ?? 0)
     }
+
+    var capacityRejections: Int {
+        let router = raw["router"] as? [String: Any] ?? [:]
+        return intValue(router["capacity_rejections"])
+    }
+
+    var shardlessFallbacks: Int {
+        let router = raw["router"] as? [String: Any] ?? [:]
+        return intValue(router["shardless_fallbacks"])
+    }
+
+    var liveRequestsPerS: Double? {
+        optionalDouble((routerLive["requests_per_s"]))
+    }
+
+    /// Windowed backend counts from UI-1 `router.windows.by_backend`.
+    var windowedBackendCounts: (spanLabel: String, counts: [String: Int])? {
+        guard let windows = (raw["router"] as? [String: Any])?["windows"] as? [String: Any],
+              let byBackend = windows["by_backend"] as? [String: Any]
+        else { return nil }
+        let spans = (windows["spans_s"] as? [NSNumber])?.map(\.intValue) ?? []
+        let preferredSpan = spans.contains(300) ? 300 : spans.max() ?? 300
+        let spanLabel = preferredSpan >= 3600
+            ? "\(preferredSpan / 3600)h window"
+            : preferredSpan >= 60
+                ? "\(preferredSpan / 60) min window"
+                : "\(preferredSpan)s window"
+        var out: [String: Int] = [:]
+        for (backendID, spanMap) in byBackend {
+            guard let map = spanMap as? [String: Any] else { continue }
+            let key = String(preferredSpan)
+            out[backendID] = intValue(map[key])
+        }
+        guard !out.isEmpty else { return nil }
+        return (spanLabel, out)
+    }
+
+    private func intValue(_ value: Any?) -> Int {
+        if let value = value as? Int { return value }
+        if let value = value as? Double { return Int(value) }
+        if let value = value as? NSNumber { return value.intValue }
+        return 0
+    }
+
+    private func optionalDouble(_ value: Any?) -> Double? {
+        if value == nil || value is NSNull { return nil }
+        if let value = value as? Double { return value }
+        if let value = value as? Int { return Double(value) }
+        if let value = value as? NSNumber { return value.doubleValue }
+        return nil
+    }
 }
 
 @MainActor

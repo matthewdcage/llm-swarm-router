@@ -57,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppControlHandling {
             )
         )
         MenubarController.shared.start(model: MenubarAppModel.shared)
+        MenubarController.shared.setPopoverEnabled(true)
         AppLogger.log("menubar created")
         ShellEnvWriter.ensureCLIShim(bundleCLI: runtime.bundleCLIPath)
 

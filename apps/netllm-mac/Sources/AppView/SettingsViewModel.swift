@@ -98,6 +98,8 @@ final class SettingsViewModel {
     private var livePollTask: Task<Void, Never>?
     private var autoPeerScanTask: Task<Void, Never>?
     private var didAutoPeerScan = false
+    /// Consumed by SettingsWindowView to jump sidebar selection (e.g. Home → Network).
+    var requestedSettingsTab: String?
 
     let configStore: ConfigStore
     let cli: CLIRunner
@@ -621,6 +623,54 @@ final class SettingsViewModel {
         guard let command = joinCommandText() else { return }
         JoinCommandExporter.copyToPasteboard(command)
         setSuccess("Join command copied to clipboard.")
+    }
+
+    /// homeTab throughput panel shares telemetry keys with menubar Serving Stats.
+    func requestSettingsTab(_ tab: String) {
+        requestedSettingsTab = tab
+    }
+
+    /// drainButton — same POST as dashboard `btn-drain` and menubar Drain Agent.
+    func drainButton() async {
+        guard agentReachable else { return }
+        let next = !(status?.draining ?? false)
+        let ok = await AgentAPI.setDrain(baseURL: agentBaseURL, draining: next)
+        if ok {
+            message = next ? "Draining — no new requests accepted" : "Resumed accepting requests"
+            await refreshLiveData()
+        } else {
+            errorMessage = "Drain toggle failed — is the agent reachable?"
+        }
+    }
+
+    func copyClientEnvToPasteboard() {
+        let host = AppConfig.connectableHost(for: document.bindHost)
+        ClientEnvExporter.copyToPasteboard(host: host, port: document.port)
+        message = "Client env copied"
+    }
+
+    func appendClientEnvToShellProfile() {
+        let host = AppConfig.connectableHost(for: document.bindHost)
+        let script = ClientEnvExporter.exportScript(host: host, port: document.port)
+        let profile = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".zshrc")
+        let block = "\n# netllm client env\n\(script)\n"
+        if FileManager.default.fileExists(atPath: profile.path) {
+            if let existing = try? String(contentsOf: profile, encoding: .utf8), existing.contains(script) {
+                message = "Client env already in ~/.zshrc"
+                return
+            }
+            if let handle = try? FileHandle(forWritingTo: profile) {
+                handle.seekToEndOfFile()
+                if let data = block.data(using: .utf8) {
+                    handle.write(data)
+                }
+                try? handle.close()
+            }
+        } else {
+            try? block.write(to: profile, atomically: true, encoding: .utf8)
+        }
+        message = "Appended client env to ~/.zshrc"
     }
 
     func save() {

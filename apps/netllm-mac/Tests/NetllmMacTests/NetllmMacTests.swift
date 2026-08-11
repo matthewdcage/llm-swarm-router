@@ -65,16 +65,35 @@ final class TelemetryPayloadDecodeTests: XCTestCase {
 @MainActor
 final class MenubarStatusTitleTests: XCTestCase {
     func testMenubarStatusTitleRunning() {
-        let title = MenubarAppModel.menubarStatusTitle(state: .running(pid: 42), port: 11400)
-        XCTAssertTrue(title.contains("Agent running"))
+        let title = MenubarStatusFormatter.headerLines(
+            for: MenubarStatusFormatter.Context(
+                state: .running(pid: 42),
+                port: 11400,
+                stats: StatsSnapshot(role: "peer", routingStrategy: "local_first"),
+                primaryModel: nil
+            )
+        ).primary
+        XCTAssertTrue(title.contains("Serving"))
         XCTAssertTrue(title.contains("11400"))
+        XCTAssertTrue(title.contains("local_first"))
+    }
+
+    func testMenubarStatusTitleDraining() {
+        let stats = StatsSnapshot(role: "gateway", routingStrategy: "auto", draining: true)
+        let title = MenubarStatusFormatter.headerLines(
+            for: MenubarStatusFormatter.Context(
+                state: .running(pid: 1),
+                port: 11400,
+                stats: stats,
+                primaryModel: nil
+            )
+        ).primary
+        XCTAssertTrue(title.contains("Draining"))
     }
 
     func testMenubarStatusTitleStopped() {
-        XCTAssertEqual(
-            MenubarAppModel.menubarStatusTitle(state: .stopped, port: 11400),
-            "Agent stopped"
-        )
+        let title = MenubarAppModel.menubarStatusTitle(state: .stopped, port: 11400)
+        XCTAssertEqual(title, "Agent stopped")
     }
 
     func testMenubarStatusTitleStarting() {
@@ -85,12 +104,30 @@ final class MenubarStatusTitleTests: XCTestCase {
     }
 
     func testMenubarStatusTitleWithPeers() {
-        let title = MenubarAppModel.menubarStatusTitle(
-            state: .running(pid: 1),
-            port: 11400,
-            peerCount: 2
-        )
-        XCTAssertTrue(title.contains("2 peers"))
+        let stats = StatsSnapshot(peerCount: 2, role: "peer", routingStrategy: "local_first")
+        let secondary = MenubarStatusFormatter.headerLines(
+            for: MenubarStatusFormatter.Context(
+                state: .running(pid: 1),
+                port: 11400,
+                stats: stats,
+                primaryModel: nil
+            )
+        ).secondary
+        XCTAssertEqual(secondary, "2 peers")
+    }
+}
+
+final class ServingStatsMenuBuilderTests: XCTestCase {
+    func testWindowedBackendCountsParsed() throws {
+        let json = """
+        {"router":{"windows":{"spans_s":[60,300],\
+        "by_backend":{"local:1":{"300":12,"60":2}}}}}
+        """.data(using: .utf8)!
+        let obj = try JSONSerialization.jsonObject(with: json) as? [String: Any]
+        let snap = TelemetrySnapshot(raw: obj ?? [:])
+        let windowed = snap.windowedBackendCounts
+        XCTAssertNotNil(windowed)
+        XCTAssertEqual(windowed?.counts["local:1"], 12)
     }
 }
 

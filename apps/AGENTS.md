@@ -14,6 +14,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md). Release builds: [../packaging/AGENTS.
 - macOS in-app install/update only from `/Applications/llm-swarm-router.app` or staged `netllm-mac.app`
 - macOS release DMGs require Developer ID notarization for Gatekeeper on macOS 26+ ([../docs/macos-code-signing.md](../docs/macos-code-signing.md))
 - Design tokens shared with agent dashboard via `design-tokens.json` + `scripts/generate-dashboard-tokens.py`
+- macOS Settings sidebar matches web IA (Mesh / Config / Tools); `routing.sources` editor lives on **Integrations**, not Routing
 
 ## Work Guidance
 
@@ -32,4 +33,6 @@ scripts/test-menubar-e2e.sh          # bundled serve -q + 0.0.0.0 listen smoke b
 
 | Path | Contract |
 |------|----------|
-| [`netllm-mac/AGENTS.md`](netllm-mac/AGENTS.md) | Swift menubar app |
+| [`netllm-mac/AGENTS.md`](netllm-mac/AGENTS.md) | Swift menubar app (popover + web-aligned Settings IA) |
+
+Updated: 2026-08-11 (Settings IA alignment note)

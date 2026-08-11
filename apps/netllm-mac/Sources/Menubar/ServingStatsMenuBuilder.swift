@@ -1,7 +1,21 @@
 import AppKit
 
+/// Status fields that live on `/netllm/v1/status` rather than telemetry.
+struct ServingStatsStatusContext: Sendable {
+    var sourceRequests: [String: Int] = [:]
+    var scenarioRequests: [String: Int] = [:]
+    var capacityRejections: Int = 0
+    var shardlessFallbacks: Int = 0
+
+    static let empty = ServingStatsStatusContext()
+}
+
 enum ServingStatsMenuBuilder {
-    static func apply(to menu: NSMenu, snapshot: TelemetrySnapshot) {
+    static func apply(
+        to menu: NSMenu,
+        snapshot: TelemetrySnapshot,
+        status: ServingStatsStatusContext = .empty
+    ) {
         menu.removeAllItems()
 
         if let primary = snapshot.primaryModel, !primary.isEmpty {
@@ -12,13 +26,12 @@ enum ServingStatsMenuBuilder {
             menu.addItem(.separator())
         }
 
+        appendLiveThroughput(menu, snapshot: snapshot)
+
         appendRouterSection(menu, title: "Router (session)", scope: snapshot.routerSession, includeRequests: true)
         menu.addItem(.separator())
         appendRouterSection(menu, title: "Router (all-time)", scope: snapshot.routerAlltime, includeRequests: true)
 
-        // Time to first token, measured on the streaming path. `router.latency`
-        // is one rolling window for the whole router, not per session/all-time,
-        // so it is added once rather than inside appendRouterSection.
         let latency = snapshot.routerLatency
         if !latency.isEmpty {
             menu.addItem(.separator())
@@ -40,13 +53,29 @@ enum ServingStatsMenuBuilder {
             addStat(menu, "In-flight now", CompactCountFormatter.format(snapshot.routerInFlight))
         }
 
+        appendCounterSections(menu, snapshot: snapshot, status: status)
+
         let routed = snapshot.routedRequests
         if !routed.isEmpty {
             menu.addItem(.separator())
-            let header = NSMenuItem(title: "Routed by backend", action: nil, keyEquivalent: "")
+            let header = NSMenuItem(title: "Routed by backend (all-time)", action: nil, keyEquivalent: "")
             header.isEnabled = false
             menu.addItem(header)
             for (key, count) in routed.sorted(by: { $0.value > $1.value }).prefix(8) {
+                addStat(menu, key, CompactCountFormatter.format(count), raw: count)
+            }
+        }
+
+        if let windowed = snapshot.windowedBackendCounts {
+            menu.addItem(.separator())
+            let header = NSMenuItem(
+                title: "Routed by backend (\(windowed.spanLabel))",
+                action: nil,
+                keyEquivalent: ""
+            )
+            header.isEnabled = false
+            menu.addItem(header)
+            for (key, count) in windowed.counts.sorted(by: { $0.value > $1.value }).prefix(8) {
                 addStat(menu, key, CompactCountFormatter.format(count), raw: count)
             }
         }
@@ -58,16 +87,67 @@ enum ServingStatsMenuBuilder {
             appendOmlxSection(menu, title: "oMLX (all-time)", scope: snapshot.omlxAlltime, includeRequests: true)
         }
 
-        // Live throughput is router-wide (`router.live`, with oMLX's own
-        // reading preferred when its admin API answers), so it is no longer
-        // gated on an oMLX backend being present — a mesh of Ollama or vLLM
-        // backends has these figures too. nil is "never measured", which is
-        // why the section appears at all rather than being hidden by a
-        // `> 0` test that cannot tell idle from unmeasured.
         if snapshot.livePrefillTps != nil || snapshot.liveGenerationTps != nil {
             menu.addItem(.separator())
             addStat(menu, "Live PP", formatOptionalTps(snapshot.livePrefillTps))
             addStat(menu, "Live TG", formatOptionalTps(snapshot.liveGenerationTps))
+        }
+    }
+
+    private static func appendLiveThroughput(_ menu: NSMenu, snapshot: TelemetrySnapshot) {
+        let reqPerS = snapshot.liveRequestsPerS
+        let genTps = snapshot.liveGenerationTps
+        guard reqPerS != nil || genTps != nil else { return }
+        menu.addItem(.separator())
+        let header = NSMenuItem(title: "Live throughput", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+        if let reqPerS {
+            addStat(menu, "req/s", String(format: "%.2f", reqPerS))
+        } else {
+            addStat(menu, "req/s", "—")
+        }
+        addStat(menu, "gen tok/s", formatOptionalTps(genTps))
+    }
+
+    private static func appendCounterSections(
+        _ menu: NSMenu,
+        snapshot: TelemetrySnapshot,
+        status: ServingStatsStatusContext
+    ) {
+        let capacity = status.capacityRejections > 0
+            ? status.capacityRejections
+            : snapshot.capacityRejections
+        let shardless = status.shardlessFallbacks > 0
+            ? status.shardlessFallbacks
+            : snapshot.shardlessFallbacks
+        let sources = status.sourceRequests
+        let scenarios = status.scenarioRequests
+
+        guard capacity > 0 || shardless > 0 || !sources.isEmpty || !scenarios.isEmpty else { return }
+
+        menu.addItem(.separator())
+        if capacity > 0 {
+            addStat(menu, "Capacity rejections", CompactCountFormatter.format(capacity), raw: capacity)
+        }
+        if shardless > 0 {
+            addStat(menu, "Shardless fallbacks", CompactCountFormatter.format(shardless), raw: shardless)
+        }
+        if !sources.isEmpty {
+            let header = NSMenuItem(title: "Requests by source", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            for (key, count) in sources.sorted(by: { $0.value > $1.value }).prefix(8) {
+                addStat(menu, key, CompactCountFormatter.format(count), raw: count)
+            }
+        }
+        if !scenarios.isEmpty {
+            let header = NSMenuItem(title: "Requests by scenario", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            for (key, count) in scenarios.sorted(by: { $0.value > $1.value }).prefix(8) {
+                addStat(menu, key, CompactCountFormatter.format(count), raw: count)
+            }
         }
     }
 
@@ -92,8 +172,6 @@ enum ServingStatsMenuBuilder {
         addStat(menu, "Prompt tokens", CompactCountFormatter.format(prompt), raw: prompt)
         addStat(menu, "Completion tokens", CompactCountFormatter.format(completion), raw: completion)
         addStat(menu, "Total tokens", CompactCountFormatter.format(totalTokens), raw: totalTokens)
-        // Null-aware: these are measured only on streaming requests, so a mesh
-        // that has only served non-streaming calls reports null, not zero.
         addStat(menu, "Avg prefill", formatOptionalTps(optionalDouble(scope["avg_prefill_tps"])))
         addStat(menu, "Avg generation", formatOptionalTps(optionalDouble(scope["avg_generation_tps"])))
     }
@@ -159,17 +237,6 @@ enum ServingStatsMenuBuilder {
         return 0
     }
 
-    /// Numeric read that keeps "absent" distinct from zero.
-    ///
-    /// `double(_:)` folds a missing key and a JSON `null` into 0, which would
-    /// print "0.00 tok/s" for a figure that was never measured. The agent now
-    /// sends `null` for prefill/generation throughput when no streaming
-    /// request has been observed (TTFT is unobservable on a non-streaming
-    /// response), so coercing to zero would reintroduce exactly the invented
-    /// number that was just removed from the payload.
-    ///
-    /// `NSNull` is what `JSONSerialization` yields for `null`; a plain `nil`
-    /// covers the key being absent on an older agent.
     private static func optionalDouble(_ value: Any?) -> Double? {
         if value == nil || value is NSNull { return nil }
         if let value = value as? Double { return value }
@@ -178,16 +245,11 @@ enum ServingStatsMenuBuilder {
         return nil
     }
 
-    /// Throughput, or an em dash when the agent has nothing to report.
-    /// Takes `Double?` rather than `Any?` so the JSON sites have to go
-    /// through `optionalDouble` explicitly and there is no overload for the
-    /// compiler to pick between.
     private static func formatOptionalTps(_ value: Double?) -> String {
         guard let value else { return "—" }
         return CompactCountFormatter.formatTps(value)
     }
 
-    /// Milliseconds, or an em dash when never measured.
     private static func formatOptionalMs(_ value: Double?) -> String {
         guard let value else { return "—" }
         return String(format: "%.0f ms", value)

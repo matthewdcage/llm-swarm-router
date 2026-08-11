@@ -37,6 +37,11 @@ VER="$("$CLI" --version 2>/dev/null | tail -1)"
 [[ "$VER" == netllm\ * ]] || fail "unexpected version: $VER"
 ok "version $VER"
 
+echo "==> menubar status header (swift unit tests)"
+(cd "$ROOT/apps/netllm-mac" && swift test --filter MenubarStatusTitleTests >/dev/null) \
+  || fail "MenubarStatusTitleTests (role/strategy header)"
+ok "MenubarStatusTitleTests"
+
 echo "==> write test config on port $TEST_PORT"
 mkdir -p "$(dirname "$CFG")"
 cat > "$CFG" <<EOF

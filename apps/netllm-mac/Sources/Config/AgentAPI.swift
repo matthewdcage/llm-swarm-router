@@ -33,12 +33,31 @@ enum AgentAPI {
         else { return nil }
         let backends = (json["backends"] as? [[String: Any]] ?? []).map(parseBackend)
         let peers = (json["peers"] as? [[String: Any]] ?? []).map(parsePeer)
+        var sourceRequests: [String: Int] = [:]
+        if let sources = json["source_requests"] as? [String: Any] {
+            for (key, value) in sources {
+                sourceRequests[key] = parseInt(value)
+            }
+        }
+        var scenarioRequests: [String: Int] = [:]
+        if let scenarios = json["scenario_requests"] as? [String: Any] {
+            for (key, value) in scenarios {
+                scenarioRequests[key] = parseInt(value)
+            }
+        }
         return AgentStatusPayload(
             agentId: json["agent_id"] as? String ?? "",
             hostname: json["hostname"] as? String ?? "",
             role: json["role"] as? String ?? "peer",
             listenURL: json["listen_url"] as? String ?? "",
             routingStrategy: json["routing_strategy"] as? String ?? "",
+            draining: json["draining"] as? Bool ?? false,
+            reachable: json["reachable"] as? Bool ?? true,
+            sourceRequests: sourceRequests,
+            scenarioRequests: scenarioRequests,
+            capacityRejections: parseInt(json["capacity_rejections"]),
+            shardlessFallbacks: parseInt(json["shardless_fallbacks"]),
+            peerWarnings: json["peer_warnings"] as? [String] ?? [],
             backends: backends,
             peers: peers
         )
@@ -261,6 +280,24 @@ enum AgentAPI {
         } catch {
             return nil
         }
+    }
+
+    static func setDrain(baseURL: URL, draining: Bool) async -> Bool {
+        guard let json = await postJSON(
+            baseURL: baseURL,
+            path: "/netllm/v1/admin/drain",
+            body: ["draining": draining]
+        ) else { return false }
+        return json["ok"] as? Bool ?? false
+    }
+
+    static func telemetry(baseURL: URL) async -> TelemetrySnapshot? {
+        guard let json = await fetchJSON(
+            baseURL: baseURL,
+            path: "/netllm/v1/telemetry?watch=1&history=60",
+            timeout: 5
+        ) else { return nil }
+        return TelemetrySnapshot(raw: json)
     }
 
     static func isReachable(baseURL: URL) async -> Bool {
