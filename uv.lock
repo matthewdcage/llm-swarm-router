@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11"
 
 [manifest]
@@ -813,7 +813,7 @@ wheels = [
 
 [[package]]
 name = "netllm"
-version = "0.5.0.1"
+version = "0.5.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "netllm-cli" },
@@ -854,7 +854,7 @@ dev = [
 
 [[package]]
 name = "netllm-agent"
-version = "0.5.0.1"
+version = "0.5.1.0"
 source = { editable = "packages/netllm-agent" }
 dependencies = [
     { name = "fastapi" },
@@ -883,7 +883,7 @@ requires-dist = [
 
 [[package]]
 name = "netllm-cli"
-version = "0.5.0.1"
+version = "0.5.1.0"
 source = { editable = "packages/netllm-cli" }
 dependencies = [
     { name = "httpx" },
@@ -906,7 +906,7 @@ requires-dist = [
 
 [[package]]
 name = "netllm-core"
-version = "0.5.0.1"
+version = "0.5.1.0"
 source = { editable = "packages/netllm-core" }
 dependencies = [
     { name = "httpx" },
@@ -923,7 +923,7 @@ requires-dist = [
 
 [[package]]
 name = "netllm-discovery"
-version = "0.5.0.1"
+version = "0.5.1.0"
 source = { editable = "packages/netllm-discovery" }
 dependencies = [
     { name = "httpx" },
@@ -940,7 +940,7 @@ requires-dist = [
 
 [[package]]
 name = "netllm-sdk-anthropic"
-version = "0.5.0.1"
+version = "0.5.1.0"
 source = { editable = "packages/netllm-sdk-anthropic" }
 dependencies = [
     { name = "anthropic" },
@@ -955,7 +955,7 @@ requires-dist = [
 
 [[package]]
 name = "netllm-sdk-openai"
-version = "0.5.0.1"
+version = "0.5.1.0"
 source = { editable = "packages/netllm-sdk-openai" }
 dependencies = [
     { name = "httpx" },
