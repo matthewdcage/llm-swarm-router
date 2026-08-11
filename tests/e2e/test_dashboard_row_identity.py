@@ -63,6 +63,7 @@ def agent(agent_config: tuple[NetllmConfig, Path]) -> Iterator[RunningServer]:
     cfg, cfg_path = agent_config
     running = _serve(create_app(cfg, config_path=cfg_path), _free_port())
     running.config_path = cfg_path  # type: ignore[attr-defined]
+    httpx.get(f"{running.base_url}/health", timeout=10).raise_for_status()
     try:
         yield running
     finally:
