@@ -534,10 +534,16 @@ DASHBOARD = EditingSurface(
         "routing.model_aliases": Region((Slice(MODELS_JS, ""),)),
         "routing.model_pools": Region((Slice(MODELS_JS, ""),)),
         "routing.sources": Region(
-            (Slice(SWIFT_INTEGRATIONS, "private func sourceEditor", "private func safeSourceBinding"),),
+            (
+                Slice(
+                    SWIFT_INTEGRATIONS,
+                    "private func sourceEditor",
+                    "private func safeSourceBinding",
+                ),
+            ),
             mode="generic",
-            marker='SchemaFormView(fields: sourceFields',
-            nested_marker='SchemaFormView(fields: sourceFields',
+            marker="SchemaFormView(fields: sourceFields",
+            nested_marker="SchemaFormView(fields: sourceFields",
         ),
         "ui": Region(
             (
