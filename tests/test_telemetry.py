@@ -662,7 +662,8 @@ def test_streaming_request_records_measured_prefill_and_generation(
     tmp_path: Path,
 ) -> None:
     recorder, service = _recorder(tmp_path)
-    started = time.monotonic()
+    # Backdate so TTFT is > 0 even on coarse Windows CI monotonic clocks.
+    started = time.monotonic() - 0.05
     # A role-only opener must not stop the clock; the content frame must.
     recorder.observe_stream_chunk(
         'data: {"choices":[{"delta":{"role":"assistant"}}]}\n\n', started_at=started
