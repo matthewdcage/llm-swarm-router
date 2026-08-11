@@ -177,9 +177,12 @@ def _maybe_toggle_source(
         entries.append({"id": harness_id, "enabled": True, "known_id": harness_id})
         state = "registered"
     updated = apply_config_patch(cfg, {"routing": {"sources": entries}})
+    routing_patch = {"routing": {"sources": entries}}
     try:
         apply_config_guards(
-            updated, own_agent_urls=own_agent_urls(updated.agent.listen)
+            updated,
+            own_agent_urls=own_agent_urls(updated.agent.listen),
+            patch=routing_patch,
         )
     except ConfigGuardError as exc:
         print_error(f"Could not register source {harness_id!r}", str(exc))

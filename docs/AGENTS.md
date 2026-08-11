@@ -42,7 +42,7 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 - **Closure / release planning:** dated snapshots at `closure-roadmap-YYYY-MM-DD.md` — open findings, adversarial PR reviews, phased merge/release checklist; refresh or supersede on release boundaries (see [closure-roadmap-2026-08-03.md](closure-roadmap-2026-08-03.md))
 - macOS signing/notarization changes: update `macos-code-signing.md`, `ci-and-release.md`, and install/troubleshooting Gatekeeper sections together
 - macOS install/update/troubleshooting: update install + troubleshooting + platform-matrix together; menubar popover, Home tab, telemetry/Serving Stats: [macos-troubleshooting.md](macos-troubleshooting.md) (menubar stats section), [telemetry-api.md](telemetry-api.md)
-- Web dashboard / admin-access behavior: document in `macos-troubleshooting.md` (Swarm or dashboard section) when agent `admin.py` or `static/dashboard.js` contracts change
+- Web dashboard / admin-access behavior: document in `macos-troubleshooting.md` (Swarm or dashboard section) when agent `admin.py` or `static/dashboard.js` contracts change; config write/guard semantics: [config-guards-audit.md](config-guards-audit.md)
 
 ## Verification
 
@@ -61,4 +61,4 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 
 Nested folders are content collections; add child AGENTS.md only if a subtree gains its own release or editorial workflow.
 
-Updated: 2026-08-11 (menubar popover + Home tab troubleshooting cross-ref)
+Updated: 2026-08-11 (config-guards-audit cross-ref for dashboard save scoping)

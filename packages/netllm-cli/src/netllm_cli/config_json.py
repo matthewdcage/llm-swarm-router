@@ -40,6 +40,7 @@ def import_config(data: dict[str, Any], path: Path | None = None) -> Path:
         own_agent_urls=own_agent_urls(cfg.agent.listen),
         previous=stored,
         warnings=warnings,
+        patch=data,
     )
     saved = save_config(cfg, path)
     for warning in warnings:

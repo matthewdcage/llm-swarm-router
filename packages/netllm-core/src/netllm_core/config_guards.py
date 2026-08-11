@@ -20,6 +20,7 @@ the dashboard, a printed error and non-zero exit for the CLI).
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 from netllm_core.cloud_providers import get_provider_spec
 from netllm_core.cloud_verification import (
@@ -163,6 +164,7 @@ def apply_config_guards(
     own_agent_urls: Iterable[str] = (),
     previous: NetllmConfig | None = None,
     warnings: list[str] | None = None,
+    patch: dict[str, Any] | None = None,
 ) -> list[str]:
     """Run every write-path guard against a freshly merged config.
 
@@ -177,9 +179,16 @@ def apply_config_guards(
     demote). A caller that cannot supply it gets the stricter reading,
     which is the safe default for a caller that does not know its own
     starting point.
+
+    ``patch`` is the top-level section map the caller merged (e.g.
+    ``{"swarm": {...}}`` from the dashboard). When ``cloud`` is absent,
+    ``enforce_cloud_provider_verification`` is skipped so a Network-only
+    save does not re-litigate providers the user did not touch. Callers
+    that cannot name their patch (``None``) still run every guard.
     """
     rejected = drop_own_swarm_peers(cfg, own_agent_urls)
     ensure_lan_mesh_defaults(cfg)
     validate_elevated_sources(cfg)
-    enforce_cloud_provider_verification(cfg, previous, warnings)
+    if patch is None or "cloud" in patch:
+        enforce_cloud_provider_verification(cfg, previous, warnings)
     return rejected

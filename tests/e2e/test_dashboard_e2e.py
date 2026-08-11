@@ -241,9 +241,20 @@ def test_saving_never_blanks_a_stored_secret(dash) -> None:  # noqa: ANN001
     ).raise_for_status()
 
     dash.reload(wait_until="networkidle")
+    bodies: list[str] = []
+    dash.on(
+        "request",
+        lambda req: (
+            bodies.append(req.post_data or "")
+            if req.method == "POST" and "admin/config" in req.url
+            else None
+        ),
+    )
     dash.evaluate("state.configDraft.swarm.mdns = false; markDirty();")
     dash.click("#btn-save")
     expect(dash.locator("#btn-save")).to_be_disabled()
+    assert bodies, "save POST was not captured"
+    assert "cloud" not in bodies[-1], "Network-only save must omit cloud section"
 
     summary = httpx.get(f"{base}/netllm/v1/config", timeout=10).json()
     assert summary["swarm"]["cluster_token_set"] is True, summary["swarm"]
