@@ -327,6 +327,25 @@ def test_a_verified_provider_enables_normally() -> None:
     assert not warnings, warnings
 
 
+def test_cloud_verification_skipped_when_cloud_not_in_patch() -> None:
+    """Network-only dashboard saves omit ``cloud`` — must not re-warn."""
+    cfg = NetllmConfig()
+    cfg.cloud.providers[CATALOGUE_PROVIDER] = CloudProviderConfig(
+        enabled=True, api_key="mk-unchecked"
+    )
+    previous = cfg.model_copy(deep=True)
+    merged = apply_config_patch(cfg, {"swarm": {"mdns": False}})
+    warnings: list[str] = []
+    apply_config_guards(
+        merged,
+        previous=previous,
+        warnings=warnings,
+        patch={"swarm": {"mdns": False}},
+    )
+    assert merged.cloud.providers[CATALOGUE_PROVIDER].enabled is True
+    assert not warnings, warnings
+
+
 def test_a_provider_whose_key_was_rejected_cannot_be_newly_enabled() -> None:
     cfg = NetllmConfig()
     cfg.cloud.providers[CATALOGUE_PROVIDER] = CloudProviderConfig(

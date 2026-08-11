@@ -40,6 +40,7 @@ Key modules: `config.py`, `routing_policy.py`, `pool.py`, `model_resolution.py`,
 - **`cloud_providers.py`**: code-owned registry (base URLs, auth modes, model catalogs) for pre-configured providers — not user config, never persisted. `CloudConfig`/`CloudProviderConfig` in `models.py` hold the user-facing `[cloud]` section; absent section == `CloudConfig()` defaults (enabled=True, fallback="cloud") reproduce pre-cloud-feature behavior exactly. See [docs/cloud-providers-plan.md](../../docs/cloud-providers-plan.md).
 - **`Backend.cloud_provider`/`auth_mode`**: tags on materialized cloud rows (`netllm-agent`'s `_materialize_cloud_provider_backends`) — `cloud_provider` names the registry id (drives `pool.select_backend(prefer_cloud=…)` and pruning), `auth_mode` ("api_key" default, "bearer" for Anthropic `plan_token`) picks the upstream SDK auth kwarg
 - **`resolve_routing(..., cloud=…)`**: `cloud.enabled=False` hard-disables cloud regardless of policy; `cloud.fallback="none"` suppresses the *default* cloud-allowed stance but an explicit `allow_cloud` policy still opts a route in; `cloud.fallback="local"` sets `cloud_leads=True` (cloud tried before local/peer mesh)
+- **`config_guards.py`**: post-merge write-path guards shared by the dashboard, `netllm config import`, and targeted CLI mutators (`sources toggle`, `connect --toggle`, `ignore add/remove`). `apply_config_guards(..., patch=...)` runs `enforce_cloud_provider_verification` only when `patch` is `None` or contains a `cloud` key — so a section-scoped dashboard save (Network-only) does not re-warn about unverified providers the user did not touch. `validate_elevated_sources` and LAN mesh defaults still run on every write. See [docs/config-guards-audit.md](../../docs/config-guards-audit.md).
 
 ## Extension contract
 
@@ -86,4 +87,4 @@ Key modules: `config.py`, `routing_policy.py`, `pool.py`, `model_resolution.py`,
 
 None — flat `src/netllm_core/` package.
 
-Updated: 2026-08-11 (control_plane macOS swift_symbol map for web-aligned Settings IA)
+Updated: 2026-08-11 (config_guards cloud verification scoped to cloud patches)

@@ -57,6 +57,18 @@ call the same function, so a fix to one field's guard fixes both surfaces at
 once and a future field addition only needs one classification decision, not
 two hand-written implementations to keep in sync.
 
+### Guard scoping (2026-08-11)
+
+`config_guards.apply_config_guards(..., patch=...)` now receives the top-level
+section keys the caller actually merged. **`enforce_cloud_provider_verification`
+runs only when `patch` is `None` or contains `cloud`** — elevated-source and
+LAN-mesh guards still run on every write. The web dashboard's Save button
+(`static/dashboard.js::buildConfigPatch`) POSTs only sections whose wire shape
+differs from the last-saved config, so a Network-only edit (cluster token,
+listen, peers) no longer re-surfaces moonshot/unverified-provider warnings.
+Cloud-page saves and `netllm config import` with a `[cloud]` body still hit the
+full cloud gate.
+
 ## Fix plan
 
 See the implementation plan for `packages/netllm-core/src/netllm_core/config_merge.py`

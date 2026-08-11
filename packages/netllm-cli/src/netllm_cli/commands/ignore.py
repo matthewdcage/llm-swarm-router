@@ -28,13 +28,17 @@ ignore_app = typer.Typer(
 )
 
 
-def _save(cfg, cfg_path: Path, action: str) -> None:
+def _save(cfg, cfg_path: Path, action: str, *, patch: dict | None = None) -> None:
     """Guard + persist, mapping a guard failure to a non-zero exit."""
     from netllm_core.config_guards import ConfigGuardError, apply_config_guards
     from netllm_discovery.lan import own_agent_urls
 
     try:
-        apply_config_guards(cfg, own_agent_urls=own_agent_urls(cfg.agent.listen))
+        apply_config_guards(
+            cfg,
+            own_agent_urls=own_agent_urls(cfg.agent.listen),
+            patch=patch,
+        )
     except ConfigGuardError as exc:
         print_error(f"Could not {action}", str(exc))
         raise typer.Exit(1) from exc
@@ -83,7 +87,12 @@ def ignore_add(
     if not add_ignored_url(cfg, url):
         console.print(f"[dim]{norm} is already ignored.[/]")
         return
-    _save(cfg, cfg_path, f"ignore {norm}")
+    _save(
+        cfg,
+        cfg_path,
+        f"ignore {norm}",
+        patch={"discovery": {"ignored_urls": list(cfg.discovery.ignored_urls)}},
+    )
     console.print(f"[green]Ignoring[/] {norm}.")
     if norm in configured_backend_urls(cfg):
         # Stored, but inert: routing.backends wins. Saying so here is the
@@ -116,6 +125,11 @@ def ignore_remove(
             hints=["List them: [cyan]netllm ignore list[/]"],
         )
         raise typer.Exit(1)
-    _save(cfg, cfg_path, f"stop ignoring {norm}")
+    _save(
+        cfg,
+        cfg_path,
+        f"stop ignoring {norm}",
+        patch={"discovery": {"ignored_urls": list(cfg.discovery.ignored_urls)}},
+    )
     console.print(f"[green]No longer ignoring[/] {norm}.")
     console.print("[dim]Run [cyan]netllm discover[/] to pick it up again.[/]")

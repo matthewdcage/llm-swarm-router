@@ -75,9 +75,12 @@ def sources_toggle(
     # and the agent's admin save path — see F-02 / F-43 in
     # docs/architecture/07-findings-register.md.
     updated = apply_config_patch(cfg, {"routing": {"sources": entries}})
+    routing_patch = {"routing": {"sources": entries}}
     try:
         apply_config_guards(
-            updated, own_agent_urls=own_agent_urls(updated.agent.listen)
+            updated,
+            own_agent_urls=own_agent_urls(updated.agent.listen),
+            patch=routing_patch,
         )
     except ConfigGuardError as exc:
         print_error(f"Could not toggle source {id!r}", str(exc))

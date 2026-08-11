@@ -795,6 +795,7 @@ def apply_config_patch(
             own_agent_urls=own_agent_urls(updated.agent.listen),
             previous=cfg,
             warnings=warnings,
+            patch=patch,
         )
     except config_guards.ConfigGuardError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

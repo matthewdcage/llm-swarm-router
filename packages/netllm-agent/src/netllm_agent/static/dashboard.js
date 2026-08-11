@@ -228,9 +228,10 @@ function renderDiscoveryCredentialsSection(root) {
  * rows in place (order preserved, new rows appended), and refuse outright to
  * emit a shorter list than we were handed.
  */
-function applyDiscoveryCredentialPatch(routingPatch) {
-  const creds = asObject(state.configDraft.discovery?._serverCredentials);
-  const pending = enumerateDiscoveryServerUrls(state.configDraft.discovery)
+function applyDiscoveryCredentialPatch(routingPatch, draftRoot) {
+  const draft = draftRoot || state.configDraft;
+  const creds = asObject(draft?.discovery?._serverCredentials);
+  const pending = enumerateDiscoveryServerUrls(draft?.discovery)
     .map((row) => ({ ...row, key: asObject(creds[row.url])._pending_api_key }))
     .filter((row) => row.key);
   if (!pending.length) return; // nothing typed — leave the patch exactly as built
@@ -1620,21 +1621,74 @@ function buildCloudPatch(cloudDraft, schema) {
   };
 }
 
-function buildConfigPatch() {
-  const d = state.configDraft;
+// Top-level config sections the dashboard can POST. Order matches
+// buildConfigPatch; used to omit untouched sections so server-side guards
+// (cloud credential verification) only run when the user edited that page.
+const CONFIG_PATCH_SECTIONS = [
+  "agent",
+  "discovery",
+  "swarm",
+  "routing",
+  "ui",
+  "cloud",
+];
+
+const SWARM_WRITE_ONLY_PENDING_KEYS = { cluster_token: "_cluster_token" };
+
+function buildRoutingSectionPatch(draftRoot) {
   const schema = state.configSchema;
-  const routingPatch = buildSchemaSectionPatch("routing", schema, d.routing);
-  applyDiscoveryCredentialPatch(routingPatch);
-  return {
-    agent: buildSchemaSectionPatch("agent", schema, d.agent),
-    discovery: buildSchemaSectionPatch("discovery", schema, d.discovery),
-    swarm: buildSchemaSectionPatch("swarm", schema, d.swarm, {
-      cluster_token: "_cluster_token",
-    }),
-    routing: routingPatch,
-    ui: buildSchemaSectionPatch("ui", schema, d.ui),
-    cloud: buildCloudPatch(d.cloud, schema),
-  };
+  const routingPatch = buildSchemaSectionPatch(
+    "routing",
+    schema,
+    asObject(draftRoot?.routing)
+  );
+  applyDiscoveryCredentialPatch(routingPatch, draftRoot);
+  return routingPatch;
+}
+
+/** Wire patch for one top-level section from a draft-shaped config root. */
+function buildConfigSectionPatch(sectionKey, draftRoot) {
+  const schema = state.configSchema;
+  const draft = asObject(draftRoot?.[sectionKey]);
+  if (sectionKey === "routing") {
+    return buildRoutingSectionPatch(draftRoot);
+  }
+  if (sectionKey === "cloud") {
+    return buildCloudPatch(draft, schema);
+  }
+  if (sectionKey === "swarm") {
+    return buildSchemaSectionPatch("swarm", schema, draft, SWARM_WRITE_ONLY_PENDING_KEYS);
+  }
+  return buildSchemaSectionPatch(sectionKey, schema, draft);
+}
+
+/**
+ * Sections whose wire patch differs from the last-saved config. Compared at
+ * save time so Network-only edits do not re-POST cloud (and the server skips
+ * cloud verification when that key is absent).
+ */
+function changedConfigSections() {
+  if (!state.config || !state.configDraft) return CONFIG_PATCH_SECTIONS.slice();
+  const changed = [];
+  CONFIG_PATCH_SECTIONS.forEach((sectionKey) => {
+    const next = buildConfigSectionPatch(sectionKey, state.configDraft);
+    const prev = buildConfigSectionPatch(sectionKey, state.config);
+    if (JSON.stringify(next) !== JSON.stringify(prev)) {
+      changed.push(sectionKey);
+    }
+  });
+  // No wire diff → omit every section (do not fall back to a full POST).
+  return changed;
+}
+
+function buildConfigPatch(changedSections) {
+  const sections = changedSections || changedConfigSections();
+  const d = state.configDraft;
+  const patch = {};
+  sections.forEach((sectionKey) => {
+    patch[sectionKey] = buildConfigSectionPatch(sectionKey, d);
+  });
+  return patch;
 }
 
 /*
