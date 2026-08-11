@@ -18,6 +18,7 @@ import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 
+import httpx
 import pytest
 from netllm_core.models import BackendOverride, NetllmConfig, SourceConfig, save_config
 
