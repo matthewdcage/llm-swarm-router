@@ -1677,7 +1677,8 @@ function changedConfigSections() {
       changed.push(sectionKey);
     }
   });
-  return changed.length ? changed : CONFIG_PATCH_SECTIONS.slice();
+  // No wire diff → omit every section (do not fall back to a full POST).
+  return changed;
 }
 
 function buildConfigPatch(changedSections) {
