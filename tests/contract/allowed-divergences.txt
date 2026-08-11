@@ -16,3 +16,13 @@
 #
 # See docs/architecture/refactor/RELEASE-NOTES.md for what each ID changed
 # for operators, and behavior-matrix.md for the per-cell evidence.
+# D19 — model_pools substitute only for models the pool lists. The group arm
+# previously walked the pool's model list against a backend's catalog without
+# consulting the requested name, so any pool member serving one pool model
+# became a candidate for every name in existence and answered under a false
+# model id. Two vectors re-record from 200 to 404.
+D19
+# D18 is declared alongside D19 only because the trap vector that D19
+# re-records already carried a D18 annotation; the lint requires every ID on a
+# changed vector to be named in the same commit. No D18 behaviour changed here.
+D18

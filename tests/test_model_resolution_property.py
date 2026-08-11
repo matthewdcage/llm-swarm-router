@@ -87,11 +87,31 @@ def legacy_pool_models_for_backend(
     return names
 
 
+def legacy_pool_authorises(
+    pool_models: list[str], aliases: dict[str, list[str]], requested_model: str
+) -> bool:
+    """D19: a pool substitutes only for models it lists.
+
+    The original matchers walked the pool's model list against the catalog
+    without ever consulting ``requested_model``, so a member serving any one
+    pool model became a candidate for *every* name — including names no
+    backend in the mesh hosts. The oracle carries the guard too, since the
+    divergence is deliberate rather than drift.
+    """
+    names = legacy_model_names_for(aliases, requested_model)
+    return legacy_serves_model(pool_models, names)
+
+
 def legacy_resolve_via_pool(
-    pools: dict[str, ModelPool], backend: Backend, requested_model: str
+    pools: dict[str, ModelPool],
+    backend: Backend,
+    requested_model: str,
+    aliases: dict[str, list[str]] | None = None,
 ) -> str | None:
     pool_models = legacy_pool_models_for_backend(pools, backend)
     if not pool_models:
+        return None
+    if not legacy_pool_authorises(pool_models, aliases or {}, requested_model):
         return None
     served = backend.health.models
     for m in pool_models:
@@ -124,7 +144,11 @@ def legacy_candidacy(
     if legacy_serves_model(served, names):
         return True
     pool_models = legacy_pool_models_for_backend(pools, backend)
-    return bool(pool_models) and legacy_serves_model(served, pool_models)
+    return (
+        bool(pool_models)
+        and legacy_pool_authorises(pool_models, aliases, model)
+        and legacy_serves_model(served, pool_models)
+    )
 
 
 def legacy_invocation(
@@ -151,7 +175,7 @@ def legacy_invocation(
             sid = served_id.casefold()
             if sid == name or sid.startswith(name + ":"):
                 return served_id
-    pool_model = legacy_resolve_via_pool(pools, backend, model)
+    pool_model = legacy_resolve_via_pool(pools, backend, model, aliases)
     if pool_model is not None:
         return pool_model
     return model
@@ -268,9 +292,14 @@ def test_legacy_pair_violates_coherence_on_the_recorded_trap() -> None:
     """The fixture behind naming-f25-trap-pool-tag-prefix-disagree, as a
     unit: matcher A admits the host, matcher B sends it a name it does not
     serve. This is what D18 retires."""
+    # "anything-goes" is listed so D19's membership guard admits the request:
+    # the trap recorded here is the tag-prefix disagreement between the two
+    # legacy matchers, not the old catch-all that D19 removed.
     pools = {
         "lab": ModelPool(
-            enabled=True, hosts=["http://alpha.farm/v1"], models=["poolmodel"]
+            enabled=True,
+            hosts=["http://alpha.farm/v1"],
+            models=["poolmodel", "anything-goes"],
         )
     }
     backend = Backend(

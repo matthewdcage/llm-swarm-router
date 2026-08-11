@@ -121,7 +121,7 @@ from drivers import DriveResult, contract_environment
 GROUP_DIR = Path(__file__).resolve().parent / "vectors" / "streaming-errors"
 RECORD = os.environ.get("NETLLM_VECTOR_RECORD") == "1"
 
-VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 17)}
+VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 20)}  # D19: pool membership guard
 GROUPS = ("streaming", "errors")
 _ID_PREFIX = {"streaming": "stream-", "errors": "errors-"}
 

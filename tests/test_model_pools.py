@@ -30,8 +30,18 @@ def _backend(
 
 
 @patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
-def test_pool_member_matches_any_requested_name_on_overflow(_mock: object) -> None:
-    """When no backend serves the requested model, pool members substitute."""
+def test_pool_member_substitutes_for_a_pool_model_it_does_not_serve(
+    _mock: object,
+) -> None:
+    """When no backend serves the requested model, pool members substitute —
+    but only for models the pool itself lists.
+
+    A pool declares *these hosts are interchangeable for these models*. It
+    does not license a member to answer for names the pool never mentions:
+    that turned any single-model host listed in a pool into a mesh-wide
+    catch-all, which silently answered every request under whatever name was
+    asked for.
+    """
     pool = RouterPool(
         model_pools={
             "big": ModelPool(enabled=True, hosts=["mac-studio"], models=POOL_MODELS)
@@ -40,8 +50,14 @@ def test_pool_member_matches_any_requested_name_on_overflow(_mock: object) -> No
     big_host = _backend("mac-studio", "http://a/v1", ["qwen2.5:72b-instruct"])
     other = _backend("other", "http://b/v1", ["qwen2"])
     pool.set_backends([big_host, other])
-    matched = pool.backends_for_model("gpt-4o")
+
+    # llama3.1:70b is a pool model that no backend serves -> overflow fires.
+    matched = pool.backends_for_model("llama3.1:70b")
     assert [b.id for b in matched] == ["mac-studio"]
+
+    # gpt-4o is in no pool and on no backend -> nothing is a candidate, so
+    # the surface can 404 instead of inventing an answer.
+    assert pool.backends_for_model("gpt-4o") == []
 
 
 @patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
@@ -103,7 +119,9 @@ def test_pool_host_ref_matches_agent_id_and_peer_prefix(_mock: object) -> None:
         "peer:abc123", "http://a/v1", ["llama3.1:70b"], agent_id="abc123", local=False
     )
     pool.set_backends([peer])
-    matched = pool.backends_for_model("anything")
+    # A pool model the peer does not serve: overflow substitutes it in,
+    # which is what proves the host-ref form was matched.
+    matched = pool.backends_for_model("qwen2.5:72b-instruct")
     assert [b.id for b in matched] == ["peer:abc123"]
 
 
@@ -121,7 +139,11 @@ def test_group_arm_picks_first_served_pool_model() -> None:
     """Was ``RouterPool.resolve_via_pool``; now the resolver's group arm."""
     pool = RouterPool(
         model_pools={
-            "big": ModelPool(enabled=True, hosts=["mac-studio"], models=POOL_MODELS)
+            # gpt-4o is a declared pool model, so the pool authorises
+            # substituting for it; no member serves it, so the group arm runs.
+            "big": ModelPool(
+                enabled=True, hosts=["mac-studio"], models=["gpt-4o", *POOL_MODELS]
+            )
         }
     )
     backend = _backend(
@@ -151,7 +173,9 @@ def test_model_for_backend_falls_back_to_pool() -> None:
 
     cfg = NetllmConfig()
     cfg.routing.model_pools = {
-        "big": ModelPool(enabled=True, hosts=["mac-studio"], models=POOL_MODELS)
+        "big": ModelPool(
+            enabled=True, hosts=["mac-studio"], models=["gpt-4o", *POOL_MODELS]
+        )
     }
     service = AgentService(cfg)
     backend = _backend("mac-studio", "http://a/v1", ["qwen2.5:72b-instruct"])
@@ -202,8 +226,10 @@ def test_model_pools_parse_into_the_resolver_group_representation() -> None:
         ]
     )
     backend = _backend("mac-studio", "http://a/v1", ["llama3.1:70b"])
+    # A pool model the backend does not serve, so the group arm is the one
+    # doing the work in both resolvers.
     assert (
-        direct.resolve("anything", backend).upstream_model
-        == resolver.resolve("anything", backend).upstream_model
+        direct.resolve("qwen2.5:72b-instruct", backend).upstream_model
+        == resolver.resolve("qwen2.5:72b-instruct", backend).upstream_model
         == "llama3.1:70b"
     )

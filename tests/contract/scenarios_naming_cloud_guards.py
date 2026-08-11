@@ -75,7 +75,7 @@ RECORD = os.environ.get("NETLLM_VECTOR_RECORD") == "1"
 # D18 (Phase 8b, F-25 matcher unification) is the highest ID this
 # group carries; the shared lint in test_divergence_lint.py owns the
 # repo-wide range.
-VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 19)}
+VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 20)}  # D19: pool membership guard
 GROUPS = ("naming", "cloud", "guards")
 
 # Farm hosts (farm.FarmBackend.base_url): openai rows carry "/v1", the

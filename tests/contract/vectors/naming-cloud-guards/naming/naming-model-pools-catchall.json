@@ -1,8 +1,10 @@
 {
-  "divergence": [],
+  "divergence": [
+    "D19"
+  ],
   "expected": {
     "admission_delta": {
-      "request_count": 1,
+      "request_count": 0,
       "scenario_counts": {
         "default:default": 1
       },
@@ -15,43 +17,15 @@
       }
     },
     "body_shape": {
-      "choices": [
-        {
-          "finish_reason": "stop",
-          "index": 0,
-          "logprobs": null,
-          "message": {
-            "annotations": null,
-            "audio": null,
-            "content": "farm reply",
-            "function_call": null,
-            "refusal": null,
-            "role": "assistant",
-            "tool_calls": null
-          }
-        }
-      ],
-      "created": "<ts>",
-      "id": "<id>",
-      "model": "anything-goes",
-      "moderation": null,
-      "object": "chat.completion",
-      "service_tier": null,
-      "system_fingerprint": null,
-      "usage": {
-        "completion_tokens": 5,
-        "completion_tokens_details": null,
-        "prompt_tokens": 3,
-        "prompt_tokens_details": null,
-        "total_tokens": 8
+      "error": {
+        "code": "not_found",
+        "message": "Model 'anything-goes' not found on any backend. Known models: pool-model. Map provider-specific names with [routing.model_aliases], or add the host to a [routing.model_pools] entry to accept any request name.",
+        "param": null,
+        "type": "invalid_request_error"
       }
     },
     "metrics_delta": {
       "counters": {
-        "netllm_completion_tokens_total{backend=http://alpha.farm/v1,model=anything-goes}": 5.0,
-        "netllm_prompt_tokens_total{backend=http://alpha.farm/v1,model=anything-goes}": 3.0,
-        "netllm_request_latency_seconds_count{backend=http://alpha.farm/v1}": 1.0,
-        "netllm_requests_total{backend=http://alpha.farm/v1,model=anything-goes,status=ok}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
       },
@@ -71,26 +45,14 @@
       "latency_ema_changed": {
         "http://alpha.farm/v1": "<ema>"
       },
-      "routed_counts": {
-        "817df768-a998-5ed5-b113-1689b0222b1b": 1
-      }
+      "routed_counts": {}
     },
     "sse_frames": null,
-    "status": 200,
-    "upstream_calls": [
-      {
-        "backend": "alpha",
-        "headers": {
-          "authorization": "Bearer farm-key"
-        },
-        "method": "POST",
-        "model": "pool-model",
-        "path": "/v1/chat/completions"
-      }
-    ]
+    "status": 404,
+    "upstream_calls": []
   },
   "id": "naming-model-pools-catchall",
-  "note": "pool member is a candidate for ANY name; requested name discarded",
+  "note": "pool substitutes only for models it lists: a name the pool never mentions is not a candidate, so the surface 404s instead of answering under a false model id (D19)",
   "request": {
     "body": {
       "messages": [
