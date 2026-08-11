@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 @MainActor
 final class MenubarController: NSObject, NSMenuDelegate {
@@ -14,6 +15,12 @@ final class MenubarController: NSObject, NSMenuDelegate {
     private var servingStatsMenu = NSMenu()
     private var modelsMenu = NSMenu()
     private var menuOpen = false
+    private var headerPrimaryItem: NSMenuItem?
+    private var headerSecondaryItem: NSMenuItem?
+    private var drainMenuItem: NSMenuItem?
+    private var usePopover = false
+    private var popover: NSPopover?
+    private var popoverHostingView: NSView?
 
     private override init() {
         super.init()
@@ -46,11 +53,18 @@ final class MenubarController: NSObject, NSMenuDelegate {
             name: ServerProcess.stateDidChangeNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(updateStateDidChange),
+            name: .netllmUpdateStateDidChange,
+            object: model.updateController
+        )
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem?.button {
             button.image = BrandAssets.menubarIcon(for: NSApp.effectiveAppearance)
             button.image?.isTemplate = true
+            configureStatusButton(button)
         }
         menu.delegate = self
         statusItem?.menu = menu
@@ -59,9 +73,69 @@ final class MenubarController: NSObject, NSMenuDelegate {
         gaugeController.configure(model: model, settings: model.uiSettings)
     }
 
+    /// Phase 2: enable NSPopover shell (design 1f). When enabled, left-click
+    /// opens the popover; right-click still opens the AppKit menu fallback.
+    func setPopoverEnabled(_ enabled: Bool) {
+        usePopover = enabled
+        if let button = statusItem?.button {
+            configureStatusButton(button)
+        }
+        if enabled {
+            popover?.performClose(nil)
+        }
+    }
+
+    private func configureStatusButton(_ button: NSStatusBarButton) {
+        if usePopover {
+            button.action = #selector(statusItemClicked(_:))
+            button.target = self
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        } else {
+            button.action = nil
+            button.target = nil
+        }
+    }
+
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        guard usePopover, let model else { return }
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp {
+            menu.popUp(
+                positioning: nil,
+                at: NSPoint(x: 0, y: sender.bounds.height),
+                in: sender
+            )
+            return
+        }
+        togglePopover(relativeTo: sender.bounds, of: sender, model: model)
+    }
+
+    private func togglePopover(relativeTo rect: NSRect, of view: NSView, model: MenubarAppModel) {
+        if popover == nil {
+            let pop = NSPopover()
+            pop.behavior = .transient
+            pop.contentSize = NSSize(width: DesignTokens.popoverWidth, height: 520)
+            pop.contentViewController = NSHostingController(
+                rootView: MenubarPopoverView(model: model)
+            )
+            pop.delegate = self
+            popover = pop
+        }
+        guard let popover else { return }
+        if popover.isShown {
+            popover.performClose(nil)
+        } else {
+            HostSampler.shared.subscribe()
+            telemetryPoller?.start()
+            popover.show(relativeTo: rect, of: view, preferredEdge: .minY)
+        }
+    }
+
     private func syncStats() {
         guard let model else { return }
         model.syncStatsFromPoller(statsPoller?.snapshot ?? StatsSnapshot())
+        refreshHeaderItems()
+        updateDrainMenuTitle()
         if menuOpen { refreshDynamicSections() }
         gaugeController.refreshTitles()
     }
@@ -69,8 +143,9 @@ final class MenubarController: NSObject, NSMenuDelegate {
     @objc private func telemetryDidUpdate() {
         guard let model, let poller = telemetryPoller else { return }
         model.updateTelemetrySnapshot(poller.snapshot)
+        refreshHeaderItems()
         if menuOpen {
-            ServingStatsMenuBuilder.apply(to: servingStatsMenu, snapshot: poller.snapshot)
+            refreshServingStatsMenu()
             refreshSystemStatsPanel()
         }
         gaugeController.refreshTitles()
@@ -85,6 +160,10 @@ final class MenubarController: NSObject, NSMenuDelegate {
     @objc private func serverStateDidChange() {
         rebuildMenu()
         syncPollerRunning()
+    }
+
+    @objc private func updateStateDidChange() {
+        rebuildMenu()
     }
 
     private func syncPollerRunning() {
@@ -110,11 +189,20 @@ final class MenubarController: NSObject, NSMenuDelegate {
     }
 
     private func refreshDynamicSections() {
+        refreshHeaderItems()
         refreshSystemStatsPanel()
-        if let snapshot = telemetryPoller?.snapshot {
-            ServingStatsMenuBuilder.apply(to: servingStatsMenu, snapshot: snapshot)
-        }
+        refreshServingStatsMenu()
         rebuildModelsMenu()
+    }
+
+    private func refreshServingStatsMenu() {
+        guard let model else { return }
+        let snapshot = telemetryPoller?.snapshot ?? model.telemetrySnapshot
+        ServingStatsMenuBuilder.apply(
+            to: servingStatsMenu,
+            snapshot: snapshot,
+            status: model.servingStatsStatusContext
+        )
     }
 
     private func refreshSystemStatsPanel() {
@@ -126,29 +214,84 @@ final class MenubarController: NSObject, NSMenuDelegate {
         systemStatsView?.refresh(sample: sample)
     }
 
+    private func refreshHeaderItems() {
+        guard let model else { return }
+        let color = MenubarStatusFormatter.headerColor(
+            for: MenubarStatusFormatter.Context(
+                state: model.serverProcess?.state ?? .stopped,
+                port: model.agentPort,
+                stats: model.stats,
+                primaryModel: model.telemetrySnapshot.primaryModel
+            )
+        )
+        headerPrimaryItem?.attributedTitle = NSAttributedString(
+            string: model.statusTitle,
+            attributes: [.foregroundColor: color]
+        )
+        if let subtitle = model.statusSubtitle, let headerSecondaryItem {
+            headerSecondaryItem.isHidden = false
+            headerSecondaryItem.title = subtitle
+        } else {
+            headerSecondaryItem?.isHidden = true
+        }
+    }
+
+    private func updateDrainMenuTitle() {
+        guard let model, let drainMenuItem else { return }
+        drainMenuItem.title = model.stats.draining ? "Resume Agent" : "Drain Agent"
+    }
+
     private func rebuildMenu() {
         menu.removeAllItems()
         guard let model else { return }
 
         let header = NSMenuItem(title: model.statusTitle, action: nil, keyEquivalent: "")
         header.isEnabled = false
-        if model.isRunning {
-            header.attributedTitle = NSAttributedString(
-                string: model.statusTitle,
-                attributes: [.foregroundColor: NSColor.systemGreen]
-            )
-        }
+        headerPrimaryItem = header
+        applyHeaderStyle(to: header, model: model)
         menu.addItem(header)
 
+        if let subtitle = model.statusSubtitle {
+            let sub = NSMenuItem(title: subtitle, action: nil, keyEquivalent: "")
+            sub.isEnabled = false
+            headerSecondaryItem = sub
+            menu.addItem(sub)
+        } else {
+            headerSecondaryItem = nil
+        }
+
         if model.isRunning {
+            let drain = NSMenuItem(
+                title: model.stats.draining ? "Resume Agent" : "Drain Agent",
+                action: #selector(toggleDrain),
+                keyEquivalent: ""
+            )
+            drain.image = NSImage(
+                systemSymbolName: model.stats.draining ? "play.circle" : "pause.circle",
+                accessibilityDescription: nil
+            )
+            drainMenuItem = drain
+            menu.addItem(drain)
+
+            let restart = NSMenuItem(title: "Restart Agent", action: #selector(restartAgent), keyEquivalent: "")
+            restart.image = NSImage(systemSymbolName: "arrow.clockwise.circle", accessibilityDescription: nil)
+            menu.addItem(restart)
+
             let stop = NSMenuItem(title: "Stop Agent", action: #selector(stopAgent), keyEquivalent: "")
             stop.image = NSImage(systemSymbolName: "stop.circle", accessibilityDescription: nil)
             menu.addItem(stop)
         } else {
+            drainMenuItem = nil
             let start = NSMenuItem(title: "Start Agent", action: #selector(startAgent), keyEquivalent: "")
             start.image = NSImage(systemSymbolName: "play.circle", accessibilityDescription: nil)
             menu.addItem(start)
         }
+
+        let copyEnv = NSMenuItem(title: "Copy client env", action: #selector(copyEnv), keyEquivalent: "")
+        copyEnv.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
+        menu.addItem(copyEnv)
+
+        menu.addItem(.separator())
 
         let modelsItem = NSMenuItem(title: "Models", action: nil, keyEquivalent: "")
         modelsItem.submenu = modelsMenu
@@ -171,7 +314,7 @@ final class MenubarController: NSObject, NSMenuDelegate {
         servingItem.submenu = servingStatsMenu
         servingItem.image = NSImage(systemSymbolName: "chart.bar", accessibilityDescription: nil)
         menu.addItem(servingItem)
-        ServingStatsMenuBuilder.apply(to: servingStatsMenu, snapshot: model.telemetrySnapshot)
+        refreshServingStatsMenu()
 
         menu.addItem(.separator())
         let dash = NSMenuItem(title: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "")
@@ -182,6 +325,17 @@ final class MenubarController: NSObject, NSMenuDelegate {
             omlx.image = NSImage(systemSymbolName: "cpu", accessibilityDescription: nil)
             menu.addItem(omlx)
         }
+
+        if !model.hasUpdateBadge {
+            let updates = NSMenuItem(
+                title: "Check for Updates…",
+                action: #selector(checkForUpdates),
+                keyEquivalent: ""
+            )
+            updates.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
+            menu.addItem(updates)
+        }
+
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(withTitle: "About \(AppBranding.displayName)", action: #selector(openAbout), keyEquivalent: "")
@@ -190,6 +344,21 @@ final class MenubarController: NSObject, NSMenuDelegate {
         for item in menu.items where item.action != nil {
             item.target = self
         }
+    }
+
+    private func applyHeaderStyle(to header: NSMenuItem, model: MenubarAppModel) {
+        let color = MenubarStatusFormatter.headerColor(
+            for: MenubarStatusFormatter.Context(
+                state: model.serverProcess?.state ?? .stopped,
+                port: model.agentPort,
+                stats: model.stats,
+                primaryModel: model.telemetrySnapshot.primaryModel
+            )
+        )
+        header.attributedTitle = NSAttributedString(
+            string: model.statusTitle,
+            attributes: [.foregroundColor: color]
+        )
     }
 
     private func rebuildModelsMenu() {
@@ -227,7 +396,11 @@ final class MenubarController: NSObject, NSMenuDelegate {
         }
 
         modelsMenu.addItem(.separator())
-        let openDash = NSMenuItem(title: "Open Dashboard (full catalog)", action: #selector(openDashboard), keyEquivalent: "")
+        let openDash = NSMenuItem(
+            title: "Open Dashboard (full catalog)",
+            action: #selector(openDashboard),
+            keyEquivalent: ""
+        )
         openDash.target = self
         modelsMenu.addItem(openDash)
     }
@@ -240,6 +413,10 @@ final class MenubarController: NSObject, NSMenuDelegate {
 
     @objc private func startAgent() { model?.startAgent() }
     @objc private func stopAgent() { model?.stopAgent() }
+    @objc private func restartAgent() { model?.restartAgent() }
+    @objc private func toggleDrain() { model?.toggleDrain() }
+    @objc private func copyEnv() { model?.copyEnv() }
+    @objc private func checkForUpdates() { model?.checkForUpdates() }
     @objc private func openDashboard() { model?.openDashboard() }
     @objc private func openOmlx() { model?.openOmlx() }
     @objc private func openSettings() { model?.openSettings() }
@@ -249,5 +426,12 @@ final class MenubarController: NSObject, NSMenuDelegate {
     func refreshAppearance(settings: NetllmConfigDocument.UiSection) {
         guard let model else { return }
         gaugeController.configure(model: model, settings: settings)
+    }
+}
+
+extension MenubarController: NSPopoverDelegate {
+    func popoverDidClose(_ notification: Notification) {
+        telemetryPoller?.stop()
+        HostSampler.shared.unsubscribe()
     }
 }

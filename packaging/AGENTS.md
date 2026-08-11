@@ -34,7 +34,7 @@ Index: [README.md](README.md). macOS app bundle: [../apps/netllm-mac/Scripts/bui
 
 - macOS: `packaging/build.py --venvstacks-only` then `apps/netllm-mac/Scripts/build.sh release`
 - **macOS distribution:** ad-hoc DMGs fail Gatekeeper on macOS 26+ (`no usable signature`); stable releases require Developer ID sign + notarize ([macos-code-signing.md](../docs/macos-code-signing.md)). CI: `release.yml` imports cert → `codesign-mac-app.sh` → `create-dmg.sh` → `maybe-notarize-dmg.sh` → SHA256
-- `build.sh` uses ad-hoc sign locally unless `CODESIGN_IDENTITY` is set; maintainer gatekeeper-safe DMG: `packaging/scripts/local-notarized-dmg.sh`
+- `build.sh` uses ad-hoc sign locally unless `CODESIGN_IDENTITY` is set; maintainer gatekeeper-safe DMG: `packaging/scripts/local-notarized-dmg.sh` (auto-picks the **first** `Developer ID Application` in Keychain — export `CODESIGN_IDENTITY` explicitly when multiple certs exist; notary `APPLE_ID`/`APPLE_TEAM_ID` must match the signing org)
 - End-user DMG install/upgrade: bundled `macos-app-install.sh` + co-located `mount-dmg.sh`; repo `scripts/upgrade-mac-app.sh` wraps the same installer for maintainers only
 - Release workflow renames DMG to `llm-swarm-router.dmg`
 - Linux/Windows alpha artifacts include systemd/service install paths documented in platform docs
@@ -67,3 +67,5 @@ Details: [../docs/ci-and-release.md](../docs/ci-and-release.md).
 | [`windows/`](windows/) | zip and winget manifests |
 
 Platform subfolders are build outputs and scripts; no nested AGENTS.md unless ownership splits by OS team.
+
+Updated: 2026-08-11 (local-notarized-dmg cert picker + org/notary team alignment)

@@ -237,6 +237,13 @@ struct AgentStatusPayload: Sendable {
     var role: String = "peer"
     var listenURL: String = ""
     var routingStrategy: String = ""
+    var draining: Bool = false
+    var reachable: Bool = true
+    var sourceRequests: [String: Int] = [:]
+    var scenarioRequests: [String: Int] = [:]
+    var capacityRejections: Int = 0
+    var shardlessFallbacks: Int = 0
+    var peerWarnings: [String] = []
     var backends: [BackendStatus] = []
     var peers: [PeerStatus] = []
 }

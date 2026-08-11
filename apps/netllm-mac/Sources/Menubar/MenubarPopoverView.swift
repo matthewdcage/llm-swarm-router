@@ -13,11 +13,14 @@ struct MenubarPopoverView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 headerSection
-                if model.stats.isGateway {
+                if model.stats.draining {
+                    roleCard
+                } else if model.stats.isGateway {
                     meshLoadCard
                 } else {
                     roleCard
                 }
+                throughputStrip
                 if !nodeRows.isEmpty {
                     nodeList
                 }
@@ -73,6 +76,10 @@ struct MenubarPopoverView: View {
 
     private var roleLine: String {
         guard model.isRunning else { return model.statusTitle }
+        if model.stats.draining {
+            let detail = model.statusSubtitle ?? model.statusTitle
+            return "Draining · \(detail)"
+        }
         let host = model.stats.hostname.isEmpty
             ? model.connectableHost
             : model.stats.hostname
@@ -87,6 +94,7 @@ struct MenubarPopoverView: View {
 
     private var statusTone: Color {
         guard model.isRunning else { return DesignTokens.danger }
+        if model.stats.draining { return DesignTokens.warn }
         return model.stats.offlineBackends.isEmpty
             ? DesignTokens.ok
             : DesignTokens.warn
@@ -196,6 +204,46 @@ struct MenubarPopoverView: View {
         var detail: String
         var tone: Color
         var share: Double?
+    }
+
+    private var throughputStrip: some View {
+        let snap = model.telemetrySnapshot
+        let reqPerS = snap.liveRequestsPerS
+        let inFlight = snap.routerInFlight
+        let sources = model.stats.sourceRequests.sorted(by: { $0.value > $1.value }).prefix(3)
+        return Group {
+            if reqPerS != nil || inFlight > 0 || !sources.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("req/s")
+                            .font(.caption)
+                            .foregroundStyle(DesignTokens.muted)
+                        Spacer()
+                        Text(reqPerS.map { String(format: "%.2f", $0) } ?? "—")
+                            .font(.caption.monospacedDigit())
+                    }
+                    if inFlight > 0 {
+                        HStack {
+                            Text("In-flight")
+                                .font(.caption)
+                                .foregroundStyle(DesignTokens.muted)
+                            Spacer()
+                            Text("\(inFlight)")
+                                .font(.caption.monospacedDigit())
+                        }
+                    }
+                    if !sources.isEmpty {
+                        Text(
+                            sources.map { "\($0.key): \($0.value)" }.joined(separator: " · ")
+                        )
+                        .font(.caption2)
+                        .foregroundStyle(DesignTokens.muted)
+                        .lineLimit(2)
+                    }
+                }
+                .padding(.horizontal, 2)
+            }
+        }
     }
 
     private var nodeRows: [NodeRow] {
@@ -343,6 +391,10 @@ struct MenubarPopoverView: View {
     private var agentActions: some View {
         HStack(spacing: 8) {
             if model.isRunning {
+                Button(model.stats.draining ? "Resume" : "Drain") {
+                    model.toggleDrain()
+                }
+                .buttonStyle(.bordered)
                 Button("Stop Agent") { model.stopAgent() }
                     .buttonStyle(.bordered)
                     .accessibilityHint("Stops the netllm agent subprocess")

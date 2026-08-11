@@ -38,10 +38,10 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 
 - New platform behavior: update install + troubleshooting + platform-matrix together
 - SDK bumps: update `sdk-versions.md` in same PR as package dep change
-- Release notes go under `release-notes/` with version in filename; macOS blocks follow v0.3.0.1 pattern (in-app → bundled installer → optional repo script); menubar agent-start fixes: [release-notes/v0.3.0.2.md](release-notes/v0.3.0.2.md); open-LAN swarm default: [release-notes/v0.4.0.1.md](release-notes/v0.4.0.1.md); telemetry + menubar stats: [release-notes/v0.4.5.0.md](release-notes/v0.4.5.0.md); engine consolidation: [release-notes/v0.5.0.0.md](release-notes/v0.5.0.0.md); Phase B closeout: [release-notes/v0.5.0.1.md](release-notes/v0.5.0.1.md)
+- Release notes go under `release-notes/` with version in filename; macOS blocks follow v0.3.0.1 pattern (in-app → bundled installer → optional repo script); menubar agent-start fixes: [release-notes/v0.3.0.2.md](release-notes/v0.3.0.2.md); open-LAN swarm default: [release-notes/v0.4.0.1.md](release-notes/v0.4.0.1.md); telemetry + menubar stats: [release-notes/v0.4.5.0.md](release-notes/v0.4.5.0.md); engine consolidation: [release-notes/v0.5.0.0.md](release-notes/v0.5.0.0.md); Phase B closeout: [release-notes/v0.5.0.1.md](release-notes/v0.5.0.1.md). **UI redesign (PR #63)** landed on `main` at the same semver — recut GitHub tag/release + notarized DMG before menubar **Updates** reflects it; do not assume published `v0.5.0.1` assets match `main`
 - **Closure / release planning:** dated snapshots at `closure-roadmap-YYYY-MM-DD.md` — open findings, adversarial PR reviews, phased merge/release checklist; refresh or supersede on release boundaries (see [closure-roadmap-2026-08-03.md](closure-roadmap-2026-08-03.md))
 - macOS signing/notarization changes: update `macos-code-signing.md`, `ci-and-release.md`, and install/troubleshooting Gatekeeper sections together
-- macOS install/update/troubleshooting: update install + troubleshooting + platform-matrix together; menubar telemetry/Serving Stats behavior: [macos-troubleshooting.md#menubar-stats-or-serving-tab-empty](macos-troubleshooting.md#menubar-stats-or-serving-tab-empty), [telemetry-api.md](telemetry-api.md)
+- macOS install/update/troubleshooting: update install + troubleshooting + platform-matrix together; menubar popover, Home tab, telemetry/Serving Stats: [macos-troubleshooting.md](macos-troubleshooting.md) (menubar stats section), [telemetry-api.md](telemetry-api.md)
 - Web dashboard / admin-access behavior: document in `macos-troubleshooting.md` (Swarm or dashboard section) when agent `admin.py` or `static/dashboard.js` contracts change
 
 ## Verification
@@ -60,3 +60,5 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 | [`dev-docs/`](dev-docs/) | Developer plans (phased intent; update status when phases land) |
 
 Nested folders are content collections; add child AGENTS.md only if a subtree gains its own release or editorial workflow.
+
+Updated: 2026-08-11 (menubar popover + Home tab troubleshooting cross-ref)

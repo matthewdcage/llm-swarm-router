@@ -8,7 +8,8 @@ struct SettingsWindowView: View {
     @Bindable var updateController: UpdateController
     var onRestartAgent: (() -> Void)?
 
-    @State private var tab = "status"
+    @State private var tab = "home"
+    @State private var networkSection = "agent"
     @State private var portText = "11400"
 
     /// How many alternate addresses a peer row lists before the rest are
@@ -18,23 +19,22 @@ struct SettingsWindowView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $tab) {
-                Section("Server") {
-                    sidebarRow("Status", "gauge.with.dots.needle.67percent", "status", "Server status")
+                Section("Mesh") {
+                    sidebarRow("Home", "house", "home", "Home — status and serving")
                     sidebarRow("Backends", "server.rack", "backends", "Backends")
-                    sidebarRow("Models", "cube.box", "models", "Models")
+                    sidebarRow("Models & pools", "cube.box", "models", "Models and pools")
                     sidebarRow("Peers", "point.3.connected.trianglepath.dotted", "peers", "Swarm peers")
                 }
                 Section("Config") {
-                    sidebarRow("Agent", "antenna.radiowaves.left.and.right", "agent", "Agent settings")
-                    sidebarRow("Discovery", "magnifyingglass", "discovery", "Discovery settings")
-                    sidebarRow("Swarm", "network", "swarm", "Swarm settings")
+                    sidebarRow("Network", "network", "network", "Agent, discovery, and swarm")
                     sidebarRow("Routing", "arrow.triangle.branch", "routing", "Routing settings")
-                    sidebarRow("Cloud", "cloud", "cloud", "Cloud provider settings")
-                    sidebarRow("UI", "slider.horizontal.3", "ui", "App UI settings")
+                    sidebarRow("Cloud failover", "cloud", "cloud", "Cloud provider settings")
+                    sidebarRow("Preferences", "slider.horizontal.3", "preferences", "App preferences")
                 }
                 Section("Tools") {
+                    sidebarRow("Integrations", "link", "integrations", "Client wiring and sources")
                     sidebarRow("Logs", "doc.text", "logs", "Agent logs")
-                    sidebarRow("Doctor & Test", "stethoscope", "tools", "Doctor and test tools")
+                    sidebarRow("Doctor & test", "stethoscope", "tools", "Doctor and test tools")
                 }
             }
             .accessibilityLabel("Settings sections")
@@ -67,6 +67,12 @@ struct SettingsWindowView: View {
         }
         .onDisappear { model.stopLivePolling() }
         .onAppear { portText = String(model.document.port) }
+        .onChange(of: model.requestedSettingsTab) { _, newTab in
+            if let newTab, !newTab.isEmpty {
+                tab = newTab
+                model.requestedSettingsTab = nil
+            }
+        }
     }
 
     private func restartAgent() {
@@ -82,19 +88,71 @@ struct SettingsWindowView: View {
     @ViewBuilder
     private var tabContent: some View {
         switch tab {
-        case "status", "overview": statusTab
+        case "home", "status", "overview":
+            homeTab
         case "backends": backendsTab
         case "models": modelsTab
         case "peers": peersTab
-        case "agent": agentTab
-        case "discovery": discoveryTab
-        case "swarm": swarmTab
+        case "network", "agent", "discovery", "swarm": networkTab
         case "routing": routingTab
         case "cloud": cloudTab
-        case "ui": uiTab
+        case "preferences", "ui": preferencesTab
+        case "integrations": integrationsTab
         case "logs": logsTab
         case "tools": toolsTab
-        default: statusTab
+        default: homeTab
+        }
+    }
+
+    /// homeTab — merged Status + Serving (web Home / overview page).
+    private var homeTab: some View {
+        HomeTabView(
+            model: model,
+            supervisor: supervisor,
+            updateController: updateController,
+            onRestartAgent: restartAgent
+        )
+        .overlay(alignment: .topTrailing) {
+            if model.agentReachable {
+                Button(model.status?.draining == true ? "Resume" : "Drain") {
+                    Task { await model.drainButton() }
+                }
+                .buttonStyle(.bordered)
+                .padding(.top, 8)
+                .padding(.trailing, 8)
+            }
+        }
+    }
+
+    private var networkTab: some View {
+        HStack(alignment: .top, spacing: 16) {
+            List(selection: $networkSection) {
+                Section("Network") {
+                    Text("Agent").tag("agent")
+                    Text("Discovery").tag("discovery")
+                    Text("Swarm").tag("swarm")
+                }
+            }
+            .frame(width: 150)
+            ScrollView {
+                Group {
+                    switch networkSection {
+                    case "discovery": discoveryTab
+                    case "swarm": swarmTab
+                    default: agentTab
+                    }
+                }
+            }
+        }
+    }
+
+    private var integrationsTab: some View {
+        IntegrationsTabView(model: model)
+    }
+
+    private var preferencesTab: some View {
+        PreferencesTabView(model: model, updateController: updateController) {
+            pushUiSettings()
         }
     }
 
@@ -137,139 +195,6 @@ struct SettingsWindowView: View {
             .background(.quaternary.opacity(0.35))
             .clipShape(RoundedRectangle(cornerRadius: 8))
         }
-    }
-
-    private var statusTab: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Status")
-                .font(.largeTitle.weight(.semibold))
-
-            StatusHeroCard(
-                version: AppVersionInfo.short,
-                listenURL: model.status?.listenURL ?? model.agentBaseURL.absoluteString,
-                supervisorLabel: supervisor.statusLabel,
-                isRunning: supervisor.isRunning,
-                isReachable: model.agentReachable,
-                onRestart: { restartAgent() },
-                onStop: {
-                    supervisor.stop()
-                    Task { await model.refreshLiveData() }
-                },
-                onStart: {
-                    supervisor.start()
-                    Task {
-                        try? await Task.sleep(for: .seconds(1))
-                        await model.refreshLiveData()
-                    }
-                }
-            )
-
-            UpdateBannerCard(controller: updateController)
-
-            HStack {
-                SettingsSectionTitle(title: "Routing stats")
-                Spacer()
-                Button("Refresh") { Task { await model.reloadAll() } }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
-                    .disabled(model.isLoading)
-            }
-
-            HStack(spacing: 12) {
-                StatMetricCard(
-                    title: "Backends",
-                    value: backendStatValue,
-                    subtitle: backendStatSubtitle
-                )
-                StatMetricCard(
-                    title: "Peers",
-                    value: model.peerStatValue,
-                    subtitle: model.peerStatSubtitle
-                )
-                StatMetricCard(
-                    title: "Models",
-                    value: "\(model.routedModelCount)",
-                    subtitle: model.routedModelStatSubtitle
-                )
-            }
-
-            SettingsSectionTitle(title: "Active now")
-            SettingsSurfaceCard {
-                if let status = model.status, model.agentReachable {
-                    Text(activeSummary(status))
-                        .font(.subheadline)
-                } else if supervisor.isRunning {
-                    Text("Agent process is running — waiting for HTTP health at \(model.agentBaseURL.absoluteString).")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Agent stopped — start from the card above or the menu bar.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            SettingsSectionTitle(title: "System")
-            SettingsSurfaceCard {
-                VStack(alignment: .leading, spacing: 8) {
-                    SettingsInfoRow(label: "Platform", value: AppVersionInfo.platformLine)
-                    SettingsInfoRow(label: "App version", value: AppVersionInfo.display)
-                    if let agentVersion = model.agentVersion, !agentVersion.version.isEmpty {
-                        SettingsInfoRow(label: "Agent version", value: "v\(agentVersion.version)")
-                    }
-                    if let agentVersion = model.agentVersion, !agentVersion.openaiSDK.isEmpty {
-                        SettingsInfoRow(label: "OpenAI SDK", value: "v\(agentVersion.openaiSDK)")
-                    }
-                    if let agentVersion = model.agentVersion, !agentVersion.anthropicSDK.isEmpty {
-                        SettingsInfoRow(label: "Anthropic SDK", value: "v\(agentVersion.anthropicSDK)")
-                    }
-                    SettingsInfoRow(label: "CLI", value: AppBranding.cliCommand)
-                    if let status = model.status {
-                        SettingsInfoRow(label: "Agent ID", value: status.agentId)
-                        SettingsInfoRow(label: "Hostname", value: status.hostname)
-                        SettingsInfoRow(label: "Role", value: status.role)
-                        SettingsInfoRow(label: "Strategy", value: status.routingStrategy)
-                    }
-                    SettingsInfoRow(label: "Config", value: AppConfig.defaultConfigPath().path)
-                }
-            }
-
-            SettingsSectionTitle(title: "Quick actions")
-            actionButtons {
-                Button("Refresh provider scan") { model.runDiscover() }
-                Button("Scan LAN peers") { model.runPeersScan() }
-                Button("Run doctor") { model.runDoctor() }
-            }
-        }
-    }
-
-    private var backendStatValue: String {
-        guard let status = model.status else { return "—" }
-        let online = status.backends.filter { $0.health == "online" }.count
-        return "\(online)/\(status.backends.count)"
-    }
-
-    private var backendStatSubtitle: String {
-        guard let status = model.status else { return "Start agent to load" }
-        let online = status.backends.filter { $0.health == "online" }.count
-        return online > 0 ? "Online backends" : "No backends online"
-    }
-
-    private func activeSummary(_ status: AgentStatusPayload) -> String {
-        let online = status.backends.filter { $0.health == "online" }.count
-        var parts = [
-            "\(online) backend\(online == 1 ? "" : "s") online",
-            "role: \(status.role)",
-            status.routingStrategy,
-        ]
-        let connected = model.connectedPeerCount
-        let discovered = model.discoveredLanPeerCount
-        if connected > 0 {
-            parts.insert("\(connected) peer\(connected == 1 ? "" : "s") connected", at: 0)
-        } else if discovered > 0 {
-            parts.insert("\(discovered) peer\(discovered == 1 ? "" : "s") on LAN", at: 0)
-        }
-        return parts.joined(separator: " · ")
     }
 
     private var backendsTab: some View {
@@ -640,21 +565,9 @@ struct SettingsWindowView: View {
             ForEach(Array(model.document.routing.model_pools.keys.sorted()), id: \.self) { name in
                 modelPoolEditor(name: name)
             }
-            sectionHeader("Sources")
-            Text(
-                "Known CLI/harness identities with their own routing. Attributive by default: an id/key with no secret just labels traffic in Status and metrics."
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            actionButtons {
-                Button("Add source") {
-                    model.document.routing.sources.append(.object(["id": .string(""), "enabled": .bool(true)]))
-                }
-            }
-            unregisteredHarnessesSection
-            ForEach(model.document.routing.sources.indices, id: \.self) { index in
-                sourceEditor(index: index)
-            }
+            Text("Per-client source routing lives on the Integrations tab.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -736,202 +649,11 @@ struct SettingsWindowView: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
-    /// routing.sources is dynamic (docs/cli-source-routing-plan.md
-    /// Phase 4b) — no typed SourceConfig struct exists in Swift; rendered
-    /// generically per entry via SchemaFormView, the same dynamic-JSONValue
-    /// pattern modelPoolEditor established above (index-based rather than
-    /// dict-keyed, since routing.sources is a list). model_rewrites/
-    /// scenarios/match are excluded from the rendered field list —
-    /// SchemaFormView has no dict_strings/object/dict-of-object widget yet
-    /// (see its header comment), and routing an unhandled dict/object
-    /// field through the generic text fallback would silently corrupt it
-    /// (the fallback binds a TextField to `.stringValue`, which is nil for
-    /// those, and typing would overwrite the object with a plain string).
-    /// Those three stay editable via the dashboard (/ui/) or config.toml
-    /// for now; excluding them here only skips rendering them — their
-    /// existing values in the underlying JSONValue are left untouched.
-    /// Known harnesses with no matching routing.sources row yet (matched
-    /// by known_id — see admin.harness_registry_payload), each with a
-    /// one-click "Add & enable" button that appends a minimal source row
-    /// (same shape netllm_cli.main.sources_toggle / dashboard.js's
-    /// toggleHarness create when a harness is toggled on for the first
-    /// time). Empty when GET /netllm/v1/harnesses hasn't been fetched yet
-    /// (older agent, unreachable, or first load) — no section renders.
-    @ViewBuilder
-    private var unregisteredHarnessesSection: some View {
-        let unregistered = model.harnessRegistry.filter { !$0.configured }
-        if !unregistered.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(unregistered) { harness in
-                    HStack {
-                        harnessIconView(harness)
-                        Text(harness.displayName).font(.caption)
-                        harnessDetectionBadge(detected: harness.detected)
-                        Spacer()
-                        Button("Add & enable") {
-                            model.document.routing.sources.append(
-                                .object([
-                                    "id": .string(harness.id),
-                                    "enabled": .bool(true),
-                                    "known_id": .string(harness.id),
-                                ])
-                            )
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                }
-            }
-            .padding(8)
-            .background(DesignTokens.inset)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-        }
-    }
-
-    @ViewBuilder
-    private func harnessDetectionBadge(detected: Bool) -> some View {
-        Text(detected ? "Detected" : "Not detected")
-            .font(.caption2.weight(.medium))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(detected ? DesignTokens.okTint : DesignTokens.warnTint)
-            .foregroundStyle(detected ? DesignTokens.okText : DesignTokens.warnText)
-            .clipShape(Capsule())
-    }
-
-    /// Fetched lazily via `model.loadHarnessIconIfNeeded` (SVG from the
-    /// agent's static mount, see AgentAPI.harnessIcon) and cached for the
-    /// process lifetime. A plain colored circle behind it matches the
-    /// dashboard's white-chip treatment for the same reason: simple-icons
-    /// marks render solid black with no fill override.
-    @ViewBuilder
-    private func harnessIconView(_ harness: HarnessInfo) -> some View {
-        Group {
-            if let icon = model.harnessIcons[harness.id] {
-                Image(nsImage: icon)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
-                    .padding(2)
-                    .background(Color.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 3))
-            } else {
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(DesignTokens.inset)
-            }
-        }
-        .frame(width: 16, height: 16)
-        .task { model.loadHarnessIconIfNeeded(harness) }
-    }
-
-    @ViewBuilder
-    private func sourceEditor(index: Int) -> some View {
-        let binding = safeSourceBinding(index)
-        let sourceFields = model.configSchema?.sections["routing"]?.fields
-            .first(where: { $0.name == "sources" })?.itemSchema
-        let renderedFields = (sourceFields ?? []).filter {
-            !["model_rewrites", "scenarios", "match"].contains($0.name)
-        }
-        let sourceId = binding.wrappedValue["id"]?.stringValue ?? ""
-        let knownId = binding.wrappedValue["known_id"]?.stringValue
-        let harness = knownId.flatMap { id in model.harnessRegistry.first { $0.id == id } }
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                if let harness {
-                    harnessIconView(harness)
-                }
-                Text(sourceId.isEmpty ? "(unnamed source)" : sourceId)
-                    .font(.caption.weight(.medium))
-                if let harness {
-                    harnessDetectionBadge(detected: harness.detected)
-                }
-                Spacer()
-                Button(role: .destructive) {
-                    guard model.document.routing.sources.indices.contains(index) else { return }
-                    model.document.routing.sources.remove(at: index)
-                } label: {
-                    Image(systemName: "minus.circle")
-                }
-                .buttonStyle(.borderless)
-            }
-            if sourceFields == nil {
-                // Visible rather than a silently field-less row — see the
-                // matching note on the swarm tab's new-fields fallback.
-                Text("Source fields unavailable — config schema failed to load.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            SchemaFormView(fields: renderedFields, draft: binding)
-            Text(
-                "Model rewrites, per-scenario overrides, and User-Agent match: edit via the web dashboard (/ui/) or config.toml for now."
-            )
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        }
-        .padding(8)
-        .background(DesignTokens.inset)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-
     private var cloudTab: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("Cloud")
             CloudSettingsView(model: model)
         }
-    }
-
-    private var uiTab: some View {
-        // Schema-driven (docs/config-schema-rewrite-plan.md §5 phase 4) —
-        // field order/labels/widgets come from ConfigStore.loadSchema()
-        // instead of a hand-typed UiSection struct. `overrides` covers
-        // what the schema can't express: the log-dir placeholder and
-        // check_for_updates_automatically's poll-timer side effect.
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("\(AppBranding.displayName) app")
-            LoginItemSettings()
-            if let uiFields = model.configSchema?.sections["ui"]?.fields {
-                SchemaFormView(
-                    fields: uiFields,
-                    draft: $model.document.ui,
-                    overrides: [
-                        "auto_start_on_launch": SchemaFieldOverride(
-                            label: "Auto-start agent on launch"
-                        ),
-                        "check_for_updates_automatically": SchemaFieldOverride(
-                            label: "Check for updates automatically",
-                            onChange: { value in
-                                if value.boolValue == true {
-                                    updateController.restartPollingIfNeeded()
-                                } else {
-                                    updateController.stopPolling()
-                                }
-                            }
-                        ),
-                        "log_dir": SchemaFieldOverride(label: "Log directory", placeholder: "default"),
-                    ]
-                )
-            } else {
-                Text("Config schema unavailable — reload Settings to retry.")
-                    .foregroundStyle(.secondary)
-            }
-            gridRow("Config file", AppConfig.defaultConfigPath().path)
-
-            sectionHeader("Menubar appearance")
-            Toggle("Show CPU gauge", isOn: $model.document.ui.bool("menubar_show_cpu"))
-            Toggle("Show GPU gauge", isOn: $model.document.ui.bool("menubar_show_gpu"))
-            Toggle("Show memory gauge", isOn: $model.document.ui.bool("menubar_show_mem"))
-            Toggle("Show live throughput (LIV)", isOn: $model.document.ui.bool("menubar_show_live"))
-            Toggle(
-                "Models menu: favorites only",
-                isOn: $model.document.ui.bool("menubar_models_favorites_only")
-            )
-            Text("Save settings to apply menubar gauges.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .onChange(of: model.document.ui.bool("menubar_show_cpu")) { _, _ in pushUiSettings() }
-        .onChange(of: model.document.ui.bool("menubar_show_gpu")) { _, _ in pushUiSettings() }
-        .onChange(of: model.document.ui.bool("menubar_show_mem")) { _, _ in pushUiSettings() }
-        .onChange(of: model.document.ui.bool("menubar_show_live")) { _, _ in pushUiSettings() }
     }
 
     private func pushUiSettings() {
@@ -1170,19 +892,6 @@ struct SettingsWindowView: View {
                 guard model.document.routing.policies.indices.contains(index)
                 else { return }
                 model.document.routing.policies[index] = newValue
-            }
-        )
-    }
-
-    private func safeSourceBinding(_ index: Int) -> Binding<[String: JSONValue]> {
-        Binding(
-            get: {
-                let rows = model.document.routing.sources
-                return rows.indices.contains(index) ? (rows[index].objectValue ?? [:]) : [:]
-            },
-            set: { newValue in
-                guard model.document.routing.sources.indices.contains(index) else { return }
-                model.document.routing.sources[index] = .object(newValue)
             }
         )
     }

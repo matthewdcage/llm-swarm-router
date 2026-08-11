@@ -11,10 +11,10 @@ Swift menubar application that supervises the netllm Python agent, exposes setti
 | Path | Role |
 |------|------|
 | `Sources/App/` | Entry, delegate, lifecycle |
-| `Sources/Menubar/` | NSMenu menubar (`MenubarController`), telemetry poller, System Stats fly-out, Serving Stats submenu, optional gauge status items |
+| `Sources/Menubar/` | Menubar popover + AppKit menu fallback (`MenubarController`, `MenubarStatusFormatter`), telemetry poller, System Stats fly-out, Serving Stats submenu, optional gauge status items |
 | `Sources/Server/` | Process supervisor, control socket |
 | `Sources/Config/` | TOML slices, CLI shim, `AgentAPI` HTTP client, `AgentHTTP` URL helper, branding, tokens |
-| `Sources/AppView/` | Settings (`SettingsViewModel` live poll), welcome, about, glass chrome |
+| `Sources/AppView/` | Settings (`SettingsWindowView`, `HomeTabView`, `IntegrationsTabView`, `PreferencesTabView`; `SettingsViewModel` live poll), welcome, about, glass chrome |
 | `Sources/Updater/` | GitHub Releases check, in-app install |
 | `Sources/Welcome/` | First-run wizard |
 | `Scripts/build.sh` | Release/stage build (venvstacks + Swift); ad-hoc sign unless `CODESIGN_IDENTITY` set |
@@ -39,7 +39,8 @@ Swift menubar application that supervises the netllm Python agent, exposes setti
 - **`document.ui`/`.discovery`/`.swarm` are `[String: JSONValue]`, not typed structs** (docs/config-schema-rewrite-plan.md §5 phase 4, Option A) — `JSONValue.swift`'s `Binding<[String: JSONValue]>` extensions (`.string()`/`.bool()`/`.double()`/`.stringArray()`/`.stringArray(_:subKey:)`) bridge them back to plain Swift types for existing views. `SchemaFormView`/`SchemaFieldOverride` (`Sources/AppView/SchemaFormView.swift`) render generically from `ConfigStore.loadSchema()` (`netllm config schema`) where a section has no hand-tuned view (`ui`, the 3 new swarm fields, `routing.model_pools`). `routing`'s other fields and all of `cloud` are still typed structs — deliberate, not partial-migration debt; see the plan doc before "finishing" that migration.
 - **Menubar agent status:** `MenubarAppModel.statusTitle` reads live `server.state` (not cached `serverState`); the state observer applies synchronously on the main thread — header text ("Agent stopped" vs running) must stay aligned with Start/Stop menu items (`server.isRunning`)
 - **Settings agent status:** `AgentSupervisor.statusLabel` reads live `server.state.settingsStatusLabel` (not the notification-cached `state` copy) — same adopt/restart race class as menubar PR #43; Swift unit tests in `NetllmMacTests.AgentSupervisorStatusLabelTests`; control socket `status`/`start` responses expose `settingsStatusLabel` for `scripts/test-menubar-lifecycle.sh` L5b
-- **Menubar UX:** AppKit `MenubarController` (not SwiftUI popover) polls `GET /netllm/v1/telemetry?watch=1` while menu open; agent HTTP URLs use `AgentHTTP.url(base:path:)` (never `appendingPathComponent` for query strings); **System Stats** uses native `HostSampler` (delta E/P CPU, IOKit GPU, stacked memory bar); **Serving Stats** shows router session/all-time tokens + per-backend routed counts, plus oMLX rows when admin is reachable (oMLX 0.5.2+); optional CPU/GPU/MEM/LIV gauges toggled under Settings → Appearance (`ui.menubar_*` in config schema)
+- **Menubar UX:** Left-click opens SwiftUI `MenubarPopoverView` (`NSPopover`); right-click falls back to the AppKit menu via `NSMenu.popUp` (not deprecated `NSStatusItem.popUpMenu`). Rich status header (Serving/Draining, role, strategy, backends/peers); **Drain / Resume**, **Restart Agent**, **Copy client env**, expanded **Serving Stats** submenu (`ServingStatsMenuBuilder`: live req/s, source/scenario counts, capacity rejections, windowed backend share). Polls `GET /netllm/v1/telemetry?watch=1` while open; agent HTTP URLs use `AgentHTTP.url(base:path:)` (never `appendingPathComponent` for query strings). **System Stats** uses native `HostSampler`; optional CPU/GPU/MEM/LIV gauges under Settings → Preferences → Appearance (`ui.menubar_*`).
+- **Settings IA (web-aligned):** Sidebar groups **Mesh** (Home, Backends, Models & pools, Peers), **Config** (Network rail: Agent/Discovery/Swarm, Routing, Cloud, Preferences), **Tools** (Integrations, Logs, Doctor). **Home** tab merges Status + Serving (throughput, source/scenario counters, drain pill, join commands). **Integrations** tab: client wiring, copy env, write `~/.zshrc`, full sources editor. **Preferences** (was UI): appearance, behaviour, updates, reveal log directory.
 
 ## Extension contract
 
@@ -123,3 +124,5 @@ User docs: [../../docs/macos-install.md](../../docs/macos-install.md), [../../do
 ## Child DOX Index
 
 None — Swift sources grouped under `Sources/` by concern; no nested AGENTS.md until a subtree gains independent release or ownership.
+
+Updated: 2026-08-11 (menubar popover + Settings Home/Network/Integrations/Preferences IA)

@@ -36,7 +36,8 @@ Parent rail: [../AGENTS.md](../AGENTS.md).
 - Dashboard telemetry UI contract: `tests/test_dashboard_telemetry.py` (Serving tab source + scenario counters + `routerScopeBlock` markers)
 - **`netllm connect` CLI:** `tests/test_cli_connect.py` (env/json/toggle wiring; mocked health)
 - **Contract lint renames:** `tests/contract/test_divergence_lint.py` — stable vector `id` → HEAD path (F-56)
-- Menubar e2e: `scripts/test-menubar-e2e.sh` (bundled quiet + 0.0.0.0 listen on Stage `.app`); lifecycle: `scripts/test-menubar-lifecycle.sh` (L5b adopt + `settingsStatusLabel`); Settings/menubar strings: `NetllmMacTests.AgentSupervisorStatusLabelTests`, `MenubarStatusTitleTests`; manual adopt: [docs/solutions/menubar-adopt-smoke.md](../docs/solutions/menubar-adopt-smoke.md)
+- **Browser e2e (`tests/e2e/`):** Playwright + chromium drives the real agent (`create_app` on ephemeral port); `./scripts/ci.sh e2e` (198 tests). `dash` fixture waits for `state.firstLoadComplete && state.configDraft` — not `networkidle` (dashboard polls forever under load). First boot uses deep status probe (up to 60s per backend) → **90s** `DASHBOARD_READY_TIMEOUT_MS` in `conftest.py`
+- Menubar e2e: `scripts/test-menubar-e2e.sh` (bundled quiet + 0.0.0.0 listen + `MenubarStatusTitleTests` on Stage `.app`); lifecycle: `scripts/test-menubar-lifecycle.sh` (L5b adopt + `settingsStatusLabel`); Settings/menubar strings: `NetllmMacTests.AgentSupervisorStatusLabelTests`, `MenubarStatusTitleTests`, `ServingStatsMenuBuilderTests`; manual adopt: [docs/solutions/menubar-adopt-smoke.md](../docs/solutions/menubar-adopt-smoke.md)
 
 ## Verification
 
@@ -58,4 +59,4 @@ scripts/verify-before-pr.sh
 
 Fixtures are data only; no per-fixture AGENTS.md unless a fixture tree grows maintenance docs.
 
-Updated: 2026-08-03 (Phase B closeout: 363 contract vectors incl. B5 pool isolation; connect CLI; Settings statusLabel tests; 1091 CI pytest)
+Updated: 2026-08-11 (menubar e2e MenubarStatusTitleTests; macOS UI alignment test refs)

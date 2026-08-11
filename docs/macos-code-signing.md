@@ -1,6 +1,20 @@
 # macOS code signing and notarization
 
-Release DMGs are **Developer ID signed and notarized** when GitHub Actions secrets are configured. **Until notarization ships**, CI attaches ad-hoc DMGs and user docs recommend **build from source + `macos-app-install.sh --source`** on macOS 26+ ([macos-install.md](macos-install.md), [macos-troubleshooting.md#gatekeeper-blocks-install-or-launch](macos-troubleshooting.md#gatekeeper-blocks-install-or-launch)).
+Release DMGs are **Developer ID signed and notarized** when GitHub Actions secrets are configured. Local maintainers can run the same path with `packaging/scripts/local-notarized-dmg.sh` (gitignored repo-root `.env` for `APPLE_*` vars — never commit).
+
+**Gatekeeper on macOS 26+:** ad-hoc CI/local DMGs without notarization fail at launch; user docs lead with **build from source + `macos-app-install.sh --source`** until a notarized `llm-swarm-router.dmg` is attached to the GitHub release ([macos-install.md](macos-install.md), [macos-troubleshooting.md#gatekeeper-blocks-install-or-launch](macos-troubleshooting.md#gatekeeper-blocks-install-or-launch)).
+
+## Organization account and notary alignment
+
+- **App ID / bundle ID:** `com.netllm.mac` (must match `apps/netllm-mac/Scripts/build.sh`).
+- **Signing org and notary credentials must match:** `APPLE_ID`, `APPLE_TEAM_ID`, and the Developer ID certificate used for `codesign` must belong to the same Apple Developer team. Xcode showing valid certs does **not** mean the Program License Agreement is accepted — expired agreements yield HTTP **403** from notary until accepted at [developer.apple.com](https://developer.apple.com) or App Store Connect **Agreements**.
+- **Multiple Developer ID certs in Keychain:** `local-notarized-dmg.sh` picks the **first** `Developer ID Application` identity from `security find-identity` and exports it as `CODESIGN_IDENTITY`, which can override a value you set in the shell. When more than one cert exists, export explicitly before running:
+
+```bash
+export CODESIGN_IDENTITY="Developer ID Application: Your Org (TEAMID)"
+```
+
+- **Maintainer local run:** `set -a && source .env && set +a` then `packaging/scripts/local-notarized-dmg.sh` (see [packaging/AGENTS.md](../packaging/AGENTS.md)). CI uses GitHub secrets (`MACOS_CERTIFICATE_P12`, etc.) per table below.
 
 ## One-time setup
 
