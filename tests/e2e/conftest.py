@@ -28,8 +28,9 @@ from netllm_core.models import BackendOverride, NetllmConfig, save_config
 ROOT = Path(__file__).resolve().parents[2]
 
 # The dashboard polls status/telemetry on timers, so `networkidle` never settles
-# on CI runners under load. Wait for the Overview shell instead.
-DASHBOARD_READY = "#page-overview h1"
+# on CI runners under load. Wait for the first refresh() to finish instead —
+# `#page-overview h1` exists earlier with "Still contacting the agent…".
+DASHBOARD_READY = "() => state.firstLoadComplete === true && state.configDraft !== null"
 
 
 def _chromium_missing() -> str:
@@ -236,7 +237,7 @@ def dash(page, agent: RunningServer):  # noqa: ANN001, ANN201 - playwright types
     )
     page.on("pageerror", lambda exc: errors.append(str(exc)))
     page.goto(f"{agent.base_url}/ui/", wait_until="load")
-    page.wait_for_selector(DASHBOARD_READY, timeout=15000)
+    page.wait_for_function(DASHBOARD_READY, timeout=30000)
     page.console_errors = errors  # type: ignore[attr-defined]
     page.agent_base_url = agent.base_url  # type: ignore[attr-defined]
     return page
