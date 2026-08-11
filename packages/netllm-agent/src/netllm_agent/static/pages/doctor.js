@@ -171,7 +171,8 @@ let doctorShowPassed = false;
 function doctorReportText() {
   const doctor = asObject(state.doctor);
   const lines = [`netllm doctor — ${state.status?.hostname || "agent"}`];
-  if (state.status?.listen) lines.push(`listen: ${state.status.listen}`);
+  const listen = state.status?.listen_url || state.status?.listen;
+  if (listen) lines.push(`listen: ${listen}`);
   lines.push("");
   const checks = doctorCheckRows(doctor);
   if (checks.length) {

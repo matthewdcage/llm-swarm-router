@@ -50,7 +50,15 @@ sign_file() {
   fi
 }
 
-# Deepest Mach-O first (dylibs, helpers, python, CLI wrappers)
+# Shell wrappers in Contents/MacOS must be signed before netllm-mac (bundle
+# sign validates subcomponents). Reverse sort alone signs netllm-mac first.
+for wrapper in "$APP/Contents/MacOS/"*; do
+  if [[ -f "$wrapper" ]] && file "$wrapper" 2>/dev/null | grep -q 'shell script'; then
+    sign_file "$wrapper"
+  fi
+done
+
+# Deepest Mach-O first (dylibs, helpers, python, bundled binaries)
 while IFS= read -r -d '' f; do
   sign_file "$f"
 done < <(

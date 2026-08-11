@@ -324,15 +324,27 @@ def select_asset(
         }
 
     asset: ReleaseAsset | None = None
-    if method == "app" or sys.platform == "darwin":
-        asset = _asset_by_name(assets=release.assets, name="llm-swarm-router.dmg")
-    elif method == "windows-service" or sys.platform == "win32":
+    # Explicit upgrade channel wins over sys.platform — dev machines on macOS
+    # still need linux-systemd hints when the channel is patched in tests or
+    # when probing cross-platform upgrade copy.
+    if method == "linux-systemd":
+        asset = _linux_package_asset(release.assets, version)
+    elif method == "windows-service":
         asset = _asset_by_name(
             assets=release.assets,
             name=f"netllm-{version}-windows-x64.zip",
         ) or _asset_by_glob(release.assets, "netllm-*-windows-x64.zip")
-    elif method == "linux-systemd" or sys.platform.startswith("linux"):
+    elif method == "app":
+        asset = _asset_by_name(assets=release.assets, name="llm-swarm-router.dmg")
+    elif sys.platform.startswith("linux"):
         asset = _linux_package_asset(release.assets, version)
+    elif sys.platform == "win32":
+        asset = _asset_by_name(
+            assets=release.assets,
+            name=f"netllm-{version}-windows-x64.zip",
+        ) or _asset_by_glob(release.assets, "netllm-*-windows-x64.zip")
+    elif sys.platform == "darwin":
+        asset = _asset_by_name(assets=release.assets, name="llm-swarm-router.dmg")
 
     if asset is None:
         return {

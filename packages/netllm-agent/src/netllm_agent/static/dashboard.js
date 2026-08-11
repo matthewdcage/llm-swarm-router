@@ -1150,11 +1150,15 @@ function parseListenAddr(listen) {
  * anything reconstructed here — that endpoint is what `netllm connect` emits.
  */
 function clientEndpointUrl() {
-  return (
-    state.envVars?.OPENAI_BASE_URL ||
-    state.envVars?.OPENAI_API_BASE ||
-    (state.status?.listen ? `http://${state.status.listen}/v1` : null)
-  );
+  const fromEnv =
+    state.envVars?.OPENAI_BASE_URL || state.envVars?.OPENAI_API_BASE;
+  if (fromEnv) return fromEnv;
+  const fromStatus = state.status?.listen_url || state.status?.listen;
+  if (!fromStatus) return null;
+  const base = String(fromStatus).startsWith("http")
+    ? fromStatus
+    : `http://${fromStatus}`;
+  return base.endsWith("/v1") ? base : `${base.replace(/\/$/, "")}/v1`;
 }
 
 /** Best-effort URL another machine would use to reach this agent. */
