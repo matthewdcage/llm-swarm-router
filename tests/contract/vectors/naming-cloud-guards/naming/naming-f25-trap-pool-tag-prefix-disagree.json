@@ -1,10 +1,11 @@
 {
   "divergence": [
-    "D18"
+    "D18",
+    "D19"
   ],
   "expected": {
     "admission_delta": {
-      "request_count": 1,
+      "request_count": 0,
       "scenario_counts": {
         "default:default": 1
       },
@@ -17,43 +18,15 @@
       }
     },
     "body_shape": {
-      "choices": [
-        {
-          "finish_reason": "stop",
-          "index": 0,
-          "logprobs": null,
-          "message": {
-            "annotations": null,
-            "audio": null,
-            "content": "farm reply",
-            "function_call": null,
-            "refusal": null,
-            "role": "assistant",
-            "tool_calls": null
-          }
-        }
-      ],
-      "created": "<ts>",
-      "id": "<id>",
-      "model": "anything-goes",
-      "moderation": null,
-      "object": "chat.completion",
-      "service_tier": null,
-      "system_fingerprint": null,
-      "usage": {
-        "completion_tokens": 5,
-        "completion_tokens_details": null,
-        "prompt_tokens": 3,
-        "prompt_tokens_details": null,
-        "total_tokens": 8
+      "error": {
+        "code": "not_found",
+        "message": "Model 'anything-goes' not found on any backend. Known models: poolmodel:7b. Map provider-specific names with [routing.model_aliases], or add the host to a [routing.model_pools] entry to accept any request name.",
+        "param": null,
+        "type": "invalid_request_error"
       }
     },
     "metrics_delta": {
       "counters": {
-        "netllm_completion_tokens_total{backend=http://alpha.farm/v1,model=anything-goes}": 5.0,
-        "netllm_prompt_tokens_total{backend=http://alpha.farm/v1,model=anything-goes}": 3.0,
-        "netllm_request_latency_seconds_count{backend=http://alpha.farm/v1}": 1.0,
-        "netllm_requests_total{backend=http://alpha.farm/v1,model=anything-goes,status=ok}": 1.0,
         "netllm_scenario_requests_total{scenario=default,source=default}": 1.0,
         "netllm_source_requests_total{resolved_via=default,source=default}": 1.0
       },
@@ -73,23 +46,11 @@
       "latency_ema_changed": {
         "http://alpha.farm/v1": "<ema>"
       },
-      "routed_counts": {
-        "817df768-a998-5ed5-b113-1689b0222b1b": 1
-      }
+      "routed_counts": {}
     },
     "sse_frames": null,
-    "status": 200,
-    "upstream_calls": [
-      {
-        "backend": "alpha",
-        "headers": {
-          "authorization": "Bearer farm-key"
-        },
-        "method": "POST",
-        "model": "poolmodel:7b",
-        "path": "/v1/chat/completions"
-      }
-    ]
+    "status": 404,
+    "upstream_calls": []
   },
   "id": "naming-f25-trap-pool-tag-prefix-disagree",
   "note": "F-25 REGRESSION TRAP \u2014 RETIRED in plan \u00a73 Phase 8b as [D18]. Originally: matcher A (RouterPool._serves_model, used by backends_for_model) accepted the host because served 'poolmodel:7b' tag-prefix-matches pool model 'poolmodel', while matcher B (RouterPool.resolve_via_pool, reached from AgentService._model_for_backend) had NO tag-prefix arm \u2014 exact and casefold-exact only \u2014 so it returned None and the requested name 'anything-goes' went to a host that does not serve it. ModelResolver runs one walk for both questions, so the group arm now matches with the same three arms candidacy always used and the upstream call carries 'poolmodel:7b'. This vector is now byte-identical to the alias control below in everything but its routing block \u2014 which is the point.",

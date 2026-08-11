@@ -291,10 +291,20 @@ class ModelResolver:
             return Resolution(requested, name, f"alias-{arm}")
 
         if allow_group_overflow:
-            hit = _walk(self.group_models_for(backend), served)
-            if hit is not None:
-                name, arm = hit
-                return Resolution(requested, name, f"group-{arm}")
+            group_models = self.group_models_for(backend)
+            # A group authorises substitution *for its own models only*.
+            # Without this membership guard the arm below walked the group
+            # list against the catalog while ignoring ``requested`` entirely:
+            # any backend that served a single group member became a
+            # candidate for every model name in existence, including names
+            # nothing in the mesh hosts. A one-model local backend listed in
+            # a group alongside LAN peers therefore swallowed 100% of
+            # traffic and answered under whatever name was asked for.
+            if group_models and _walk(self.alias_names(requested), group_models):
+                hit = _walk(group_models, served)
+                if hit is not None:
+                    name, arm = hit
+                    return Resolution(requested, name, f"group-{arm}")
 
         return Resolution(requested, requested, STAGE_PASSTHROUGH)
 

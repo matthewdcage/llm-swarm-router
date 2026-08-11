@@ -90,7 +90,7 @@ from netllm_core.models import Backend, BackendHealth
 VECTOR_DIR = Path(__file__).resolve().parent / "vectors" / "routing-failover"
 RECORD = os.environ.get("NETLLM_VECTOR_RECORD") == "1"
 
-_VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 18)}
+_VALID_DIVERGENCE_IDS = {f"D{i}" for i in range(1, 20)}  # D19: pool membership guard
 
 # --------------------------------------------------------------------------
 # Fixtures of the world: farm backends, request bodies, shared config bits

@@ -187,6 +187,28 @@ async def iter_chat_completion_sse_lines(
     """Streaming chat completion — preserve upstream SSE JSON verbatim."""
     wire_body = build_chat_wire_body(adapted)
     wire_body["stream"] = True
+
+    # Throughput accounting needs prompt/completion token counts, and on a
+    # stream the only place OpenAI-compatible upstreams emit them is the
+    # terminal usage chunk gated behind stream_options.include_usage. Ask for
+    # it whenever the client did not: without it avg prefill/generation tok/s
+    # stay null forever, because a non-streamed request has no observable
+    # TTFT and a streamed one carries no token counts.
+    #
+    # The chunk is forwarded rather than stripped. AccountingMixin
+    # ._usage_from_sse_chunk reads usage downstream of this generator, so
+    # suppressing it here would defeat the point. It is a spec-shaped
+    # chat.completion.chunk with empty choices — byte-for-byte what the
+    # client would have received had it set include_usage itself.
+    client_options = wire_body.get("stream_options")
+    client_wants_usage = bool(
+        isinstance(client_options, Mapping) and client_options.get("include_usage")
+    )
+    if not client_wants_usage:
+        merged = dict(client_options) if isinstance(client_options, Mapping) else {}
+        merged["include_usage"] = True
+        wire_body["stream_options"] = merged
+
     request = openai_client._build_request(
         _chat_post_options(wire_body), retries_taken=0
     )
