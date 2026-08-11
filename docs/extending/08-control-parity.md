@@ -164,22 +164,22 @@ assertion passes vacuously. The walk duck-types on `.commands`, and
 <!-- netllm:generated:begin:control-parity-table -->
 | Control | Kind | Dashboard | macOS | CLI |
 | --- | --- | --- | --- | --- |
-| `status` | view | `renderOverviewPage` | `statusTab` | `netllm status` |
-| `serving` | view | `ovRenderThroughput` | absent — ledgered, expires phase-8 | n/a |
+| `status` | view | `renderOverviewPage` | `homeTab` | `netllm status` |
+| `serving` | view | `ovRenderThroughput` | `homeTab` | n/a |
 | `backends` | view | `renderBackendsPage` | `backendsTab` | n/a |
 | `models` | view | `renderModelsPage` | `modelsTab` | `netllm models` |
 | `peers` | view | `renderPeersPage` | `peersTab` | `netllm peers` |
-| `agent` | config | `networkThisNodeSection` | `agentTab` | n/a |
-| `discovery` | config | `networkLocalProvidersSection` | `discoveryTab` | `netllm discover`, `netllm ignore list`, `netllm ignore add`, `netllm ignore remove` |
-| `swarm` | config | `networkSwarmDiscoverySection` | `swarmTab` | `netllm join`, `netllm swarm-token` |
+| `agent` | config | `networkThisNodeSection` | `networkTab` | n/a |
+| `discovery` | config | `networkLocalProvidersSection` | `networkTab` | `netllm discover`, `netllm ignore list`, `netllm ignore add`, `netllm ignore remove` |
+| `swarm` | config | `networkSwarmDiscoverySection` | `networkTab` | `netllm join`, `netllm swarm-token` |
 | `routing` | config | `renderRoutingPage` | `routingTab` | n/a |
-| `sources` | config | `renderSourcesSection` | `sectionHeader("Sources")` | `netllm sources list`, `netllm sources toggle` |
+| `sources` | config | `renderSourcesSection` | `integrationsTab` | `netllm sources list`, `netllm sources toggle` |
 | `cloud` | config | `renderCloudPage` | `cloudTab` | `netllm cloud list`, `netllm cloud enable`, `netllm cloud disable`, `netllm cloud set-key`, `netllm cloud verify` |
 | `cloud_verify` | action | `renderCloudVerificationRow` | `verifyCloudProvider` | `netllm cloud verify` |
-| `ui` | config | `prefsBehaviourSection` | `uiTab` | n/a |
+| `ui` | config | `prefsBehaviourSection` | `preferencesTab` | n/a |
 | `logs` | view | `renderLogsPage` | `logsTab` | n/a |
 | `tools` | action | `renderDoctorPage` | `toolsTab` | `netllm doctor`, `netllm test`, `netllm gateway` |
-| `drain` | action | `renderDrainButton` | absent — ledgered, expires phase-8 | `netllm drain` |
+| `drain` | action | `renderDrainButton` | `drainButton` | `netllm drain` |
 | `rediscover` | action | `runDiscover` | `runDiscover` | `netllm discover` |
 <!-- netllm:generated:end:control-parity-table -->
 
