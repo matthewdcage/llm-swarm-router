@@ -341,9 +341,9 @@ def test_ledger_counts_each_span_independently() -> None:
     ledger.record(backend_id="alpha", model="m", now=T0)
 
     row = ledger.windows_payload(now=T0)["by_backend"]["alpha"]
-    assert row["60"] == 1
-    assert row["300"] == 2
-    assert row["86400"] == 3
+    assert row["requests"]["60"] == 1
+    assert row["requests"]["300"] == 2
+    assert row["requests"]["86400"] == 3
 
 
 def test_ledger_buckets_age_out_at_the_span_boundary() -> None:
@@ -356,10 +356,12 @@ def test_ledger_buckets_age_out_at_the_span_boundary() -> None:
 
     for span in spans:
         row = ledger.windows_payload(now=T0 + span + 1)["by_backend"]["alpha"]
-        assert row[str(span)] == 0, f"{span}s bucket still visible past its boundary"
+        assert row["requests"][str(span)] == 0, (
+            f"{span}s bucket still visible past its boundary"
+        )
     # And it was visible immediately before ageing out of the shortest span.
     row = ledger.windows_payload(now=T0 + spans[0] - 1)["by_backend"]["alpha"]
-    assert row[str(spans[0])] == 1
+    assert row["requests"][str(spans[0])] == 1
 
 
 def test_ledger_idle_time_reads_zero_rather_than_the_last_value() -> None:
@@ -404,8 +406,43 @@ def test_ledger_caps_cardinality_and_reports_truncation() -> None:
     assert payload["truncated"]["by_model"] > 0
 
     # Nothing is dropped: every request is still accounted somewhere.
-    total = sum(row["300"] for row in by_model.values())
+    total = sum(row["requests"]["300"] for row in by_model.values())
     assert total == 10_000
+
+
+def test_ledger_traffic_rows_carry_token_totals_and_measured_tps() -> None:
+    ledger = _ledger()
+    ledger.record(
+        backend_id="alpha",
+        model="m",
+        prompt_tokens=100,
+        completion_tokens=50,
+        latency_s=1.0,
+        ttft_s=0.2,
+        now=T0,
+    )
+    row = ledger.windows_payload(now=T0)["by_backend"]["alpha"]
+    assert row["prompt_tokens"]["300"] == 100
+    assert row["completion_tokens"]["300"] == 50
+    assert row["avg_prefill_tps"]["300"] == 500.0
+    assert row["avg_generation_tps"]["300"] == 62.5
+
+
+def test_ledger_traffic_avg_tps_null_without_streaming_measurement() -> None:
+    ledger = _ledger()
+    ledger.record(
+        backend_id="alpha",
+        model="m",
+        prompt_tokens=100,
+        completion_tokens=50,
+        latency_s=1.0,
+        ttft_s=None,
+        now=T0,
+    )
+    row = ledger.windows_payload(now=T0)["by_backend"]["alpha"]
+    assert row["prompt_tokens"]["300"] == 100
+    assert row["avg_prefill_tps"]["300"] is None
+    assert row["avg_generation_tps"]["300"] is None
 
 
 def test_ledger_source_rows_carry_surfaces_top_models_and_last_seen() -> None:
@@ -446,8 +483,8 @@ async def test_ledger_survives_concurrent_recording() -> None:
     await asyncio.gather(*(worker(f"b{i}") for i in range(8)))
 
     payload = ledger.windows_payload(now=T0)
-    assert sum(row["300"] for row in payload["by_backend"].values()) == 1600
-    assert payload["by_model"]["m"]["300"] == 1600
+    assert sum(row["requests"]["300"] for row in payload["by_backend"].values()) == 1600
+    assert payload["by_model"]["m"]["requests"]["300"] == 1600
 
 
 def test_ledger_record_overhead_stays_in_the_noise() -> None:
@@ -529,7 +566,7 @@ def test_non_streaming_request_is_excluded_from_the_ttft_population() -> None:
     assert ledger.latency_payload(now=T0)["ttft_samples"] == 0
     assert ledger.latency_payload(now=T0)["ttft_p50_ms"] is None
     # It still counts as a request and still feeds the backend latency figure.
-    assert ledger.windows_payload(now=T0)["by_backend"]["alpha"]["60"] == 1
+    assert ledger.windows_payload(now=T0)["by_backend"]["alpha"]["requests"]["60"] == 1
     backend = ledger.backend_latency_payload("alpha", now=T0)
     assert backend["samples"] == 1
     assert backend["p50_ms"] is not None
@@ -812,8 +849,8 @@ async def test_stream_session_threads_measured_ttft_into_telemetry(
     assert latency["ttft_p50_ms"] >= 5.0
 
     windows = telemetry.ledger.windows_payload()
-    assert windows["by_backend"]["alpha"]["60"] == 1
-    assert windows["by_model"]["gemma4:27b"]["60"] == 1
+    assert windows["by_backend"]["alpha"]["requests"]["60"] == 1
+    assert windows["by_model"]["gemma4:27b"]["requests"]["60"] == 1
     assert windows["by_policy"]["0:local-openai"]["60"] == 1
     assert windows["by_source"]["cursor"]["surfaces"] == {"openai": 1}
     assert telemetry._session.to_dict()["avg_prefill_tps"] is None  # no prompt tokens

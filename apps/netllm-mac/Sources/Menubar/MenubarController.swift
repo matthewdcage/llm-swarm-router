@@ -7,7 +7,6 @@ final class MenubarController: NSObject, NSMenuDelegate {
 
     private var statusItem: NSStatusItem?
     private var menu = NSMenu()
-    private var telemetryPoller: TelemetryPoller?
     private var statsPoller: StatsPoller?
     private weak var model: MenubarAppModel?
     private let gaugeController = MenuBarGaugeController()
@@ -34,7 +33,6 @@ final class MenubarController: NSObject, NSMenuDelegate {
         statsPoller?.onUpdate = { [weak self] in
             Task { @MainActor in self?.syncStats() }
         }
-        telemetryPoller = TelemetryPoller(host: host, port: port)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(telemetryDidUpdate),
@@ -178,13 +176,11 @@ final class MenubarController: NSObject, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         menuOpen = true
         HostSampler.shared.subscribe()
-        telemetryPoller?.start()
         refreshDynamicSections()
     }
 
     func menuDidClose(_ menu: NSMenu) {
         menuOpen = false
-        telemetryPoller?.stop()
         HostSampler.shared.unsubscribe()
     }
 

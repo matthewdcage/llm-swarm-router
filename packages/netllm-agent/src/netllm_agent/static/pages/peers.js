@@ -294,11 +294,22 @@ function peersCollectRows() {
 }
 
 /**
- * Share of routed requests per row, from status.routed_requests (keyed by
- * backend id — peers are `peer:<agent_id>`, everything else is served by this
- * agent). Cumulative since the agent started, not a live rate.
+ * Share of routed requests per row. Prefer the windowed ledger; fall back to
+ * cumulative ``status.routed_requests`` on older agents.
  */
 function peersRoutedShares() {
+  const windowed = telemetryWindowCounts("by_backend", 300);
+  if (windowed && windowed.total) {
+    const routed = {};
+    windowed.byId.forEach((count, id) => {
+      routed[id] = count;
+    });
+    let local = 0;
+    windowed.byId.forEach((count, id) => {
+      if (!String(id).startsWith("peer:")) local += count;
+    });
+    return { routed, total: windowed.total, local, span: windowed.span };
+  }
   const routed = asObject(state.status?.routed_requests);
   let total = 0;
   let local = 0;
@@ -307,7 +318,7 @@ function peersRoutedShares() {
     total += count;
     if (!String(id).startsWith("peer:")) local += count;
   });
-  return { routed, total, local };
+  return { routed, total, local, span: null };
 }
 
 function peersShareCell(row, shares) {
@@ -679,12 +690,15 @@ function peersRosterPanel(root, rows) {
   }
 
   const shares = peersRoutedShares();
+  const shareLabel = shares.span
+    ? `Share (${telemetrySpanLabel(shares.span)})`
+    : "Share (since start)";
   // Address is the widest column on purpose: it carries a URL plus, on a
   // multi-homed host, its alternates. At 1.5fr `also at http://172.17.0.1:11400`
   // wrapped mid-phrase. Role and Provenance are short words and gave it up.
   const template = "1.6fr 2fr .7fr .9fr .9fr .9fr auto";
   const table = dataTable(
-    ["Agent", "Address", "Role", "Provenance", "Heartbeat", "Share", ""],
+    ["Agent", "Address", "Role", "Provenance", "Heartbeat", shareLabel, ""],
     template
   );
   rows.forEach((row) => {
@@ -719,8 +733,9 @@ function peersRosterPanel(root, rows) {
     "Pinned peers stay in this list even when offline, so a machine that is " +
       "asleep does not silently disappear from the mesh. Provenance is how " +
       "this agent first learned of the peer, kept across heartbeats. Share " +
-      "is the cumulative split of requests this agent has routed since it " +
-      "started."
+      (shares.span
+        ? `is the routed-request split over the last ${telemetrySpanLabel(shares.span)}.`
+        : "is the cumulative split of requests this agent has routed since it started.")
   );
   body.appendChild(table.table);
 }

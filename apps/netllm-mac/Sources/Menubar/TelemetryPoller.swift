@@ -67,6 +67,90 @@ struct TelemetrySnapshot {
         (raw["router"] as? [String: Any])?["latency"] as? [String: Any] ?? [:]
     }
 
+    /// `router.windows` — windowed per-backend / per-model traffic ledger.
+    var routerWindows: [String: Any] {
+        (raw["router"] as? [String: Any])?["windows"] as? [String: Any] ?? [:]
+    }
+
+    var routerWindowSpans: [Int] {
+        let spans = routerWindows["spans_s"] as? [Any] ?? []
+        return spans.compactMap { value in
+            if let n = value as? Int { return n }
+            if let n = value as? NSNumber { return n.intValue }
+            return nil
+        }
+    }
+
+    /// Preferred five-minute span when the server declares it.
+    var routerWindowSpanS: Int? {
+        let spans = routerWindowSpans
+        if spans.contains(300) { return 300 }
+        return spans.first
+    }
+
+    struct TrafficWindowRow {
+        var requests: Int = 0
+        var promptTokens: Int = 0
+        var completionTokens: Int = 0
+        var avgPrefillTps: Double?
+        var avgGenerationTps: Double?
+    }
+
+    func trafficWindowRow(dimension: String, key: String, span: Int? = nil) -> TrafficWindowRow? {
+        let resolvedSpan = span ?? routerWindowSpanS
+        guard let resolvedSpan else { return nil }
+        let spanKey = String(resolvedSpan)
+        guard let dim = routerWindows[dimension] as? [String: Any],
+              let rawRow = dim[key] as? [String: Any]
+        else { return nil }
+        let requestsMap = (rawRow["requests"] as? [String: Any]) ?? rawRow
+        let requests = int(requestsMap[spanKey])
+        guard requests > 0 else { return nil }
+        let promptMap = rawRow["prompt_tokens"] as? [String: Any] ?? [:]
+        let completionMap = rawRow["completion_tokens"] as? [String: Any] ?? [:]
+        return TrafficWindowRow(
+            requests: requests,
+            promptTokens: int(promptMap[spanKey]),
+            completionTokens: int(completionMap[spanKey]),
+            avgPrefillTps: optionalDouble((rawRow["avg_prefill_tps"] as? [String: Any])?[spanKey]),
+            avgGenerationTps: optionalDouble((rawRow["avg_generation_tps"] as? [String: Any])?[spanKey])
+        )
+    }
+
+    func windowedBackendShares(span: Int? = nil) -> [String: Int] {
+        let resolvedSpan = span ?? routerWindowSpanS
+        guard let resolvedSpan else { return [:] }
+        let spanKey = String(resolvedSpan)
+        guard let byBackend = routerWindows["by_backend"] as? [String: Any] else { return [:] }
+        var out: [String: Int] = [:]
+        for (key, value) in byBackend {
+            guard let row = value as? [String: Any] else { continue }
+            let requestsMap = (row["requests"] as? [String: Any]) ?? row
+            let count = int(requestsMap[spanKey])
+            if count > 0 { out[key] = count }
+        }
+        return out
+    }
+
+    func windowedBackendShareTotal(span: Int? = nil) -> Int {
+        windowedBackendShares(span: span).values.reduce(0, +)
+    }
+
+    private func int(_ value: Any?) -> Int {
+        if let value = value as? Int { return value }
+        if let value = value as? Double { return Int(value) }
+        if let value = value as? NSNumber { return value.intValue }
+        return 0
+    }
+
+    private func optionalDouble(_ value: Any?) -> Double? {
+        if value == nil || value is NSNull { return nil }
+        if let value = value as? Double { return value }
+        if let value = value as? Int { return Double(value) }
+        if let value = value as? NSNumber { return value.doubleValue }
+        return nil
+    }
+
     /// Live prefill throughput, preferring oMLX's reading and falling back to
     /// the router's own. Reported 0 on any non-oMLX mesh before the fallback
     /// existed, which read as "idle" rather than "not measured here".

@@ -532,30 +532,56 @@ struct MenubarPopoverView: View {
     }
 
     private var meshSegments: [MeshSegment] {
+        let telemetry = model.telemetrySnapshot
+        let windowSpan = telemetry.routerWindowSpanS
+        let windowShares = telemetry.windowedBackendShares(span: windowSpan)
+        let total = telemetry.windowedBackendShareTotal(span: windowSpan)
+        if total > 0, windowSpan != nil {
+            let ordered = windowShares
+                .filter { $0.value > 0 }
+                .sorted { $0.value > $1.value }
+            return ordered.map { entry in
+                MeshSegment(
+                    id: entry.key,
+                    share: Double(entry.value) / Double(total),
+                    color: entry.key.hasPrefix("peer:") ? DesignTokens.ok : DesignTokens.accent
+                )
+            }
+        }
         let stats = model.stats
-        let total = stats.routedRequestTotal
-        guard total > 0 else { return [] }
+        let cumulativeTotal = stats.routedRequestTotal
+        guard cumulativeTotal > 0 else { return [] }
         let ordered = stats.routedRequests
             .filter { $0.value > 0 }
             .sorted { $0.value > $1.value }
         return ordered.map { entry in
             MeshSegment(
                 id: entry.key,
-                share: Double(entry.value) / Double(total),
+                share: Double(entry.value) / Double(cumulativeTotal),
                 color: entry.key.hasPrefix("peer:") ? DesignTokens.ok : DesignTokens.accent
             )
         }
     }
 
     private var peerShare: Double? {
+        let telemetry = model.telemetrySnapshot
+        let windowSpan = telemetry.routerWindowSpanS
+        let total = telemetry.windowedBackendShareTotal(span: windowSpan)
+        if total > 0, windowSpan != nil {
+            var routedToPeers = 0
+            for entry in telemetry.windowedBackendShares(span: windowSpan) where entry.key.hasPrefix("peer:") {
+                routedToPeers += entry.value
+            }
+            return Double(routedToPeers) / Double(total)
+        }
         let stats = model.stats
-        let total = stats.routedRequestTotal
-        guard total > 0 else { return nil }
+        let cumulativeTotal = stats.routedRequestTotal
+        guard cumulativeTotal > 0 else { return nil }
         var routedToPeers = 0
         for entry in stats.routedRequests where entry.key.hasPrefix("peer:") {
             routedToPeers += entry.value
         }
-        return Double(routedToPeers) / Double(total)
+        return Double(routedToPeers) / Double(cumulativeTotal)
     }
 
     private var localShare: Double? {

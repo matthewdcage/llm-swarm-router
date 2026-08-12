@@ -296,27 +296,40 @@ function modelsStateCell(backend) {
 }
 
 function modelsLatencyCell(backend) {
+  const live = telemetryBackendLatency(backend.id);
+  if (live?.p50Ms != null) {
+    return textEl("div", "mono", `${Math.round(live.p50Ms)}ms`);
+  }
   const p50 = Number(backend.health?.latency_p50_ms);
   if (!Number.isFinite(p50) || p50 <= 0) return textEl("div", "muted mono", "—");
   return textEl("div", "mono", `${Math.round(p50)}ms`);
 }
 
-/**
- * Share of the pool's routed traffic per member.
- *
- * status.routed_requests is a cumulative per-backend counter (pool.py
- * routed_counts) — it is process-lifetime totals, not the mockup's "last
- * 5 min" window, so the column is labelled for what it is.
- */
-function modelsShareCell(backend, total) {
-  const routed = Number(asObject(state.status?.routed_requests)[backend.id] || 0);
+function modelsTrafficCell(backend, total, span) {
+  const windowed = telemetryWindowRow("by_backend", backend.id, span || 300);
+  const routed = windowed
+    ? windowed.requests
+    : Number(asObject(state.status?.routed_requests)[backend.id] || 0);
   const cell = el("div");
   if (!total) {
     cell.appendChild(textEl("div", "muted", "no traffic yet"));
     return cell;
   }
   const pct = (routed / total) * 100;
-  cell.appendChild(textEl("div", "mono", `${formatPercent(pct)} · ${formatCompactCount(routed)}`));
+  const line = el("div", "mono");
+  line.append(
+    document.createTextNode(`${formatPercent(pct)} · ${formatCompactCount(routed)}`)
+  );
+  if (windowed && (windowed.avgPrefillTps != null || windowed.avgGenerationTps != null)) {
+    line.appendChild(
+      textEl(
+        "span",
+        "muted",
+        ` · PP ${telemetryRateText(windowed.avgPrefillTps)} · TG ${telemetryRateText(windowed.avgGenerationTps)}`
+      )
+    );
+  }
+  cell.appendChild(line);
   const meter = el("div", "meter");
   const fill = el("span", backend.health?.status === "online" ? "" : "warn");
   fill.style.width = `${Math.max(2, Math.min(100, pct))}%`;
@@ -325,9 +338,21 @@ function modelsShareCell(backend, total) {
   return cell;
 }
 
+/** @deprecated use modelsTrafficCell */
+function modelsShareCell(backend, total) {
+  return modelsTrafficCell(backend, total, telemetryWindowSpan(300));
+}
+
 function modelsRoutedTotal(members) {
+  const windowed = telemetryWindowCounts("by_backend", 300);
+  if (windowed && windowed.total) return windowed.total;
   const routed = asObject(state.status?.routed_requests);
   return members.reduce((sum, b) => sum + Number(routed[b.id] || 0), 0);
+}
+
+function modelsTrafficSpan() {
+  const windowed = telemetryWindowCounts("by_backend", 300);
+  return windowed?.span || null;
 }
 
 /** How many of a pool's models this backend actually advertises. */
@@ -563,9 +588,13 @@ function modelsPoolCard(root, pool) {
     );
   } else {
     const total = modelsRoutedTotal(members);
+    const span = modelsTrafficSpan();
+    const shareLabel = span
+      ? `Share (${telemetrySpanLabel(span)})`
+      : "Share (since start)";
     const template = "1.3fr .9fr .8fr 1.2fr .8fr .9fr";
     const t = dataTable(
-      ["Node", "Backend", "Pool models", "Share of routed", "p50", "State"],
+      ["Node", "Backend", "Pool models", shareLabel, "p50", "State"],
       template
     );
     members.forEach((b) => {
@@ -573,7 +602,7 @@ function modelsPoolCard(root, pool) {
         modelsNodeCell(b),
         textEl("div", "mono muted", PROVIDER_LABELS[b.provider] || b.provider || "custom"),
         modelsServedCell(b, pool),
-        modelsShareCell(b, total),
+        modelsTrafficCell(b, total, span),
         modelsLatencyCell(b),
         modelsStateCell(b),
       ]);
@@ -1059,9 +1088,11 @@ function modelsMembersPanel(root, pool) {
     return;
   }
   const total = modelsRoutedTotal(members);
+  const span = modelsTrafficSpan();
+  const shareLabel = span ? `Share (${telemetrySpanLabel(span)})` : "Share (since start)";
   const template = "1.4fr .9fr .7fr 1.2fr .8fr auto";
   const t = dataTable(
-    ["Node", "Backend", "Pool models", "Share of routed", "State", ""],
+    ["Node", "Backend", "Pool models", shareLabel, "State", ""],
     template
   );
   members.forEach((b) => {
@@ -1076,7 +1107,7 @@ function modelsMembersPanel(root, pool) {
       modelsNodeCell(b),
       textEl("div", "mono muted", PROVIDER_LABELS[b.provider] || b.provider || "custom"),
       modelsServedCell(b, pool),
-      modelsShareCell(b, total),
+      modelsTrafficCell(b, total, span),
       modelsStateCell(b),
       rm,
     ]);
@@ -1085,8 +1116,9 @@ function modelsMembersPanel(root, pool) {
     textEl(
       "span",
       "muted",
-      "Share is the cumulative routed-request count per backend since the agent " +
-        "started. Per-member weights and pinning are not yet available."
+      span
+        ? `Share is the routed-request split over the last ${telemetrySpanLabel(span)}. Per-member weights and pinning are not yet available.`
+        : "Share is the cumulative routed-request count per backend since the agent started. Per-member weights and pinning are not yet available."
     )
   );
   body.appendChild(t.table);

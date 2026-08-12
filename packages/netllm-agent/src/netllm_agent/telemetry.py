@@ -319,6 +319,118 @@ class _Dimension:
         }
 
 
+class _TrafficEntry:
+    """Per-key windowed request and token counters for ``by_backend`` / ``by_model``."""
+
+    __slots__ = (
+        "completion_tokens",
+        "gen_seconds",
+        "gen_tokens",
+        "prefill_seconds",
+        "prefill_tokens",
+        "prompt_tokens",
+        "requests",
+    )
+
+    def __init__(self) -> None:
+        self.requests = _SpanRing()
+        self.prompt_tokens = _SpanRing()
+        self.completion_tokens = _SpanRing()
+        self.prefill_tokens = _SpanRing()
+        self.prefill_seconds = _SpanRing()
+        self.gen_tokens = _SpanRing()
+        self.gen_seconds = _SpanRing()
+
+
+class _TrafficDimension:
+    """Capped ``{key: _TrafficEntry}`` map with token rings per span."""
+
+    __slots__ = ("_cap", "keys", "truncated")
+
+    def __init__(self, cap: int = LEDGER_MAX_KEYS) -> None:
+        self._cap = cap
+        self.keys: dict[str, _TrafficEntry] = {}
+        self.truncated = 0
+
+    def entry_for(self, key: str) -> _TrafficEntry | None:
+        if not key:
+            return None
+        entry = self.keys.get(key)
+        if entry is not None:
+            return entry
+        if len(self.keys) >= self._cap:
+            self.truncated += 1
+            entry = self.keys.get(LEDGER_OVERFLOW_KEY)
+            if entry is not None:
+                return entry
+            key = LEDGER_OVERFLOW_KEY
+        entry = _TrafficEntry()
+        self.keys[key] = entry
+        return entry
+
+    def record(
+        self,
+        *,
+        key: str,
+        now: float,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        latency_s: float = 0.0,
+        ttft_s: float | None = None,
+    ) -> None:
+        entry = self.entry_for(key)
+        if entry is None:
+            return
+        entry.requests.add(now)
+        if prompt_tokens > 0:
+            entry.prompt_tokens.add(now, float(prompt_tokens))
+        if completion_tokens > 0:
+            entry.completion_tokens.add(now, float(completion_tokens))
+        if ttft_s is not None and ttft_s > 0.0:
+            if prompt_tokens > 0:
+                entry.prefill_tokens.add(now, float(prompt_tokens))
+                entry.prefill_seconds.add(now, ttft_s)
+            generation_s = latency_s - ttft_s
+            if generation_s > 0.0 and completion_tokens > 0:
+                entry.gen_tokens.add(now, float(completion_tokens))
+                entry.gen_seconds.add(now, generation_s)
+
+    @staticmethod
+    def _span_int_map(ring: _SpanRing, now: float) -> dict[str, int]:
+        return {
+            str(span): int(ring.window(now, i)) for i, span in enumerate(LEDGER_SPANS_S)
+        }
+
+    @staticmethod
+    def _span_tps_map(
+        token_ring: _SpanRing, second_ring: _SpanRing, now: float
+    ) -> dict[str, float | None]:
+        out: dict[str, float | None] = {}
+        for i, span in enumerate(LEDGER_SPANS_S):
+            seconds = second_ring.window(now, i)
+            if seconds <= 0.0:
+                out[str(span)] = None
+            else:
+                out[str(span)] = round(token_ring.window(now, i) / seconds, 2)
+        return out
+
+    def payload(self, now: float) -> dict[str, dict[str, Any]]:
+        return {
+            key: {
+                "requests": self._span_int_map(entry.requests, now),
+                "prompt_tokens": self._span_int_map(entry.prompt_tokens, now),
+                "completion_tokens": self._span_int_map(entry.completion_tokens, now),
+                "avg_prefill_tps": self._span_tps_map(
+                    entry.prefill_tokens, entry.prefill_seconds, now
+                ),
+                "avg_generation_tps": self._span_tps_map(
+                    entry.gen_tokens, entry.gen_seconds, now
+                ),
+            }
+            for key, entry in self.keys.items()
+        }
+
+
 class _SourceEntry:
     """The one 2-D view the spec allows: per source, a bounded top-N of models
     and a bounded surface tally. Deliberately not ``source × model × surface``."""
@@ -458,8 +570,8 @@ class RequestLedger:
 
     def __init__(self, *, started_at: float | None = None) -> None:
         self._started_at = time.time() if started_at is None else started_at
-        self._by_backend = _Dimension()
-        self._by_model = _Dimension()
+        self._by_backend = _TrafficDimension()
+        self._by_model = _TrafficDimension()
         self._by_policy = _Dimension()
         self._by_source: dict[str, _SourceEntry] = {}
         self._source_truncated = 0
@@ -510,17 +622,27 @@ class RequestLedger:
                 self._gen_tokens.add(now, float(completion_tokens))
                 self._gen_seconds.add(now, generation_s)
         if backend_id:
-            ring = self._by_backend.ring_for(backend_id)
-            if ring is not None:
-                ring.add(now)
+            self._by_backend.record(
+                key=backend_id,
+                now=now,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                latency_s=latency_s,
+                ttft_s=ttft_s,
+            )
             if latency_s > 0.0:
                 histogram = self._backend_histogram(backend_id)
                 if histogram is not None:
                     histogram.observe(now, latency_s * 1000.0)
         if model:
-            ring = self._by_model.ring_for(model)
-            if ring is not None:
-                ring.add(now)
+            self._by_model.record(
+                key=model,
+                now=now,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                latency_s=latency_s,
+                ttft_s=ttft_s,
+            )
         if policy_key:
             ring = self._by_policy.ring_for(policy_key)
             if ring is not None:

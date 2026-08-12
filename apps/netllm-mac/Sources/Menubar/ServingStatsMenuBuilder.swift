@@ -66,17 +66,35 @@ enum ServingStatsMenuBuilder {
             }
         }
 
-        if let windowed = snapshot.windowedBackendCounts {
+        let windowSpan = snapshot.routerWindowSpanS
+        let windowShares = snapshot.windowedBackendShares(span: windowSpan)
+        if !windowShares.isEmpty, let windowSpan {
             menu.addItem(.separator())
+            let spanLabel = windowSpan >= 60 ? "\(windowSpan / 60) min" : "\(windowSpan)s"
             let header = NSMenuItem(
-                title: "Routed by backend (\(windowed.spanLabel))",
+                title: "Traffic by backend (last \(spanLabel))",
                 action: nil,
                 keyEquivalent: ""
             )
             header.isEnabled = false
             menu.addItem(header)
-            for (key, count) in windowed.counts.sorted(by: { $0.value > $1.value }).prefix(8) {
-                addStat(menu, key, CompactCountFormatter.format(count), raw: count)
+            let total = snapshot.windowedBackendShareTotal(span: windowSpan)
+            for (key, count) in windowShares.sorted(by: { $0.value > $1.value }).prefix(8) {
+                let row = snapshot.trafficWindowRow(dimension: "by_backend", key: key, span: windowSpan)
+                var detail = CompactCountFormatter.format(count)
+                if total > 0 {
+                    let pct = Int((Double(count) / Double(total)) * 100.0)
+                    detail += " (\(pct)%)"
+                }
+                if let row {
+                    if let pp = row.avgPrefillTps {
+                        detail += " · PP \(CompactCountFormatter.formatTps(pp))"
+                    }
+                    if let tg = row.avgGenerationTps {
+                        detail += " · TG \(CompactCountFormatter.formatTps(tg))"
+                    }
+                }
+                addStat(menu, key, detail, raw: count)
             }
         }
 

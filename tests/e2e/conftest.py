@@ -133,6 +133,28 @@ def _stub_backend_app(models: list[str]) -> FastAPI:
             "data": [{"id": m, "object": "model", "owned_by": "stub"} for m in models],
         }
 
+    @app.post("/v1/chat/completions")
+    async def chat_completions(body: dict[str, object]) -> dict[str, object]:
+        model = str(body.get("model") or models[0])
+        return {
+            "id": "chatcmpl-stub",
+            "object": "chat.completion",
+            "created": 0,
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 12,
+                "completion_tokens": 4,
+                "total_tokens": 16,
+            },
+        }
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}

@@ -98,6 +98,10 @@ function probeExplanation(b) {
  * is never mistaken for a live p50.
  */
 function backendLatency(b) {
+  const live = telemetryBackendLatency(b.id);
+  if (live?.p50Ms != null) {
+    return { label: "p50", ms: live.p50Ms };
+  }
   const p50 = Number(b.health?.latency_p50_ms);
   if (Number.isFinite(p50) && p50 > 0) return { label: "p50", ms: p50 };
   const ema = Number(b.latency_ema_ms);
@@ -166,6 +170,19 @@ function backendScopeAllows(group) {
   if (backendsScope === "all") return true;
   if (backendsScope === "local") return group === "local";
   return group !== "local";
+}
+
+function backendTrafficSummary(backendId) {
+  const row = telemetryWindowRow("by_backend", backendId, 300);
+  if (!row || !row.requests) return null;
+  const span = row.span ? telemetrySpanLabel(row.span) : "";
+  const parts = [`${formatCompactCount(row.requests)} req${span ? ` / ${span}` : ""}`];
+  if (row.avgPrefillTps != null || row.avgGenerationTps != null) {
+    parts.push(
+      `PP ${telemetryRateText(row.avgPrefillTps)} · TG ${telemetryRateText(row.avgGenerationTps)}`
+    );
+  }
+  return parts.join(" · ");
 }
 
 /* ---------------- small building blocks ---------------- */
@@ -252,6 +269,8 @@ function localBackendCard(b) {
   const stats = el("div", "stat-row");
   stats.appendChild(statBlock("Models", String(backendModelCount(b))));
   stats.appendChild(statBlock("In flight", String(b.in_flight || 0)));
+  const traffic = backendTrafficSummary(b.id);
+  if (traffic) stats.appendChild(statBlock("Routed", traffic));
   const latency = backendLatency(b);
   stats.appendChild(
     latency
@@ -417,8 +436,18 @@ function backendIgnoreButton(b) {
 
 /* ---------------- remote / cloud table ---------------- */
 
-const BACKEND_REMOTE_COLUMNS = ["Node", "Base URL", "Provider", "Models", "Latency", "In flight", "Last probe", "State"];
-const BACKEND_REMOTE_TEMPLATE = "1.1fr 1.5fr .7fr .6fr .8fr .6fr .8fr .9fr";
+const BACKEND_REMOTE_COLUMNS = [
+  "Node",
+  "Base URL",
+  "Provider",
+  "Models",
+  "Routed",
+  "Latency",
+  "In flight",
+  "Last probe",
+  "State",
+];
+const BACKEND_REMOTE_TEMPLATE = "1.1fr 1.5fr .7fr .6fr .9fr .8fr .6fr .8fr .9fr";
 
 function remoteBackendTable(rows) {
   const t = dataTable(BACKEND_REMOTE_COLUMNS, BACKEND_REMOTE_TEMPLATE);
@@ -428,6 +457,7 @@ function remoteBackendTable(rows) {
     node.appendChild(statusDot(backendDotKind(view.kind)));
     node.appendChild(textEl("span", "", backendNodeName(b)));
     const latency = backendLatency(b);
+    const traffic = backendTrafficSummary(b.id) || "—";
     const stateCell = textEl(
       "div",
       view.kind === "ok"
@@ -444,6 +474,7 @@ function remoteBackendTable(rows) {
       textEl("div", "mono muted", b.base_url || "—"),
       textEl("div", "mono muted", backendProviderLabel(b)),
       String(backendModelCount(b)),
+      textEl("div", "mono muted", traffic),
       textEl("div", "mono muted", latency ? `${Math.round(latency.ms)}ms` : "—"),
       String(b.in_flight || 0),
       textEl(

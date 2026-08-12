@@ -18,6 +18,7 @@ final class MenubarAppModel {
     private var server: ServerProcess!
     private(set) var config: AppConfig!
     private var statsPoller: StatsPoller!
+    private var telemetryPoller: TelemetryPoller!
     private var callbacks = MenubarCallbacks(openSettings: {}, openAbout: {}, openLogFile: {}, openLogFolder: {})
     private var observers: [NSObjectProtocol] = []
 
@@ -75,6 +76,17 @@ final class MenubarAppModel {
         statsPoller.onUpdate = { [weak self] in
             Task { @MainActor in
                 self?.syncFromPoller()
+            }
+        }
+        telemetryPoller = TelemetryPoller(host: host, port: config.port)
+        NotificationCenter.default.addObserver(
+            forName: TelemetryPoller.didUpdateNotification,
+            object: telemetryPoller,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                self.telemetrySnapshot = self.telemetryPoller.snapshot
             }
         }
         serverState = server.state
@@ -234,8 +246,10 @@ final class MenubarAppModel {
     private func syncPollerRunning() {
         if server.isRunning {
             statsPoller.start()
+            telemetryPoller.start()
         } else {
             statsPoller.stop()
+            telemetryPoller.stop()
         }
         syncFromPoller()
     }
