@@ -51,6 +51,23 @@ Logs: `journalctl --user -u netllm -f` and `~/.local/state/netllm/logs/agent.log
 
 **Verify:** `netllm discover` && `netllm models`.
 
+### Ollama parallel requests and queue (Linux)
+
+Ollama applies concurrency **server-wide** (not per Modelfile). Official env vars:
+
+| Variable | Default | Role |
+|----------|---------|------|
+| `OLLAMA_NUM_PARALLEL` | `1` | Active parallel slots **per loaded model** |
+| `OLLAMA_MAX_QUEUE` | `512` | Requests queued when busy; `503` when full |
+
+Match netllm `routing.max_in_flight_per_backend` (e.g. `8`) by installing the packaged drop-in:
+
+```bash
+sudo ./packaging/linux/install-ollama-concurrency.sh
+```
+
+Then restart netllm if it was already running: `netllm restart` or `systemctl --user restart netllm`.
+
 ---
 
 ## CLI not found
@@ -72,8 +89,9 @@ Logs: `journalctl --user -u netllm -f` and `~/.local/state/netllm/logs/agent.log
 | mDNS browse fails | Install **Avahi** (`avahi-daemon`). Firewall: `sudo firewall-cmd --permanent --add-service=mdns --add-port=11400/tcp && sudo firewall-cmd --reload` (or `sudo ufw allow 5353/udp && sudo ufw allow 11400/tcp`). `netllm doctor` prints these |
 | Still no peers | LAN-bound agents auto-run one subnet scan after 10s; else `netllm peers --subnet-scan --save` or add URLs to `swarm.peers` in config |
 | Join rejected (401) | Cluster token mismatch — `netllm swarm-token` on a joined machine, re-run `join` |
+| Gateway lists this machine's models but never routes here; gateway status shows `peer:<id>` **offline** | LAN heartbeats work but health probes from the gateway need **inbound TCP 11400** on this host. Install persistent rules: `sudo ./packaging/linux/install-swarm-firewall.sh` (ufw or firewalld). From the gateway: `curl -sf http://<this-LAN-IP>:11400/health` |
 
-**Verify:** `netllm peers` and `netllm models --lan`.
+**Verify:** `netllm peers` and `netllm models --lan`. After firewall fix, on the gateway: `curl -s http://127.0.0.1:11400/netllm/v1/status | jq '.backends[] | select(.id|startswith("peer:")) | {id, health: .health.status}'`.
 
 ---
 
