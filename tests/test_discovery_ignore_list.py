@@ -160,7 +160,7 @@ def test_ignoring_never_touches_the_other_discovery_config(
     saved.discovery.ignored_urls = []
     save_config(saved, cfg_path)
     with TestClient(create_app(saved, config_path=cfg_path)) as client:
-        assert _status_urls(client) == sorted([SQUATTER, CONFIGURED])
+        assert _status_urls(client) == [CONFIGURED]
 
 
 def test_an_explicitly_configured_backend_survives_being_ignored(

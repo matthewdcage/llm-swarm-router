@@ -203,6 +203,10 @@ def merge_discovered_provider_urls(
         base = row.get("base_url")
         if pid not in known_ids or not base:
             continue
+        if int(row.get("model_count", 0) or 0) <= 0:
+            # Auth-only reachability (401/403) on the wrong port must not
+            # overwrite a working provider URL on agent startup / discover.
+            continue
         norm = normalize_openai_base_url(str(base))
         if norm in override_urls:
             continue
@@ -290,17 +294,24 @@ async def _probe_provider(
             for url in candidate_urls
         ]
     )
+    best_url: str | None = None
+    best_hit: dict[str, Any] | None = None
     for url, hit in zip(candidate_urls, hits, strict=True):
-        if hit is None:
+        if hit is None or hit.get("status") != "online":
             continue
-        api_key = resolve_api_key_for_url(url, provider_id, config)
+        if best_hit is None or hit.get("model_count", 0) > best_hit.get(
+            "model_count", 0
+        ):
+            best_url, best_hit = url, hit
+    if best_hit is not None and best_url is not None:
+        api_key = resolve_api_key_for_url(best_url, provider_id, config)
         return {
             "id": provider_id,
             "name": display_name,
-            "base_url": url,
+            "base_url": best_url,
             "api_key": api_key,
             "auth_hint": _auth_hint(provider_id, api_key),
-            **hit,
+            **best_hit,
         }
     return {
         "id": provider_id,

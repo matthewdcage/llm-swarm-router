@@ -62,6 +62,7 @@ def test_merge_discovered_provider_urls() -> None:
             "id": "omlx",
             "status": "online",
             "base_url": "http://127.0.0.1:8088/v1",
+            "model_count": 1,
         },
         {"id": "ollama", "status": "offline", "base_url": ""},
     ]
@@ -98,6 +99,55 @@ async def test_scan_finds_omlx_on_alternate_port(
     assert omlx["status"] == "online"
     assert omlx["base_url"] == "http://127.0.0.1:8088/v1"
     assert omlx["model_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_scan_prefers_vllm_url_with_models_over_auth_only_port() -> None:
+    """Colibri on :8000 can look 'online' (401) while vLLM serves on :8013."""
+    cfg = NetllmConfig()
+    cfg.discovery.provider_urls = {
+        "vllm": ["http://127.0.0.1:8000/v1", "http://127.0.0.1:8013/v1"],
+    }
+
+    async def fake_probe(
+        url: str, client, api_key: str = "", *, diagnose: bool = False
+    ) -> dict | None:
+        if url == "http://127.0.0.1:8000/v1":
+            return {
+                "status": "online",
+                "model_count": 0,
+                "models": [],
+                "detail": "authentication required",
+            }
+        if url == "http://127.0.0.1:8013/v1":
+            return {
+                "status": "online",
+                "model_count": 1,
+                "models": ["qwen3.6-35b"],
+            }
+        return None
+
+    with patch("netllm_discovery.local._probe_url", side_effect=fake_probe):
+        results = await scan_local_providers(cfg)
+
+    vllm = next(r for r in results if r["id"] == "vllm")
+    assert vllm["base_url"] == "http://127.0.0.1:8013/v1"
+    assert vllm["model_count"] == 1
+
+
+def test_merge_discovered_provider_urls_skips_zero_model_online() -> None:
+    cfg = NetllmConfig()
+    cfg.discovery.provider_urls = {"vllm": ["http://127.0.0.1:8013/v1"]}
+    results = [
+        {
+            "id": "vllm",
+            "status": "online",
+            "base_url": "http://127.0.0.1:8000/v1",
+            "model_count": 0,
+        },
+    ]
+    merge_discovered_provider_urls(cfg, results)
+    assert cfg.discovery.provider_urls["vllm"] == ["http://127.0.0.1:8013/v1"]
 
 
 @pytest.mark.asyncio
