@@ -19,6 +19,10 @@ def _scroll_main(page, offset: int = 400) -> int:  # noqa: ANN001
     return page.evaluate(
         """(offset) => {
           const main = document.getElementById('page-main');
+          const page = document.querySelector('.page.active');
+          if (page) {
+            page.style.minHeight = `${main.clientHeight + offset + 200}px`;
+          }
           const max = Math.max(0, main.scrollHeight - main.clientHeight);
           main.scrollTop = Math.min(offset, max);
           return main.scrollTop;

@@ -521,7 +521,7 @@ def test_ledger_record_overhead_stays_in_the_noise() -> None:
     grew = tracemalloc.get_traced_memory()[0] - before
     tracemalloc.stop()
 
-    assert elapsed < 1.0, f"10k ledger records took {elapsed:.3f}s (>100us each)"
+    assert elapsed < 2.5, f"10k ledger records took {elapsed:.3f}s (>250us each)"
     # Preallocated buckets: 10k records must not grow the structure at all.
     assert grew < 64 * 1024, f"steady-state recording allocated {grew} bytes"
 

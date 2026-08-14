@@ -235,14 +235,6 @@ struct TelemetrySnapshot {
         if let value = value as? NSNumber { return value.intValue }
         return 0
     }
-
-    private func optionalDouble(_ value: Any?) -> Double? {
-        if value == nil || value is NSNull { return nil }
-        if let value = value as? Double { return value }
-        if let value = value as? Int { return Double(value) }
-        if let value = value as? NSNumber { return value.doubleValue }
-        return nil
-    }
 }
 
 @MainActor
