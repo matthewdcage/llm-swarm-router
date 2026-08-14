@@ -97,14 +97,27 @@ start; these are not.
 |-----|------|-------|
 | `counters_since` | float | epoch seconds; when this ledger started counting |
 | `spans_s` | array | **server-declared** span widths in seconds, e.g. `[60, 300, 86400]` |
-| `by_backend` | object | backend id → `{"<span>": count}` |
-| `by_model` | object | requested model → `{"<span>": count}` |
+| `by_backend` | object | backend id → traffic row (table below) |
+| `by_model` | object | requested model → traffic row (table below) |
 | `by_policy` | object | `"<index>:<name>"` of the matched routing policy → `{"<span>": count}`; `{}` means no policy ever matched |
 | `by_source` | object | source id → `{requests, surfaces, top_models, last_seen_at}` |
 | `truncated` | object | per dimension, requests folded into `__other__` because the key cap was hit |
 
 Clients read the span keys present under a dimension; they never assume
 `spans_s` and never sum buckets themselves (same rule as `total_tokens`).
+
+**Traffic row** (`by_backend` / `by_model` values) — each key maps to:
+
+| Key | Type | Notes |
+|-----|------|-------|
+| `requests` | object | span → request count |
+| `prompt_tokens` | object | span → prompt token total |
+| `completion_tokens` | object | span → completion token total |
+| `avg_prefill_tps` | object | span → float \| null; measured streaming prefill only |
+| `avg_generation_tps` | object | span → float \| null; measured streaming generation only |
+
+`avg_*_tps` values are `null` until a streaming request with measured
+durations contributes to that span — same rule as `router.session.avg_prefill_tps`.
 
 Each `by_source` row: `requests` (`{"<span>": count}`), `surfaces`
 (API dialect → cumulative count), `top_models` (array of `{model, count}`,
@@ -207,8 +220,7 @@ The `host` block (CPU %, memory used/total/percent) is populated on all platform
 
 | Surface | Path | What it shows |
 |---------|------|----------------|
-| Web dashboard **Serving** tab | `/ui/` → Serving | Router session/all-time (requests, tokens, TPS), `routed_requests`, `capacity_rejections`, backend health/in-flight, `source_requests` from status, oMLX live/session when available, `history.router_rps` sparkline |
-| Web **Status** tab | `/ui/` → Status | High-level routing stats, routed requests (subset), in-flight backends |
+| Web dashboard **Home** | `/ui/` → Overview | Router session/all-time (requests, tokens, TPS), windowed per-backend/per-model traffic (`router.windows`), `routed_requests` (cumulative), `capacity_rejections`, backend health/in-flight/latency, `source_requests` from status, oMLX live/session when available, `history.router_rps` sparkline |
 | macOS **Serving Stats** submenu | Menubar → Serving Stats | Active/loaded model, router session/all-time, per-backend routed counts, oMLX rows when admin reachable |
 | macOS **System Stats** | Menubar → System Stats | Native CPU/GPU/memory (not from telemetry API) |
 

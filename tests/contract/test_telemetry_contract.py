@@ -82,6 +82,14 @@ ROUTER_WINDOWS_TRUNCATED_KEYS = {"by_backend", "by_model", "by_policy", "by_sour
 
 ROUTER_SOURCE_KEYS = {"requests", "surfaces", "top_models", "last_seen_at"}
 
+ROUTER_TRAFFIC_ROW_KEYS = {
+    "requests",
+    "prompt_tokens",
+    "completion_tokens",
+    "avg_prefill_tps",
+    "avg_generation_tps",
+}
+
 # UI-2: real TTFT percentiles and rolling throughput.
 ROUTER_LATENCY_KEYS = {"ttft_p50_ms", "ttft_p95_ms", "ttft_samples", "window_s"}
 
@@ -217,7 +225,16 @@ def test_router_windows_block_key_set_is_exactly_documented(client: TestClient) 
     assert set(windows["truncated"]) == ROUTER_WINDOWS_TRUNCATED_KEYS
     assert windows["spans_s"], "spans are server-declared; the list may not be empty"
     span_keys = {str(span) for span in windows["spans_s"]}
-    for dimension in ("by_backend", "by_model", "by_policy"):
+    for dimension in ("by_backend", "by_model"):
+        assert windows[dimension], f"{dimension} should carry the recorded request"
+        for row in windows[dimension].values():
+            assert set(row) == ROUTER_TRAFFIC_ROW_KEYS
+            assert set(row["requests"]) == span_keys
+            assert set(row["prompt_tokens"]) == span_keys
+            assert set(row["completion_tokens"]) == span_keys
+            assert set(row["avg_prefill_tps"]) == span_keys
+            assert set(row["avg_generation_tps"]) == span_keys
+    for dimension in ("by_policy",):
         assert windows[dimension], f"{dimension} should carry the recorded request"
         for row in windows[dimension].values():
             assert set(row) == span_keys

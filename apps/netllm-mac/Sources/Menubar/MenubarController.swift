@@ -178,13 +178,11 @@ final class MenubarController: NSObject, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         menuOpen = true
         HostSampler.shared.subscribe()
-        telemetryPoller?.start()
         refreshDynamicSections()
     }
 
     func menuDidClose(_ menu: NSMenu) {
         menuOpen = false
-        telemetryPoller?.stop()
         HostSampler.shared.unsubscribe()
     }
 

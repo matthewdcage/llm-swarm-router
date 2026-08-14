@@ -512,6 +512,117 @@ async function loadTelemetry(watch = true) {
   state.telemetry = await api(`/netllm/v1/telemetry${q}`);
 }
 
+/** Pages that show windowed traffic metrics and need telemetry polling. */
+const METRICS_PAGES = ["overview", "peers", "backends", "models", "cloud"];
+
+const METRICS_POLL_MS = 5000;
+
+function pageUsesMetrics(page) {
+  return METRICS_PAGES.includes(page);
+}
+
+/** Pick a server-declared span width, defaulting to five minutes. */
+function telemetryWindowSpan(preferredSpan = 300) {
+  const windows = asObject(state.telemetry?.router?.windows);
+  const spans = asArray(windows.spans_s)
+    .map(Number)
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (!spans.length) return null;
+  return spans.includes(preferredSpan) ? preferredSpan : spans[0];
+}
+
+/** Normalize a ``by_backend`` / ``by_model`` row (nested or legacy flat). */
+function telemetryTrafficRow(raw) {
+  const row = asObject(raw);
+  if (row.requests != null) return row;
+  const requests = {};
+  Object.entries(row).forEach(([key, value]) => {
+    if (/^\d+$/.test(key)) requests[key] = Number(value) || 0;
+  });
+  return {
+    requests,
+    prompt_tokens: {},
+    completion_tokens: {},
+    avg_prefill_tps: {},
+    avg_generation_tps: {},
+  };
+}
+
+/**
+ * Windowed request counts for a ledger dimension (`by_backend`, `by_model`).
+ * Returns null when the agent predates the ledger.
+ */
+function telemetryWindowCounts(dimension, preferredSpan = 300) {
+  const windows = asObject(state.telemetry?.router?.windows);
+  const spans = asArray(windows.spans_s)
+    .map(Number)
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (!spans.length) return null;
+  const span = spans.includes(preferredSpan) ? preferredSpan : spans[0];
+  const byId = new Map();
+  let total = 0;
+  Object.entries(asObject(windows[dimension])).forEach(([id, raw]) => {
+    const row = telemetryTrafficRow(raw);
+    const n = Number(asObject(row.requests)[String(span)]);
+    if (!Number.isFinite(n) || n <= 0) return;
+    byId.set(id, n);
+    total += n;
+  });
+  return { byId, total, span };
+}
+
+/** One dimension key's windowed traffic row, or null when absent. */
+function telemetryWindowRow(dimension, key, preferredSpan = 300) {
+  const span = telemetryWindowSpan(preferredSpan);
+  if (!span) return null;
+  const raw = asObject(asObject(state.telemetry?.router?.windows)[dimension])[key];
+  if (!raw) return null;
+  const row = telemetryTrafficRow(raw);
+  const spanKey = String(span);
+  return {
+    span,
+    requests: Number(row.requests[spanKey]) || 0,
+    promptTokens: Number(asObject(row.prompt_tokens)[spanKey]) || 0,
+    completionTokens: Number(asObject(row.completion_tokens)[spanKey]) || 0,
+    avgPrefillTps: asObject(row.avg_prefill_tps)[spanKey] ?? null,
+    avgGenerationTps: asObject(row.avg_generation_tps)[spanKey] ?? null,
+  };
+}
+
+/** Per-backend rolling latency from ``router.backends``. */
+function telemetryBackendLatency(backendId) {
+  const row = asArray(state.telemetry?.router?.backends)
+    .map((b) => asObject(b))
+    .find((b) => b.id === backendId);
+  if (!row) return null;
+  return {
+    p50Ms: row.p50_ms ?? null,
+    p95Ms: row.p95_ms ?? null,
+    samples: Number(row.samples) || 0,
+    windowS: row.window_s ?? null,
+  };
+}
+
+/** Share of windowed routed requests for one backend id. */
+function telemetryRoutedShare(backendId, preferredSpan = 300) {
+  const counts = telemetryWindowCounts("by_backend", preferredSpan);
+  if (!counts || !counts.total) return null;
+  return (counts.byId.get(backendId) || 0) / counts.total;
+}
+
+/** "5 min" / "24 h" / "60 s" for a span the server declared. */
+function telemetrySpanLabel(span) {
+  if (span >= 86400) return `${Math.round(span / 86400)} d`;
+  if (span >= 3600) return `${Math.round(span / 3600)} h`;
+  if (span >= 60) return `${Math.round(span / 60)} min`;
+  return `${span} s`;
+}
+
+/** Nullable tok/s for display — distinct from zero. */
+function telemetryRateText(value) {
+  return value == null ? "—" : formatTps(value);
+}
+
 /* ---------------- DOM primitives ---------------- */
 
 function el(tag, cls) {
@@ -1294,7 +1405,7 @@ async function loadCore(deepStatus = false) {
     );
   }
   try {
-    state.telemetry = await api("/netllm/v1/telemetry?watch=0");
+    state.telemetry = await api("/netllm/v1/telemetry?watch=1");
   } catch {
     state.telemetry = null;
   }
@@ -1853,15 +1964,26 @@ function renderBootPlaceholder(root) {
   );
 }
 
+/** Scroll container for page content (`<main id="page-main">`). */
+function contentScrollHost() {
+  return document.getElementById("page-main");
+}
+
 function render() {
   const key = PAGE_RENDERERS[state.page] ? state.page : "overview";
   const root = document.getElementById(`page-${key}`);
   if (!root) return;
+  const scrollHost = contentScrollHost();
+  // render() rebuilds the active page on every metrics poll. Clearing
+  // `root.textContent` replaces the subtree and the browser resets the main
+  // scroll position unless we put it back.
+  const scrollTop = scrollHost ? scrollHost.scrollTop : 0;
   root.textContent = "";
   if (!state.firstLoadComplete) {
     // Deliberately before updateStatusLine(): the header keeps its neutral
     // "Checking…" badge rather than flashing "Unreachable" at a healthy agent.
     renderBootPlaceholder(root);
+    if (scrollHost) scrollHost.scrollTop = scrollTop;
     return;
   }
   try {
@@ -1870,11 +1992,13 @@ function render() {
     console.error(`page "${key}" failed to render`, e);
     root.appendChild(textEl("p", "empty", `This page failed to render: ${e.message}`));
   }
+  if (scrollHost) scrollHost.scrollTop = scrollTop;
   updateStatusLine();
 }
 
 function navigate(page) {
   if (!PAGES.includes(page)) page = "overview";
+  const pageChanged = state.page !== page;
   state.page = page;
   document.querySelectorAll(".nav-item").forEach((item) => {
     const active = item.dataset.page === page;
@@ -1891,18 +2015,20 @@ function navigate(page) {
   if (window.location.hash.slice(1) !== page) {
     window.history.replaceState(null, "", `#${page}`);
   }
-  stopStatusPolling();
-  stopTelemetryPolling();
+  stopMetricsPolling();
   stopLogsPolling();
-  if (page === "overview") {
-    startStatusPolling();
-    startTelemetryPolling();
+  if (pageUsesMetrics(page)) {
+    startMetricsPolling();
   }
   if (page === "logs") {
     loadLogs().then(() => {
       if (state.page === "logs") render();
     });
     startLogsPolling();
+  }
+  if (pageChanged) {
+    const scrollHost = contentScrollHost();
+    if (scrollHost) scrollHost.scrollTop = 0;
   }
   render();
 }
@@ -1913,41 +2039,44 @@ function visible() {
   return document.visibilityState === "visible";
 }
 
-function startStatusPolling() {
-  stopStatusPolling();
+function startMetricsPolling() {
+  stopMetricsPolling();
   state.pollTimer = setInterval(async () => {
-    if (!visible() || state.page !== "overview") return;
+    if (!visible() || !pageUsesMetrics(state.page)) return;
     try {
-      await loadHealth();
-      await loadCore(false);
+      await Promise.all([loadHealth(), loadCore(false), loadTelemetry(true)]);
       render();
     } catch {
       /* transient; the badge already reflects health */
     }
-  }, 5000);
+  }, METRICS_POLL_MS);
 }
 
-function stopStatusPolling() {
+function stopMetricsPolling() {
   if (state.pollTimer) clearInterval(state.pollTimer);
   state.pollTimer = null;
-}
-
-function startTelemetryPolling() {
-  stopTelemetryPolling();
-  state.telemetryPollTimer = setInterval(async () => {
-    if (!visible() || state.page !== "overview") return;
-    try {
-      await loadTelemetry(true);
-      render();
-    } catch {
-      /* telemetry is optional */
-    }
-  }, 5000);
-}
-
-function stopTelemetryPolling() {
   if (state.telemetryPollTimer) clearInterval(state.telemetryPollTimer);
   state.telemetryPollTimer = null;
+}
+
+/** @deprecated Use startMetricsPolling — kept for tests that grep the name. */
+function startStatusPolling() {
+  startMetricsPolling();
+}
+
+/** @deprecated Use stopMetricsPolling */
+function stopStatusPolling() {
+  stopMetricsPolling();
+}
+
+/** @deprecated Use startMetricsPolling */
+function startTelemetryPolling() {
+  startMetricsPolling();
+}
+
+/** @deprecated Use stopMetricsPolling */
+function stopTelemetryPolling() {
+  stopMetricsPolling();
 }
 
 function startLogsPolling() {
@@ -2037,6 +2166,12 @@ function wireChrome() {
   });
 
   document.addEventListener("visibilitychange", () => {
-    if (visible() && state.page === "overview") refresh();
+    if (visible() && pageUsesMetrics(state.page)) {
+      Promise.all([loadHealth(), loadCore(false), loadTelemetry(true)])
+        .then(() => render())
+        .catch(() => refresh());
+    } else if (visible()) {
+      refresh();
+    }
   });
 }

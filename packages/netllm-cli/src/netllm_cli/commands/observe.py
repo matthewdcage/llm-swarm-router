@@ -38,6 +38,145 @@ from netllm_cli.ui import (
 )
 
 
+def _telemetry_window_span(
+    windows: dict[str, object], preferred: int = 300
+) -> int | None:
+    raw_spans = windows.get("spans_s") or []
+    spans: list[int] = []
+    for value in raw_spans:
+        if isinstance(value, int):
+            spans.append(value)
+        elif isinstance(value, float):
+            spans.append(int(value))
+    if not spans:
+        return None
+    return preferred if preferred in spans else spans[0]
+
+
+def _telemetry_span_label(span: int) -> str:
+    if span >= 86400:
+        return f"{round(span / 86400)} d"
+    if span >= 3600:
+        return f"{round(span / 3600)} h"
+    if span >= 60:
+        return f"{round(span / 60)} min"
+    return f"{span} s"
+
+
+def _telemetry_traffic_row(raw_row: dict[str, object], span: int) -> dict[str, object]:
+    span_key = str(span)
+    requests_map = raw_row.get("requests")
+    if not isinstance(requests_map, dict):
+        requests_map = raw_row
+    requests = int(requests_map.get(span_key, 0) or 0)
+
+    def _optional_tps(key: str) -> float | None:
+        bucket = raw_row.get(key)
+        if not isinstance(bucket, dict):
+            return None
+        value = bucket.get(span_key)
+        if value is None:
+            return None
+        return float(value)
+
+    return {
+        "requests": requests,
+        "avg_prefill_tps": _optional_tps("avg_prefill_tps"),
+        "avg_generation_tps": _optional_tps("avg_generation_tps"),
+    }
+
+
+def _telemetry_backend_p50(
+    telemetry: dict[str, object], backend_id: str
+) -> float | None:
+    router = telemetry.get("router")
+    if not isinstance(router, dict):
+        return None
+    backends = router.get("backends")
+    if not isinstance(backends, list):
+        return None
+    for row in backends:
+        if not isinstance(row, dict) or row.get("id") != backend_id:
+            continue
+        p50 = row.get("p50_ms")
+        return float(p50) if p50 is not None else None
+    return None
+
+
+def _format_optional_tps(value: float | None) -> str:
+    if value is None:
+        return "—"
+    if value >= 1000:
+        return f"{value / 1000:.1f}k tok/s"
+    return f"{value:.1f} tok/s"
+
+
+def _print_traffic_window_table(
+    client: httpx.Client, base: str, telemetry: dict[str, object] | None = None
+) -> None:
+    if telemetry is None:
+        try:
+            resp = client.get(
+                f"{base.rstrip('/')}/netllm/v1/telemetry?watch=0&history=0"
+            )
+            resp.raise_for_status()
+            telemetry = resp.json()
+        except Exception:
+            return
+    windows = (telemetry.get("router") or {}).get("windows") or {}
+    if not isinstance(windows, dict):
+        return
+    span = _telemetry_window_span(windows)
+    if span is None:
+        return
+    by_backend = windows.get("by_backend")
+    if not isinstance(by_backend, dict) or not by_backend:
+        return
+
+    rows: list[tuple[str, dict[str, object]]] = []
+    for backend_id, raw in by_backend.items():
+        if not isinstance(raw, dict):
+            continue
+        row = _telemetry_traffic_row(raw, span)
+        if int(row["requests"]) <= 0:
+            continue
+        rows.append((str(backend_id), row))
+    if not rows:
+        return
+
+    total = sum(int(row["requests"]) for _, row in rows)
+    span_label = _telemetry_span_label(span)
+    table = Table(
+        title=f"Traffic by backend (last {span_label})",
+        show_header=True,
+        header_style="bold",
+    )
+    table.add_column("Backend")
+    table.add_column("Requests", justify="right")
+    table.add_column("Share", justify="right")
+    table.add_column("p50", justify="right")
+    table.add_column("Prefill", justify="right")
+    table.add_column("Generation", justify="right")
+    for backend_id, row in sorted(
+        rows, key=lambda item: int(item[1]["requests"]), reverse=True
+    ):
+        requests = int(row["requests"])
+        share = int((requests / total) * 100) if total else 0
+        label = backend_id[5:] if backend_id.startswith("peer:") else backend_id
+        p50 = _telemetry_backend_p50(telemetry, backend_id)
+        p50_text = f"{p50:.0f} ms" if p50 is not None else "—"
+        table.add_row(
+            label,
+            str(requests),
+            f"{share}%",
+            p50_text,
+            _format_optional_tps(row["avg_prefill_tps"]),  # type: ignore[arg-type]
+            _format_optional_tps(row["avg_generation_tps"]),  # type: ignore[arg-type]
+        )
+    console.print()
+    console.print(table)
+
+
 def models(
     config: Path | None = typer.Option(None, "--config"),
     url: str | None = typer.Option(
@@ -387,6 +526,7 @@ def status(
             resp = client.get(f"{base.rstrip('/')}/netllm/v1/status")
             resp.raise_for_status()
             data = resp.json()
+            _print_traffic_window_table(client, base)
     except Exception as exc:
         msg, hints = agent_unreachable_message(base, exc)
         print_error("Agent unreachable", msg, hints=hints)

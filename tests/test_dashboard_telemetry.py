@@ -31,7 +31,11 @@ def test_dashboard_has_serving_telemetry() -> None:
     assert "Requests by source (harness)" in overview
     assert "Requests by scenario" in overview
     assert "loadTelemetry" in core
-    assert "startTelemetryPolling" in core
+    assert "startMetricsPolling" in core
+    assert "METRICS_PAGES" in core
+    assert "function telemetryWindowCounts" in core
+    assert "function ovRenderTrafficByBackend" in overview
+    assert "Traffic by backend" in overview
 
 
 def test_design_tokens_include_chart_colors() -> None:

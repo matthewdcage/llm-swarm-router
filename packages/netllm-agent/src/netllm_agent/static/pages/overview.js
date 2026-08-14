@@ -77,16 +77,13 @@ function ovPeerList() {
 }
 
 /**
- * Per-backend routed request counts. `routed_requests` is keyed by backend id
- * (pool.route_to -> pool.routed_counts), and peer rows carry the id
- * `peer:<agent_id>` (swarm.peer_agent_backends), which is what makes a real
- * per-peer share of traffic derivable here without inventing anything.
- *
- * These particular counters are cumulative since the agent started. For the
- * design's windowed figures ("last 5 min", "share of traffic") read
- * ovWindowCounts() instead — router.windows carries a real ledger now.
+ * Per-backend routed request counts. Prefer the windowed ledger
+ * (`router.windows.by_backend`); fall back to cumulative `routed_requests`
+ * when talking to an older agent.
  */
-function ovRoutedCounts() {
+function ovRoutedCounts(preferredSpan = 300) {
+  const windowed = telemetryWindowCounts("by_backend", preferredSpan);
+  if (windowed) return windowed;
   const counts = asObject(
     state.status?.routed_requests || state.telemetry?.router?.routed_requests
   );
@@ -98,7 +95,7 @@ function ovRoutedCounts() {
     byId.set(id, n);
     total += n;
   });
-  return { byId, total };
+  return total ? { byId, total, span: null } : { byId, total: 0, span: null };
 }
 
 /** Backend row that carries a peer's traffic, or undefined when the peer is
@@ -129,7 +126,7 @@ function ovHostOf(url) {
  * been routed yet (rendered as an em-dash, never as 0% — those differ).
  */
 function ovPeerRows() {
-  const { byId, total } = ovRoutedCounts();
+  const { byId, total, span } = ovRoutedCounts();
   return ovPeerList().map((peer) => {
     const backend = ovBackendForPeer(peer);
     const status = backend?.health?.status;
@@ -157,20 +154,21 @@ function ovPeerRows() {
       statusText,
       requests,
       share: total > 0 ? requests / total : null,
+      span,
     };
   });
 }
 
 /** Share of routed requests served by this node's own backends. */
 function ovLocalShare() {
-  const { byId, total } = ovRoutedCounts();
-  if (!total) return null;
+  const { byId, total, span } = ovRoutedCounts();
+  if (!total) return { share: null, span };
   let local = 0;
   ovEnabledBackends().forEach((b) => {
     if (b.local === false) return;
     local += byId.get(b.id) || 0;
   });
-  return local / total;
+  return { share: local / total, span };
 }
 
 function ovShareText(share) {
@@ -500,9 +498,10 @@ function ovRenderRoleBanner(root, peerRows) {
 function ovMeshNodeSelf() {
   const node = el("div", "mesh-node self");
   const status = state.status;
+  const local = ovLocalShare();
   node.appendChild(textEl("div", "mesh-self-role", status?.role || "this node"));
   node.appendChild(textEl("div", "mesh-node-name", status?.hostname || "this node"));
-  node.appendChild(textEl("div", "mesh-node-share", ovShareText(ovLocalShare())));
+  node.appendChild(textEl("div", "mesh-node-share", ovShareText(local.share)));
   return node;
 }
 
@@ -728,10 +727,11 @@ function ovMeshLedger(rows) {
     statusDot("ok"),
     textEl("span", "", state.status?.hostname || "this node")
   );
+  const selfShare = ovLocalShare();
   t.addRow([
     selfName,
     textEl("div", "muted", `this node · ${state.status?.role || "unknown"}`),
-    textEl("div", "mono", ovShareText(ovLocalShare())),
+    textEl("div", "mono", ovShareText(selfShare.share)),
   ]);
   rows.forEach((row) => {
     const name = el("div", "row");
@@ -857,44 +857,41 @@ function ovRenderMesh(root, peerRows) {
 
 /* ---------------- 3. throughput ---------------- */
 
-/**
- * Windowed per-backend request counts from `router.windows` (UI-1).
- *
- * Spans are *server-declared*: read the keys that are present, never assume
- * 60/300/86400, and never sum buckets client-side (same rule as
- * `total_tokens`). Returns null when the agent predates the ledger, so the
- * caller can fall back or render "—" rather than a fabricated zero.
- */
-function ovWindowCounts(preferredSpan) {
-  const windows = asObject(state.telemetry?.router?.windows);
-  const spans = asArray(windows.spans_s)
-    .map(Number)
-    .filter((n) => Number.isFinite(n) && n > 0);
-  if (!spans.length) return null;
-  const span = spans.includes(preferredSpan) ? preferredSpan : spans[0];
-  const byId = new Map();
-  let total = 0;
-  Object.entries(asObject(windows.by_backend)).forEach(([id, buckets]) => {
-    const n = Number(asObject(buckets)[String(span)]);
-    if (!Number.isFinite(n) || n <= 0) return;
-    byId.set(id, n);
-    total += n;
+function ovRenderTrafficByBackend(root) {
+  const counts = telemetryWindowCounts("by_backend", 300);
+  if (!counts || !counts.total) return;
+  const note = counts.span ? telemetrySpanLabel(counts.span) : "";
+  const body = panel(root, "Traffic by backend", note);
+  const { table, addRow } = dataTable(
+    ["Backend", "Requests", "Share", "p50", "Prefill", "Generation"],
+    "1.4fr 0.6fr 0.55fr 0.55fr 0.7fr 0.7fr"
+  );
+
+  const rows = [...counts.byId.entries()].sort((a, b) => b[1] - a[1]);
+  rows.forEach(([backendId, requestCount]) => {
+    const traffic = telemetryWindowRow("by_backend", backendId, counts.span);
+    const latency = telemetryBackendLatency(backendId);
+    const label =
+      backendId.startsWith("peer:") ? backendId.slice(5) : backendId;
+    const share = requestCount / counts.total;
+    addRow([
+      textEl("div", "mono", label),
+      textEl("div", "mono", formatCompactCount(requestCount)),
+      textEl("div", "mono", formatPercent(share * 100)),
+      textEl(
+        "div",
+        "mono",
+        latency?.p50Ms == null ? "—" : `${Math.round(latency.p50Ms)} ms`
+      ),
+      textEl("div", "mono", telemetryRateText(traffic?.avgPrefillTps ?? null)),
+      textEl(
+        "div",
+        "mono",
+        telemetryRateText(traffic?.avgGenerationTps ?? null)
+      ),
+    ]);
   });
-  return { byId, total, span };
-}
-
-/** "5 min" / "24 h" / "60 s" for a span the server declared. */
-function ovSpanLabel(span) {
-  if (span >= 86400) return `${Math.round(span / 86400)} d`;
-  if (span >= 3600) return `${Math.round(span / 3600)} h`;
-  if (span >= 60) return `${Math.round(span / 60)} min`;
-  return `${span} s`;
-}
-
-/** Scope-block rates are nullable now: null means "never measured", which is
- * a different statement from 0 tok/s and must not render as one. */
-function ovRateText(value) {
-  return value == null ? "—" : formatTps(value);
+  body.appendChild(table);
 }
 
 function ovRouterScopeTable(router) {
@@ -917,8 +914,8 @@ function ovRouterScopeTable(router) {
     // prefill and generation seconds, and a deployment that never streams has
     // no measurement to report. They used to be total latency multiplied by a
     // hardcoded 0.3 / 0.7.
-    ["Avg prefill (tok/s)", "avg_prefill_tps", ovRateText],
-    ["Avg generation (tok/s)", "avg_generation_tps", ovRateText],
+    ["Avg prefill (tok/s)", "avg_prefill_tps", telemetryRateText],
+    ["Avg generation (tok/s)", "avg_generation_tps", telemetryRateText],
   ];
   rows.forEach(([label, key, format]) => {
     addRow([
@@ -946,7 +943,7 @@ function ovRenderThroughput(root) {
   // Spill share comes off the windowed ledger, so this answers "what fraction
   // of recent traffic left this node" rather than "…since the agent started".
   // Falls back to the cumulative counters when talking to an older agent.
-  const windowed = ovWindowCounts(300);
+  const windowed = telemetryWindowCounts(300);
   const counts = windowed || ovRoutedCounts();
   let spilled = null;
   if (counts.total > 0) {
@@ -959,10 +956,12 @@ function ovRenderThroughput(root) {
 
   const liveWindow = Number(live.window_s);
   const note = windowed
-    ? `${ovSpanLabel(windowed.span)} window · live over ${
+    ? `${telemetrySpanLabel(windowed.span)} window · live over ${
         Number.isFinite(liveWindow) ? liveWindow : 10
       }s`
-    : "since agent start";
+    : counts.span
+      ? `${telemetrySpanLabel(counts.span)} window`
+      : "since agent start";
   const body = panel(root, "Throughput", note);
   if (!telemetry) {
     body.appendChild(textEl("p", "empty", "Telemetry unavailable — agent not reachable."));
@@ -985,7 +984,7 @@ function ovRenderThroughput(root) {
           ? formatTps(rps[rps.length - 1])
           : "—"
     ),
-    statBlock("gen tok/s", ovRateText(live.generation_tps)),
+    statBlock("gen tok/s", telemetryRateText(live.generation_tps)),
     statBlock("p50 ttft", ttftP50 == null ? "—" : `${Math.round(ttftP50)}`, ttftP50 == null ? null : "ms"),
     statBlock("spilled", spilled == null ? "—" : formatPercent(spilled), null, "accent")
   );
@@ -1341,7 +1340,7 @@ function ovRenderCounters(root) {
   any = ovKeyValueBlock(holder, "Requests by source (harness)", state.status?.source_requests) || any;
   any = ovKeyValueBlock(holder, "Requests by scenario", state.status?.scenario_requests) || any;
   if (!any) return;
-  const body = panel(root, "Request counters", "cumulative since agent start");
+  const body = panel(root, "Request counters", "cumulative since agent start · windowed figures above");
   body.appendChild(holder);
 }
 
@@ -1379,6 +1378,7 @@ function renderOverviewPage(root) {
 
   ovRenderMesh(left, peerRows);
   ovRenderThroughput(right);
+  ovRenderTrafficByBackend(right);
   ovRenderPools(right);
   ovRenderWarnings(right);
 

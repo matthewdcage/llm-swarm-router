@@ -50,6 +50,8 @@ const LOGS_PAGE_SIZE = 200;
 // under the user's fingers, and whether the stream sticks to the newest line.
 let logsSearchCaret = null;
 let logsFollowTail = true;
+/** Stream scroll to restore after a poll re-render when follow-tail is off. */
+let logsStreamScrollTop = 0;
 /** Pending debounced repaint, cleared whenever the page is rebuilt. */
 let logsSearchTimer = null;
 /** Source facet selection; empty means "every source". */
@@ -202,6 +204,10 @@ async function logsLoadOlder() {
 }
 
 function renderLogsPage(root) {
+  const existingStream = document.querySelector("#page-logs .log-stream");
+  if (existingStream && !logsFollowTail) {
+    logsStreamScrollTop = existingStream.scrollTop;
+  }
   if (logsSearchTimer) {
     clearTimeout(logsSearchTimer);
     logsSearchTimer = null;
@@ -288,6 +294,9 @@ function renderLogsPage(root) {
   const stream = el("div", "log-stream");
   stream.setAttribute("role", "log");
   stream.setAttribute("aria-label", "Agent log lines");
+  stream.addEventListener("scroll", () => {
+    if (!logsFollowTail) logsStreamScrollTop = stream.scrollTop;
+  });
 
   const bar = el("div", "inset field-grid");
 
@@ -554,6 +563,7 @@ function renderLogsPage(root) {
     footRight.textContent = footParts.join(" · ");
 
     if (logsFollowTail) stream.scrollTop = stream.scrollHeight;
+    else stream.scrollTop = logsStreamScrollTop;
   }
 
   paint();

@@ -691,3 +691,28 @@ def test_typed_secrets_leave_the_draft_after_a_successful_save(dash) -> None:  #
     assert bodies, "no second save was captured"
     for secret in ("SERVER-KEY", "ROTATED-TOKEN", "CLOUD-KEY"):
         assert secret not in bodies[-1], f"{secret} was re-sent: {bodies[-1]}"
+
+
+def test_overview_traffic_by_backend_updates_after_chat(dash) -> None:  # noqa: ANN001
+    """Windowed mesh metrics should move within one metrics poll after traffic."""
+    dash.evaluate("() => navigate('overview')")
+    overview = dash.locator("#page-overview")
+    expect(overview).not_to_contain_text("Traffic by backend")
+
+    base = dash.agent_base_url
+    payload = {
+        "model": "gemma4:27b",
+        "messages": [{"role": "user", "content": "hi"}],
+    }
+    for _ in range(3):
+        resp = httpx.post(f"{base}/v1/chat/completions", json=payload, timeout=30.0)
+        resp.raise_for_status()
+
+    dash.wait_for_function(
+        """() => document.querySelector('#page-overview')?.innerText
+            ?.includes('Traffic by backend')""",
+        timeout=15_000,
+    )
+    expect(overview).to_contain_text("Traffic by backend")
+    expect(overview).to_contain_text("Requests")
+    assert dash.console_errors == []
