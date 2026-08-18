@@ -20,6 +20,7 @@ describes *what is built*.
 | [agent-singleton-hardening-plan.md](agent-singleton-hardening-plan.md) | Phase 1 done | One agent per host: flock lock, serve integration, systemd `--replace` |
 | [agent-singleton-as-built.md](agent-singleton-as-built.md) | Reference | Evidence map of singleton guards before/after Phase 1 |
 | [agent-singleton-acceptance.md](agent-singleton-acceptance.md) | Reference | Manual and automated acceptance gates |
+| [distributed-inference-roadmap.md](distributed-inference-roadmap.md) | Planned | Measured link probing, prefix affinity, cross-node prompt-cache migration, llama.cpp RPC (phases 0–5) |
 
 ## Related docs (repo root `docs/`)
 

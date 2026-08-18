@@ -15,6 +15,7 @@ Committed planning documents for multi-phase netllm work. Unlike `.cursor/plans/
 | `agent-singleton-hardening-plan.md` | Singleton lock program (phases 0–5) |
 | `agent-singleton-as-built.md` | `file:line` evidence for guards |
 | `agent-singleton-acceptance.md` | Verification checklist |
+| `distributed-inference-roadmap.md` | Distributed inference pathway (phases 0–5); intent only, no code yet |
 
 ## Local Contracts
 
