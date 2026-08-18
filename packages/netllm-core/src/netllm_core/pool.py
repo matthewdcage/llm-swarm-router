@@ -522,21 +522,19 @@ class RouterPool:
                 extra_candidates=extra_candidates,
             )
         else:
-            local = self.backends_for_model(
+            # One mesh-wide candidacy pass: pool overflow (phase 2) runs only
+            # when no backend serves the requested name literally (D19). A
+            # separate local_only pass used to re-run phase 2 on locals alone
+            # and inject wrong pool substitutions (e.g. nemotron/bge answering
+            # for gemma) that then won local_spillover over peers serving the
+            # requested model.
+            mesh_candidates = self.backends_for_model(
                 model,
-                local_only=True,
                 exact_model_only=exact_model_only,
                 extra_candidates=extra_candidates,
             )
-            remote = [
-                b
-                for b in self.backends_for_model(
-                    model,
-                    exact_model_only=exact_model_only,
-                    extra_candidates=extra_candidates,
-                )
-                if not b.local
-            ]
+            local = [b for b in mesh_candidates if b.local]
+            remote = [b for b in mesh_candidates if not b.local]
             all_candidates = local + remote
         if exclude_ids:
             # Backends that already failed this request: never burn retry
