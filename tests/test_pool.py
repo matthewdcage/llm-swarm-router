@@ -426,6 +426,74 @@ def _spillover_pool(local_in_flight: int, remote_in_flight: int) -> RouterPool:
 
 
 @patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
+def test_local_spillover_prefers_peer_literal_over_local_pool_overflow(
+    _mock: object,
+) -> None:
+    """local_spillover must not prefer a local pool-overflow substitute when a
+    remote peer serves the requested model literally (D19 + mesh candidacy)."""
+    from netllm_core.models import ModelPool
+
+    pool = RouterPool(
+        spillover_max_local_in_flight=8,
+        model_pools={
+            "mixed": ModelPool(
+                enabled=True,
+                hosts=["vllm-local", "ollama-local", "peer-remote"],
+                models=[
+                    "gemma-4-26b-a4b-it-4bit",
+                    "nemotron-3.5-lightning-30b",
+                    "qwen3.8-27b",
+                ],
+            ),
+            "embed": ModelPool(
+                enabled=True,
+                hosts=["ollama-local"],
+                models=["bge-m3:latest"],
+            ),
+        },
+    )
+    pool.set_backends(
+        [
+            Backend(
+                id="vllm-local",
+                base_url="http://127.0.0.1:8015/v1",
+                provider="vllm",
+                local=True,
+                health=BackendHealth(
+                    models=["nemotron-3.5-lightning-30b"], status="online"
+                ),
+            ),
+            Backend(
+                id="ollama-local",
+                base_url="http://127.0.0.1:11434/v1",
+                provider="ollama",
+                local=True,
+                health=BackendHealth(models=["bge-m3:latest"], status="online"),
+            ),
+            Backend(
+                id="peer:peer-remote",
+                base_url="http://10.0.0.32:11400/v1",
+                provider="custom",
+                local=False,
+                agent_id="peer-remote",
+                health=BackendHealth(
+                    models=["gemma-4-26b-a4b-it-4bit"], status="online"
+                ),
+            ),
+        ]
+    )
+    selected = pool.select_backend(
+        "gemma-4-26b-a4b-it-4bit", "local_spillover"
+    )
+    assert selected is not None
+    assert selected.id == "peer:peer-remote"
+
+    nemotron = pool.select_backend("nemotron-3.5-lightning-30b", "local_spillover")
+    assert nemotron is not None
+    assert nemotron.id == "vllm-local"
+
+
+@patch("netllm_core.pool.probe_openai_compat_sync", return_value=_MOCK_ONLINE)
 def test_local_spillover_idle_local_never_hops(_mock: object) -> None:
     pool = _spillover_pool(local_in_flight=0, remote_in_flight=0)
     selected = pool.select_backend("m", "local_spillover")
