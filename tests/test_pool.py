@@ -482,9 +482,7 @@ def test_local_spillover_prefers_peer_literal_over_local_pool_overflow(
             ),
         ]
     )
-    selected = pool.select_backend(
-        "gemma-4-26b-a4b-it-4bit", "local_spillover"
-    )
+    selected = pool.select_backend("gemma-4-26b-a4b-it-4bit", "local_spillover")
     assert selected is not None
     assert selected.id == "peer:peer-remote"
 
