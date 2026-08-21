@@ -238,6 +238,15 @@ class ModelResolver:
             or backend.base_url.rstrip("/") == target.rstrip("/")
         )
 
+    def request_in_enabled_group(self, model: str) -> bool:
+        """True when ``model`` (or one of its aliases) is listed in any
+        enabled ``routing.model_pools`` / group allowlist."""
+        alias_names = self.alias_names(model)
+        for group in self.groups:
+            if group.enabled and _walk(alias_names, group.models) is not None:
+                return True
+        return False
+
     def group_models_for(self, backend: _BackendLike) -> list[str]:
         """Union of allowed models from every enabled group this backend
         belongs to, in group-declaration order. Empty when the backend is

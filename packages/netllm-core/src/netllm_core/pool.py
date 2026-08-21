@@ -7,6 +7,7 @@ import logging
 import time
 from dataclasses import dataclass
 
+from netllm_core.capabilities import model_capability
 from netllm_core.health import (
     is_online,
     probe_agent_health_sync,
@@ -428,6 +429,103 @@ class RouterPool:
             self._backends, limit=limit, capability=capability
         )
 
+    def _collect_literal_and_overflow(
+        self,
+        model: str,
+        *,
+        local_only: bool = False,
+        exact_model_only: bool = False,
+        extra_candidates: list[Backend] | None = None,
+    ) -> tuple[list[Backend], list[Backend]]:
+        """Return (literal, pool-overflow-only) tiers without probing twice."""
+        resolver = self.resolver
+        searchable = (
+            [*self._backends, *extra_candidates] if extra_candidates else self._backends
+        )
+        literal: list[Backend] = []
+        overflow: list[Backend] = []
+        for b in searchable:
+            if not b.enabled:
+                continue
+            if not b.local and not self.allow_remote:
+                continue
+            if local_only and not b.local:
+                continue
+            models = b.health.models
+            if not models and self.is_healthy(b):
+                models = b.health.models
+            if exact_model_only:
+                if resolver.serves(model, b, served=models, allow_group_overflow=False):
+                    literal.append(b)
+                continue
+            if resolver.serves(model, b, served=models, allow_group_overflow=False):
+                literal.append(b)
+            elif resolver.serves(model, b, served=models, allow_group_overflow=True):
+                overflow.append(b)
+        literal_ids = {b.id for b in literal}
+        overflow = [b for b in overflow if b.id not in literal_ids]
+
+        def _healthy(rows: list[Backend]) -> list[Backend]:
+            if not rows:
+                return []
+            ok: list[Backend] = []
+            for b in rows:
+                if b.health.status == "online" and b.health.models:
+                    ok.append(b)
+                elif self.is_healthy(b):
+                    ok.append(b)
+            return ok or rows
+
+        return _healthy(literal), _healthy(overflow)
+
+    def _collect_model_backends(
+        self,
+        model: str,
+        *,
+        allow_pool_overflow: bool,
+        local_only: bool = False,
+        exact_model_only: bool = False,
+        extra_candidates: list[Backend] | None = None,
+    ) -> list[Backend]:
+        """One phase of request-aware pool candidacy (alias-only or +overflow)."""
+        resolver = self.resolver
+        searchable = (
+            [*self._backends, *extra_candidates] if extra_candidates else self._backends
+        )
+
+        def collect(*, allow_overflow: bool) -> list[Backend]:
+            out: list[Backend] = []
+            for b in searchable:
+                if not b.enabled:
+                    continue
+                if not b.local and not self.allow_remote:
+                    continue
+                if local_only and not b.local:
+                    continue
+                models = b.health.models
+                if not models and self.is_healthy(b):
+                    models = b.health.models
+                group_overflow = allow_overflow and not exact_model_only
+                if resolver.serves(
+                    model,
+                    b,
+                    served=models,
+                    allow_group_overflow=group_overflow,
+                ):
+                    out.append(b)
+            return out
+
+        candidates = collect(allow_overflow=allow_pool_overflow)
+        if not candidates:
+            return []
+        ok: list[Backend] = []
+        for b in candidates:
+            if b.health.status == "online" and b.health.models:
+                ok.append(b)
+            elif self.is_healthy(b):
+                ok.append(b)
+        return ok or candidates
+
     def backends_for_model(
         self,
         model: str,
@@ -449,55 +547,34 @@ class RouterPool:
         terminating peer routes the forwarded model name literally instead of
         substituting another pool member model.
         """
-        resolver = self.resolver
-        searchable = (
-            [*self._backends, *extra_candidates] if extra_candidates else self._backends
+        collect_kw = dict(
+            local_only=local_only,
+            exact_model_only=exact_model_only,
+            extra_candidates=extra_candidates,
         )
-
-        def collect(*, allow_pool_overflow: bool) -> list[Backend]:
-            out: list[Backend] = []
-            for b in searchable:
-                if not b.enabled:
-                    continue
-                if not b.local and not self.allow_remote:
-                    continue
-                if local_only and not b.local:
-                    continue
-                models = b.health.models
-                if not models and self.is_healthy(b):
-                    # A stale row may hydrate its catalog on this probe;
-                    # decide on the snapshot we end up holding, and hand
-                    # that exact snapshot to the resolver.
-                    models = b.health.models
-                # Request-aware pools: phase 1 is alias-only candidacy;
-                # phase 2 (allow_pool_overflow=True) adds group overflow.
-                # Agent hops (exact_model_only) never pool-substitute.
-                group_overflow = allow_pool_overflow and not exact_model_only
-                if resolver.serves(
-                    model,
-                    b,
-                    served=models,
-                    allow_group_overflow=group_overflow,
-                ):
-                    out.append(b)
-            return out
-
-        candidates = collect(allow_pool_overflow=False)
-        if not candidates:
-            candidates = collect(allow_pool_overflow=True)
-        if not candidates:
-            # Catalogs may be stale (model pulled moments ago) — refresh
-            # once and rematch instead of spraying every backend.
-            for b in self._backends:
-                if b.enabled and b.local:
-                    self.is_healthy(b, force_refresh=True)
-            candidates = collect(allow_pool_overflow=False)
-            if not candidates:
-                candidates = collect(allow_pool_overflow=True)
-        if not candidates:
-            return []
-        healthy = [b for b in candidates if self.is_healthy(b)]
-        return healthy or candidates
+        literal = self._collect_model_backends(
+            model, allow_pool_overflow=False, **collect_kw
+        )
+        if literal:
+            return literal
+        overflow = self._collect_model_backends(
+            model, allow_pool_overflow=True, **collect_kw
+        )
+        if overflow:
+            return overflow
+        # Catalogs may be stale (model pulled moments ago) — refresh once and
+        # rematch instead of spraying every backend.
+        for b in self._backends:
+            if b.enabled and b.local:
+                self.is_healthy(b, force_refresh=True)
+        literal = self._collect_model_backends(
+            model, allow_pool_overflow=False, **collect_kw
+        )
+        if literal:
+            return literal
+        return self._collect_model_backends(
+            model, allow_pool_overflow=True, **collect_kw
+        )
 
     def select_backend(
         self,
@@ -514,6 +591,22 @@ class RouterPool:
         cloud_provider_allowlist: frozenset[str] | None = None,
         extra_candidates: list[Backend] | None = None,
     ) -> Backend | None:
+        if (
+            not local_only
+            and not exact_model_only
+            and strategy == "local_spillover"
+            and self.resolver.request_in_enabled_group(model)
+        ):
+            pooled = self._select_local_spillover_pooled(
+                model,
+                exclude_ids=exclude_ids,
+                prefer_provider=prefer_provider,
+                cloud_provider_allowlist=cloud_provider_allowlist,
+                extra_candidates=extra_candidates,
+            )
+            if pooled is not None:
+                return pooled
+
         if local_only:
             all_candidates = self.backends_for_model(
                 model,
@@ -655,7 +748,138 @@ class RouterPool:
 
         return all_candidates[0]
 
-    def _select_local_spillover(self, candidates: list[Backend]) -> Backend | None:
+    def _backend_at_cap(self, backend: Backend) -> bool:
+        cap = backend.max_concurrency or self.max_in_flight_per_backend
+        return cap > 0 and backend.in_flight >= cap
+
+    def _apply_candidate_filters(
+        self,
+        candidates: list[Backend],
+        *,
+        exclude_ids: set[str] | None = None,
+        prefer_provider: str | None = None,
+        cloud_provider_allowlist: frozenset[str] | None = None,
+    ) -> list[Backend]:
+        if exclude_ids:
+            candidates = [b for b in candidates if b.id not in exclude_ids]
+        if prefer_provider:
+            preferred = [b for b in candidates if b.provider == prefer_provider]
+            if preferred:
+                candidates = preferred
+        if cloud_provider_allowlist:
+            candidates = [
+                b
+                for b in candidates
+                if not b.cloud_provider or b.cloud_provider in cloud_provider_allowlist
+            ]
+        return candidates
+
+    def _select_local_spillover_pooled(
+        self,
+        model: str,
+        *,
+        exclude_ids: set[str] | None = None,
+        prefer_provider: str | None = None,
+        cloud_provider_allowlist: frozenset[str] | None = None,
+        extra_candidates: list[Backend] | None = None,
+    ) -> Backend | None:
+        """``local_spillover`` for ``routing.model_pools`` requests.
+
+        Literal matches (exact/alias on any mesh host) are preferred while
+        they have headroom. When every literal remote peer is at its in-flight
+        cap, pool overflow substitutes on local hosts (e.g. Gemma on macOS →
+        Nemotron on Linux) become eligible — the mesh-wide pool contract, not
+        only the phase-2 fallback when nothing serves the name at all.
+        """
+        literal, overflow = self._collect_literal_and_overflow(
+            model, extra_candidates=extra_candidates
+        )
+
+        literal = self._apply_candidate_filters(
+            literal,
+            exclude_ids=exclude_ids,
+            prefer_provider=prefer_provider,
+            cloud_provider_allowlist=cloud_provider_allowlist,
+        )
+        overflow = self._apply_candidate_filters(
+            overflow,
+            exclude_ids=exclude_ids,
+            prefer_provider=prefer_provider,
+            cloud_provider_allowlist=cloud_provider_allowlist,
+        )
+        if not literal and not overflow:
+            return None
+
+        literal_remotes = [b for b in literal if not b.local]
+        if literal_remotes:
+            remotes_with_headroom = [
+                b for b in literal_remotes if not self._backend_at_cap(b)
+            ]
+            if remotes_with_headroom:
+                return self._select_local_spillover(
+                    literal,
+                    prefer_remotes=not any(b.local for b in literal),
+                )
+            # Remote-only pool requests (e.g. Gemma on macOS) may overflow to
+            # a local pool substitute when every literal peer is saturated.
+            if not any(b.local for b in literal):
+                local_subs = self._chat_pool_overflow_locals(model, overflow)
+                if local_subs:
+                    return min(local_subs, key=lambda b: b.in_flight)
+
+        literal_locals = [b for b in literal if b.local]
+        if literal_locals and not literal_remotes:
+            # Local-only literal tier (e.g. Nemotron on the Linux gateway): spill
+            # to remote pool chat substitutes when local is above the spillover
+            # threshold or at its in-flight cap — mirrors Mac Gemma → Linux
+            # Nemotron overflow.
+            best_local = min(literal_locals, key=lambda b: b.in_flight)
+            if (
+                best_local.in_flight < self.spillover_max_local_in_flight
+                and not self._backend_at_cap(best_local)
+            ):
+                return best_local
+            remote_subs = self._chat_pool_overflow_remotes(model, overflow)
+            if remote_subs:
+                return min(remote_subs, key=lambda b: b.in_flight)
+            return best_local
+
+        if literal:
+            return self._select_local_spillover(literal)
+        return self._select_local_spillover(overflow)
+
+    def _chat_pool_overflow_remotes(
+        self, model: str, overflow: list[Backend]
+    ) -> list[Backend]:
+        """Remote pool-overflow rows that would invoke a chat-capable model."""
+        out: list[Backend] = []
+        for b in overflow:
+            if b.local or self._backend_at_cap(b):
+                continue
+            upstream = self.resolver.upstream_model(model, b)
+            if model_capability(upstream) == "chat":
+                out.append(b)
+        return out
+
+    def _chat_pool_overflow_locals(
+        self, model: str, overflow: list[Backend]
+    ) -> list[Backend]:
+        """Local pool-overflow rows that would invoke a chat-capable model."""
+        out: list[Backend] = []
+        for b in overflow:
+            if not b.local or self._backend_at_cap(b):
+                continue
+            upstream = self.resolver.upstream_model(model, b)
+            if model_capability(upstream) == "chat":
+                out.append(b)
+        return out
+
+    def _select_local_spillover(
+        self,
+        candidates: list[Backend],
+        *,
+        prefer_remotes: bool = False,
+    ) -> Backend | None:
         """Serve locally while under the in-flight threshold; above it,
         spill to a LAN peer only when the peer is genuinely less loaded."""
         local_pool = [b for b in candidates if b.local]
@@ -663,6 +887,8 @@ class RouterPool:
         if not local_pool:
             if not remote_pool:
                 return None
+            return min(remote_pool, key=lambda b: b.in_flight)
+        if prefer_remotes and remote_pool:
             return min(remote_pool, key=lambda b: b.in_flight)
         best_local = min(local_pool, key=lambda b: b.in_flight)
         if best_local.in_flight < self.spillover_max_local_in_flight:
