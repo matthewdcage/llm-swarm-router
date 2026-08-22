@@ -89,3 +89,8 @@ class RequestPlan:
     @property
     def api_format(self) -> str:
         return api_format_for(self.surface)
+
+    @property
+    def required_capability(self) -> str:
+        """API capability the surface requires (chat vs embedding)."""
+        return spec_for(self.surface).required_capability

@@ -176,7 +176,8 @@ flowchart LR
         S4["status / peers / backends / telemetry<br/>require the token from LAN clients"]
         S5["/v1/* requires the token —<br/>--secure sets require_token_for_inference"]
     end
-    open -->|"netllm swarm-token --create"| secured
+    open -->|"netllm swarm-token --mode open"| secured
+    open -->|"netllm swarm-token --mode secured"| secured
 ```
 
 Three distinct gates, and they are **not** the same gate:

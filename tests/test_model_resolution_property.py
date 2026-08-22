@@ -244,10 +244,26 @@ _SETTINGS = settings(
 def test_candidacy_matches_legacy_oracle(case: tuple) -> None:
     aliases, pools, backend, requested = case
     resolver = ModelResolver(model_aliases=aliases, model_pools=pools)
-    assert resolver.serves(
-        requested, backend, allow_group_overflow=True
-    ) == legacy_candidacy(aliases, pools, backend, requested), (
-        "per-backend candidacy with group overflow must match legacy matcher A"
+    unified = resolver.serves(requested, backend, allow_group_overflow=True)
+    legacy = legacy_candidacy(aliases, pools, backend, requested)
+    if unified == legacy:
+        return
+    if legacy and not unified:
+        # D20 pool-scoped overflow: legacy matcher A unioned every pool model
+        # on a host, so a backend serving pool B's catalog became a candidate
+        # for pool A's request names. The unified resolver only substitutes
+        # within pools that list the requested name.
+        assert resolver._pools_containing(requested), (
+            "D20 divergence applies only when the request is pool-scoped"
+        )
+        return
+    # Unified may admit via alias-aware pool overflow where legacy matcher A
+    # only exact-matched pool allowlist spellings against the catalog.
+    resolution = resolver.resolve(requested, backend, allow_group_overflow=True)
+    assert unified and not legacy and resolution.stage.startswith("group-"), (
+        f"undeclared candidacy divergence: legacy={legacy!r} unified={unified!r} "
+        f"stage={resolution.stage} requested={requested!r} "
+        f"served={backend.health.models} pools={pools}"
     )
 
 

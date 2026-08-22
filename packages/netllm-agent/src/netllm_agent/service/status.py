@@ -183,6 +183,29 @@ class StatusMixin:
             "reachable_at": self.own_reachable_endpoints(),
             # UI-3. Wall clocks for the two discovery passes, so a client can
             # age them without subtracting our monotonic clock from its own.
+            "model_pools": {
+                "enabled": bool(self.config.routing.model_pools),
+                "pools": {
+                    name: {"hosts": pool.hosts, "models": pool.models}
+                    for name, pool in self.config.routing.model_pools.items()
+                    if pool.enabled
+                },
+            },
+            "model_aliases": {
+                alias: targets
+                for alias, targets in self.config.routing.model_aliases.items()
+            },
+            "peer_health": {
+                backend.id.removeprefix("peer:"): {
+                    "status": backend.health.status,
+                    "model_count": backend.health.model_count
+                    or len(backend.health.models),
+                    "last_check": backend.health.last_check_epoch_s or None,
+                    "latency_p50_ms": backend.health.latency_p50_ms,
+                }
+                for backend in self.pool.backends
+                if backend.enabled and backend.id.startswith("peer:")
+            },
             "discovery": self.discovery_scan_payload(),
             "cloud": {
                 "enabled": self.config.cloud.enabled,

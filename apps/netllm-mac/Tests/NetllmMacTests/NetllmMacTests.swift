@@ -218,3 +218,34 @@ final class CloudKeyEnvTests: XCTestCase {
         XCTAssertEqual(offline.resolvedAPIKeyEnv, "ZAI_API_KEY")
     }
 }
+
+final class PoolModelMatchingTests: XCTestCase {
+    func testBackendServesPoolModelViaAlias() {
+        let backend = BackendStatus(
+            provider: "omlx",
+            baseURL: "http://127.0.0.1:8080/v1",
+            local: true,
+            enabled: true,
+            health: "online",
+            modelCount: 1,
+            models: ["gemma-4-26b-a4b-it-4bit"],
+            inFlight: 0
+        )
+        let aliases: [String: JSONValue] = [
+            "gemma-4-26b-a4b-it-nvfp4": .strings([
+                "gemma-4-26b-a4b-it-nvfp4",
+                "gemma-4-26b-a4b-it-4bit",
+            ]),
+        ]
+        XCTAssertTrue(
+            SettingsViewModel.backendServesPoolModel(
+                backend, poolModelId: "gemma-4-26b-a4b-it-nvfp4", modelAliases: aliases
+            )
+        )
+        XCTAssertFalse(
+            SettingsViewModel.backendServesPoolModel(
+                backend, poolModelId: "bge-m3-mlx-8bit", modelAliases: aliases
+            )
+        )
+    }
+}

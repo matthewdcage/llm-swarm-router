@@ -74,6 +74,13 @@ POST_BASELINE_ROUTES: tuple[dict[str, object], ...] = (
             "-- admin, like every other config writer."
         ),
     },
+    {
+        "path": "/netllm/v1/status/quick",
+        "method": "GET",
+        "handler": "netllm_status_quick",
+        "gate": "require_read_access",
+        "added_for": "Lightweight status snapshot for fast UI polling.",
+    },
 )
 
 

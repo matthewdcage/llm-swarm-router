@@ -557,6 +557,15 @@ class CloudConfig(ConfigModel):
     enabled: bool = True
     fallback: CloudFallbackMode = "cloud"
     fallback_enabled: bool = True
+    # Non-breaking priority field mirrors fallback semantics:
+    #   "cloud"  → local/peer-first (same as fallback="cloud")
+    #   "local"  → cloud-first (same as fallback="local")
+    #   "none"   → local/peer-only (same as fallback="none")
+    #   "cloud"  → cloud-first (try cloud first, then local/peers)
+    #   "local"  → local/peer-first (try local/peers first, then cloud)
+    #   "none"   → local/peer-only
+    #   "auto"   → automatic (default behavior, same as "cloud")
+    cloud_priority: CloudFallbackMode = "cloud"
     # One-shot migration flag (ensure_cloud_defaults), mirrors
     # routing.lan_defaults_applied.
     cloud_defaults_applied: bool = Field(

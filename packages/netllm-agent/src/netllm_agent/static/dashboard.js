@@ -324,6 +324,8 @@ const state = {
   logsPollTimer: null,
   logs: null,
   adminWarned: false,
+  /** True when GET /config differs from last-saved baseline while draft is dirty. */
+  configDrift: false,
   lastUpdatedAt: null,
   // Models page filter/collapse (docs/models-ux-plan.md phase D).
   modelsSearchText: "",
@@ -388,6 +390,39 @@ function setBanner(text, kind = "info") {
 function markDirty(dirty = true) {
   state.dirty = dirty;
   document.getElementById("btn-save").disabled = !dirty;
+  if (!dirty) {
+    state.configDrift = false;
+    updateConfigDriftBanner();
+  }
+}
+
+/** Compare two config snapshots from GET /netllm/v1/config (stable JSON). */
+function configSnapshotsEqual(a, b) {
+  if (!a || !b) return a === b;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function updateConfigDriftBanner() {
+  if (state.configDrift && state.dirty) {
+    setBanner(
+      "The running agent's configuration changed outside this dashboard (manual edit or restart). " +
+        "Save would overwrite those changes with your unsaved edits. Refresh discards local edits and reloads from the agent.",
+      "warn"
+    );
+    return;
+  }
+  if (!state.dirty && state.configDrift) {
+    state.configDrift = false;
+  }
+}
+
+/** Pull the live agent config into config + configDraft (caller clears dirty). */
+async function reloadConfigDraftFromAgent() {
+  const config = await api("/netllm/v1/config");
+  state.config = config;
+  state.configDraft = cloneConfig(config);
+  state.configDrift = false;
+  updateConfigDriftBanner();
 }
 
 function cloneConfig(cfg) {
@@ -1414,6 +1449,11 @@ async function loadCore(deepStatus = false) {
     if (!state.dirty) {
       state.config = config;
       state.configDraft = cloneConfig(config);
+      state.configDrift = false;
+      updateConfigDriftBanner();
+    } else if (state.config && !configSnapshotsEqual(config, state.config)) {
+      state.configDrift = true;
+      updateConfigDriftBanner();
     }
   } catch (e) {
     warnAdminLimited(
@@ -1845,21 +1885,30 @@ async function saveConfig() {
     markDirty(false);
     const saveNotes = [];
     if (asObject(result).needs_restart) {
-      saveNotes.push("Saved — restart agent to apply listen/port changes.");
+      saveNotes.push("Restart agent to apply listen/port changes.");
     }
     const saveWarnings = asArray(asObject(result).warnings);
     if (saveWarnings.length) {
       saveNotes.push(saveWarnings.join(" "));
     }
     if (saveNotes.length) {
-      setBanner(saveNotes.join(" "), "warn");
+      setBanner(
+        "Configuration saved and applied to the running agent. " + saveNotes.join(" "),
+        "warn"
+      );
     } else {
-      setBanner("Configuration saved.", "ok");
+      setBanner("Configuration saved and applied to the running agent.", "ok");
     }
     showToast("Configuration saved");
+    state.configDrift = false;
+    await loadCore(false);
+    render();
+    renderDrainButton();
   } catch (e) {
     showToast("Save failed: " + e.message);
     markDirty(true);
+  } finally {
+    document.getElementById("btn-save").disabled = !state.dirty;
   }
 }
 
@@ -2140,7 +2189,18 @@ function wireChrome() {
   document.querySelectorAll(".nav-item").forEach((item) => {
     item.addEventListener("click", () => navigate(item.dataset.page));
   });
-  document.getElementById("btn-refresh").addEventListener("click", () => refresh());
+  document.getElementById("btn-refresh").addEventListener("click", async () => {
+    if (state.dirty) {
+      const discard =
+        state.configDrift ||
+        window.confirm(
+          "Discard unsaved configuration changes and reload from the running agent?"
+        );
+      if (!discard) return;
+      markDirty(false);
+    }
+    await refresh();
+  });
   document.getElementById("btn-discover").addEventListener("click", () => runDiscover());
   document.getElementById("btn-save").addEventListener("click", () => saveConfig());
   document.getElementById("btn-drain").addEventListener("click", () => toggleDrain());

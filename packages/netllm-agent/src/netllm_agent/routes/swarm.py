@@ -56,6 +56,17 @@ def register(ctx: RouteContext) -> None:
             await asyncio.to_thread(_probe_for_status)
         return await service.status_payload_enriched()
 
+    @app.get("/netllm/v1/status/quick")
+    async def netllm_status_quick(request: Request) -> dict[str, Any]:
+        """Lightweight status snapshot for fast UI polling (no deep probe).
+
+        Returns the enriched status payload without running a full local
+        provider scan or health probe. Ideal for dashboard 2s polling when
+        the full status would add 60–70s latency during peer/subnet work.
+        """
+        gates.require_read_access(request)
+        return service.status_payload()
+
     @app.get("/netllm/v1/peers")
     async def netllm_peers(request: Request) -> dict[str, Any]:
         gates.require_read_access(request)

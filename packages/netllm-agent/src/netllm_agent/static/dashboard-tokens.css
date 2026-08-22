@@ -27,6 +27,7 @@
   --code-bg: rgba(0, 0, 0, 0.06);
   --input-bg: #ffffff;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --cloud_priority: #888888;
   --ok: #34c759;
   --warn: #ff9500;
   --danger: #ff3b30;
@@ -69,6 +70,7 @@
   --code-bg: rgba(255, 255, 255, 0.1);
   --input-bg: #2c2c2e;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --cloud_priority: #555555;
   --ok: #34c759;
   --warn: #ff9500;
   --danger: #ff3b30;
@@ -112,6 +114,7 @@
   --code-bg: rgba(0, 0, 0, 0.06);
   --input-bg: #ffffff;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --cloud_priority: #888888;
   --ok: #34c759;
   --warn: #ff9500;
   --danger: #ff3b30;
@@ -154,6 +157,7 @@
   --code-bg: rgba(255, 255, 255, 0.1);
   --input-bg: #2c2c2e;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --cloud_priority: #555555;
   --ok: #34c759;
   --warn: #ff9500;
   --danger: #ff3b30;

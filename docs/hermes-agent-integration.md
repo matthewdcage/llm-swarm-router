@@ -172,7 +172,7 @@ Model IDs stay the same; backends live only in netllm config on each mesh node.
 | Symptom | Fix |
 |---------|-----|
 | Hermes cannot reach netllm | `./netllm serve` or `netllm start`; `./netllm doctor` |
-| Model not found / 404 | Model string must match `./netllm models` exactly |
+| Pool traffic stays on local Nemotron instead of macOS Gemma | Use pool **canonical** model IDs in Hermes (`gemma4:26b`); remove cross-tier `[routing.model_aliases]` (Gemma → Nemotron) — they run before pool spillover; `./netllm doctor` |
 | Blank chat / no assistant text | Switch `provider` from `custom` to **`litellm`**; restart Hermes |
 | Thinking not shown | `display.show_reasoning: true`; thinking model on backend; upgrade Hermes; `./netllm restart` after netllm update |
 | TUI fails to start | `hermes doctor` — Node.js ≥ 20; try `hermes --cli` once |

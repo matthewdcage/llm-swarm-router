@@ -54,6 +54,38 @@ from typing import Protocol
 from netllm_core.capabilities import model_capability
 from netllm_core.models import ModelPool
 
+
+def alias_equivalence_classes(
+    model_aliases: dict[str, list[str]],
+) -> dict[str, str]:
+    """Union-find over alias keys and values that share a pool tier spelling.
+
+    Cross-tier names listed under one alias key (e.g. Gemma plus Nemotron)
+    are not merged into one class.
+    """
+    parent: dict[str, str] = {}
+
+    def find(name: str) -> str:
+        key = name.casefold()
+        parent.setdefault(key, key)
+        if parent[key] != key:
+            parent[key] = find(parent[key])
+        return parent[key]
+
+    def union(left: str, right: str) -> None:
+        root_left, root_right = find(left), find(right)
+        if root_left != root_right:
+            parent[root_right] = root_left
+
+    for key, values in model_aliases.items():
+        find(key)
+        for value in values:
+            if model_capability(key) != model_capability(value):
+                continue
+            union(key, value)
+    return {key: find(key) for key in parent}
+
+
 # Stage names returned by ModelResolver.resolve(). Ordered as the walk runs.
 STAGE_ALIAS_EXACT = "alias-exact"
 STAGE_ALIAS_TAG_PREFIX = "alias-tag-prefix"
@@ -191,8 +223,12 @@ class ModelResolver:
         model_aliases: dict[str, list[str]] | None = None,
         model_pools: dict[str, ModelPool] | None = None,
         model_groups: Iterable[ModelGroup] | None = None,
+        pool_host_bindings: dict[tuple[str, str], str] | None = None,
     ) -> None:
         self.model_aliases = model_aliases if model_aliases is not None else {}
+        # (group_name, backend_id) -> served upstream id chosen once per host
+        # so pool overflow does not thrash VRAM by alternating models.
+        self._pool_host_bindings = pool_host_bindings
         groups = [
             ModelGroup(
                 name=name,
@@ -207,6 +243,93 @@ class ModelResolver:
         self.groups: tuple[ModelGroup, ...] = tuple(groups)
 
     # -- alias / group inputs to the walk --------------------------------
+
+    def _pools_containing(self, model: str) -> frozenset[str]:
+        names = self.alias_names(model)
+        pools: set[str] = set()
+        for group in self.groups:
+            if group.enabled and _walk(names, group.models) is not None:
+                pools.add(group.name)
+        return frozenset(pools)
+
+    def _literal_pool_models(self, model: str) -> frozenset[str]:
+        """Pool allowlist rows matched by the literal alias key only."""
+        primary = self.alias_names(model)[0]
+        matched: set[str] = set()
+        for group in self.groups:
+            if not group.enabled:
+                continue
+            for pool_model in group.models:
+                if _walk([primary], [pool_model]) is not None:
+                    matched.add(pool_model.casefold())
+        return frozenset(matched)
+
+    @staticmethod
+    def _model_family(name: str) -> str:
+        lowered = name.casefold()
+        for token in (
+            "gemma",
+            "nemotron",
+            "qwen",
+            "llama",
+            "bge",
+            "deepseek",
+            "mistral",
+        ):
+            if token in lowered:
+                return token
+        return lowered.split("-")[0].split(":")[0]
+
+    def _alias_pool_bundle(self, requested: str) -> frozenset[str]:
+        """Pool rows the requested alias key may route to (same-tier spellings)."""
+        aliases = self.alias_names(requested)
+        primary = aliases[0]
+        bundle: set[str] = set()
+        for group in self.groups:
+            if not group.enabled:
+                continue
+            for pool_model in group.models:
+                if _walk([primary], [pool_model]) is not None:
+                    bundle.add(pool_model.casefold())
+        for alias in aliases[1:]:
+            if model_capability(primary) != model_capability(alias):
+                continue
+            if self._model_family(alias) != self._model_family(primary):
+                continue
+            for group in self.groups:
+                if not group.enabled:
+                    continue
+                for pool_model in group.models:
+                    if _walk([alias], [pool_model]) is not None:
+                        bundle.add(pool_model.casefold())
+        return frozenset(bundle)
+
+    def _pool_tier_names(self, model: str) -> frozenset[str]:
+        return self._alias_pool_bundle(model)
+
+    def is_steering_alias(self, requested: str, alias_value: str) -> bool:
+        """True when ``alias_value`` would steer a pool request off its tier."""
+        if alias_value.casefold() == requested.casefold():
+            return False
+        if model_capability(requested) != model_capability(alias_value):
+            return True
+        value_models = self._literal_pool_models(alias_value)
+        if not value_models:
+            return False
+        bundle = self._alias_pool_bundle(requested)
+        if value_models <= bundle:
+            return False
+        return True
+
+    def _alias_names_for_walk(self, requested: str, *, pool_literal: bool) -> list[str]:
+        names = self.alias_names(requested)
+        if not pool_literal or not self.request_in_enabled_group(requested):
+            return names
+        filtered = [names[0]]
+        for alias in names[1:]:
+            if not self.is_steering_alias(requested, alias):
+                filtered.append(alias)
+        return filtered
 
     def alias_names(self, model: str) -> list[str]:
         """Requested name plus configured aliases, request name first.
@@ -250,7 +373,10 @@ class ModelResolver:
     def group_models_for(self, backend: _BackendLike) -> list[str]:
         """Union of allowed models from every enabled group this backend
         belongs to, in group-declaration order. Empty when the backend is
-        not a member of any enabled group."""
+        not a member of any enabled group.
+
+        Overflow substitution must not use this union — see
+        ``_authorizing_groups_for`` and ``_resolve_group_sticky``."""
         names: list[str] = []
         for group in self.groups:
             if not group.enabled:
@@ -262,6 +388,78 @@ class ModelResolver:
                     names.append(m)
         return names
 
+    def _authorizing_groups_for(
+        self, requested: str, backend: _BackendLike
+    ) -> list[ModelGroup]:
+        """Enabled pools that list ``requested`` and include this backend."""
+        pool_names = self._pools_containing(requested)
+        if not pool_names:
+            return []
+        groups: list[ModelGroup] = []
+        for group in self.groups:
+            if not group.enabled or group.name not in pool_names:
+                continue
+            if not any(self._host_matches(backend, ref) for ref in group.hosts):
+                continue
+            groups.append(group)
+        return groups
+
+    def _resolve_group_sticky(
+        self,
+        requested: str,
+        backend: _BackendLike,
+        served: Sequence[str],
+    ) -> tuple[str, str] | None:
+        """Pick one catalog model per (pool, host) for overflow substitution.
+
+        Only models from pools that list the *requested* name are eligible —
+        a host in both a chat pool and an embedding pool must not substitute
+        chat traffic onto embedding weights (or vice versa).
+        """
+        authorizing = self._authorizing_groups_for(requested, backend)
+        if not authorizing:
+            return None
+
+        bindings = self._pool_host_bindings
+        if bindings is not None:
+            for group in authorizing:
+                key = (group.name, backend.id)
+                if key not in bindings:
+                    continue
+                bound = bindings[key]
+                for served_id in served:
+                    if served_id.casefold() == bound.casefold():
+                        return served_id, STAGE_GROUP_EXACT
+                del bindings[key]
+
+        req_cap = model_capability(requested)
+        matches: list[tuple[str, str, str]] = []
+        seen: set[str] = set()
+        for group in authorizing:
+            for pool_model in group.models:
+                if model_capability(pool_model) != req_cap:
+                    continue
+                hit = _walk(self.alias_names(pool_model), served)
+                if hit is None:
+                    continue
+                served_id, arm = hit
+                if model_capability(served_id) != req_cap:
+                    continue
+                key = served_id.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                matches.append((pool_model, served_id, arm))
+        if not matches:
+            return None
+
+        matches.sort(key=lambda row: (row[1].casefold(), row[0].casefold()))
+        _pool_model, served_id, arm = matches[0]
+        if bindings is not None:
+            for group in authorizing:
+                bindings[(group.name, backend.id)] = served_id
+        return served_id, f"group-{arm}"
+
     # -- the one walk -----------------------------------------------------
 
     def resolve(
@@ -271,6 +469,7 @@ class ModelResolver:
         *,
         served: Sequence[str] | None = None,
         allow_group_overflow: bool = True,
+        pool_literal: bool = False,
     ) -> Resolution:
         """Resolve `requested` against one backend's catalog.
 
@@ -294,13 +493,15 @@ class ModelResolver:
                 return Resolution(requested, requested, STAGE_AUTH_GATED)
             return Resolution(requested, requested, STAGE_BLIND_CATALOG)
 
-        hit = _walk(self.alias_names(requested), served)
+        hit = _walk(
+            self._alias_names_for_walk(requested, pool_literal=pool_literal),
+            served,
+        )
         if hit is not None:
             name, arm = hit
             return Resolution(requested, name, f"alias-{arm}")
 
         if allow_group_overflow:
-            group_models = self.group_models_for(backend)
             # A group authorises substitution *for its own models only*.
             # Without this membership guard the arm below walked the group
             # list against the catalog while ignoring ``requested`` entirely:
@@ -309,11 +510,10 @@ class ModelResolver:
             # nothing in the mesh hosts. A one-model local backend listed in
             # a group alongside LAN peers therefore swallowed 100% of
             # traffic and answered under whatever name was asked for.
-            if group_models and _walk(self.alias_names(requested), group_models):
-                hit = _walk(group_models, served)
-                if hit is not None:
-                    name, arm = hit
-                    return Resolution(requested, name, f"group-{arm}")
+            hit = self._resolve_group_sticky(requested, backend, served)
+            if hit is not None:
+                name, stage = hit
+                return Resolution(requested, name, stage)
 
         return Resolution(requested, requested, STAGE_PASSTHROUGH)
 
@@ -324,6 +524,7 @@ class ModelResolver:
         *,
         served: Sequence[str] | None = None,
         allow_group_overflow: bool = True,
+        pool_literal: bool = False,
     ) -> bool:
         """Candidacy predicate, derived from the same walk as `resolve`."""
         return self.resolve(
@@ -331,6 +532,7 @@ class ModelResolver:
             backend,
             served=served,
             allow_group_overflow=allow_group_overflow,
+            pool_literal=pool_literal,
         ).serves
 
     def upstream_model(
@@ -339,6 +541,7 @@ class ModelResolver:
         backend: _BackendLike,
         *,
         exact_model_only: bool = False,
+        pool_literal: bool = False,
     ) -> str:
         """The model ID to actually send upstream to `backend`.
 
@@ -346,10 +549,14 @@ class ModelResolver:
         substitution so the terminating peer invokes the forwarded model
         name literally.
         """
+        use_pool_literal = pool_literal or (
+            not exact_model_only and self.request_in_enabled_group(requested)
+        )
         return self.resolve(
             requested,
             backend,
             allow_group_overflow=not exact_model_only,
+            pool_literal=use_pool_literal,
         ).upstream_model
 
     # -- 404 hints --------------------------------------------------------

@@ -148,6 +148,7 @@ async def _walk_schedule(
             pinned=routing.pinned_backend,
             cloud_provider_allowlist=routing.cloud_provider_allowlist,
             extra_candidates=list(schedule.extra_candidates),
+            required_capability=plan.required_capability,
         )
         if backend is None:
             break

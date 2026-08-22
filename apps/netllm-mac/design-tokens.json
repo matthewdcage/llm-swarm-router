@@ -24,7 +24,8 @@
     "hoverBg": "rgba(0, 0, 0, 0.04)",
     "codeBg": "rgba(0, 0, 0, 0.06)",
     "inputBg": "#ffffff",
-    "shadow": "0 1px 3px rgba(0, 0, 0, 0.06)"
+    "shadow": "0 1px 3px rgba(0, 0, 0, 0.06)",
+    "cloud_priority": "#888888"
   },
   "dark": {
     "bg": "#1c1c1e",
@@ -51,7 +52,8 @@
     "hoverBg": "rgba(255, 255, 255, 0.06)",
     "codeBg": "rgba(255, 255, 255, 0.1)",
     "inputBg": "#2c2c2e",
-    "shadow": "0 1px 3px rgba(0, 0, 0, 0.35)"
+    "shadow": "0 1px 3px rgba(0, 0, 0, 0.35)",
+    "cloud_priority": "#555555"
   },
   "shared": {
     "ok": "#34c759",

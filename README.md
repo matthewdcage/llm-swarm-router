@@ -16,7 +16,7 @@
 # llm-swarm-router
 
 <p align="center">
-  <a href="https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.4.5.0"><img src="https://img.shields.io/badge/version-0.4.5.0-orange?style=for-the-badge" alt="Version 0.4.5.0"></a>
+  <a href="https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.5.1.0"><img src="https://img.shields.io/badge/version-0.5.1.0-orange?style=for-the-badge" alt="Version 0.5.1.0"></a>
   <a href="docs/macos-install.md"><img src="https://img.shields.io/badge/macOS-Menubar%20app-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS app"></a>
   <a href="docs/linux-install.md"><img src="https://img.shields.io/badge/Linux-deb%2Frpm%20alpha-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux alpha"></a>
   <a href="docs/windows-install.md"><img src="https://img.shields.io/badge/Windows-zip%20alpha-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows alpha"></a>
@@ -76,7 +76,14 @@ Point **Cursor**, **Claude Code**, **Codex**, **Honcho**, or any compatible clie
 
 Both machines now share one model catalog, authenticate with the generated cluster token, and **spread same-model load automatically** (`local_spillover`: serve locally while idle, spill to the least-loaded peer when busy). Verify with `./netllm peers` and `./netllm models`. On a trusted home LAN you can skip the token: run `./netllm init --swarm && ./netllm serve` on both machines (no `join` needed) and they mesh via mDNS.
 
-### Who reads what
+### What's new in v0.5.1
+
+- **`GET /netllm/v1/status/quick`** — Enriched status payload without deep scan/probe, returns in ~5s (22 keys vs 60-70s for full status). Includes `model_pools`, `model_aliases`, and `peer_health` for LAN mesh awareness.
+- **`cloud_priority`** config field alongside existing `cloud.fallback` — controls cloud-first vs local-first mesh behavior. Values: `cloud`, `local`, `none`, `auto`.
+- **`model_pools`** — Per-agent model pools with host allowlists and model allowlists, synced via heartbeats for cross-agent pool substitution.
+- **`model_aliases`** — Canonical model name aliases (e.g., `qwen3.6-35b` → `nemotron-3.5-lightning-30b`), exposed in status for dashboard and SDK resolution.
+- **`cloud_priority` UI** — macOS menubar and web dashboard now render a selector for cloud priority values: cloud, local, none, auto.
+- **`--mode open|secured`** for `netllm swarm-token` — distinguish open trusted LAN vs secured swarm with cluster token.
 
 | Audience | Start here |
 |----------|------------|

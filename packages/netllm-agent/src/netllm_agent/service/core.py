@@ -118,6 +118,7 @@ class AgentServiceCore:
         )
         self.pool.model_aliases = routing.model_aliases
         self.pool.model_pools = routing.model_pools
+        self.pool.clear_pool_host_bindings()
         self.pool.health_ttl_s = routing.health_ttl_s
         self.pool.offline_retry_s = min(routing.offline_retry_s, routing.health_ttl_s)
         self.pool.max_failures = max(1, routing.max_backend_failures)

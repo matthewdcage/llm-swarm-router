@@ -143,6 +143,16 @@ Non-destructive because backend rows are identity-keyed on base_url.\
 """
 expires = "phase-10"
 
+[[field]]
+surface = "macos"
+key = "cloud.cloud_priority"
+reason = """
+New field added alongside cloud.fallback. The dashboard and macOS Settings UI \
+need to render a selector for cloud_priority values: cloud, local, none, auto. \
+This entry covers the disposition gap until UIs are updated.\
+"""
+expires = "phase-10"
+
 # routing.sources advanced fields (model_rewrites, scenarios, match) are
 # editable in IntegrationsTabView via SchemaFormView (2026-08-11 UI alignment).
 

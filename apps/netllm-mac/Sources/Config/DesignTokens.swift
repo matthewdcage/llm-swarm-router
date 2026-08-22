@@ -57,6 +57,7 @@ enum DesignTokens {
     static let hoverBg = dynamic(light: NSColor(srgbRed: 0.000000, green: 0.000000, blue: 0.000000, alpha: 0.040000), dark: NSColor(srgbRed: 1.000000, green: 1.000000, blue: 1.000000, alpha: 0.060000))
     static let codeBg = dynamic(light: NSColor(srgbRed: 0.000000, green: 0.000000, blue: 0.000000, alpha: 0.060000), dark: NSColor(srgbRed: 1.000000, green: 1.000000, blue: 1.000000, alpha: 0.100000))
     static let inputBg = dynamic(light: NSColor(srgbRed: 1.000000, green: 1.000000, blue: 1.000000, alpha: 1.000000), dark: NSColor(srgbRed: 0.172549, green: 0.172549, blue: 0.180392, alpha: 1.000000))
+    static let cloud_priority = dynamic(light: NSColor(srgbRed: 0.533333, green: 0.533333, blue: 0.533333, alpha: 1.000000), dark: NSColor(srgbRed: 0.333333, green: 0.333333, blue: 0.333333, alpha: 1.000000))
 
     // MARK: - Shared colours
 

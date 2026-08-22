@@ -555,7 +555,7 @@ struct SettingsWindowView: View {
             }
             sectionHeader("Model pools")
             Text(
-                "Heterogeneous pool: members route when they serve the requested model (or alias). Substitution to another pool model happens only when no backend in the mesh serves that name (overflow)."
+                "Each pool is scoped to its own model list: overflow substitutes only within the pool that lists the requested name (chat and embedding pools stay separate even when they share a host). Keep chat and embedding models in different pools."
             )
             .font(.caption)
             .foregroundStyle(.secondary)
