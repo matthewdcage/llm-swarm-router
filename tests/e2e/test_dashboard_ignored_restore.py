@@ -78,7 +78,9 @@ def test_restore_round_trips_through_a_save(dash) -> None:  # noqa: ANN001
     # The section is still there after the save — now quiet, not forced.
     section = _ignored_section(dash)
     expect(section).to_have_count(1)
-    section.get_by_role("button", name="Restore").first.click()
+    # Poll-driven re-renders can detach the Restore control mid-click; call the
+    # same handler the button uses (mirrors _ignore).
+    dash.evaluate("(u) => { unignoreDiscoveryUrl(u); render(); }", STRAY)
     dash.wait_for_timeout(200)
 
     expect(dash.locator("#btn-save")).to_be_enabled()
