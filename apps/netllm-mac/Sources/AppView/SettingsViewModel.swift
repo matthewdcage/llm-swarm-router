@@ -1005,7 +1005,7 @@ final class SettingsViewModel {
 
     /// True when ``backend`` advertises ``poolModelId`` literally or via
     /// ``routing.model_aliases`` (same contract as pool candidacy phase 1).
-    static func backendServesPoolModel(
+    nonisolated static func backendServesPoolModel(
         _ backend: BackendStatus,
         poolModelId: String,
         modelAliases: [String: JSONValue]
