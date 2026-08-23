@@ -94,6 +94,34 @@ function modelsUnresolvedHosts(pool) {
   return pool.hosts.filter((ref) => !backends.some((b) => modelsBackendMatchesHostRef(b, ref)));
 }
 
+/** Case-insensitive catalog membership. */
+function modelsCatalogIncludes(catalog, modelId) {
+  const needle = (modelId || "").toLowerCase();
+  return asArray(catalog).some((m) => (m || "").toLowerCase() === needle);
+}
+
+/**
+ * True when a backend serves ``poolModelId`` literally or via
+ * routing.model_aliases (same contract as pool candidacy phase 1).
+ */
+function modelsBackendServesPoolModel(backend, poolModelId) {
+  const catalog = asArray(backend.health?.models);
+  if (modelsCatalogIncludes(catalog, poolModelId)) return true;
+  const aliases = asObject(state.configDraft?.routing?.model_aliases);
+  const aliasTargets = asArray(aliases[poolModelId]);
+  if (aliasTargets.some((target) => modelsCatalogIncludes(catalog, target))) {
+    return true;
+  }
+  for (const [canonical, ids] of Object.entries(aliases)) {
+    if (!modelsCatalogIncludes(catalog, canonical)) continue;
+    if (canonical.toLowerCase() === poolModelId.toLowerCase()) return true;
+    if (asArray(ids).some((id) => id.toLowerCase() === poolModelId.toLowerCase())) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Client-side pool effectiveness (mirrors SettingsViewModel.poolInactiveReason):
 // a pool is "active" iff >=1 host ref resolves to an online backend serving
 // >=1 pool model — all derivable from /netllm/v1/status. Returns null when
@@ -107,7 +135,7 @@ function modelsPoolInactiveReason(pool) {
   const online = modelsPoolMembers(pool).filter((b) => b.health?.status === "online");
   if (!online.length) return "host offline";
   const serving = online.some((b) =>
-    asArray(b.health?.models).some((m) => pool.models.includes(m))
+    pool.models.some((poolModel) => modelsBackendServesPoolModel(b, poolModel))
   );
   return serving ? null : "no pool model served";
 }
@@ -357,12 +385,14 @@ function modelsTrafficSpan() {
 
 /** How many of a pool's models this backend actually advertises. */
 function modelsServedCell(backend, pool) {
-  const served = asArray(backend.health?.models).filter((m) => pool.models.includes(m));
+  const served = asArray(backend.health?.models).filter((m) =>
+    pool.models.some((poolModel) => modelsBackendServesPoolModel(backend, poolModel))
+  );
   if (!pool.models.length) return textEl("div", "muted", "—");
   const cls = served.length ? "mono" : "mono text-warn";
   const cell = textEl("div", cls, `${served.length}/${pool.models.length}`);
   if (served.length) cell.title = served.join(", ");
-  else cell.title = "This host serves none of the pool's models.";
+  else cell.title = "This host serves none of the pool's models (including via aliases).";
   return cell;
 }
 
@@ -935,8 +965,7 @@ function modelsMembershipPanel(root, pool) {
     textEl(
       "p",
       "panel-desc",
-      "A pool is an explicit list of hosts and the models they may answer for. " +
-        "Any backend below becomes a candidate for any request the pool can serve."
+      "A pool is an explicit list of hosts and models. Overflow substitutes only within the pool that lists the requested name — separate chat and embedding pools do not merge, even on the same host."
     )
   );
 

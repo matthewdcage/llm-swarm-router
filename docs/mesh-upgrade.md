@@ -94,6 +94,28 @@ that. It is **not** treated as version 0: doing so produced a confident "more
 than two minors of skew" about a version nobody was running, for anything on
 the LAN that sent junk.
 
+## Gateway mesh capacity coordinator (opt-in)
+
+From builds that ship `routing.mesh_coordinator`, the gateway can make
+mesh-aware placement decisions using gossiped peer admission policy instead of
+each agent routing independently against stale heartbeat load.
+
+| Field | Where | Meaning |
+|---|---|---|
+| `routing.mesh_coordinator` | **Gateway only** (recommended) | `"off"` (default) = today’s behavior; `"gateway"` = gateway uses enriched heartbeats for spillover / least_load |
+| `agent.max_concurrency` | Every participating node | Self-declared local ceiling; gossiped to peers; enforced locally when coordinator is not `"off"` |
+| `routing.follow_gateway_capacity` | Peers (optional) | With `follow_gateway = true`, adopt gateway spillover / per-backend caps at runtime (never persisted) |
+
+Heartbeats carry an additive `routing_capacity` block
+(`spillover_max_local_in_flight`, `max_in_flight_per_backend`). Older peers
+that omit it still mesh; the gateway warns in `peer_warnings` when coordinator
+mode is on.
+
+Rollout order matches the gateway-first rule above: upgrade every node, align
+`model_pools` / aliases on participants, set `mesh_coordinator = "gateway"` on
+the gateway, set realistic `agent.max_concurrency` on each box, then validate
+with `netllm status` and `scripts/live-routing-smoke.sh` (`NETLLM_MESH_COORDINATOR=1`).
+
 ## What is still not covered
 
 A mixed-version mesh crossed with an upstream change: an older peer applies

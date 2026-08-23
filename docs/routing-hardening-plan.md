@@ -362,3 +362,41 @@ Verify: trip a peer offline via hard failures, confirm
 `?probe_peers=1` recovers; confirm unpinned routing resumes without
 restart when heartbeats are fresh and `curl http://<peer>:11400/health`
 succeeds from the gateway.
+
+## Phase 8 — gateway mesh coordinator (done 2026-08-23)
+
+**Problem:** Mesh load balancing is decentralized. Each gateway applies its
+own `spillover_max_local_in_flight` and `max_in_flight_per_backend` against
+stale (~10s) heartbeat load. `agent.max_concurrency` is honored by remote
+selectors but not enforced locally. No E2E proved concurrent saturated
+spillover.
+
+**Design (opt-in, additive):**
+
+| Component | Status |
+|-----------|--------|
+| `routing.mesh_coordinator = "off" \| "gateway"` (default off) | done |
+| `routing.follow_gateway_capacity` (runtime peer adoption) | done |
+| Heartbeat `routing_capacity` block (spillover + max_in_flight) | done |
+| `netllm_core.mesh_capacity` pure selection helpers | done |
+| Gateway `select_backend` mesh-aware branch | done |
+| Local `agent.max_concurrency` self-admission when coordinator on | done |
+| E2E concurrent spillover + 3-agent gateway tests | done |
+| Dashboard + macOS controls (Axis D) | done |
+
+**Behavior matrix (after change):**
+
+| Behavior | Unit | E2E |
+|----------|------|-----|
+| local_spillover idle stays local | yes | yes |
+| local_spillover saturated spill | yes | yes (coordinator on) |
+| least_load mesh via heartbeat load | yes | yes (coordinator on) |
+| max_in_flight / agent.max_concurrency | yes | yes (self-admission) |
+| round_robin mesh spread | yes | yes (sequential) |
+
+**Non-breaking:** default `mesh_coordinator = "off"` preserves all existing
+selection. Older peers omitting `routing_capacity` get advisory warnings only
+when coordinator is enabled.
+
+**Deferred (v1 non-goals):** central assignment API, cross-gateway foreign
+hop ledger, heartbeat interval reduction, `model_groups` weighted selection.

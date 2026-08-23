@@ -42,7 +42,7 @@ from __future__ import annotations
 from .accounting import AccountingMixin, AttemptRecorder
 from .backends import BackendsMixin
 from .cloud import LEGACY_CLOUD_BACKEND_IDS, CloudMixin
-from .core import AgentServiceCore, SourceCapacityExceeded
+from .core import AgentCapacityExceeded, AgentServiceCore, SourceCapacityExceeded
 from .policy import PolicyMixin
 from .selection import SelectionMixin
 from .status import StatusMixin
@@ -56,6 +56,7 @@ from .swarm_tasks import SwarmTasksMixin
 __all__ = [
     "LEGACY_CLOUD_BACKEND_IDS",
     "AgentService",
+    "AgentCapacityExceeded",
     "AttemptRecorder",
     "SourceCapacityExceeded",
 ]

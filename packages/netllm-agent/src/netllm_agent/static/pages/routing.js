@@ -407,6 +407,8 @@ function renderRoutingPage(root) {
   const tuning = [
     "max_in_flight_per_backend",
     "follow_gateway",
+    "follow_gateway_capacity",
+    "mesh_coordinator",
     "spillover_max_local_in_flight",
     "health_ttl_s",
     "offline_retry_s",

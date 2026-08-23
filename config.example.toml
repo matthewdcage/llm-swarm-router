@@ -88,6 +88,12 @@ max_in_flight_per_backend = 0
 # (runtime only), so the mesh cannot run conflicting strategies by
 # accident. Set false to keep an intentionally different strategy.
 follow_gateway = true
+# Peer-only: adopt gateway spillover / max_in_flight from heartbeats at
+# runtime when follow_gateway is also true (never persisted).
+# follow_gateway_capacity = false
+# Gateway-led mesh capacity coordinator (opt-in). When "gateway" and
+# agent.role is "gateway", selection uses gossiped peer admission policy.
+# mesh_coordinator = "off"
 # local_spillover only: serve locally while fewer than this many requests
 # are in flight locally; at or above it, spill to a LAN peer only when
 # that peer is strictly less loaded. Sequential (one-at-a-time) traffic

@@ -115,6 +115,28 @@ def normalize_peer_endpoints(raw: Any) -> list[dict[str, str]]:
     return out
 
 
+def normalize_routing_capacity(raw: Any) -> dict[str, int]:
+    """Coerce heartbeat ``routing_capacity`` into admission scalars."""
+    if not isinstance(raw, dict):
+        return {"spillover_max_local_in_flight": 0, "max_in_flight_per_backend": 0}
+
+    def _int(key: str) -> int:
+        try:
+            return max(0, int(raw.get(key, 0) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    return {
+        "spillover_max_local_in_flight": _int("spillover_max_local_in_flight"),
+        "max_in_flight_per_backend": _int("max_in_flight_per_backend"),
+    }
+
+
+def peer_capacity_from_payload(payload: dict[str, Any]) -> tuple[int, int]:
+    rc = normalize_routing_capacity(payload.get("routing_capacity"))
+    return rc["spillover_max_local_in_flight"], rc["max_in_flight_per_backend"]
+
+
 @dataclass
 class PeerRecord:
     agent_id: str
@@ -164,6 +186,9 @@ class PeerRecord:
     # (peer_agent_backends below), so without this its real provider mix is
     # invisible to every other agent in the mesh.
     providers: list[dict[str, Any]] = field(default_factory=list)
+    # Gossiped routing.admission scalars (0 = peer omitted the field).
+    peer_spillover_max_local_in_flight: int = 0
+    peer_max_in_flight_per_backend: int = 0
 
 
 class SwarmRegistry:
@@ -349,6 +374,7 @@ class SwarmRegistry:
                 also = normalize_peer_urls(data.get("also_reachable_at"))
                 if probed and probed != reported and probed not in also:
                     also.append(probed)
+                spill, per_backend = peer_capacity_from_payload(data)
                 return PeerRecord(
                     agent_id=data.get("agent_id", ""),
                     listen_url=reported or probed,
@@ -363,6 +389,8 @@ class SwarmRegistry:
                     also_reachable_at=also,
                     reachable_at=normalize_peer_endpoints(data.get("reachable_at")),
                     providers=normalize_peer_providers(data.get("providers")),
+                    peer_spillover_max_local_in_flight=spill,
+                    peer_max_in_flight_per_backend=per_backend,
                 )
         except Exception as exc:
             logger.debug("peer fetch failed %s: %s", base_url, exc)
@@ -475,6 +503,12 @@ class SwarmRegistry:
                 # "unclassified" and renders exactly as it did before.
                 "reachable_at": [dict(entry) for entry in p.reachable_at],
                 "providers": [dict(entry) for entry in p.providers],
+                "routing_capacity": {
+                    "spillover_max_local_in_flight": (
+                        p.peer_spillover_max_local_in_flight
+                    ),
+                    "max_in_flight_per_backend": p.peer_max_in_flight_per_backend,
+                },
             }
             for p in self.peers.values()
         ]

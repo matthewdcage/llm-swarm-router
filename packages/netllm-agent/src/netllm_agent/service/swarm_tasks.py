@@ -20,6 +20,7 @@ from netllm_discovery.swarm import (
     normalize_peer_endpoints,
     normalize_peer_providers,
     normalize_peer_urls,
+    peer_capacity_from_payload,
 )
 
 # discover_lan_agents tags every row with where it came from; PeerRecord
@@ -66,11 +67,28 @@ class SwarmTasksMixin:
         )
         self.apply_runtime_strategy(remote)
 
+    def _maybe_follow_gateway_capacity(self, payload: dict[str, Any]) -> None:
+        """Adopt gateway admission scalars at runtime on peer-role agents."""
+        if not self.config.routing.follow_gateway_capacity:
+            return
+        if not self.config.routing.follow_gateway:
+            return
+        if self.config.agent.role == "gateway":
+            return
+        if payload.get("role") != "gateway":
+            return
+        spill, per_backend = peer_capacity_from_payload(payload)
+        if spill > 0:
+            self.pool.spillover_max_local_in_flight = max(1, spill)
+        self.pool.max_in_flight_per_backend = max(0, per_backend)
+
     async def handle_heartbeat(self, payload: dict[str, Any]) -> None:
         agent_id = payload.get("agent_id", "")
         if not agent_id or agent_id == self.config.agent.agent_id:
             return
         self._maybe_follow_gateway(payload)
+        self._maybe_follow_gateway_capacity(payload)
+        spill, per_backend = peer_capacity_from_payload(payload)
         self.swarm.register_peer(
             PeerRecord(
                 agent_id=agent_id,
@@ -91,6 +109,8 @@ class SwarmTasksMixin:
                 also_reachable_at=normalize_peer_urls(payload.get("also_reachable_at")),
                 reachable_at=normalize_peer_endpoints(payload.get("reachable_at")),
                 providers=normalize_peer_providers(payload.get("providers")),
+                peer_spillover_max_local_in_flight=spill,
+                peer_max_in_flight_per_backend=per_backend,
             )
         )
         await self.refresh_local_backends()

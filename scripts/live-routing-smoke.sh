@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # Live routing smoke + pressure tests against a running netllm gateway.
+#
+# Optional env:
+#   NETLLM_MESH_COORDINATOR=1 — after 6-way concurrent pressure, assert
+#   routed_requests spread across at least two backends (gateway coordinator
+#   must be enabled in config: routing.mesh_coordinator = "gateway").
 set -euo pipefail
 
 BASE="${NETLLM_BASE:-http://127.0.0.1:11400}"
@@ -142,6 +147,22 @@ rm -rf "$tmpdir"
 log ""
 log "--- routed counts after pressure ---"
 status_routed
+
+if [[ "${NETLLM_MESH_COORDINATOR:-}" == "1" ]]; then
+  log ""
+  log "--- mesh coordinator distribution (NETLLM_MESH_COORDINATOR=1) ---"
+  spread=$(curl -sf "$BASE/netllm/v1/telemetry?scopes=router" | pyjson -c "
+import sys, json
+routed = json.load(sys.stdin).get('router', {}).get('routed_requests', {})
+active = sum(1 for n in routed.values() if n > 0)
+print(active)
+" 2>/dev/null || echo 0)
+  if [[ "${spread:-0}" -ge 2 ]]; then
+    pass "mesh coordinator spread: $spread backends with routed_requests"
+  else
+    fail "mesh coordinator spread: expected >=2 backends, saw ${spread:-0}"
+  fi
+fi
 
 log ""
 log "=== SUMMARY: $PASS passed, $FAIL failed ==="

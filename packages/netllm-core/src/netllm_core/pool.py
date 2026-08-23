@@ -14,8 +14,22 @@ from netllm_core.health import (
     probe_anthropic_compat_sync,
     probe_openai_compat_sync,
 )
+from netllm_core.mesh_capacity import (
+    PeerCapacityView,
+    backend_has_headroom,
+    effective_backend_cap,
+    local_agent_saturated,
+    select_mesh_least_loaded,
+    select_mesh_spillover,
+)
 from netllm_core.model_resolution import ModelResolver
-from netllm_core.models import Backend, ModelPool, RoutingStrategy
+from netllm_core.models import (
+    AgentRole,
+    Backend,
+    MeshCoordinatorMode,
+    ModelPool,
+    RoutingStrategy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +88,9 @@ class RouterPool:
         offline_retry_s: float = OFFLINE_RETRY_S,
         max_failures: int = MAX_FAILURES,
         max_in_flight_per_backend: int = 0,
+        mesh_coordinator: MeshCoordinatorMode = "off",
+        agent_role: AgentRole = "peer",
+        agent_max_concurrency: int = 0,
     ) -> None:
         self._backends: list[Backend] = []
         self._health_cache: dict[str, _HealthEntry] = {}
@@ -88,6 +105,10 @@ class RouterPool:
         # 0 disables the cap. When set, selection prefers backends with
         # fewer than this many requests in flight (all strategies).
         self.max_in_flight_per_backend = max(0, max_in_flight_per_backend)
+        self.mesh_coordinator = mesh_coordinator
+        self.agent_role = agent_role
+        self.agent_max_concurrency = max(0, agent_max_concurrency)
+        self._peer_capacity: dict[str, PeerCapacityView] = {}
         # Our own active forwards per peer agent URL. Peer rows are
         # rebuilt from heartbeats on every refresh, so this ledger keeps
         # in-flight hop counts from being wiped between heartbeats.
@@ -97,6 +118,22 @@ class RouterPool:
         self.routed_counts: dict[str, int] = {}
         # Capacity rejections per backend id (backend full, not broken).
         self.capacity_rejections: dict[str, int] = {}
+        # Pool requests that used capability-class fallback after candidacy
+        # returned empty (surfaced in status/telemetry like shardless_fallbacks).
+        self._capability_fallbacks = 0
+        # Sticky (group_name, backend_id) -> served upstream id for pool overflow.
+        self._pool_host_bindings: dict[tuple[str, str], str] = {}
+
+    def clear_pool_host_bindings(self) -> None:
+        """Drop sticky pool→host model picks (after pool config edits)."""
+        self._pool_host_bindings.clear()
+
+    @property
+    def capability_fallbacks(self) -> int:
+        return self._capability_fallbacks
+
+    def _pool_literal(self, model: str, *, exact_model_only: bool) -> bool:
+        return not exact_model_only and self.resolver.request_in_enabled_group(model)
 
     @property
     def resolver(self) -> ModelResolver:
@@ -107,7 +144,9 @@ class RouterPool:
         a config reload can never be observed through a stale cache.
         """
         return ModelResolver(
-            model_aliases=self.model_aliases, model_pools=self.model_pools
+            model_aliases=self.model_aliases,
+            model_pools=self.model_pools,
+            pool_host_bindings=self._pool_host_bindings,
         )
 
     @property
@@ -439,6 +478,7 @@ class RouterPool:
     ) -> tuple[list[Backend], list[Backend]]:
         """Return (literal, pool-overflow-only) tiers without probing twice."""
         resolver = self.resolver
+        pool_literal = self._pool_literal(model, exact_model_only=exact_model_only)
         searchable = (
             [*self._backends, *extra_candidates] if extra_candidates else self._backends
         )
@@ -455,12 +495,30 @@ class RouterPool:
             if not models and self.is_healthy(b):
                 models = b.health.models
             if exact_model_only:
-                if resolver.serves(model, b, served=models, allow_group_overflow=False):
+                if resolver.serves(
+                    model,
+                    b,
+                    served=models,
+                    allow_group_overflow=False,
+                    pool_literal=pool_literal,
+                ):
                     literal.append(b)
                 continue
-            if resolver.serves(model, b, served=models, allow_group_overflow=False):
+            if resolver.serves(
+                model,
+                b,
+                served=models,
+                allow_group_overflow=False,
+                pool_literal=pool_literal,
+            ):
                 literal.append(b)
-            elif resolver.serves(model, b, served=models, allow_group_overflow=True):
+            elif resolver.serves(
+                model,
+                b,
+                served=models,
+                allow_group_overflow=True,
+                pool_literal=pool_literal,
+            ):
                 overflow.append(b)
         literal_ids = {b.id for b in literal}
         overflow = [b for b in overflow if b.id not in literal_ids]
@@ -489,6 +547,7 @@ class RouterPool:
     ) -> list[Backend]:
         """One phase of request-aware pool candidacy (alias-only or +overflow)."""
         resolver = self.resolver
+        pool_literal = self._pool_literal(model, exact_model_only=exact_model_only)
         searchable = (
             [*self._backends, *extra_candidates] if extra_candidates else self._backends
         )
@@ -511,6 +570,7 @@ class RouterPool:
                     b,
                     served=models,
                     allow_group_overflow=group_overflow,
+                    pool_literal=pool_literal,
                 ):
                     out.append(b)
             return out
@@ -590,6 +650,7 @@ class RouterPool:
         exclude_ids: set[str] | None = None,
         cloud_provider_allowlist: frozenset[str] | None = None,
         extra_candidates: list[Backend] | None = None,
+        required_capability: str | None = None,
     ) -> Backend | None:
         if (
             not local_only
@@ -635,7 +696,20 @@ class RouterPool:
             # (typically a healthy LAN peer) instead.
             all_candidates = [b for b in all_candidates if b.id not in exclude_ids]
         if not all_candidates:
-            return None
+            return self._select_capability_pool_fallback(
+                model,
+                required_capability,
+                strategy=strategy,
+                shard_key=shard_key,
+                attempt=attempt,
+                local_only=local_only,
+                exact_model_only=exact_model_only,
+                prefer_provider=prefer_provider,
+                prefer_cloud=prefer_cloud,
+                exclude_ids=exclude_ids,
+                cloud_provider_allowlist=cloud_provider_allowlist,
+                extra_candidates=extra_candidates,
+            )
 
         if prefer_provider:
             preferred = [b for b in all_candidates if b.provider == prefer_provider]
@@ -679,12 +753,18 @@ class RouterPool:
             # max_in_flight_per_backend when set — a machine's own
             # declared ceiling is authoritative for its own row.
             def _under_cap(b: Backend) -> bool:
-                cap = b.max_concurrency or self.max_in_flight_per_backend
-                return cap <= 0 or b.in_flight < cap
+                return self._under_cap(b)
 
             under_cap = [b for b in all_candidates if _under_cap(b)]
             if under_cap:
                 all_candidates = under_cap
+
+        if self.mesh_coordinator_enabled and local_agent_saturated(
+            self._backends, self.agent_max_concurrency
+        ):
+            remotes = [b for b in all_candidates if not b.local]
+            if remotes:
+                all_candidates = remotes
 
         if strategy == "auto":
             # Shard-context requests are mapped to batch_shard by the
@@ -707,6 +787,13 @@ class RouterPool:
             return b
 
         if strategy == "least_load":
+            if self.mesh_coordinator_enabled:
+                picked, self._round_robin_idx = select_mesh_least_loaded(
+                    all_candidates,
+                    cap_for=self._cap_for_backend,
+                    round_robin_idx=self._round_robin_idx,
+                )
+                return picked
             # min() breaks ties by returning the first element, and
             # all_candidates is local-then-remote — so every exact tie
             # (very common at small in-flight counts, e.g. both at 0 or
@@ -748,8 +835,37 @@ class RouterPool:
 
         return all_candidates[0]
 
+    @property
+    def mesh_coordinator_enabled(self) -> bool:
+        return self.mesh_coordinator == "gateway" and self.agent_role == "gateway"
+
+    @property
+    def mesh_self_admission_enabled(self) -> bool:
+        """True when this node enforces ``agent.max_concurrency`` locally."""
+        return self.mesh_coordinator != "off"
+
+    def set_peer_capacity(self, peer_capacity: dict[str, PeerCapacityView]) -> None:
+        self._peer_capacity = dict(peer_capacity)
+
+    def _peer_view_for_backend(self, backend: Backend) -> PeerCapacityView | None:
+        if not backend.id.startswith("peer:"):
+            return None
+        agent_id = backend.id.removeprefix("peer:")
+        return self._peer_capacity.get(agent_id)
+
+    def _cap_for_backend(self, backend: Backend) -> int:
+        return effective_backend_cap(
+            backend,
+            self.max_in_flight_per_backend,
+            peer_view=self._peer_view_for_backend(backend),
+            coordinator_enabled=self.mesh_coordinator_enabled,
+        )
+
+    def _under_cap(self, backend: Backend) -> bool:
+        return backend_has_headroom(backend, self._cap_for_backend(backend))
+
     def _backend_at_cap(self, backend: Backend) -> bool:
-        cap = backend.max_concurrency or self.max_in_flight_per_backend
+        cap = self._cap_for_backend(backend)
         return cap > 0 and backend.in_flight >= cap
 
     def _apply_candidate_filters(
@@ -773,6 +889,92 @@ class RouterPool:
                 if not b.cloud_provider or b.cloud_provider in cloud_provider_allowlist
             ]
         return candidates
+
+    def _online_pool_member_for_capability(
+        self, model: str, required_capability: str
+    ) -> str | None:
+        """First pool allowlist member of ``required_capability`` online on mesh."""
+        pools = self.resolver._pools_containing(model)
+        if not pools:
+            return None
+        for group in self.resolver.groups:
+            if not group.enabled or group.name not in pools:
+                continue
+            if not group.hosts or not group.models:
+                continue
+            for member in group.models:
+                if model_capability(member) != required_capability:
+                    continue
+                for backend in self._backends:
+                    if not backend.enabled:
+                        continue
+                    if not any(
+                        self.resolver._host_matches(backend, ref) for ref in group.hosts
+                    ):
+                        continue
+                    served = list(backend.health.models or [])
+                    if self.resolver.resolve(
+                        member,
+                        backend,
+                        served=served,
+                        allow_group_overflow=False,
+                        pool_literal=True,
+                    ).matched:
+                        return member
+        return None
+
+    def _select_capability_pool_fallback(
+        self,
+        model: str,
+        required_capability: str | None,
+        *,
+        strategy: RoutingStrategy,
+        shard_key: str | None,
+        attempt: int,
+        local_only: bool,
+        exact_model_only: bool,
+        prefer_provider: str | None,
+        prefer_cloud: bool,
+        exclude_ids: set[str] | None,
+        cloud_provider_allowlist: frozenset[str] | None,
+        extra_candidates: list[Backend] | None,
+    ) -> Backend | None:
+        """Last resort: route a pool-scoped name via an online same-cap member."""
+        if (
+            exact_model_only
+            or local_only
+            or not required_capability
+            or not self.resolver.request_in_enabled_group(model)
+        ):
+            return None
+        if model_capability(model) != required_capability:
+            return None
+        canonical = self._online_pool_member_for_capability(model, required_capability)
+        if canonical is None:
+            return None
+        self._capability_fallbacks += 1
+        if strategy == "local_spillover":
+            picked = self._select_local_spillover_pooled(
+                canonical,
+                exclude_ids=exclude_ids,
+                prefer_provider=prefer_provider,
+                cloud_provider_allowlist=cloud_provider_allowlist,
+                extra_candidates=extra_candidates,
+            )
+            if picked is not None:
+                return picked
+        return self.select_backend(
+            canonical,
+            strategy,
+            shard_key=shard_key,
+            attempt=attempt,
+            prefer_provider=prefer_provider,
+            prefer_cloud=prefer_cloud,
+            exclude_ids=exclude_ids,
+            cloud_provider_allowlist=cloud_provider_allowlist,
+            extra_candidates=extra_candidates,
+            required_capability=None,
+        )
 
     def _select_local_spillover_pooled(
         self,
@@ -856,7 +1058,11 @@ class RouterPool:
         for b in overflow:
             if b.local or self._backend_at_cap(b):
                 continue
-            upstream = self.resolver.upstream_model(model, b)
+            upstream = self.resolver.upstream_model(
+                model,
+                b,
+                pool_literal=self._pool_literal(model, exact_model_only=False),
+            )
             if model_capability(upstream) == "chat":
                 out.append(b)
         return out
@@ -866,10 +1072,15 @@ class RouterPool:
     ) -> list[Backend]:
         """Local pool-overflow rows that would invoke a chat-capable model."""
         out: list[Backend] = []
+        pool_literal = self._pool_literal(model, exact_model_only=False)
         for b in overflow:
             if not b.local or self._backend_at_cap(b):
                 continue
-            upstream = self.resolver.upstream_model(model, b)
+            upstream = self.resolver.upstream_model(
+                model,
+                b,
+                pool_literal=pool_literal,
+            )
             if model_capability(upstream) == "chat":
                 out.append(b)
         return out
@@ -884,6 +1095,14 @@ class RouterPool:
         spill to a LAN peer only when the peer is genuinely less loaded."""
         local_pool = [b for b in candidates if b.local]
         remote_pool = [b for b in candidates if not b.local]
+        if self.mesh_coordinator_enabled:
+            return select_mesh_spillover(
+                local_pool,
+                remote_pool,
+                local_threshold=self.spillover_max_local_in_flight,
+                cap_for=self._cap_for_backend,
+                prefer_remotes=prefer_remotes,
+            )
         if not local_pool:
             if not remote_pool:
                 return None
@@ -891,7 +1110,10 @@ class RouterPool:
         if prefer_remotes and remote_pool:
             return min(remote_pool, key=lambda b: b.in_flight)
         best_local = min(local_pool, key=lambda b: b.in_flight)
-        if best_local.in_flight < self.spillover_max_local_in_flight:
+        if (
+            best_local.in_flight < self.spillover_max_local_in_flight
+            and not self._backend_at_cap(best_local)
+        ):
             return best_local
         if not remote_pool:
             return best_local

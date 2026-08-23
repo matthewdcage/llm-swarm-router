@@ -61,6 +61,13 @@ struct NetllmConfigDocument: Codable, Sendable {
         // Peer-role agents adopt the gateway's advertised default_strategy
         // from heartbeats (runtime only, not persisted); false opts out.
         var follow_gateway: Bool = true
+        // Peer-only: adopt gateway spillover / max_in_flight from heartbeats
+        // at runtime when follow_gateway is also true (never persisted).
+        var follow_gateway_capacity: Bool = false
+        // Gateway-led mesh capacity coordinator (opt-in). "gateway" enables
+        // mesh-aware placement when agent.role is gateway; "off" preserves
+        // legacy decentralized selection.
+        var mesh_coordinator: String = "off"
         // local_spillover: serve locally while fewer than this many
         // requests are in flight locally; spill to a LAN peer above it.
         var spillover_max_local_in_flight: Int = 2

@@ -1003,6 +1003,31 @@ final class SettingsViewModel {
         setSuccess("Created pool \(name) with \(model) — set its hosts on the Routing tab, then Save.")
     }
 
+    /// True when ``backend`` advertises ``poolModelId`` literally or via
+    /// ``routing.model_aliases`` (same contract as pool candidacy phase 1).
+    nonisolated static func backendServesPoolModel(
+        _ backend: BackendStatus,
+        poolModelId: String,
+        modelAliases: [String: JSONValue]
+    ) -> Bool {
+        func catalogContains(_ id: String) -> Bool {
+            backend.models.contains { $0.caseInsensitiveCompare(id) == .orderedSame }
+        }
+        if catalogContains(poolModelId) { return true }
+        if let targets = modelAliases[poolModelId]?.arrayValue?.compactMap(\.stringValue) {
+            if targets.contains(where: catalogContains) { return true }
+        }
+        for (canonical, value) in modelAliases {
+            guard catalogContains(canonical) else { continue }
+            if canonical.caseInsensitiveCompare(poolModelId) == .orderedSame { return true }
+            if let ids = value.arrayValue?.compactMap(\.stringValue),
+               ids.contains(where: { $0.caseInsensitiveCompare(poolModelId) == .orderedSame }) {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Client-side pool effectiveness (docs/models-ux-plan.md B3): a pool
     /// is "active" iff ≥1 of its host refs resolves to an online backend
     /// that serves ≥1 pool model — all derivable from /netllm/v1/status.
@@ -1018,7 +1043,11 @@ final class SettingsViewModel {
         let matchedOnline = matched.filter { $0.health == "online" }
         if matchedOnline.isEmpty { return "host offline" }
         let servesPoolModel = matchedOnline.contains { backend in
-            backend.models.contains { pool.models.contains($0) }
+            pool.models.contains { poolModel in
+                Self.backendServesPoolModel(
+                    backend, poolModelId: poolModel, modelAliases: document.routing.model_aliases
+                )
+            }
         }
         return servesPoolModel ? nil : "no pool model served"
     }

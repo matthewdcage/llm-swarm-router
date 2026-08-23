@@ -725,6 +725,8 @@ def config_summary(cfg: NetllmConfig) -> dict[str, Any]:
             ),
             "max_in_flight_per_backend": cfg.routing.max_in_flight_per_backend,
             "follow_gateway": cfg.routing.follow_gateway,
+            "mesh_coordinator": cfg.routing.mesh_coordinator,
+            "follow_gateway_capacity": cfg.routing.follow_gateway_capacity,
             "health_ttl_s": cfg.routing.health_ttl_s,
             "offline_retry_s": cfg.routing.offline_retry_s,
             "max_backend_failures": cfg.routing.max_backend_failures,

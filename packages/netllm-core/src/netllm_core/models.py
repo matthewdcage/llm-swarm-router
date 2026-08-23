@@ -70,6 +70,7 @@ RoutingStrategy = Literal[
 ]
 
 AgentRole = Literal["peer", "gateway"]
+MeshCoordinatorMode = Literal["off", "gateway"]
 ProviderId = Literal[
     "omlx", "ollama", "lmstudio", "vllm", "custom", "anthropic", "openai"
 ]
@@ -394,6 +395,12 @@ class RoutingConfig(ConfigModel):
     # are in flight locally; at or above it, spill to a LAN peer only
     # when that peer is strictly less loaded.
     spillover_max_local_in_flight: int = Field(default=2, ge=1)
+    # Gateway-led mesh capacity coordinator (opt-in). When "gateway" and
+    # agent.role is gateway, selection uses gossiped peer admission policy.
+    mesh_coordinator: MeshCoordinatorMode = "off"
+    # Peer-only: adopt gateway spillover / max_in_flight from heartbeats at
+    # runtime when follow_gateway is also true (never persisted).
+    follow_gateway_capacity: bool = False
     # Health cache: how long a probe result stays fresh, and how many
     # consecutive request failures mark a backend offline.
     health_ttl_s: float = Field(default=30.0, gt=0.0)
@@ -557,6 +564,15 @@ class CloudConfig(ConfigModel):
     enabled: bool = True
     fallback: CloudFallbackMode = "cloud"
     fallback_enabled: bool = True
+    # Non-breaking priority field mirrors fallback semantics:
+    #   "cloud"  → local/peer-first (same as fallback="cloud")
+    #   "local"  → cloud-first (same as fallback="local")
+    #   "none"   → local/peer-only (same as fallback="none")
+    #   "cloud"  → cloud-first (try cloud first, then local/peers)
+    #   "local"  → local/peer-first (try local/peers first, then cloud)
+    #   "none"   → local/peer-only
+    #   "auto"   → automatic (default behavior, same as "cloud")
+    cloud_priority: CloudFallbackMode = "cloud"
     # One-shot migration flag (ensure_cloud_defaults), mirrors
     # routing.lan_defaults_applied.
     cloud_defaults_applied: bool = Field(

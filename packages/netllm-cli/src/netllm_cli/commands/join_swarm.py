@@ -213,16 +213,70 @@ def _apply_swarm_join_listen(cfg: NetllmConfig) -> None:
 def swarm_token(
     config: Path | None = typer.Option(None, "--config", help="Config file path"),
     create: bool = typer.Option(
-        False, "--create", help="Generate and save a cluster token if none is set"
+        False,
+        "--create",
+        help="Generate and save a cluster token if none is set",
     ),
     rotate: bool = typer.Option(
-        False, "--rotate", help="Generate and save a new cluster token"
+        False,
+        "--rotate",
+        help="Generate and save a new cluster token",
+    ),
+    mode: str | None = typer.Option(
+        None,
+        "--mode",
+        help="Swarm mode: 'open' for trusted LAN (no token required), "
+        "'secured' for token-paired LAN (cluster_token required). "
+        "If omitted, behavior depends on whether a token exists and "
+        "whether the agent is bound to LAN.",
     ),
 ) -> None:
     """Show (create or rotate) the cluster token other machines use to join."""
     cfg_path = _config_path_option(config)
     cfg = _require_config(cfg_path)
 
+    if mode == "open":
+        # --mode open: trusted LAN, no cluster token needed
+        if cfg.swarm.cluster_token:
+            console.print(
+                "[yellow]Warning:[/] A cluster token is already set. "
+                "Running with [cyan]--mode open[/] may cause unexpected behavior. "
+                "Use [cyan]--mode secured[/] for token-paired swarming."
+            )
+        console.print(
+            "[green]Open LAN swarm[/] — no cluster token required on a "
+            "trusted home LAN."
+        )
+        console.print(
+            "[dim]Secured pairing:[/] [cyan]netllm swarm-token --mode secured[/] "
+            "or [cyan]netllm init --swarm --secure[/]"
+        )
+        raise typer.Exit(0)
+    elif mode == "secured":
+        # --mode secured: cluster token required for LAN swarm
+        if not cfg.swarm.cluster_token:
+            if not is_lan_listen(cfg.agent.listen):
+                print_error(
+                    "Not in LAN swarm mode",
+                    "Enable LAN bind before creating a cluster token.",
+                    hints=[
+                        "Enable swarm: [cyan]netllm init --swarm[/]",
+                        "Or bind LAN: [cyan]netllm serve --host 0.0.0.0[/]",
+                    ],
+                )
+                raise typer.Exit(1)
+            cfg.swarm.cluster_token = secrets.token_urlsafe(24)
+            ensure_lan_mesh_defaults(cfg)
+            save_config(cfg, cfg_path)
+            console.print(
+                "[green]Cluster token created for secured LAN swarm.[/] "
+                "Run the join command on your other machines."
+            )
+        console.print(f"[bold]Cluster token:[/] [cyan]{cfg.swarm.cluster_token}[/]")
+        console.print(f"[bold]Join command:[/] [cyan]{_join_command_for(cfg)}[/]")
+        return
+
+    # Original --rotate logic (no --mode specified)
     if rotate:
         cfg.swarm.cluster_token = secrets.token_urlsafe(24)
         save_config(cfg, cfg_path)
@@ -272,5 +326,6 @@ def swarm_token(
         )
         raise typer.Exit(1)
 
-    console.print(f"[bold]Cluster token:[/] [cyan]{cfg.swarm.cluster_token}[/]")
-    console.print(f"[bold]Join command:[/] [cyan]{_join_command_for(cfg)}[/]")
+    if cfg.swarm.cluster_token:
+        console.print(f"[bold]Cluster token:[/] [cyan]{cfg.swarm.cluster_token}[/]")
+        console.print(f"[bold]Join command:[/] [cyan]{_join_command_for(cfg)}[/]")

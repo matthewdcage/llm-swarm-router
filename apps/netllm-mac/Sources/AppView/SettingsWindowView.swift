@@ -484,6 +484,15 @@ struct SettingsWindowView: View {
             Toggle("Follow gateway strategy", isOn: $model.document.routing.follow_gateway)
             Text("Peer-role agents adopt the gateway's advertised default strategy from heartbeats instead of running their own.")
                 .font(.caption).foregroundStyle(.secondary)
+            Toggle("Follow gateway capacity", isOn: $model.document.routing.follow_gateway_capacity)
+            Text("Peer-role agents adopt the gateway's spillover threshold and per-backend in-flight cap from heartbeats at runtime (requires Follow gateway strategy).")
+                .font(.caption).foregroundStyle(.secondary)
+            Picker("Mesh coordinator", selection: $model.document.routing.mesh_coordinator) {
+                Text("Off").tag("off")
+                Text("Gateway").tag("gateway")
+            }
+            Text("Gateway-led mesh placement using gossiped peer admission policy. Enable on the gateway only; peers stay off unless you also want local max_concurrency self-admission.")
+                .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Text("Spillover threshold (local in-flight)")
                 TextField("2", value: $model.document.routing.spillover_max_local_in_flight, format: .number.grouping(.never))
@@ -555,7 +564,7 @@ struct SettingsWindowView: View {
             }
             sectionHeader("Model pools")
             Text(
-                "Heterogeneous pool: members route when they serve the requested model (or alias). Substitution to another pool model happens only when no backend in the mesh serves that name (overflow)."
+                "Each pool is scoped to its own model list: overflow substitutes only within the pool that lists the requested name (chat and embedding pools stay separate even when they share a host). Keep chat and embedding models in different pools."
             )
             .font(.caption)
             .foregroundStyle(.secondary)

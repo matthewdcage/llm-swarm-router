@@ -113,14 +113,22 @@ def make_agent(
     record: dict[str, Any],
     *,
     strategy: str = "round_robin",
+    mesh_coordinator: str = "off",
+    role: str = "peer",
+    spillover_max_local: int = 2,
+    agent_max_concurrency: int = 0,
 ) -> FastAPI:
     cfg = NetllmConfig()
     cfg.agent.listen = f"127.0.0.1:{agent_port}"
     cfg.agent.advertise = False
+    cfg.agent.role = role  # type: ignore[assignment]
+    cfg.agent.max_concurrency = agent_max_concurrency
     cfg.swarm.mdns = False
     cfg.discovery.providers = []
     cfg.routing.default_strategy = strategy  # type: ignore[assignment]
     cfg.routing.allow_remote = True
+    cfg.routing.mesh_coordinator = mesh_coordinator  # type: ignore[assignment]
+    cfg.routing.spillover_max_local_in_flight = spillover_max_local
     cfg.routing.backends = [
         BackendOverride(
             base_url=f"http://127.0.0.1:{provider_port}/v1",
@@ -140,6 +148,83 @@ def make_agent(
         return await call_next(request)
 
     return app
+
+
+def make_slow_mock_provider(
+    name: str, record: dict[str, Any], hold_s: float
+) -> FastAPI:
+    """Provider that holds each chat request open briefly (parallel load)."""
+    app = FastAPI()
+    lock = threading.Lock()
+    record["in_flight"] = 0
+
+    @app.get("/v1/models")
+    def models() -> dict[str, Any]:
+        return {"object": "list", "data": [{"id": MODEL, "object": "model"}]}
+
+    @app.post("/v1/chat/completions")
+    async def chat(request: Request) -> dict[str, Any]:
+        payload = await request.json()
+        if payload.get("max_tokens") == 1 and "stream" in payload:
+            record["probe_hits"] += 1
+            return {
+                "id": "probe",
+                "object": "chat.completion",
+                "created": 0,
+                "model": MODEL,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "p"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
+            }
+        with lock:
+            record["in_flight"] += 1
+            peak = record.get("peak_in_flight", 0)
+            record["peak_in_flight"] = max(peak, record["in_flight"])
+        try:
+            time.sleep(hold_s)
+            record["hits"] += 1
+            return {
+                "id": f"cmpl-{name}-{record['hits']}",
+                "object": "chat.completion",
+                "created": 0,
+                "model": payload.get("model", MODEL),
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": f"served-by:{name}",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
+            }
+        finally:
+            with lock:
+                record["in_flight"] -= 1
+
+    return app
+
+
+def _register_peers(client: httpx.Client, base_a: str, base_b: str) -> None:
+    status_a = client.get(f"{base_a}/netllm/v1/status").json()
+    status_b = client.get(f"{base_b}/netllm/v1/status").json()
+    client.post(f"{base_a}/netllm/v1/heartbeat", json=status_b)
+    client.post(f"{base_b}/netllm/v1/heartbeat", json=status_a)
 
 
 @pytest.fixture(scope="module")
@@ -177,11 +262,7 @@ def two_agent_mesh() -> Iterator[dict[str, Any]]:
         base_a = f"http://127.0.0.1:{aa_port}"
         base_b = f"http://127.0.0.1:{ab_port}"
         with httpx.Client(timeout=30.0) as client:
-            status_a = client.get(f"{base_a}/netllm/v1/status").json()
-            status_b = client.get(f"{base_b}/netllm/v1/status").json()
-            # Cross-register peers (mDNS is off in the harness).
-            client.post(f"{base_a}/netllm/v1/heartbeat", json=status_b)
-            client.post(f"{base_b}/netllm/v1/heartbeat", json=status_a)
+            _register_peers(client, base_a, base_b)
 
         yield {
             "base_a": base_a,
@@ -333,10 +414,7 @@ def test_local_spillover_idle_agent_serves_locally() -> None:
             base_a = f"http://127.0.0.1:{aa_port}"
             base_b = f"http://127.0.0.1:{ab_port}"
             with httpx.Client(timeout=30.0) as client:
-                status_a = client.get(f"{base_a}/netllm/v1/status").json()
-                status_b = client.get(f"{base_b}/netllm/v1/status").json()
-                client.post(f"{base_a}/netllm/v1/heartbeat", json=status_b)
-                client.post(f"{base_b}/netllm/v1/heartbeat", json=status_a)
+                _register_peers(client, base_a, base_b)
 
                 start_b = provider_b["hits"]
                 for _ in range(3):
@@ -352,6 +430,150 @@ def test_local_spillover_idle_agent_serves_locally() -> None:
                     assert body["choices"][0]["message"]["content"] == "served-by:A"
             assert provider_b["hits"] == start_b
             assert agent_b["chat_inbound"] == 0
+        finally:
+            for server in servers:
+                server.stop()
+
+
+def test_mesh_coordinator_spills_under_parallel_load() -> None:
+    """Gateway coordinator should reach a peer when local is saturated."""
+    import threading
+    from unittest.mock import patch
+
+    provider_a: dict[str, Any] = {"hits": 0, "probe_hits": 0, "peak_in_flight": 0}
+    provider_b: dict[str, Any] = {"hits": 0, "probe_hits": 0}
+    agent_a: dict[str, Any] = {"chat_inbound": 0, "local_only_headers": []}
+    agent_b: dict[str, Any] = {"chat_inbound": 0, "local_only_headers": []}
+
+    with patch(
+        "netllm_discovery.swarm.is_lan_reachable_agent_url",
+        lambda url: bool(url),
+    ):
+        provider_srv_a = ServerThread(make_slow_mock_provider("A", provider_a, 1.0), 0)
+        provider_srv_b = ServerThread(make_mock_provider("B", provider_b), 0)
+        provider_srv_a.start()
+        provider_srv_b.start()
+        aa_port, ab_port = _free_port(), _free_port()
+        servers = [
+            provider_srv_a,
+            provider_srv_b,
+            ServerThread(
+                make_agent(
+                    provider_srv_a.port,
+                    aa_port,
+                    agent_a,
+                    strategy="local_spillover",
+                    mesh_coordinator="gateway",
+                    role="gateway",
+                    spillover_max_local=1,
+                ),
+                aa_port,
+            ),
+            ServerThread(
+                make_agent(
+                    provider_srv_b.port,
+                    ab_port,
+                    agent_b,
+                    strategy="local_spillover",
+                ),
+                ab_port,
+            ),
+        ]
+        for server in servers[2:]:
+            server.start()
+        try:
+            base_a = f"http://127.0.0.1:{aa_port}"
+            base_b = f"http://127.0.0.1:{ab_port}"
+            with httpx.Client(timeout=60.0) as client:
+                _register_peers(client, base_a, base_b)
+                start_a, start_b = provider_a["hits"], provider_b["hits"]
+                payload = {
+                    "model": MODEL,
+                    "messages": [{"role": "user", "content": "hi"}],
+                }
+
+                def _hold_local() -> None:
+                    client.post(f"{base_a}/v1/chat/completions", json=payload)
+
+                holder = threading.Thread(target=_hold_local, daemon=True)
+                holder.start()
+                deadline = time.time() + 5.0
+                while (
+                    provider_a.get("peak_in_flight", 0) < 1 and time.time() < deadline
+                ):
+                    time.sleep(0.02)
+
+                resp = client.post(f"{base_a}/v1/chat/completions", json=payload)
+                holder.join(timeout=30.0)
+                assert resp.status_code == 200, resp.text
+                remote_work = (provider_b["hits"] - start_b) + agent_b["chat_inbound"]
+                assert remote_work >= 1
+                assert provider_a["hits"] - start_a >= 1
+        finally:
+            for server in servers:
+                server.stop()
+
+
+def test_mesh_coordinator_off_sequential_stays_local() -> None:
+    """With coordinator off, sequential spillover traffic stays on the local backend."""
+    from unittest.mock import patch
+
+    provider_a: dict[str, Any] = {"hits": 0, "probe_hits": 0}
+    provider_b: dict[str, Any] = {"hits": 0, "probe_hits": 0}
+    agent_a: dict[str, Any] = {"chat_inbound": 0, "local_only_headers": []}
+    agent_b: dict[str, Any] = {"chat_inbound": 0, "local_only_headers": []}
+
+    with patch(
+        "netllm_discovery.swarm.is_lan_reachable_agent_url",
+        lambda url: bool(url),
+    ):
+        provider_srv_a = ServerThread(make_mock_provider("A", provider_a), 0)
+        provider_srv_b = ServerThread(make_mock_provider("B", provider_b), 0)
+        provider_srv_a.start()
+        provider_srv_b.start()
+        aa_port, ab_port = _free_port(), _free_port()
+        servers = [
+            provider_srv_a,
+            provider_srv_b,
+            ServerThread(
+                make_agent(
+                    provider_srv_a.port,
+                    aa_port,
+                    agent_a,
+                    strategy="local_spillover",
+                    mesh_coordinator="off",
+                    spillover_max_local=1,
+                ),
+                aa_port,
+            ),
+            ServerThread(
+                make_agent(
+                    provider_srv_b.port,
+                    ab_port,
+                    agent_b,
+                    strategy="local_spillover",
+                ),
+                ab_port,
+            ),
+        ]
+        for server in servers[2:]:
+            server.start()
+        try:
+            base_a = f"http://127.0.0.1:{aa_port}"
+            base_b = f"http://127.0.0.1:{ab_port}"
+            with httpx.Client(timeout=60.0) as client:
+                _register_peers(client, base_a, base_b)
+                start_a, start_b = provider_a["hits"], provider_b["hits"]
+                payload = {
+                    "model": MODEL,
+                    "messages": [{"role": "user", "content": "hi"}],
+                }
+                for _ in range(3):
+                    resp = client.post(f"{base_a}/v1/chat/completions", json=payload)
+                    assert resp.status_code == 200, resp.text
+                assert provider_a["hits"] - start_a == 3
+                assert provider_b["hits"] == start_b
+                assert agent_b["chat_inbound"] == 0
         finally:
             for server in servers:
                 server.stop()

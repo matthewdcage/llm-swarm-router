@@ -49,6 +49,7 @@ class SelectionMixin:
         pinned: str | None = None,
         cloud_provider_allowlist: frozenset[str] | None = None,
         extra_candidates: list[Backend] | None = None,
+        required_capability: str | None = None,
     ) -> Backend | None:
         if pinned:
             backend = self.pool.backend_by_id(pinned)
@@ -136,6 +137,7 @@ class SelectionMixin:
                     exclude_ids=exclude_ids,
                     cloud_provider_allowlist=cloud_provider_allowlist,
                     extra_candidates=extra_candidates,
+                    required_capability=required_capability,
                 )
 
             if attempt == 1:
@@ -161,6 +163,7 @@ class SelectionMixin:
                     exclude_ids=exclude_ids,
                     cloud_provider_allowlist=cloud_provider_allowlist,
                     extra_candidates=extra_candidates,
+                    required_capability=required_capability,
                 )
             return self.pool.select_backend(
                 model,
@@ -173,6 +176,7 @@ class SelectionMixin:
                 exclude_ids=exclude_ids,
                 cloud_provider_allowlist=cloud_provider_allowlist,
                 extra_candidates=extra_candidates,
+                required_capability=required_capability,
             )
 
         # Load-aware strategies keep balancing on retries — exclude_ids
@@ -202,6 +206,7 @@ class SelectionMixin:
             exclude_ids=exclude_ids,
             cloud_provider_allowlist=cloud_provider_allowlist,
             extra_candidates=extra_candidates,
+            required_capability=required_capability,
         )
 
     def _mark_shard_success(self, shard: ShardContext | None) -> None:

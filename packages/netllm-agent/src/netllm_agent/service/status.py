@@ -168,6 +168,16 @@ class StatusMixin:
             "version": get_version(),
             "max_concurrency": self.config.agent.max_concurrency,
             "draining": self.draining,
+            "routing_capacity": {
+                "spillover_max_local_in_flight": (
+                    self.config.routing.spillover_max_local_in_flight
+                ),
+                "max_in_flight_per_backend": (
+                    self.config.routing.max_in_flight_per_backend
+                ),
+            },
+            "mesh_coordinator": self.config.routing.mesh_coordinator,
+            "follow_gateway_capacity": self.config.routing.follow_gateway_capacity,
             # UI-4a. This body is sent verbatim as the heartbeat
             # (`gossip_loop(status_provider=status_payload)`), so these two
             # keys are how a peer learns what this machine serves and where
@@ -183,6 +193,29 @@ class StatusMixin:
             "reachable_at": self.own_reachable_endpoints(),
             # UI-3. Wall clocks for the two discovery passes, so a client can
             # age them without subtracting our monotonic clock from its own.
+            "model_pools": {
+                "enabled": bool(self.config.routing.model_pools),
+                "pools": {
+                    name: {"hosts": pool.hosts, "models": pool.models}
+                    for name, pool in self.config.routing.model_pools.items()
+                    if pool.enabled
+                },
+            },
+            "model_aliases": {
+                alias: targets
+                for alias, targets in self.config.routing.model_aliases.items()
+            },
+            "peer_health": {
+                backend.id.removeprefix("peer:"): {
+                    "status": backend.health.status,
+                    "model_count": backend.health.model_count
+                    or len(backend.health.models),
+                    "last_check": backend.health.last_check_epoch_s or None,
+                    "latency_p50_ms": backend.health.latency_p50_ms,
+                }
+                for backend in self.pool.backends
+                if backend.enabled and backend.id.startswith("peer:")
+            },
             "discovery": self.discovery_scan_payload(),
             "cloud": {
                 "enabled": self.config.cloud.enabled,
@@ -212,6 +245,9 @@ class StatusMixin:
         warnings: list[str] = []
         my_strategy = self.config.routing.default_strategy
         my_version = get_version()
+        coordinator_on = self.config.routing.mesh_coordinator == "gateway"
+        my_spill = self.config.routing.spillover_max_local_in_flight
+        my_per_backend = self.config.routing.max_in_flight_per_backend
         for peer in self.swarm.peers.values():
             if peer.agent_id == self.config.agent.agent_id:
                 continue
@@ -222,6 +258,35 @@ class StatusMixin:
                     f"but this agent runs '{my_strategy}' — set both to the "
                     "same value (or 'auto') unless intentional"
                 )
+            if coordinator_on:
+                if (
+                    peer.peer_spillover_max_local_in_flight == 0
+                    and peer.peer_max_in_flight_per_backend == 0
+                ):
+                    warnings.append(
+                        f"peer {name} omits routing_capacity gossip — "
+                        "gateway mesh coordinator cannot apply peer admission "
+                        "policy; upgrade the peer or disable mesh_coordinator"
+                    )
+                elif peer.peer_spillover_max_local_in_flight not in (
+                    0,
+                    my_spill,
+                ):
+                    warnings.append(
+                        f"peer {name} spillover_max_local_in_flight="
+                        f"{peer.peer_spillover_max_local_in_flight} differs "
+                        f"from this gateway ({my_spill})"
+                    )
+                elif (
+                    peer.peer_max_in_flight_per_backend not in (0, my_per_backend)
+                    and peer.peer_max_in_flight_per_backend > 0
+                    and my_per_backend > 0
+                ):
+                    warnings.append(
+                        f"peer {name} max_in_flight_per_backend="
+                        f"{peer.peer_max_in_flight_per_backend} differs "
+                        f"from this gateway ({my_per_backend})"
+                    )
             if not peer.version:
                 continue
             if not is_version_like(peer.version):

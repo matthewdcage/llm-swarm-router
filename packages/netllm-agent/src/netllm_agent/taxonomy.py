@@ -90,6 +90,9 @@ class SurfaceSpec:
     """What exhaustion means when a credential *was* supplied. Empty means
     model-not-found, which is the OpenAI surfaces' answer."""
 
+    required_capability: str = "chat"
+    """Capability class the surface requires from a backend (chat vs embedding)."""
+
 
 SURFACE_SPECS: dict[Surface, SurfaceSpec] = {
     # CHAT excludes nothing: it has always been willing to select an
@@ -103,6 +106,7 @@ SURFACE_SPECS: dict[Surface, SurfaceSpec] = {
     Surface.EMBEDDINGS: SurfaceSpec(
         surface=Surface.EMBEDDINGS,
         excluded_api_formats=frozenset({"anthropic"}),
+        required_capability="embedding",
     ),
     # MESSAGES excludes anthropic from *selection* only: those rows are not
     # unservable, they are deferred into the ordered fallback tier so the

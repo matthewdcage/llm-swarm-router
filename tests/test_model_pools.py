@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+from netllm_core.model_resolution import ModelResolver
 from netllm_core.models import Backend, BackendHealth, ModelPool, NetllmConfig
 from netllm_core.pool import RouterPool
 
@@ -135,24 +136,108 @@ def test_normal_alias_match_still_wins_without_pool_involvement(_mock: object) -
     assert pool.backends_for_model("gpt-4o") == []
 
 
-def test_group_arm_picks_first_served_pool_model() -> None:
-    """Was ``RouterPool.resolve_via_pool``; now the resolver's group arm."""
-    pool = RouterPool(
+def test_group_arm_picks_stable_sticky_pool_model() -> None:
+    """Pool overflow binds one served model per (pool, host), scanning the
+    full allowlist — not the first list-order match on every request."""
+    bindings: dict[tuple[str, str], str] = {}
+    resolver = ModelResolver(
         model_pools={
-            # gpt-4o is a declared pool model, so the pool authorises
-            # substituting for it; no member serves it, so the group arm runs.
             "big": ModelPool(
-                enabled=True, hosts=["mac-studio"], models=["gpt-4o", *POOL_MODELS]
+                enabled=True,
+                hosts=["mac-studio"],
+                models=["gpt-4o", "qwen2.5:72b-instruct", "llama3.1:70b"],
             )
-        }
+        },
+        pool_host_bindings=bindings,
     )
     backend = _backend(
         "mac-studio", "http://a/v1", ["llama3.1:70b", "qwen2.5:72b-instruct"]
     )
-    # POOL_MODELS order wins: "qwen2.5:72b-instruct" precedes "llama3.1:70b".
-    resolution = pool.resolver.resolve("gpt-4o", backend)
-    assert resolution.upstream_model == "qwen2.5:72b-instruct"
+    # Lexicographic served-id tie-break (not pool list order): llama wins.
+    resolution = resolver.resolve("gpt-4o", backend)
+    assert resolution.upstream_model == "llama3.1:70b"
     assert resolution.stage == "group-exact"
+    # Second overflow request reuses the binding (not a literal catalog hit).
+    resolution2 = resolver.resolve("gpt-4o", backend)
+    assert resolution2.upstream_model == "llama3.1:70b"
+    assert bindings[("big", "mac-studio")] == "llama3.1:70b"
+
+
+def test_group_sticky_ignores_pool_list_order() -> None:
+    """Two pools with reversed model order pick the same served id per host."""
+    bindings_a: dict[tuple[str, str], str] = {}
+    bindings_b: dict[tuple[str, str], str] = {}
+    served = ["llama3.1:70b", "qwen2.5:72b-instruct"]
+    backend = _backend("mac-studio", "http://a/v1", served)
+    pool_models = ["gpt-4o", "qwen2.5:72b-instruct", "llama3.1:70b"]
+    res_a = ModelResolver(
+        model_pools={
+            "big": ModelPool(
+                enabled=True,
+                hosts=["mac-studio"],
+                models=[pool_models[1], pool_models[2], pool_models[0]],
+            )
+        },
+        pool_host_bindings=bindings_a,
+    ).resolve("gpt-4o", backend)
+    res_b = ModelResolver(
+        model_pools={
+            "big": ModelPool(
+                enabled=True,
+                hosts=["mac-studio"],
+                models=pool_models,
+            )
+        },
+        pool_host_bindings=bindings_b,
+    ).resolve("gpt-4o", backend)
+    assert res_a.upstream_model == res_b.upstream_model == "llama3.1:70b"
+
+
+def test_chat_pool_overflow_ignores_embedding_pool_on_same_host() -> None:
+    """Separate pools in config must not union into one host catch-all."""
+    bindings: dict[tuple[str, str], str] = {}
+    resolver = ModelResolver(
+        model_pools={
+            "chat": ModelPool(
+                enabled=True,
+                hosts=["macbook"],
+                models=[
+                    "gemma-4-26b-a4b-it-nvfp4",
+                    "nemotron-3.5-lightning-30b",
+                ],
+            ),
+            "embeddings": ModelPool(
+                enabled=True,
+                hosts=["macbook"],
+                models=["bge-m3-mlx-8bit", "bge-m3-mlx-fp16"],
+            ),
+        },
+        model_aliases={
+            "gemma-4-26b-a4b-it-nvfp4": [
+                "gemma-4-26b-a4b-it-nvfp4",
+                "gemma-4-26b-a4b-it-4bit",
+            ],
+        },
+        pool_host_bindings=bindings,
+    )
+    backend = _backend(
+        "macbook",
+        "http://a/v1",
+        [
+            "gemma-4-26b-a4b-it-4bit",
+            "bge-m3-mlx-8bit",
+            "bge-m3-mlx-fp16",
+        ],
+    )
+    chat = resolver.resolve("nemotron-3.5-lightning-30b", backend)
+    assert chat.upstream_model == "gemma-4-26b-a4b-it-4bit"
+    assert chat.stage.startswith("group-")
+
+    embed = resolver.resolve("bge-m3-mlx-8bit", backend)
+    assert embed.upstream_model == "bge-m3-mlx-8bit"
+    assert embed.matched
+
+    assert bindings[("chat", "macbook")] == "gemma-4-26b-a4b-it-4bit"
 
 
 def test_group_arm_does_not_fire_for_non_member() -> None:
