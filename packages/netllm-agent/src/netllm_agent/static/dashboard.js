@@ -1992,6 +1992,9 @@ function clearPendingSecrets(node, depth = 0) {
 async function saveConfig() {
   document.getElementById("btn-save").disabled = true;
   try {
+    // What is being sent, frozen now. The POST takes real time, and an edit
+    // made while it is in flight must not be recorded as saved.
+    const submitted = cloneConfig(state.configDraft);
     const result = await api("/netllm/v1/admin/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2000,8 +2003,11 @@ async function saveConfig() {
     // Only after the POST resolved: a failed save keeps the draft intact so
     // the user can retry without retyping the key.
     clearPendingSecrets(state.configDraft);
-    state.config = cloneConfig(state.configDraft);
-    markDirty(false);
+    clearPendingSecrets(submitted);
+    state.config = submitted;
+    // Clean only if nothing changed since the snapshot. Otherwise the newer
+    // edit is still unsaved: keep Save enabled instead of losing it.
+    markDirty(!configSnapshotsEqual(state.configDraft, submitted));
     const saveNotes = [];
     if (asObject(result).needs_restart) {
       saveNotes.push("Restart agent to apply listen/port changes.");

@@ -164,3 +164,41 @@ def test_the_restore_loop_logs_no_console_errors(dash) -> None:  # noqa: ANN001
     _ignored_section(dash).get_by_role("button", name="Restore").first.click()
     dash.wait_for_timeout(300)
     assert dash.console_errors == []
+
+
+def test_an_edit_made_while_a_save_is_in_flight_is_not_marked_saved(dash) -> None:  # noqa: ANN001
+    """The Save POST takes time; a change made before it answers is still unsaved.
+
+    saveConfig used to clear the dirty flag when the response arrived whatever
+    the draft held by then, so an edit in that window was shown as saved,
+    Save stayed disabled, and the change was lost on the next reload.
+    """
+    base = dash.agent_base_url
+    _show(dash, "backends")
+    _ignore(dash, STRAY)
+
+    def hold(route) -> None:  # noqa: ANN001
+        dash.wait_for_timeout(800)
+        route.continue_()
+
+    dash.route("**/netllm/v1/admin/config", hold)
+    dash.click("#btn-save")
+    # In flight: the POST is held for 800 ms. Edit now.
+    _ignore(dash, OTHER)
+    dash.wait_for_function(
+        "() => document.getElementById('global-banner').textContent"
+        ".includes('Configuration saved')"
+    )
+    dash.unroute("**/netllm/v1/admin/config")
+
+    expect(dash.locator("#btn-save")).to_be_enabled()
+    assert STRAY in _saved_ignored(base)
+    assert OTHER not in _saved_ignored(base)
+
+    dash.click("#btn-save")
+    expect(dash.locator("#btn-save")).to_be_disabled()
+    dash.wait_for_function(
+        "() => !state.dirty && JSON.stringify(state.config.discovery.ignored_urls)"
+        f".includes({OTHER!r})"
+    )
+    assert OTHER in _saved_ignored(base)
