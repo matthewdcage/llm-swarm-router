@@ -16,7 +16,7 @@
 # llm-swarm-router
 
 <p align="center">
-  <a href="https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.5.1.0"><img src="https://img.shields.io/badge/version-0.5.1.0-orange?style=for-the-badge" alt="Version 0.5.1.0"></a>
+  <a href="https://github.com/matthewdcage/llm-swarm-router/releases/tag/v0.5.2.0"><img src="https://img.shields.io/badge/version-0.5.2.0-orange?style=for-the-badge" alt="Version 0.5.2.0"></a>
   <a href="docs/macos-install.md"><img src="https://img.shields.io/badge/macOS-Menubar%20app-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS app"></a>
   <a href="docs/linux-install.md"><img src="https://img.shields.io/badge/Linux-deb%2Frpm%20alpha-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux alpha"></a>
   <a href="docs/windows-install.md"><img src="https://img.shields.io/badge/Windows-zip%20alpha-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows alpha"></a>
