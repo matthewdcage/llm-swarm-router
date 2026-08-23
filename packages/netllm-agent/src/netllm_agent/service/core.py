@@ -26,7 +26,21 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["AgentServiceCore", "SourceCapacityExceeded"]
+__all__ = ["AgentServiceCore", "AgentCapacityExceeded", "SourceCapacityExceeded"]
+
+
+class AgentCapacityExceeded(Exception):
+    """Raised when this agent is at ``agent.max_concurrency`` for local work.
+
+    Used by mesh self-admission on terminating peer hops (``local_only``).
+    Mapped to HTTP 503 so upstream selectors treat it as a capacity rejection.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        super().__init__(
+            f"agent is at its configured max_concurrency ({limit}) for local work"
+        )
 
 
 class SourceCapacityExceeded(Exception):
@@ -60,6 +74,9 @@ class AgentServiceCore:
             offline_retry_s=config.routing.offline_retry_s,
             max_failures=config.routing.max_backend_failures,
             max_in_flight_per_backend=(config.routing.max_in_flight_per_backend),
+            mesh_coordinator=config.routing.mesh_coordinator,
+            agent_role=config.agent.role,
+            agent_max_concurrency=config.agent.max_concurrency,
         )
         self.swarm = SwarmRegistry(config)
         self._mdns_advertiser = None
@@ -123,6 +140,9 @@ class AgentServiceCore:
         self.pool.offline_retry_s = min(routing.offline_retry_s, routing.health_ttl_s)
         self.pool.max_failures = max(1, routing.max_backend_failures)
         self.pool.max_in_flight_per_backend = max(0, routing.max_in_flight_per_backend)
+        self.pool.mesh_coordinator = routing.mesh_coordinator
+        self.pool.agent_role = merged.agent.role
+        self.pool.agent_max_concurrency = max(0, merged.agent.max_concurrency)
         # Invalidate the provider-scan cache so backend overrides and
         # discovery edits take effect on the next request. [Seam S4]
         # The cache belongs to ``backends.py``; reach it through that

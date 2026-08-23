@@ -18,7 +18,7 @@ from netllm_sdk_openai.client import OpenAIUpstreamError
 
 from netllm_agent.errors import parse_inference_json
 from netllm_agent.routes.context import RouteContext
-from netllm_agent.service import SourceCapacityExceeded
+from netllm_agent.service import AgentCapacityExceeded, SourceCapacityExceeded
 
 
 async def started_stream(gen: AsyncIterator[str]) -> AsyncIterator[str]:
@@ -82,6 +82,8 @@ def register(ctx: RouteContext) -> None:
             return await service.proxy_chat_completion(payload, headers=request.headers)
         except SourceCapacityExceeded as exc:
             raise HTTPException(status_code=429, detail=str(exc)) from exc
+        except AgentCapacityExceeded as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except OpenAIUpstreamError as exc:
             raise HTTPException(
                 status_code=exc.status_code if exc.status_code in (400, 404) else 502,
@@ -109,6 +111,8 @@ def register(ctx: RouteContext) -> None:
             return await service.proxy_responses(payload, headers=request.headers)
         except SourceCapacityExceeded as exc:
             raise HTTPException(status_code=429, detail=str(exc)) from exc
+        except AgentCapacityExceeded as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except OpenAIUpstreamError as exc:
             raise HTTPException(
                 status_code=exc.status_code if exc.status_code in (400, 404) else 502,
@@ -123,6 +127,8 @@ def register(ctx: RouteContext) -> None:
             return await service.proxy_embeddings(payload, headers=request.headers)
         except SourceCapacityExceeded as exc:
             raise HTTPException(status_code=429, detail=str(exc)) from exc
+        except AgentCapacityExceeded as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except OpenAIUpstreamError as exc:
             raise HTTPException(
                 status_code=exc.status_code if exc.status_code in (400, 404) else 502,
@@ -152,6 +158,8 @@ def register(ctx: RouteContext) -> None:
             return await service.proxy_messages(payload, headers=request.headers)
         except SourceCapacityExceeded as exc:
             raise HTTPException(status_code=429, detail=str(exc)) from exc
+        except AgentCapacityExceeded as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except AnthropicUpstreamError as exc:
             status = exc.status_code or 502
             raise HTTPException(status_code=status, detail=str(exc)) from exc

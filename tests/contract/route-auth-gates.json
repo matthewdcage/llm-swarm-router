@@ -186,7 +186,7 @@
       "method": "GET",
       "handler": "netllm_status_quick",
       "gate": "require_read_access",
-      "added_for": "Lightweight status snapshot for fast UI polling without deep probe (Phase 5b)."
+      "added_for": "Lightweight status snapshot for fast UI polling."
     }
   ]
 }

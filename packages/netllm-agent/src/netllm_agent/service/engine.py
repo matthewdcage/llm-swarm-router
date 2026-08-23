@@ -55,11 +55,14 @@ import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
+from netllm_core.mesh_capacity import local_agent_saturated
 from netllm_core.pool import Backend
 
 from netllm_agent.candidates import CandidateSchedule
 from netllm_agent.metrics import BACKEND_IN_FLIGHT
 from netllm_agent.request_plan import RequestPlan
+
+from .core import AgentCapacityExceeded
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     # Annotation-only (PEP 563). Importing the adapter protocol at
@@ -73,6 +76,21 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 __all__ = ["StreamSession", "open_stream", "run_with_failover"]
+
+
+def _assert_mesh_self_admission(
+    adapter: SurfaceAdapter,
+    plan: RequestPlan,
+    backend: Backend,
+) -> None:
+    """Reject terminating local hops when this agent is at ``max_concurrency``."""
+    if not plan.routing.local_only or not backend.local:
+        return
+    pool = adapter.service.pool
+    if not pool.mesh_self_admission_enabled:
+        return
+    if local_agent_saturated(pool.backends, pool.agent_max_concurrency):
+        raise AgentCapacityExceeded(pool.agent_max_concurrency)
 
 
 async def run_with_failover(adapter: SurfaceAdapter, plan: RequestPlan) -> Any:
@@ -176,6 +194,7 @@ async def _run_attempt(
     exactly the D2 hole this phase must not reopen.
     """
     service = adapter.service
+    _assert_mesh_self_admission(adapter, plan, backend)
     service.pool.acquire(backend)
     BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
     t0 = time.monotonic()
@@ -273,6 +292,7 @@ async def _connect_stream(
     it yet. On success the release moves to the session.
     """
     service = adapter.service
+    _assert_mesh_self_admission(adapter, plan, backend)
     service.pool.acquire(backend)
     BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
     t0 = time.monotonic()

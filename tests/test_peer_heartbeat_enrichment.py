@@ -58,6 +58,10 @@ NEW_HEARTBEAT: dict[str, object] = {
         {"url": "http://10.0.0.5:11400", "kind": "lan", "interface": "en0"},
         {"url": "http://10.0.0.6:11400", "kind": "lan", "interface": "en1"},
     ],
+    "routing_capacity": {
+        "spillover_max_local_in_flight": 4,
+        "max_in_flight_per_backend": 6,
+    },
 }
 
 # The same agent one release back: no key the reader can rely on beyond the
@@ -72,6 +76,7 @@ OLD_HEARTBEAT: dict[str, object] = {
         "reachable_at",
         "max_concurrency",
         "draining",
+        "routing_capacity",
     }
 } | {"agent_id": "peer-old", "hostname": "old-box"}
 
@@ -110,6 +115,8 @@ async def test_a_heartbeat_without_the_new_fields_still_registers_a_peer() -> No
     # Unclassified, which the clients read as "show it, say nothing about it"
     # — not as "this peer has no alternates".
     assert record.reachable_at == []
+    assert record.peer_spillover_max_local_in_flight == 0
+    assert record.peer_max_in_flight_per_backend == 0
     # And "heartbeat" is the honest provenance for a peer that simply started
     # talking to us: the sender cannot tell us how we found it.
     assert record.discovered_via == "heartbeat"
@@ -159,6 +166,38 @@ async def test_a_heartbeat_from_a_newer_agent_is_read_field_by_field() -> None:
     assert [p["provider"] for p in record.providers] == ["ollama", "omlx"]
     assert record.also_reachable_at == ["http://10.0.0.6:11400"]
     assert [e["kind"] for e in record.reachable_at] == ["lan", "lan"]
+    assert record.peer_spillover_max_local_in_flight == 4
+    assert record.peer_max_in_flight_per_backend == 6
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        None,
+        "bad",
+        [],
+        {"spillover_max_local_in_flight": "x"},
+        {"max_in_flight_per_backend": -3},
+    ],
+)
+def test_a_malformed_routing_capacity_yields_safe_defaults(raw: object) -> None:
+    from netllm_discovery.swarm import normalize_routing_capacity
+
+    assert normalize_routing_capacity(raw) == {
+        "spillover_max_local_in_flight": 0,
+        "max_in_flight_per_backend": 0,
+    }
+
+
+def test_routing_capacity_normalizes_positive_integers() -> None:
+    from netllm_discovery.swarm import normalize_routing_capacity
+
+    assert normalize_routing_capacity(
+        {"spillover_max_local_in_flight": "3", "max_in_flight_per_backend": 8}
+    ) == {
+        "spillover_max_local_in_flight": 3,
+        "max_in_flight_per_backend": 8,
+    }
 
 
 @pytest.mark.parametrize(
@@ -459,6 +498,17 @@ def test_this_agent_advertises_what_it_actually_serves() -> None:
     assert payload["providers"] == [
         {"id": "ollama", "provider": "ollama", "model_count": 2}
     ]
+
+
+def test_status_payload_advertises_routing_capacity() -> None:
+    service = _service()
+    service.config.routing.spillover_max_local_in_flight = 5
+    service.config.routing.max_in_flight_per_backend = 3
+    payload = service.status_payload()
+    assert payload["routing_capacity"] == {
+        "spillover_max_local_in_flight": 5,
+        "max_in_flight_per_backend": 3,
+    }
 
 
 def test_a_single_address_bind_advertises_no_alternates() -> None:

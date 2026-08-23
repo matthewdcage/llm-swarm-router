@@ -70,6 +70,7 @@ RoutingStrategy = Literal[
 ]
 
 AgentRole = Literal["peer", "gateway"]
+MeshCoordinatorMode = Literal["off", "gateway"]
 ProviderId = Literal[
     "omlx", "ollama", "lmstudio", "vllm", "custom", "anthropic", "openai"
 ]
@@ -394,6 +395,12 @@ class RoutingConfig(ConfigModel):
     # are in flight locally; at or above it, spill to a LAN peer only
     # when that peer is strictly less loaded.
     spillover_max_local_in_flight: int = Field(default=2, ge=1)
+    # Gateway-led mesh capacity coordinator (opt-in). When "gateway" and
+    # agent.role is gateway, selection uses gossiped peer admission policy.
+    mesh_coordinator: MeshCoordinatorMode = "off"
+    # Peer-only: adopt gateway spillover / max_in_flight from heartbeats at
+    # runtime when follow_gateway is also true (never persisted).
+    follow_gateway_capacity: bool = False
     # Health cache: how long a probe result stays fresh, and how many
     # consecutive request failures mark a backend offline.
     health_ttl_s: float = Field(default=30.0, gt=0.0)

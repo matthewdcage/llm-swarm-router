@@ -14,8 +14,22 @@ from netllm_core.health import (
     probe_anthropic_compat_sync,
     probe_openai_compat_sync,
 )
+from netllm_core.mesh_capacity import (
+    PeerCapacityView,
+    backend_has_headroom,
+    effective_backend_cap,
+    local_agent_saturated,
+    select_mesh_least_loaded,
+    select_mesh_spillover,
+)
 from netllm_core.model_resolution import ModelResolver
-from netllm_core.models import Backend, ModelPool, RoutingStrategy
+from netllm_core.models import (
+    AgentRole,
+    Backend,
+    MeshCoordinatorMode,
+    ModelPool,
+    RoutingStrategy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +88,9 @@ class RouterPool:
         offline_retry_s: float = OFFLINE_RETRY_S,
         max_failures: int = MAX_FAILURES,
         max_in_flight_per_backend: int = 0,
+        mesh_coordinator: MeshCoordinatorMode = "off",
+        agent_role: AgentRole = "peer",
+        agent_max_concurrency: int = 0,
     ) -> None:
         self._backends: list[Backend] = []
         self._health_cache: dict[str, _HealthEntry] = {}
@@ -88,6 +105,10 @@ class RouterPool:
         # 0 disables the cap. When set, selection prefers backends with
         # fewer than this many requests in flight (all strategies).
         self.max_in_flight_per_backend = max(0, max_in_flight_per_backend)
+        self.mesh_coordinator = mesh_coordinator
+        self.agent_role = agent_role
+        self.agent_max_concurrency = max(0, agent_max_concurrency)
+        self._peer_capacity: dict[str, PeerCapacityView] = {}
         # Our own active forwards per peer agent URL. Peer rows are
         # rebuilt from heartbeats on every refresh, so this ledger keeps
         # in-flight hop counts from being wiped between heartbeats.
@@ -732,12 +753,18 @@ class RouterPool:
             # max_in_flight_per_backend when set — a machine's own
             # declared ceiling is authoritative for its own row.
             def _under_cap(b: Backend) -> bool:
-                cap = b.max_concurrency or self.max_in_flight_per_backend
-                return cap <= 0 or b.in_flight < cap
+                return self._under_cap(b)
 
             under_cap = [b for b in all_candidates if _under_cap(b)]
             if under_cap:
                 all_candidates = under_cap
+
+        if self.mesh_coordinator_enabled and local_agent_saturated(
+            self._backends, self.agent_max_concurrency
+        ):
+            remotes = [b for b in all_candidates if not b.local]
+            if remotes:
+                all_candidates = remotes
 
         if strategy == "auto":
             # Shard-context requests are mapped to batch_shard by the
@@ -760,6 +787,13 @@ class RouterPool:
             return b
 
         if strategy == "least_load":
+            if self.mesh_coordinator_enabled:
+                picked, self._round_robin_idx = select_mesh_least_loaded(
+                    all_candidates,
+                    cap_for=self._cap_for_backend,
+                    round_robin_idx=self._round_robin_idx,
+                )
+                return picked
             # min() breaks ties by returning the first element, and
             # all_candidates is local-then-remote — so every exact tie
             # (very common at small in-flight counts, e.g. both at 0 or
@@ -801,8 +835,37 @@ class RouterPool:
 
         return all_candidates[0]
 
+    @property
+    def mesh_coordinator_enabled(self) -> bool:
+        return self.mesh_coordinator == "gateway" and self.agent_role == "gateway"
+
+    @property
+    def mesh_self_admission_enabled(self) -> bool:
+        """True when this node enforces ``agent.max_concurrency`` locally."""
+        return self.mesh_coordinator != "off"
+
+    def set_peer_capacity(self, peer_capacity: dict[str, PeerCapacityView]) -> None:
+        self._peer_capacity = dict(peer_capacity)
+
+    def _peer_view_for_backend(self, backend: Backend) -> PeerCapacityView | None:
+        if not backend.id.startswith("peer:"):
+            return None
+        agent_id = backend.id.removeprefix("peer:")
+        return self._peer_capacity.get(agent_id)
+
+    def _cap_for_backend(self, backend: Backend) -> int:
+        return effective_backend_cap(
+            backend,
+            self.max_in_flight_per_backend,
+            peer_view=self._peer_view_for_backend(backend),
+            coordinator_enabled=self.mesh_coordinator_enabled,
+        )
+
+    def _under_cap(self, backend: Backend) -> bool:
+        return backend_has_headroom(backend, self._cap_for_backend(backend))
+
     def _backend_at_cap(self, backend: Backend) -> bool:
-        cap = backend.max_concurrency or self.max_in_flight_per_backend
+        cap = self._cap_for_backend(backend)
         return cap > 0 and backend.in_flight >= cap
 
     def _apply_candidate_filters(
@@ -1032,6 +1095,14 @@ class RouterPool:
         spill to a LAN peer only when the peer is genuinely less loaded."""
         local_pool = [b for b in candidates if b.local]
         remote_pool = [b for b in candidates if not b.local]
+        if self.mesh_coordinator_enabled:
+            return select_mesh_spillover(
+                local_pool,
+                remote_pool,
+                local_threshold=self.spillover_max_local_in_flight,
+                cap_for=self._cap_for_backend,
+                prefer_remotes=prefer_remotes,
+            )
         if not local_pool:
             if not remote_pool:
                 return None
@@ -1039,7 +1110,10 @@ class RouterPool:
         if prefer_remotes and remote_pool:
             return min(remote_pool, key=lambda b: b.in_flight)
         best_local = min(local_pool, key=lambda b: b.in_flight)
-        if best_local.in_flight < self.spillover_max_local_in_flight:
+        if (
+            best_local.in_flight < self.spillover_max_local_in_flight
+            and not self._backend_at_cap(best_local)
+        ):
             return best_local
         if not remote_pool:
             return best_local

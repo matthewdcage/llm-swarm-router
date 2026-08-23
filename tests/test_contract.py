@@ -348,6 +348,7 @@ def test_status_payload_contract_keys() -> None:
         "backends",
         "peers",
         "routing_strategy",
+        "routing_capacity",
     ):
         assert key in data
 

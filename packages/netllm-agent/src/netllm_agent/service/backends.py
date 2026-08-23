@@ -20,6 +20,7 @@ import time
 from collections.abc import Mapping
 from pathlib import Path
 
+from netllm_core.mesh_capacity import PeerCapacityView
 from netllm_core.models import (
     DEFAULT_SOURCE_ID,
     HOPS_HEADER,
@@ -80,6 +81,18 @@ class BackendsMixin:
             self.swarm.peer_agent_backends() if self.config.routing.allow_remote else []
         )
         self.pool.merge_backends(local + remote)
+        peer_capacity = {
+            p.agent_id: PeerCapacityView(
+                max_concurrency=max(0, p.max_concurrency),
+                spillover_max_local_in_flight=max(
+                    0, p.peer_spillover_max_local_in_flight
+                ),
+                max_in_flight_per_backend=max(0, p.peer_max_in_flight_per_backend),
+            )
+            for p in self.swarm.peers.values()
+            if p.agent_id != self.config.agent.agent_id
+        }
+        self.pool.set_peer_capacity(peer_capacity)
         # The registry is authoritative for peers: rows for peers it no
         # longer tracks must not linger in the pool.
         self.pool.prune_peer_rows({b.base_url for b in remote})

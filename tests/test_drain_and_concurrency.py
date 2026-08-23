@@ -114,14 +114,20 @@ async def test_handle_heartbeat_defaults_when_fields_absent() -> None:
 
 def test_status_payload_is_what_heartbeat_broadcasts() -> None:
     """gossip_loop sends status_payload() verbatim as the heartbeat body —
-    confirm max_concurrency/draining ride along without extra wiring."""
+    confirm max_concurrency/draining/routing_capacity ride along."""
     cfg = NetllmConfig()
     cfg.agent.max_concurrency = 5
+    cfg.routing.spillover_max_local_in_flight = 7
+    cfg.routing.max_in_flight_per_backend = 4
     service = AgentService(cfg)
     service.draining = True
     payload = service.status_payload()
     assert payload["max_concurrency"] == 5
     assert payload["draining"] is True
+    assert payload["routing_capacity"] == {
+        "spillover_max_local_in_flight": 7,
+        "max_in_flight_per_backend": 4,
+    }
 
 
 def test_draining_peer_excluded_end_to_end() -> None:

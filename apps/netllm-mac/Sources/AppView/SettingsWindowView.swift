@@ -484,6 +484,15 @@ struct SettingsWindowView: View {
             Toggle("Follow gateway strategy", isOn: $model.document.routing.follow_gateway)
             Text("Peer-role agents adopt the gateway's advertised default strategy from heartbeats instead of running their own.")
                 .font(.caption).foregroundStyle(.secondary)
+            Toggle("Follow gateway capacity", isOn: $model.document.routing.follow_gateway_capacity)
+            Text("Peer-role agents adopt the gateway's spillover threshold and per-backend in-flight cap from heartbeats at runtime (requires Follow gateway strategy).")
+                .font(.caption).foregroundStyle(.secondary)
+            Picker("Mesh coordinator", selection: $model.document.routing.mesh_coordinator) {
+                Text("Off").tag("off")
+                Text("Gateway").tag("gateway")
+            }
+            Text("Gateway-led mesh placement using gossiped peer admission policy. Enable on the gateway only; peers stay off unless you also want local max_concurrency self-admission.")
+                .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Text("Spillover threshold (local in-flight)")
                 TextField("2", value: $model.document.routing.spillover_max_local_in_flight, format: .number.grouping(.never))
