@@ -250,6 +250,32 @@ class SwarmTasksMixin:
                 if recovered:
                     await self.refresh_local_backends()
                     logger.info("re-discovery recovered %s peer(s)", recovered)
+                if self.swarm.overlay_discovery_enabled():
+                    gossip_recovered = 0
+                    live = {
+                        p.listen_url.rstrip("/") for p in self.swarm.peers.values()
+                    } | {
+                        (p.active_listen_url or "").rstrip("/")
+                        for p in self.swarm.peers.values()
+                        if p.active_listen_url
+                    }
+                    for url in sorted(self.swarm.known_peer_urls):
+                        if url in live:
+                            continue
+                        if self.swarm._url_discovery.get(url) != "gossip":
+                            continue
+                        record = await self.swarm.fetch_peer(
+                            url, discovered_via="gossip"
+                        )
+                        if record and record.agent_id != self.config.agent.agent_id:
+                            self.swarm.register_peer(record)
+                            gossip_recovered += 1
+                    if gossip_recovered:
+                        await self.refresh_local_backends()
+                        logger.info(
+                            "gossip re-discovery recovered %s peer(s)",
+                            gossip_recovered,
+                        )
                 if not self.swarm.peers and self.config.swarm.subnet_scan:
                     await self._discover_subnet_peers()
             except asyncio.CancelledError:

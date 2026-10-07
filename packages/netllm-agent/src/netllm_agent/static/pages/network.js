@@ -552,11 +552,17 @@ function networkSwarmDiscoverySection(root) {
     textEl(
       "p",
       "panel-desc",
-      "How this agent finds other netllm agents on the LAN, and how quickly it forgets one that goes quiet."
+      "How this agent finds other netllm agents on the LAN, and how quickly it forgets one that goes quiet. Overlay peers (NetBird, Tailscale) are enrolled from mesh gossip when overlay discovery is on — no manual swarm.peers entry required."
     )
   );
 
   const grid = el("div", "field-grid");
+  grid.appendChild(
+    switchRow("Overlay discovery (gossip)", (swarm.overlay_discovery || "auto") !== "off", (v) => {
+      state.configDraft.swarm.overlay_discovery = v ? "auto" : "off";
+      markDirty();
+    })
+  );
   grid.appendChild(
     switchRow("mDNS discovery", swarm.mdns !== false, (v) => {
       state.configDraft.swarm.mdns = v;

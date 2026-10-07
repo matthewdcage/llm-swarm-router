@@ -25,6 +25,7 @@ const PEER_DISCOVERY_LABELS = {
   static: "pinned in config",
   join: "join ticket",
   heartbeat: "heartbeat",
+  gossip: "mesh gossip",
 };
 
 /**
@@ -168,6 +169,8 @@ function peersCollectRows() {
         discoveredVia: "",
         providers: [],
         pinIndex: -1,
+        activeListenUrl: "",
+        addressHealth: [],
       };
       rows.push(row);
     }
@@ -249,6 +252,8 @@ function peersCollectRows() {
     if (providers.length) row.providers = providers;
     addAlternates(row, p.also_reachable_at);
     addAddressKinds(row, p.reachable_at);
+    row.activeListenUrl = peersNormalizeUrl(p.active_listen_url || row.url);
+    row.addressHealth = asArray(p.address_health);
   });
 
   scannedPeers.forEach((p) => {
@@ -488,7 +493,24 @@ function peersAddressCell(row) {
       setTimeout(() => input.focus(), 0);
     }
   } else {
-    cell.appendChild(textEl("div", "mono", row.url || "—"));
+    const primary = el("div", "row");
+    primary.appendChild(textEl("span", "mono", row.url || "—"));
+    const active = row.activeListenUrl || row.url;
+    if (active && active !== row.url) {
+      primary.appendChild(pill("ok", "routing"));
+    }
+    const activeKind = row.addressKinds.get(active) || "";
+    if (activeKind === "vpn") primary.appendChild(pill("neutral", "VPN path"));
+    cell.appendChild(primary);
+    asArray(row.addressHealth).forEach((h) => {
+      if (!h || typeof h !== "object") return;
+      const u = peersNormalizeUrl(h.url);
+      if (!u || u === row.url) return;
+      const st = String(h.status || "unknown");
+      cell.appendChild(
+        textEl("div", "field-help", `${u} (${h.kind || "?"}) — ${st}`)
+      );
+    });
   }
   const { shown, hidden } = peersSplitAlternates(row);
   let lastLabel = "";

@@ -147,6 +147,14 @@ function backendProviderLabel(b) {
 }
 
 /** Display name for a remote row: the peer's agent id, else the URL host. */
+function backendPeerPathHint(b) {
+  if (!String(b.id || "").startsWith("peer:")) return "";
+  const kind = b.peer_path_kind || "";
+  if (kind === "vpn") return "Active path: VPN overlay";
+  if (kind) return `Active path: ${kind}`;
+  return "";
+}
+
 function backendNodeName(b) {
   if (b.cloud_provider) return b.cloud_provider;
   if (typeof b.id === "string" && b.id.startsWith("peer:") && b.agent_id) {
@@ -453,9 +461,13 @@ function remoteBackendTable(rows) {
   const t = dataTable(BACKEND_REMOTE_COLUMNS, BACKEND_REMOTE_TEMPLATE);
   rows.forEach((b) => {
     const view = backendHealthView(b);
-    const node = el("div", "row");
-    node.appendChild(statusDot(backendDotKind(view.kind)));
-    node.appendChild(textEl("span", "", backendNodeName(b)));
+    const node = el("div");
+    const nodeLine = el("div", "row");
+    nodeLine.appendChild(statusDot(backendDotKind(view.kind)));
+    nodeLine.appendChild(textEl("span", "", backendNodeName(b)));
+    node.appendChild(nodeLine);
+    const pathHint = backendPeerPathHint(b);
+    if (pathHint) node.appendChild(textEl("div", "field-help", pathHint));
     const latency = backendLatency(b);
     const traffic = backendTrafficSummary(b.id) || "—";
     const stateCell = textEl(

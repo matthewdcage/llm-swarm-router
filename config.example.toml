@@ -65,6 +65,8 @@ peer_stale_after_s = 45.0
 # subnet when subnet_scan is on) so peers lost to sleep/Wi-Fi blips
 # rejoin automatically. 0 disables re-discovery.
 rediscover_interval_s = 60.0
+# Enroll overlay URLs from peer gossip (NetBird/Tailscale). "off" = legacy.
+overlay_discovery = "auto"
 
 [routing]
 # auto: shard-context requests use batch_shard, everything else balances

@@ -9,9 +9,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+from netllm_core.health import probe_agent_health_sync
 from netllm_core.models import Backend, BackendHealth, NetllmConfig
 
-from netllm_discovery.lan import is_lan_reachable_agent_url
+from netllm_discovery.lan import is_lan_reachable_agent_url, peer_candidate_listen_urls
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,9 @@ logger = logging.getLogger(__name__)
 # listener, the subnet scanner, the static-peer loader — never inferred
 # afterwards. "heartbeat" is the honest answer for a peer that simply
 # started talking to us and is the only value an older build can produce.
-DISCOVERY_SOURCES = frozenset({"mdns", "subnet_scan", "static", "heartbeat", "join"})
+DISCOVERY_SOURCES = frozenset(
+    {"mdns", "subnet_scan", "static", "heartbeat", "join", "gossip"}
+)
 DEFAULT_DISCOVERY_SOURCE = "heartbeat"
 
 # Ceiling on the per-peer provider summary carried in every heartbeat. The
@@ -189,6 +192,10 @@ class PeerRecord:
     # Gossiped routing.admission scalars (0 = peer omitted the field).
     peer_spillover_max_local_in_flight: int = 0
     peer_max_in_flight_per_backend: int = 0
+    # Active dial URL (agent root) after multi-path probe; empty → listen_url.
+    active_listen_url: str = ""
+    # Per-path reachability from the last routing refresh (status/UI).
+    address_health: list[dict[str, Any]] = field(default_factory=list)
 
 
 class SwarmRegistry:
@@ -208,6 +215,13 @@ class SwarmRegistry:
         # "heartbeat".
         self._url_discovery: dict[str, str] = {}
         self._task: asyncio.Task[None] | None = None
+        self._peer_route_refresh_at: float = 0.0
+
+    def overlay_discovery_enabled(self) -> bool:
+        return (
+            str(getattr(self.config.swarm, "overlay_discovery", "auto")).lower()
+            != "off"
+        )
 
     def local_agent_url(self) -> str:
         from netllm_discovery.lan import agent_url_from_listen
@@ -233,6 +247,20 @@ class SwarmRegistry:
             self.known_peer_urls.add(url)
             if record.discovered_via != DEFAULT_DISCOVERY_SOURCE:
                 self._url_discovery[url] = record.discovered_via
+        self._note_gossip_urls_from_peer(record)
+
+    def _note_gossip_urls_from_peer(self, peer: PeerRecord) -> None:
+        if not self.overlay_discovery_enabled():
+            return
+        for url, _kind in peer_candidate_listen_urls(
+            peer.listen_url,
+            also_reachable_at=peer.also_reachable_at,
+            reachable_at=peer.reachable_at,
+        ):
+            self.known_peer_urls.add(url)
+            prior = self._url_discovery.get(url, "")
+            if prior in ("", DEFAULT_DISCOVERY_SOURCE, "heartbeat", "gossip"):
+                self._url_discovery[url] = "gossip"
 
     @staticmethod
     def _carry_forward_provenance(previous: PeerRecord, record: PeerRecord) -> None:
@@ -271,6 +299,44 @@ class SwarmRegistry:
             *record.reachable_at,
             *(e for e in previous.reachable_at if e.get("url", "") not in known),
         ]
+        if previous.active_listen_url and not record.active_listen_url:
+            record.active_listen_url = previous.active_listen_url
+        if previous.address_health and not record.address_health:
+            record.address_health = list(previous.address_health)
+
+    def refresh_peer_routing_if_stale(self, *, force: bool = False) -> None:
+        """Probe peer candidate URLs and pick the best reachable listen URL."""
+        interval = 15.0
+        now = time.monotonic()
+        if not force and now - self._peer_route_refresh_at < interval:
+            return
+        self._peer_route_refresh_at = now
+        headers = self._auth_headers()
+        for peer in self.peers.values():
+            candidates = peer_candidate_listen_urls(
+                peer.listen_url,
+                also_reachable_at=peer.also_reachable_at,
+                reachable_at=peer.reachable_at,
+            )
+            health_rows: list[dict[str, Any]] = []
+            active = peer.listen_url.rstrip("/")
+            active_kind = ""
+            for url, kind in candidates:
+                status = probe_agent_health_sync(url, headers=headers or None)
+                online = status.get("status") == "online"
+                health_rows.append(
+                    {
+                        "url": url,
+                        "kind": kind,
+                        "status": status.get("status", "unknown"),
+                        "http_status": status.get("http_status"),
+                    }
+                )
+                if online and not active_kind:
+                    active = url
+                    active_kind = kind
+            peer.address_health = health_rows
+            peer.active_listen_url = active if active_kind else peer.active_listen_url
 
     def stale_peers(self, max_age_s: float | None = None) -> list[str]:
         max_age = (
@@ -332,10 +398,24 @@ class SwarmRegistry:
                 continue
             if peer.draining:
                 continue
-            listen = peer.listen_url.rstrip("/")
+            candidates = peer_candidate_listen_urls(
+                peer.listen_url,
+                also_reachable_at=peer.also_reachable_at,
+                reachable_at=peer.reachable_at,
+            )
+            listen = (
+                peer.active_listen_url
+                or peer.listen_url
+                or (candidates[0][0] if candidates else "")
+            ).rstrip("/")
             if not is_lan_reachable_agent_url(listen):
                 logger.debug("skip peer with loopback listen_url: %s", listen)
                 continue
+            path_kind = ""
+            for url, kind in candidates:
+                if url.rstrip("/") == listen:
+                    path_kind = kind
+                    break
             agent_base = f"{listen}/v1"
             models = self._peer_backend_models(peer)
             out.append(
@@ -348,6 +428,8 @@ class SwarmRegistry:
                     health=BackendHealth(models=models, model_count=len(models)),
                     in_flight=self._peer_in_flight(peer),
                     max_concurrency=max(0, peer.max_concurrency),
+                    peer_listen_candidates=[u for u, _ in candidates],
+                    peer_path_kind=path_kind,
                 )
             )
         return out
@@ -509,6 +591,8 @@ class SwarmRegistry:
                     ),
                     "max_in_flight_per_backend": p.peer_max_in_flight_per_backend,
                 },
+                "active_listen_url": p.active_listen_url or p.listen_url,
+                "address_health": [dict(row) for row in p.address_health],
             }
             for p in self.peers.values()
         ]

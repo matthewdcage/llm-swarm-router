@@ -63,6 +63,7 @@ from netllm_agent.metrics import BACKEND_IN_FLIGHT
 from netllm_agent.request_plan import RequestPlan
 
 from .core import AgentCapacityExceeded
+from .peer_routing import backend_for_v1_attempt, next_peer_v1_base_url
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     # Annotation-only (PEP 563). Importing the adapter protocol at
@@ -195,39 +196,60 @@ async def _run_attempt(
     """
     service = adapter.service
     _assert_mesh_self_admission(adapter, plan, backend)
-    service.pool.acquire(backend)
-    BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
-    t0 = time.monotonic()
-    try:
-        invocation = adapter.build_invocation(plan, backend)
-        result = await adapter.invoke(plan, invocation)
-        result = adapter.restore_model(plan, invocation, result)
-        latency_s = time.monotonic() - t0
-        prompt_tokens, completion_tokens = adapter.extract_usage(result)
-        recorder.success(
-            backend=backend,
-            model=plan.model,
-            latency_s=latency_s,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            shard=plan.shard,
-        )
-        return result
-    except Exception as exc:
-        if adapter.classify_error(exc):
-            recorder.failure(backend=backend, model=plan.model, exc=exc)
-            logger.warning(
-                "%s %s failed (attempt %s): %s",
-                adapter.log_label,
-                backend.base_url,
-                attempt,
-                exc,
+    v1_base = backend.base_url
+    retry_peer_path = True
+    while retry_peer_path:
+        retry_peer_path = False
+        use_backend = backend_for_v1_attempt(backend, v1_base)
+        service.pool.acquire(backend)
+        BACKEND_IN_FLIGHT.labels(backend=use_backend.base_url).set(backend.in_flight)
+        t0 = time.monotonic()
+        try:
+            invocation = adapter.build_invocation(plan, use_backend)
+            result = await adapter.invoke(plan, invocation)
+            result = adapter.restore_model(plan, invocation, result)
+            latency_s = time.monotonic() - t0
+            prompt_tokens, completion_tokens = adapter.extract_usage(result)
+            recorder.success(
+                backend=use_backend,
+                model=plan.model,
+                latency_s=latency_s,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                shard=plan.shard,
             )
-        raise
-    finally:
-        service.pool.release(backend)
-        BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
-        service._update_health_metrics()
+            return result
+        except Exception as exc:
+            if adapter.classify_error(exc):
+                recorder.failure(backend=use_backend, model=plan.model, exc=exc)
+                nxt = next_peer_v1_base_url(backend, v1_base)
+                if nxt:
+                    logger.warning(
+                        "%s %s failed (attempt %s), retry peer path %s: %s",
+                        adapter.log_label,
+                        v1_base,
+                        attempt,
+                        nxt,
+                        exc,
+                    )
+                    v1_base = nxt
+                    retry_peer_path = True
+                else:
+                    logger.warning(
+                        "%s %s failed (attempt %s): %s",
+                        adapter.log_label,
+                        use_backend.base_url,
+                        attempt,
+                        exc,
+                    )
+            if not retry_peer_path:
+                raise
+        finally:
+            service.pool.release(backend)
+            BACKEND_IN_FLIGHT.labels(backend=use_backend.base_url).set(
+                backend.in_flight
+            )
+            service._update_health_metrics()
 
 
 async def open_stream(adapter: SurfaceAdapter, plan: RequestPlan) -> StreamSession:
@@ -293,39 +315,59 @@ async def _connect_stream(
     """
     service = adapter.service
     _assert_mesh_self_admission(adapter, plan, backend)
-    service.pool.acquire(backend)
-    BACKEND_IN_FLIGHT.labels(backend=backend.base_url).set(backend.in_flight)
-    t0 = time.monotonic()
+    v1_base = backend.base_url
+    retry_peer_path = True
+    use_backend = backend
+    invocation = None
+    stream = None
     first: str | None = None
-    try:
-        invocation = adapter.build_invocation(plan, backend)
-        stream = adapter.invoke_stream(plan, invocation).__aiter__()
+    t0 = time.monotonic()
+    while retry_peer_path:
+        retry_peer_path = False
+        use_backend = backend_for_v1_attempt(backend, v1_base)
+        service.pool.acquire(backend)
+        BACKEND_IN_FLIGHT.labels(backend=use_backend.base_url).set(backend.in_flight)
+        t0 = time.monotonic()
         try:
-            first = await anext(stream)
-        except StopAsyncIteration:
-            # An upstream that closes without a single event is a complete
-            # (if empty) response, not a failure — the same reading the
-            # non-stream arm gives an empty 200 body.
-            first = None
-    except BaseException as exc:
-        # BaseException, not Exception: a cancellation between acquire and
-        # the first event must still hand the pool slot back.
-        if isinstance(exc, Exception) and adapter.classify_error(exc):
-            recorder.failure(backend=backend, model=plan.model, exc=exc)
-            logger.warning(
-                "%s stream %s failed (attempt %s): %s",
-                adapter.log_label,
-                backend.base_url,
-                attempt,
-                exc,
-            )
-        _release_backend(service, backend)
-        raise
+            invocation = adapter.build_invocation(plan, use_backend)
+            stream = adapter.invoke_stream(plan, invocation).__aiter__()
+            try:
+                first = await anext(stream)
+            except StopAsyncIteration:
+                first = None
+        except BaseException as exc:
+            if isinstance(exc, Exception) and adapter.classify_error(exc):
+                recorder.failure(backend=use_backend, model=plan.model, exc=exc)
+                nxt = next_peer_v1_base_url(backend, v1_base)
+                if nxt:
+                    logger.warning(
+                        "%s stream %s failed (attempt %s), retry peer path %s: %s",
+                        adapter.log_label,
+                        v1_base,
+                        attempt,
+                        nxt,
+                        exc,
+                    )
+                    v1_base = nxt
+                    retry_peer_path = True
+                else:
+                    logger.warning(
+                        "%s stream %s failed (attempt %s): %s",
+                        adapter.log_label,
+                        use_backend.base_url,
+                        attempt,
+                        exc,
+                    )
+            if retry_peer_path:
+                _release_backend(service, backend)
+                continue
+            _release_backend(service, backend)
+            raise
     return StreamSession(
         adapter=adapter,
         plan=plan,
         invocation=invocation,
-        backend=backend,
+        backend=use_backend,
         recorder=recorder,
         stream=stream,
         first=first,

@@ -199,34 +199,51 @@ struct SettingsWindowView: View {
 
     private var backendsTab: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Routed backends (from agent)")
-            if let backends = model.status?.backends, !backends.isEmpty {
-                ForEach(backends) { backend in
-                    backendRow(backend)
-                }
-            } else {
-                Text("No backends yet — start oMLX or Ollama on this Mac. The agent finds them automatically.")
-                    .foregroundStyle(.secondary)
-            }
-            sectionHeader("Local providers")
+            sectionHeader("On this machine")
+            Text(
+                "Turn routing off to pin a backend as disabled in config — it stays listed but receives no traffic on this node."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
             actionButtons {
+                Button("Enable all local") { model.setAllLocalBackendRoutingEnabled(true) }
+                Button("Disable all local") { model.setAllLocalBackendRoutingEnabled(false) }
                 Button("Refresh scan") { model.runDiscover() }
             }
-            if model.discoverProviders.isEmpty && !model.isLoading {
-                Text("The agent scans oMLX, Ollama, and LM Studio when it starts. Refresh after starting backends.")
-                    .font(.caption).foregroundStyle(.secondary)
+            if model.localBackendCatalogEntries().isEmpty {
+                Text("No local backends yet — start a provider on this machine or enable one below.")
+                    .foregroundStyle(.secondary)
             }
-            ForEach(model.discoverProviders) { provider in
-                HStack {
-                    statusDot(provider.status == "online")
-                    VStack(alignment: .leading) {
-                        Text(provider.name).font(.headline)
-                        Text(provider.baseURL).font(.caption).foregroundStyle(.secondary)
-                        Text("\(provider.models.count) models · \(provider.status)")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
+            ForEach(model.localBackendCatalogEntries()) { entry in
+                if let backend = entry.backend {
+                    backendRow(backend)
+                } else {
+                    ghostBackendRow(entry)
                 }
-                .padding(.vertical, 4)
+            }
+
+            let remote = model.remoteBackendStatuses
+            if !remote.isEmpty {
+                sectionHeader("Reached through peers")
+                Text(
+                    "Disabling a peer stops this node from routing through it; it does not stop the remote machine's servers."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                ForEach(remote) { backend in
+                    backendRow(backend)
+                }
+            }
+
+            let cloud = model.cloudBackendStatuses
+            if !cloud.isEmpty {
+                sectionHeader("Cloud endpoints")
+                Text("Enable or disable cloud providers on the Cloud failover tab.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(cloud) { backend in
+                    backendRow(backend)
+                }
             }
         }
     }
@@ -317,7 +334,7 @@ struct SettingsWindowView: View {
     private var discoveryTab: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("Providers")
-            ForEach(SettingsViewModel.providers, id: \.self) { provider in
+            ForEach(model.discoveryProviderIds, id: \.self) { provider in
                 Toggle(provider, isOn: Binding(
                     get: { model.providerEnabled(provider) },
                     set: { model.toggleProvider(provider, enabled: $0) }
@@ -327,7 +344,7 @@ struct SettingsWindowView: View {
             Text("Leave empty to auto-scan default ports (oMLX: 8080, 8088, 8081).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            ForEach(SettingsViewModel.providers, id: \.self) { provider in
+            ForEach(model.discoveryProviderIds, id: \.self) { provider in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(SettingsViewModel.localProviderLabel(provider))
                         .font(.caption.weight(.medium))
@@ -401,6 +418,19 @@ struct SettingsWindowView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("Swarm")
             Toggle("mDNS discovery", isOn: $model.document.swarm.bool("mdns", default: true))
+            Toggle(
+                "Overlay discovery (gossip)",
+                isOn: Binding(
+                    get: {
+                        (model.document.swarm.string("overlay_discovery") ?? "auto") != "off"
+                    },
+                    set: { on in
+                        model.document.swarm["overlay_discovery"] = .string(on ? "auto" : "off")
+                    }
+                )
+            )
+            Text("Learns NetBird/Tailscale peer URLs from heartbeats without pinning swarm.peers.")
+                .font(.caption).foregroundStyle(.secondary)
             Toggle("Subnet scan at startup", isOn: $model.document.swarm.bool("subnet_scan"))
             Text("Probes the LAN for agents on :11400 when the agent starts. Recommended when listening on 0.0.0.0.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -988,8 +1018,38 @@ struct SettingsWindowView: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
-    private func backendRow(_ backend: BackendStatus) -> some View {
+    private func ghostBackendRow(_ entry: LocalBackendCatalogEntry) -> some View {
         HStack(alignment: .top) {
+            statusDot(false)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(entry.label) — not detected")
+                    .font(.headline)
+                Text(entry.url).font(.caption).foregroundStyle(.secondary)
+                Text("No server answered on this URL yet.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Toggle(
+                "Use for routing",
+                isOn: model.backendRoutingToggleBinding(
+                    url: entry.url,
+                    provider: entry.provider,
+                    local: true
+                )
+            )
+            .toggleStyle(.switch)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func backendRow(_ backend: BackendStatus) -> some View {
+        let routingOn = model.backendRoutingEnabled(
+            for: backend.baseURL,
+            statusEnabled: backend.enabled
+        )
+        let pinned = model.backendOverride(for: backend.baseURL) != nil
+        return HStack(alignment: .top) {
             statusDot(backend.health == "online")
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(backend.provider) — \(backend.health)")
@@ -997,6 +1057,28 @@ struct SettingsWindowView: View {
                 Text(backend.baseURL).font(.caption).foregroundStyle(.secondary)
                 Text("\(backend.modelCount) models · in-flight \(backend.inFlight) · \(backend.local ? "local" : "remote")")
                     .font(.caption2)
+                if !backend.cloudProvider.isEmpty {
+                    Text("Cloud routing is controlled on the Cloud failover tab.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else if !routingOn && pinned {
+                    Text("Pinned in config — stays listed but receives no traffic.")
+                        .font(.caption2)
+                        .foregroundStyle(DesignTokens.warnText)
+                }
+            }
+            Spacer()
+            if backend.cloudProvider.isEmpty {
+                Toggle(
+                    "Use for routing",
+                    isOn: model.backendRoutingToggleBinding(
+                        url: backend.baseURL,
+                        provider: backend.provider,
+                        local: backend.local,
+                        statusEnabled: backend.enabled
+                    )
+                )
+                .toggleStyle(.switch)
             }
         }
         .padding(.vertical, 4)

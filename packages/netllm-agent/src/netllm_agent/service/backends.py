@@ -77,9 +77,11 @@ class BackendsMixin:
                     )
                     self._local_scan_cache = local
                     self._local_scan_at = time.monotonic()
-        remote = (
-            self.swarm.peer_agent_backends() if self.config.routing.allow_remote else []
-        )
+        if self.config.routing.allow_remote:
+            self.swarm.refresh_peer_routing_if_stale()
+            remote = self.swarm.peer_agent_backends()
+        else:
+            remote = []
         self.pool.merge_backends(local + remote)
         peer_capacity = {
             p.agent_id: PeerCapacityView(

@@ -201,6 +201,9 @@ class DiscoverySwarmConfig(ConfigModel):
     # is on) re-scan the subnet, so peers lost to sleep/Wi-Fi blips
     # rejoin without a restart. 0 disables.
     rediscover_interval_s: float = Field(default=60.0, ge=0.0)
+    # When "auto", gossiped overlay URLs from peer heartbeats are enrolled
+    # for rediscovery and multi-path routing. "off" keeps legacy behavior.
+    overlay_discovery: str = Field(default="auto")
 
 
 class RoutingPolicy(ConfigModel):
@@ -720,6 +723,10 @@ class Backend(BaseModel):
     # anyone but its own config. For a local/manual row it comes from
     # BackendOverride.max_concurrency.
     max_concurrency: int = Field(default=0, ge=0)
+    # Peer rows only: ordered agent roots (http://host:11400) for failover.
+    peer_listen_candidates: list[str] = Field(default_factory=list)
+    # Kind of the URL backing base_url (lan, vpn, …) when known.
+    peer_path_kind: str = ""
 
     @computed_field  # type: ignore[prop-decorator]
     @property
