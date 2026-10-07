@@ -89,11 +89,16 @@ def discover(
         raise typer.Exit(1)
 
 
-def _fetch_join_status(base: str) -> dict[str, Any]:
-    """GET the target agent's status; raises typer.Exit on failure."""
+def _fetch_join_status(base: str, token: str = "") -> dict[str, Any]:
+    """GET the target agent's status; raises typer.Exit on failure.
+
+    Secured agents reject ``/netllm/v1/status`` from remote hosts without the
+    cluster token, so send it when we have one.
+    """
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
         with httpx.Client(timeout=5.0) as client:
-            resp = client.get(f"{base}/netllm/v1/status")
+            resp = client.get(f"{base}/netllm/v1/status", headers=headers)
             resp.raise_for_status()
             return resp.json()
     except Exception as exc:
@@ -163,7 +168,7 @@ def join(
     cfg = load_config(cfg_path)
 
     base = _normalize_agent_url(url)
-    status = _fetch_join_status(base)
+    status = _fetch_join_status(base, token)
     if token and not status.get("cluster_token_set", False):
         print_error(
             "Token mismatch",
