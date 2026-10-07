@@ -1,7 +1,7 @@
 # Adding a local inference provider (Axis B)
 
 A *local provider* is an inference server netllm discovers on localhost —
-oMLX, Ollama, LM Studio, vLLM today.
+oMLX, Ollama, LM Studio, vLLM, FreeToken today.
 
 > **This is not one line.** Before Phase 3 the same provider id was keyed in
 > eleven parallel maps across five files and nothing referenced the roster in

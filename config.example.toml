@@ -31,9 +31,12 @@ advertise = true
 
 [discovery]
 # macOS default (netllm init): omlx, ollama, lmstudio, vllm
-# Linux/Windows default (netllm init): ollama, lmstudio, vllm (no omlx)
+# Linux default (netllm init): ollama, lmstudio, vllm, freetoken (no omlx)
+# Windows default (netllm init): ollama, lmstudio, vllm
+# freetoken (FreeToken `ft serve`, :1919) rejects `response_format`; netllm
+# forwards request bodies verbatim, so clients must not send it there.
 # netllm:generated:begin:local-provider-ids
-providers = ["omlx", "ollama", "lmstudio", "vllm"]
+providers = ["omlx", "ollama", "lmstudio", "vllm", "freetoken"]
 # netllm:generated:end:local-provider-ids
 custom_endpoints = []
 # Base URLs discovery must never register — e.g. an unrelated service squatting

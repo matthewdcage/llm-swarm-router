@@ -59,7 +59,8 @@ Menubar **Open Dashboard** opens `/ui/`. **Copy Client Env** exports editor vars
 | OS | Default `discovery.providers` |
 |----|------------------------------|
 | macOS | `omlx`, `ollama`, `lmstudio`, `vllm` |
-| Linux / Windows | `ollama`, `lmstudio`, `vllm` |
+| Linux | `ollama`, `lmstudio`, `vllm`, `freetoken` |
+| Windows | `ollama`, `lmstudio`, `vllm` |
 
 Agent lifespan runs provider discovery on start and persists URLs to config (all platforms).
 
