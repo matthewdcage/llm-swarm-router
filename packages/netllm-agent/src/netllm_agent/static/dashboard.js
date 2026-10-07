@@ -1506,6 +1506,7 @@ function emptyConfigDraft() {
     swarm: schemaSectionDefaults(state.configSchema, "swarm", {
       mdns: true,
       subnet_scan: false,
+      overlay_discovery: "auto",
       subnet_cidrs: [],
       heartbeat_interval_s: 10,
       peers: [],

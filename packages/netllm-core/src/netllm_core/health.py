@@ -97,11 +97,14 @@ def probe_agent_health_sync(
     listen_or_v1_base: str,
     *,
     timeout_s: float = DEFAULT_TIMEOUT,
+    headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """GET ``/health`` on a netllm agent — reachability only (no model catalog)."""
     health_url = agent_root_from_base_url(listen_or_v1_base).rstrip("/") + "/health"
     try:
-        resp = _shared_sync_client().get(health_url, timeout=timeout_s)
+        resp = _shared_sync_client().get(
+            health_url, timeout=timeout_s, headers=headers or {}
+        )
         if resp.status_code == 200:
             return {
                 "status": "online",

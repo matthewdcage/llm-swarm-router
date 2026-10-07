@@ -21,6 +21,13 @@ Skew is **advisory**. Nothing refuses a peer on version grounds. A mesh that
 partitions itself the moment someone starts an upgrade is worse than one that
 tells you it is mid-upgrade.
 
+## Overlay peers (VPN / NetBird / Tailscale)
+
+mDNS stays on the LAN; overlay addresses are learned from peer heartbeats
+when `swarm.overlay_discovery` is `auto` (default). See
+[overlay-peer-discovery.md](overlay-peer-discovery.md) for gossip enrollment,
+LAN-first routing, and what netllm deliberately does not scan.
+
 ## Order: gateway first
 
 `swarm_tasks.py` makes the gateway authoritative for routing strategy, so a

@@ -17,6 +17,7 @@ from netllm_discovery.lan import (
     is_loopback_url,
     models_from_status,
     own_agent_urls,
+    peer_candidate_listen_urls,
 )
 
 # One host as `ip -o -4 addr` actually reports it: a Wi-Fi LAN address, a
@@ -49,6 +50,30 @@ def test_own_agent_urls_includes_lan_and_loopback() -> None:
     assert "http://127.0.0.1:11400" in urls
 
 
+def test_peer_candidate_listen_urls_orders_lan_before_vpn() -> None:
+    rows = peer_candidate_listen_urls(
+        "http://10.0.0.32:11400",
+        also_reachable_at=["http://100.72.59.239:11400"],
+        reachable_at=[
+            {"url": "http://100.72.59.239:11400", "kind": "vpn", "interface": "wt0"},
+            {"url": "http://10.0.0.32:11400", "kind": "lan", "interface": "en0"},
+        ],
+    )
+    assert [kind for _, kind in rows] == ["lan", "vpn"]
+
+
+def test_peer_candidate_listen_urls_prefers_advertised_listen_over_other_lan() -> None:
+    """Multi-homed peer: do not pick a lower .21 address over advertised .32."""
+    rows = peer_candidate_listen_urls(
+        "http://10.0.0.32:11400",
+        reachable_at=[
+            {"url": "http://10.0.0.32:11400", "kind": "lan", "interface": "en0"},
+            {"url": "http://10.0.0.21:11400", "kind": "lan", "interface": "en1"},
+        ],
+    )
+    assert rows[0][0] == "http://10.0.0.32:11400"
+
+
 def test_rfc1918_membership_is_not_the_classifier() -> None:
     """The address range cannot answer this question and never could.
 
@@ -72,6 +97,7 @@ def test_rfc1918_membership_is_not_the_classifier() -> None:
     assert classify_interface_address("eth0", "127.0.0.1") == "loopback"
     # A tunnel reaches peers that are on the tunnel — useful, below the LAN.
     assert classify_interface_address("tailscale0", "100.101.102.103") == "vpn"
+    assert classify_interface_address("wt0", "100.72.128.178") == "vpn"
     # An interface nobody has heard of is LAN: showing a real address is a far
     # cheaper mistake than hiding one.
     assert classify_interface_address("some-nic-from-2030", "10.0.0.29") == "lan"

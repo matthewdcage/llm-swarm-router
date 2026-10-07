@@ -401,6 +401,19 @@ struct SettingsWindowView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("Swarm")
             Toggle("mDNS discovery", isOn: $model.document.swarm.bool("mdns", default: true))
+            Toggle(
+                "Overlay discovery (gossip)",
+                isOn: Binding(
+                    get: {
+                        model.document.swarm.string("overlay_discovery", default: "auto") != "off"
+                    },
+                    set: { on in
+                        model.document.swarm["overlay_discovery"] = .string(on ? "auto" : "off")
+                    }
+                )
+            )
+            Text("Learns NetBird/Tailscale peer URLs from heartbeats without pinning swarm.peers.")
+                .font(.caption).foregroundStyle(.secondary)
             Toggle("Subnet scan at startup", isOn: $model.document.swarm.bool("subnet_scan"))
             Text("Probes the LAN for agents on :11400 when the agent starts. Recommended when listening on 0.0.0.0.")
                 .font(.caption).foregroundStyle(.secondary)

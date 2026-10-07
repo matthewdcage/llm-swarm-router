@@ -421,6 +421,14 @@ function ovRenderMasthead(root) {
 
 /* ---------------- 1. role banner ---------------- */
 
+function ovVpnReachableCount() {
+  return ovPeerList().filter((peer) =>
+    asArray(peer.address_health).some(
+      (row) => row && row.kind === "vpn" && row.status === "online"
+    )
+  ).length;
+}
+
 function ovRoleSentence(peerRows) {
   const status = state.status;
   if (!state.healthy || !status) {
@@ -441,6 +449,8 @@ function ovRoleSentence(peerRows) {
       : `This node advertises to ${n} peer${n === 1 ? "" : "s"} in the mesh.`,
   ];
   if (online.length) parts.push(`${online.join(", ")} reachable.`);
+  const vpnN = ovVpnReachableCount();
+  if (vpnN) parts.push(`${vpnN} peer${vpnN === 1 ? "" : "s"} reachable via VPN overlay.`);
   if (idle.length) parts.push(`${idle.join(", ")} not taking work.`);
   if (status.draining) parts.push("Draining — no new requests are accepted here.");
   return parts.join(" ");

@@ -100,7 +100,17 @@ _CONTAINER_IFACE_PREFIXES = (
 
 # Tunnels. Reachable by a peer that is on the same tunnel, so these rank
 # above container bridges and below the LAN proper.
-_VPN_IFACE_PREFIXES = ("tun", "tap", "utun", "wg", "ppp", "tailscale", "ipsec", "zt")
+_VPN_IFACE_PREFIXES = (
+    "tun",
+    "tap",
+    "utun",
+    "wg",
+    "wt",  # NetBird wireguard tunnel (wt0 on Linux)
+    "ppp",
+    "tailscale",
+    "ipsec",
+    "zt",
+)
 
 
 def classify_interface_address(interface: str, ip: str) -> str:
@@ -136,6 +146,54 @@ def classify_interface_address(interface: str, ip: str) -> str:
 def address_kind_rank(kind: str) -> int:
     """Sort position for a kind; an unknown kind sorts last, never crashes."""
     return _ADDRESS_KIND_RANK.get(str(kind or ""), _UNKNOWN_KIND_RANK)
+
+
+_MESH_SKIP_KINDS = frozenset({"loopback", "container", "link_local"})
+
+
+def peer_candidate_listen_urls(
+    listen_url: str,
+    *,
+    also_reachable_at: Iterable[str] | None = None,
+    reachable_at: Iterable[dict[str, str]] | None = None,
+) -> list[tuple[str, str]]:
+    """Dialable agent root URLs ``(url, kind)`` for mesh hops, best path first.
+
+    Single source for swarm routing, health probes, and UI ordering. Skips
+    addresses other hosts cannot use (loopback, container bridges, link-local).
+    """
+    kind_by_url: dict[str, str] = {}
+    for entry in reachable_at or ():
+        url = str(entry.get("url", "") or "").strip().rstrip("/")
+        if url:
+            kind_by_url[url] = str(entry.get("kind", "") or "lan")
+    rows: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    def add(url: str, kind: str | None = None) -> None:
+        u = str(url or "").strip().rstrip("/")
+        if not u or u in seen or not is_lan_reachable_agent_url(u):
+            return
+        k = kind or kind_by_url.get(u, "lan")
+        if k in _MESH_SKIP_KINDS:
+            return
+        seen.add(u)
+        rows.append((u, k))
+
+    add(listen_url, kind_by_url.get(listen_url.rstrip("/"), "lan"))
+    for entry in reachable_at or ():
+        add(str(entry.get("url", "") or ""), str(entry.get("kind", "") or "lan"))
+    for url in also_reachable_at or ():
+        add(url)
+    primary = listen_url.rstrip("/")
+    rows.sort(
+        key=lambda pair: (
+            address_kind_rank(pair[1]),
+            0 if pair[0].rstrip("/") == primary else 1,
+            pair[0],
+        )
+    )
+    return rows
 
 
 def local_ipv4_interfaces() -> list[tuple[str, str]]:

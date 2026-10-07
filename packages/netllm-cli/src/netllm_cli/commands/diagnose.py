@@ -231,6 +231,7 @@ DOCTOR_CHECK_IDS = (
     "agent.port_conflict",
     "swarm.mdns_advertise",
     "swarm.mdns_multicast",
+    "swarm.overlay_vpn_fallback",
 )
 
 #: Rich markup per severity for the check inventory.
@@ -664,6 +665,42 @@ def doctor(  # noqa: PLR0912, PLR0915 - one check per branch by design
                 )
             except RuntimeError:
                 pass
+
+    if str(getattr(cfg.swarm, "overlay_discovery", "auto")).lower() != "off":
+        try:
+            base = listen_url(cfg.agent.listen)
+            with httpx.Client(timeout=3.0) as client:
+                resp = client.get(f"{base}/netllm/v1/status")
+            if resp.status_code == 200:
+                for peer in resp.json().get("peers") or []:
+                    health = peer.get("address_health") or []
+                    lan_down = any(
+                        h.get("kind") == "lan" and h.get("status") != "online"
+                        for h in health
+                        if isinstance(h, dict)
+                    )
+                    vpn_up = any(
+                        h.get("kind") == "vpn" and h.get("status") == "online"
+                        for h in health
+                        if isinstance(h, dict)
+                    )
+                    if lan_down and vpn_up:
+                        aid = peer.get("agent_id", "peer")
+                        checks.append(
+                            doctor_check(
+                                "swarm.overlay_vpn_fallback",
+                                ok=False,
+                                severity="warn",
+                                title=f"Peer {aid}: LAN path down, VPN path up",
+                                detail=(
+                                    "Mesh routing can use the overlay address "
+                                    "from gossip. See docs/overlay-peer-discovery.md."
+                                ),
+                                fix="",
+                            )
+                        )
+        except Exception:
+            pass
 
     payload = doctor_report(checks)
     issues = payload["issues"]
