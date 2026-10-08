@@ -72,7 +72,14 @@ RoutingStrategy = Literal[
 AgentRole = Literal["peer", "gateway"]
 MeshCoordinatorMode = Literal["off", "gateway"]
 ProviderId = Literal[
-    "omlx", "ollama", "lmstudio", "vllm", "custom", "anthropic", "openai"
+    "omlx",
+    "ollama",
+    "lmstudio",
+    "vllm",
+    "freetoken",
+    "custom",
+    "anthropic",
+    "openai",
 ]
 ApiFormat = Literal["openai", "anthropic"]
 

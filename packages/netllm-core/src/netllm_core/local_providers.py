@@ -136,6 +136,22 @@ LOCAL_PROVIDERS: dict[str, LocalProviderSpec] = {
         api_key_env="VLLM_API_KEY",
         offline_hint="run [cyan]vllm serve --host 0.0.0.0 --port 8000[/]",
     ),
+    # FreeToken: an OpenAI-compatible engine for local NVFP4 checkpoints
+    # (`ft serve`). The inference API listens on 1919; its daemon/control API
+    # on 1900 is not an inference surface and is deliberately not scanned.
+    # Known quirk: the server rejects `response_format` on chat completions,
+    # which surfaces through the proxy as an upstream 4xx. NetLLM forwards
+    # request bodies verbatim, so callers must not send it to this backend.
+    "freetoken": LocalProviderSpec(
+        id="freetoken",
+        display_name="FreeToken",
+        short_label="FreeToken",
+        default_ports=(1919,),
+        platforms=("linux",),
+        port_env="FREETOKEN_PORT",
+        api_key_env="FREETOKEN_API_KEY",
+        offline_hint="run [cyan]ft serve[/] (or start the [cyan]ft daemon[/])",
+    ),
 }
 
 # `custom` is not a discoverable provider -- it has no ports, no probe and no

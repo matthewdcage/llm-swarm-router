@@ -245,6 +245,7 @@ final class SettingsViewModel {
         (id: "ollama", label: "Ollama", port: 11434),
         (id: "lmstudio", label: "LM Studio", port: 1234),
         (id: "vllm", label: "vLLM", port: 8000),
+        (id: "freetoken", label: "FreeToken", port: 1919),
     ]
 
     static func localProviderLabel(_ id: String) -> String {

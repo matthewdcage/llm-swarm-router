@@ -19,6 +19,7 @@ const PROVIDERS_BOOTSTRAP = [
   "ollama",
   "lmstudio",
   "vllm",
+  "freetoken",
   // netllm:generated:end:local-provider-ids
 ];
 let PROVIDERS = [...PROVIDERS_BOOTSTRAP];
