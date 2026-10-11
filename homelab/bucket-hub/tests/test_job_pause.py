@@ -1,39 +1,14 @@
 """Hub job pause/resume API tests."""
 from __future__ import annotations
 
-import importlib
 import importlib.util
-import json
 import sys
-from pathlib import Path
 
-import pytest
-from fastapi.testclient import TestClient
-
-HUB_ROOT = Path(__file__).resolve().parents[1]
-
-
-def _write_job(jobs_dir: Path, job: dict) -> None:
-    sub = jobs_dir / "jobs"
-    sub.mkdir(parents=True, exist_ok=True)
-    (sub / f"{job['id']}.json").write_text(json.dumps(job), encoding="utf-8")
-
-
-@pytest.fixture()
-def hub_client(tmp_path, monkeypatch):
-    monkeypatch.setenv("JOBS_DIR", str(tmp_path))
-    (tmp_path / "jobs").mkdir()
-    (tmp_path / "library.json").write_text('{"drives":[]}', encoding="utf-8")
-    sys.path.insert(0, str(HUB_ROOT))
-    if "app" in sys.modules:
-        app_mod = importlib.reload(sys.modules["app"])
-    else:
-        app_mod = importlib.import_module("app")
-    return TestClient(app_mod.app), tmp_path
+from tests.conftest import HUB_ROOT, _write_job
 
 
 def test_pause_rejects_non_aria2(hub_client):
-    client, jobs_dir = hub_client
+    client, jobs_dir, _app_mod = hub_client
     _write_job(
         jobs_dir,
         {
@@ -48,7 +23,7 @@ def test_pause_rejects_non_aria2(hub_client):
 
 
 def test_pause_running_aria2_keeps_gid(hub_client):
-    client, jobs_dir = hub_client
+    client, jobs_dir, _app_mod = hub_client
     _write_job(
         jobs_dir,
         {
@@ -68,7 +43,7 @@ def test_pause_running_aria2_keeps_gid(hub_client):
 
 
 def test_resume_paused_queues_high_priority(hub_client):
-    client, jobs_dir = hub_client
+    client, jobs_dir, _app_mod = hub_client
     _write_job(
         jobs_dir,
         {
@@ -96,7 +71,7 @@ def test_resume_paused_queues_high_priority(hub_client):
 
 
 def test_cancel_aria2_with_purge_sets_purging(hub_client):
-    client, jobs_dir = hub_client
+    client, jobs_dir, _app_mod = hub_client
     _write_job(
         jobs_dir,
         {
