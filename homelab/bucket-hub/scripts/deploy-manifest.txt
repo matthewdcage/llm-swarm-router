@@ -1,0 +1,37 @@
+# Bucket-HUB deploy manifest. Paths relative to homelab/bucket-hub/.
+# verify-deploy-parity.sh compares sha256 of each path to the remote copy.
+
+[pi]
+# Destination: ~/homelab/hub-form/
+app.py
+form.html
+job_health.py
+download_destinations.py
+index_writer.py
+job_kinds.py
+torrent_indexer_catalog.py
+torrent_indexer_urls.py
+llm_ctl.py
+machines_ctl.py
+torrent-indexers-catalog.json
+static/hub-escape.js
+hub-design.css
+hub-overnight.js
+glance.yml
+overnight.html
+chat.html
+storage.html
+capture.html
+indexers.html
+
+[worker]
+# Destination: ~/homelab/scripts/
+hub-worker.py
+job_health.py
+download_destinations.py
+index_writer.py
+job_kinds.py
+hub_torrent_parse.py
+media_pipeline.py
+torrent_indexer_catalog.py
+torrent-indexers-catalog.json
