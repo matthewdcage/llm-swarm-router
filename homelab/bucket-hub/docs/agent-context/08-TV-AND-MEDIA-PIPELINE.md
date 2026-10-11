@@ -48,9 +48,9 @@ sequenceDiagram
 | Season bar | Per-season pips; filter results by season |
 | Release badges | `complete` / `season` / `episode` from `hub_torrent_parse.py` |
 | Pack search (TV) | Dual query `{title} complete` + `{title} season` when enabled — rank complete > season > episode |
-| Destination | TV often pre-selects Expansion HDD + subfolder from parsed title |
+| Destination | TV selects Expansion HDD **torrents** inbox only. Hub never creates `torrents/<Show>/Season NN`. Sonarr owns `tv/<Show>/Season N`. |
 | Mini queue | Shows up to 2 failed + running; **Dismiss** on error/done (2026-10 deploy) |
-| Library API | `GET /api/library` — drives, nested folders for `torrents/<Show>/Season NN` |
+| Library API | `GET /api/library` — drives; TV queue uses the existing `torrents` folder |
 
 **Planned (P0 backlog):** show-only search → Sonarr lookup → season pips only → hide/demote `full_show` without Advanced override.
 

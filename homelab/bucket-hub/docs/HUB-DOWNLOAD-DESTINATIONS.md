@@ -56,12 +56,14 @@ Radarr/Sonarr library paths (`movies/`, `tv/`) are separate from the **torrent c
 
 Hub does **not** queue directly into `/tv` (Sonarr owns library paths). For TV/anime torrents:
 
-1. Hub auto-selects the **Expansion HDD** (Movies) drive and optional subfolder `torrents/<Show Name>/`.
-2. aria2 completes under host `/mnt/external/movies/torrents/…`.
-3. **Sonarr** imports from `/data/torrents/…` into `/data/tv/<Show>/Season …`.
-4. **Jellyfin** library **TV Shows (Sonarr)** scans `/tv`.
+1. Hub auto-selects the **Expansion HDD** (Movies) drive and the existing **`torrents`** folder only.
+2. `aria2_dir_for_job` always uses container `dir=/mnt/torrents` for any dest under that inbox (including leftover `torrents/<Show>/Season NN` jobs).
+3. aria2 completes as host `/mnt/external/movies/torrents/<release folder>/`.
+4. **Sonarr** imports into `/data/tv/<Show>/Season …`.
+5. **Jellyfin** library **TV Shows (Sonarr)** scans `/tv`.
+6. Worker PATCHes `download_dir` and a torrent `index_entry`; the Pi appends `$JOBS_DIR/download-index.jsonl`.
 
-Optional per-show folders under `torrents/` only organise the inbox before import; they do not replace Sonarr’s final layout.
+Hub does **not** invent Show/Season folders under `torrents/`. Use `scripts/cleanup-empty-tv-folders.py` (dry-run first) to drop leftover empty Season dirs.
 
 ## Adding a new download target
 

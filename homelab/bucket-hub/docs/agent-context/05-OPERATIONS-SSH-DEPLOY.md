@@ -17,26 +17,29 @@ ssh ai-server-ts 'docker ps --format "{{.Names}} {{.Status}}" | grep -E gluetun|
 
 ## Deploy Hub UI + API to Pi
 
-```bash
-# From llm-swarm-router repo root (example)
-PI=bucket@100.85.42.0
-rsync -av homelab/bucket-hub/app.py homelab/bucket-hub/form.html homelab/bucket-hub/job_health.py \
-  "$PI:~/homelab/hub-form/"
-# + any changed JS/CSS, hub-*.js, glance-hub.css, etc.
-ssh "$PI" 'sudo systemctl restart hub-form hub-gateway glance'   # unit names may vary; check systemctl list-units hub*
-```
+Use `scripts/deploy-manifest.txt` (Pi section) and `scripts/verify-deploy-parity.sh pi`.
+Do not hand-write rsync file lists.
 
-Update `glance.yml` iframe `?v=` after `form.html` changes.
+```bash
+# From llm-swarm-router repo root
+cd homelab/bucket-hub
+./scripts/verify-deploy-parity.sh pi   # expect mismatch before first AP-1 deploy
+# rsync every path in the [pi] section of scripts/deploy-manifest.txt to ~/homelab/hub-form/
+# including static/hub-escape.js, job_kinds.py, index_writer.py
+ssh stackrise-pi 'sudo systemctl restart hub-form hub-gateway glance'
+# bump glance.yml iframe ?v=
+./scripts/verify-deploy-parity.sh pi   # must exit 0
+```
 
 ## Deploy worker to ai-server
 
 ```bash
-UB=bucket@100.112.168.40   # ai-server-ts
-rsync -av homelab/bucket-hub/hub-worker.py homelab/bucket-hub/job_health.py \
-  homelab/bucket-hub/hub_torrent_parse.py homelab/bucket-hub/download_destinations.py \
-  homelab/bucket-hub/media_pipeline.py \
-  "$UB:~/homelab/scripts/"
-ssh "$UB" 'systemctl --user restart hub-worker'
+cd homelab/bucket-hub
+./scripts/verify-deploy-parity.sh worker
+# rsync every path in the [worker] section to ~/homelab/scripts/
+# including torrent_indexer_catalog.py, torrent-indexers-catalog.json, job_kinds.py, index_writer.py
+ssh ai-server-ts 'systemctl --user restart hub-worker'
+./scripts/verify-deploy-parity.sh worker   # must exit 0
 ```
 
 ## Environment files (never commit)
