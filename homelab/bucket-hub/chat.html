@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chat — Bucket-HUB</title>
+  <style>
+    :root {
+      --bg: hsl(240 10% 8%);
+      --panel: hsl(240 12% 11%);
+      --border: hsl(240 8% 22%);
+      --text: hsl(40 20% 92%);
+      --muted: hsl(240 5% 62%);
+      --accent: hsl(40 70% 55%);
+      --ok: hsl(145 40% 50%);
+      --warn: hsl(35 80% 55%);
+      --danger: hsl(0 72% 52%);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(1200px 600px at 20% -10%, hsl(240 18% 14%), var(--bg));
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1rem;
+      padding: 0.85rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      background: hsl(240 12% 9% / 0.92);
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+    header a.back { color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    header a.back:hover { color: var(--accent); }
+    header h1 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+    .controls { margin-left: auto; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+    .pill {
+      font-size: 0.78rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .pill.off { color: var(--muted); }
+    .pill.starting { color: var(--warn); border-color: var(--warn); }
+    .pill.ready { color: var(--ok); border-color: var(--ok); }
+    .pill.error { color: var(--danger); border-color: var(--danger); }
+    .toggle {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      padding: 0.4rem 0.9rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .toggle:disabled { opacity: 0.5; cursor: wait; }
+    .toggle.on { border-color: var(--ok); color: var(--ok); }
+    .toggle.off-btn { border-color: var(--muted); }
+    .ext-link { color: var(--accent); font-size: 0.85rem; }
+    main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .placeholder {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem;
+      color: var(--muted);
+    }
+    .placeholder p { max-width: 28rem; line-height: 1.5; }
+    iframe.chat-frame {
+      flex: 1;
+      width: 100%;
+      border: 0;
+      min-height: 480px;
+      background: var(--panel);
+    }
+    @media (max-width: 640px) {
+      .controls { margin-left: 0; width: 100%; justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="back" href="/">← Hub</a>
+    <h1>Chat</h1>
+    <div class="controls">
+      <span id="llmPill" class="pill off">Off</span>
+      <button type="button" id="llmToggle" class="toggle off-btn">Turn on LLM</button>
+      <a id="agentLink" class="ext-link" href="#" target="_blank" rel="noopener">Open agent UI ↗</a>
+    </div>
+  </header>
+  <main>
+    <div id="placeholder" class="placeholder">
+      <p>LLM is off to free the GPU. Turn it on to load <strong>Qwen 2.5 Coder 14B</strong> and open the DeepSeek Harness chat (first start may take a few minutes).</p>
+    </div>
+    <iframe id="chatFrame" class="chat-frame" hidden title="DeepSeek Harness chat"></iframe>
+  </main>
+  <script>
+    const HUB_PREFIX = (location.pathname.match(/^(\/hub-form)(?=\/|$)/) || [])[1] || '';
+    const CHAT_URL_TUNNEL = 'https://chat.bucket-hub.stackrise.com.au';
+    const CHAT_URL_LAN = 'http://192.168.50.65:3080';
+    const CHAT_URL = location.hostname === 'localhost' || location.hostname.startsWith('192.168.') || location.hostname.startsWith('100.')
+      ? CHAT_URL_LAN : CHAT_URL_TUNNEL;
+    const pill = document.getElementById('llmPill');
+    const toggle = document.getElementById('llmToggle');
+    const placeholder = document.getElementById('placeholder');
+    const frame = document.getElementById('chatFrame');
+    let busy = false;
+    let pollTimer = null;
+
+    function api(path, opts = {}) {
+      return fetch(`${HUB_PREFIX}/api${path}`, {
+        headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+        ...opts,
+      }).then(r => {
+        if (!r.ok) return r.json().then(j => Promise.reject(new Error(j.detail || r.statusText)));
+        return r.json();
+      });
+    }
+
+    function renderState(st) {
+      const state = st.state || 'off';
+      pill.className = 'pill ' + state;
+      pill.textContent = state === 'ready' ? 'Ready' : state === 'starting' ? 'Starting…' : state === 'error' ? 'Error' : 'Off';
+      if (state === 'ready') {
+        placeholder.hidden = true;
+        frame.hidden = false;
+        if (!frame.src) frame.src = CHAT_URL;
+        toggle.textContent = 'Turn off LLM';
+        toggle.className = 'toggle on';
+        toggle.disabled = busy;
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      } else if (state === 'starting') {
+        placeholder.hidden = false;
+        placeholder.querySelector('p').textContent = 'Starting vLLM and loading Qwen 2.5 Coder 14B…';
+        frame.hidden = true;
+        toggle.textContent = 'Starting…';
+        toggle.disabled = true;
+      } else {
+        placeholder.hidden = false;
+        placeholder.querySelector('p').innerHTML = 'LLM is off to free the GPU. Turn it on to load <strong>Qwen 2.5 Coder 14B</strong> and open the DeepSeek Harness chat (first start may take a few minutes).';
+        frame.hidden = true;
+        frame.src = '';
+        toggle.textContent = 'Turn on LLM';
+        toggle.className = 'toggle off-btn';
+        toggle.disabled = busy;
+      }
+    }
+
+    async function refresh() {
+      try {
+        const st = await api('/llm/status');
+        renderState(st);
+        return st;
+      } catch (e) {
+        pill.className = 'pill error';
+        pill.textContent = 'Error';
+        console.error(e);
+      }
+    }
+
+    toggle.addEventListener('click', async () => {
+      if (busy) return;
+      busy = true;
+      toggle.disabled = true;
+      try {
+        const st = await api('/llm/status');
+        if (st.state === 'ready' || st.state === 'starting') {
+          await api('/llm/stop', { method: 'POST' });
+        } else {
+          pill.className = 'pill starting';
+          pill.textContent = 'Starting…';
+          await api('/llm/start', { method: 'POST' });
+          pollTimer = setInterval(refresh, 3000);
+        }
+        await refresh();
+      } catch (e) {
+        alert(e.message || String(e));
+        await refresh();
+      } finally {
+        busy = false;
+      }
+    });
+
+    document.getElementById('agentLink').href = CHAT_URL;
+    refresh();
+    setInterval(refresh, 15000);
+  </script>
+</body>
+</html>

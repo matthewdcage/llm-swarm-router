@@ -1,0 +1,19 @@
+# Snippet to merge into Ubuntu ~/homelab/docker-compose.yml
+#
+# 1) Under gluetun.ports add:
+#      - "8888:8080"
+# 2) Add the searxng service below (same level as aria2/metube).
+
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    network_mode: service:gluetun
+    depends_on:
+      - gluetun
+    volumes:
+      - ./data/searxng:/etc/searxng:rw
+    environment:
+      SEARXNG_BASE_URL: http://192.168.50.65:8888/
+      # Set in .env — openssl rand -hex 32
+      SEARXNG_SECRET: ${SEARXNG_SECRET}

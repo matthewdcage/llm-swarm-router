@@ -1,0 +1,6 @@
+[Unit]
+Description=Mount watchdog — detect and unmount stale USB drives
+
+[Service]
+Type=oneshot
+ExecStart=/home/bucket/homelab/scripts/mount-watchdog.sh

@@ -1,0 +1,74 @@
+{
+  "timezone": "Australia/Brisbane",
+  "window": {"start": "22:00", "end": "06:00"},
+  "advance_mode": "complete_or_timeout",
+  "steps": [
+    {
+      "id": "wake-tnas",
+      "type": "machine_wake",
+      "label": "Wake TNAS",
+      "target": "tnas",
+      "timeout_min": 5,
+      "enabled": true,
+      "critical": false
+    },
+    {
+      "id": "wake-ubuntu",
+      "type": "machine_wake",
+      "label": "Wake ai-server",
+      "target": "ubuntu",
+      "timeout_min": 5,
+      "enabled": true,
+      "critical": true
+    },
+    {
+      "id": "mount-check",
+      "type": "mount_check",
+      "label": "Mount check (worker)",
+      "timeout_min": 3,
+      "enabled": true,
+      "critical": true
+    },
+    {
+      "id": "queue-drain",
+      "type": "queue_drain",
+      "label": "Drain download queue",
+      "timeout_min": 120,
+      "enabled": true,
+      "critical": false
+    },
+    {
+      "id": "deep-research",
+      "type": "dsh_research",
+      "label": "Research + DeepSeek synthesis",
+      "timeout_min": 45,
+      "enabled": false,
+      "critical": false
+    },
+    {
+      "id": "log-review",
+      "type": "dsh_log_review",
+      "label": "DeepSeek log review",
+      "timeout_min": 15,
+      "enabled": false,
+      "critical": false
+    },
+    {
+      "id": "seedvault-sync",
+      "type": "sync_job",
+      "label": "Seedvault → TNAS sync",
+      "timeout_min": 30,
+      "enabled": false,
+      "critical": false
+    },
+    {
+      "id": "sleep-ubuntu",
+      "type": "machine_sleep",
+      "label": "Sleep ai-server",
+      "target": "ubuntu",
+      "timeout_min": 3,
+      "enabled": true,
+      "critical": false
+    }
+  ]
+}

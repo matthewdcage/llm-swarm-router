@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+  <meta name="theme-color" content="#12131a"/>
+  <title>Bucket-HUB — Send</title>
+  <style>
+    :root {
+      --bg: #12131a;
+      --card: #1a1c26;
+      --text: #e8e9ef;
+      --muted: #9aa0b4;
+      --accent: #6ea8ff;
+      --ok: #5dce8a;
+      --bad: #e87878;
+      --border: #2a2d3a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      background: radial-gradient(120% 80% at 50% -20%, #1e2233 0%, var(--bg) 55%);
+      color: var(--text);
+      padding: 1.25rem 1rem 2.5rem;
+    }
+    h1 { font-size: 1.35rem; margin: 0 0 0.35rem; font-weight: 650; }
+    .sub { color: var(--muted); font-size: 0.92rem; margin: 0 0 1.25rem; line-height: 1.4; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1rem;
+      display: grid;
+      gap: 0.75rem;
+    }
+    .choice {
+      display: grid;
+      gap: 0.65rem;
+    }
+    button, .btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: #232636;
+      color: var(--text);
+      border-radius: 12px;
+      min-height: 3rem;
+      padding: 0.75rem 1rem;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.primary {
+      background: var(--accent);
+      border-color: transparent;
+      color: #0b1220;
+    }
+    button.ghost { background: transparent; }
+    label { display: grid; gap: 0.35rem; font-size: 0.85rem; color: var(--muted); }
+    input, select, textarea {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #12131a;
+      color: var(--text);
+      padding: 0.75rem 0.85rem;
+      font-size: 16px;
+    }
+    textarea { min-height: 7rem; resize: vertical; }
+    #msg { min-height: 1.25rem; font-size: 0.9rem; }
+    #msg.ok { color: var(--ok); }
+    #msg.bad { color: var(--bad); }
+    .hidden { display: none !important; }
+    .row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .row button { flex: 1; min-width: 7rem; }
+    a.home { color: var(--muted); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <h1>Send to Hub</h1>
+  <p class="sub">Out-of-house queuer. Downloads go via Proton when you send a link.</p>
+  <p><a class="home" href="/">← Hub</a></p>
+
+  <section id="stepChoice" class="card choice">
+    <p class="sub" style="margin:0">Do you have a direct download link?</p>
+    <button type="button" class="primary" id="btnYes">Yes — I have a URL</button>
+    <button type="button" id="btnNo">No — just a note / project name</button>
+  </section>
+
+  <section id="stepLink" class="card hidden">
+    <button type="button" class="ghost" id="backFromLink">← Back</button>
+    <label>Download URL
+      <input id="url" type="url" inputmode="url" autocomplete="url" placeholder="https://… or magnet:…"/>
+    </label>
+    <label>Title (optional)
+      <input id="linkTitle" type="text" maxlength="120" placeholder="Short name"/>
+    </label>
+    <label>Drive
+      <select id="drive"></select>
+    </label>
+    <label>Folder
+      <select id="folder"></select>
+    </label>
+    <button type="button" class="primary" id="sendLink">Queue download</button>
+  </section>
+
+  <section id="stepNote" class="card hidden">
+    <button type="button" class="ghost" id="backFromNote">← Back</button>
+    <label>What should we find / download later?
+      <textarea id="note" placeholder="Project name, idea, or description…"></textarea>
+    </label>
+    <button type="button" class="primary" id="sendNote">Save to Requests</button>
+  </section>
+
+  <p id="msg" role="status" aria-live="polite"></p>
+
+  <script>
+(function () {
+  const apiBase = (() => {
+    const p = location.pathname.replace(/\/+$/, "");
+    if (p.endsWith("/capture")) return p.slice(0, -"/capture".length) || "";
+    return "";
+  })();
+  function api(path) { return apiBase + path; }
+
+  let library = { drives: {} };
+  const msg = document.getElementById("msg");
+  function setMsg(text, ok) {
+    msg.textContent = text || "";
+    msg.className = text ? (ok ? "ok" : "bad") : "";
+  }
+  function show(id) {
+    ["stepChoice", "stepLink", "stepNote"].forEach((x) => {
+      document.getElementById(x).classList.toggle("hidden", x !== id);
+    });
+  }
+
+  function fillDrives() {
+    const driveSel = document.getElementById("drive");
+    const folderSel = document.getElementById("folder");
+    driveSel.innerHTML = "";
+    const drives = library.drives || {};
+    const ids = Object.keys(drives).filter((id) => drives[id].mounted !== false);
+    if (!ids.length) {
+      driveSel.innerHTML = "<option value=\"\">No mounted drives</option>";
+      folderSel.innerHTML = "";
+      return;
+    }
+    ids.forEach((id) => {
+      const d = drives[id];
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = d.label || id;
+      driveSel.appendChild(opt);
+    });
+    function fillFolders() {
+      folderSel.innerHTML = "";
+      const d = drives[driveSel.value] || {};
+      const folders = (d.folders || []).filter((f) => f.present !== false);
+      folders.forEach((f) => {
+        const opt = document.createElement("option");
+        opt.value = f.id;
+        opt.textContent = f.name || f.id;
+        folderSel.appendChild(opt);
+      });
+      // Prefer media_archive / movies / inbox when present
+      const prefer = ["media_archive", "movies", "youtube", "inbox"];
+      for (const p of prefer) {
+        if ([...folderSel.options].some((o) => o.value === p)) {
+          folderSel.value = p;
+          break;
+        }
+      }
+    }
+    driveSel.onchange = fillFolders;
+    // Prefer media_hdd then nas
+    if (ids.includes("media_hdd")) driveSel.value = "media_hdd";
+    else if (ids.includes("nas")) driveSel.value = "nas";
+    fillFolders();
+  }
+
+  async function loadLibrary() {
+    const r = await fetch(api("/api/library"));
+    if (!r.ok) throw new Error("Could not load destinations");
+    library = await r.json();
+    fillDrives();
+  }
+
+  document.getElementById("btnYes").onclick = async () => {
+    setMsg("");
+    show("stepLink");
+    try { await loadLibrary(); } catch (e) { setMsg(String(e.message || e), false); }
+  };
+  document.getElementById("btnNo").onclick = () => { setMsg(""); show("stepNote"); };
+  document.getElementById("backFromLink").onclick = () => { setMsg(""); show("stepChoice"); };
+  document.getElementById("backFromNote").onclick = () => { setMsg(""); show("stepChoice"); };
+
+  document.getElementById("sendLink").onclick = async () => {
+    const url = document.getElementById("url").value.trim();
+    const title = document.getElementById("linkTitle").value.trim();
+    const drive_id = document.getElementById("drive").value;
+    const folder_id = document.getElementById("folder").value;
+    if (!url) { setMsg("Paste a URL or magnet", false); return; }
+    if (!drive_id || !folder_id) { setMsg("Pick drive and folder", false); return; }
+    setMsg("Sending…", true);
+    try {
+      const r = await fetch(api("/api/requests"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "link", url, title, drive_id, folder_id, requested_by: "hub" }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.detail || JSON.stringify(data) || r.statusText);
+      setMsg(data.detail || "Queued", true);
+      document.getElementById("url").value = "";
+      document.getElementById("linkTitle").value = "";
+      show("stepChoice");
+    } catch (e) {
+      setMsg(String(e.message || e), false);
+    }
+  };
+
+  document.getElementById("sendNote").onclick = async () => {
+    const text = document.getElementById("note").value.trim();
+    if (!text) { setMsg("Enter a note", false); return; }
+    setMsg("Saving…", true);
+    try {
+      const r = await fetch(api("/api/requests"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "note", text, requested_by: "hub" }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.detail || JSON.stringify(data) || r.statusText);
+      setMsg(data.detail || "Saved to Requests", true);
+      document.getElementById("note").value = "";
+      show("stepChoice");
+    } catch (e) {
+      setMsg(String(e.message || e), false);
+    }
+  };
+})();
+  </script>
+</body>
+</html>

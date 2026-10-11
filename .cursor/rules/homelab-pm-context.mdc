@@ -1,0 +1,14 @@
+---
+description: Claude PM handoff — merge CONTEXT UPDATE into PROJECT-STATE.md; implement Action Packets for homelab/bucket-hub
+alwaysApply: true
+---
+
+# Homelab PM ↔ Cursor implementer
+
+When the user pastes output from the **Homelab integration assistant** Claude Project (Action Packet, `## CONTEXT UPDATE`, or both):
+
+1. **CONTEXT UPDATE** — Merge into `homelab/bucket-hub/docs/agent-context/PROJECT-STATE.md` yourself. Do not only tell the user to edit the file unless the update is ambiguous or conflicts with the repo; then ask one clarifying question.
+2. **Action Packet** — Implement in `homelab/bucket-hub/` per the packet; update `PROJECT-STATE.md` backlog when work ships (same session if possible).
+3. **No secrets** in `PROJECT-STATE.md` or agent-context docs.
+
+Reference: `homelab/bucket-hub/docs/agent-context/PROJECT-MANAGER-BRIEF.md`, `PROJECT-STATE.md`, and `00-README.md`.

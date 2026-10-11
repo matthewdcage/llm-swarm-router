@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Bucket-HUB Capture — Options</title>
+  <style>
+    body { font: 14px/1.45 system-ui, sans-serif; max-width: 36rem; margin: 1.5rem auto; padding: 0 1rem;
+      background: #12141c; color: #e8eaed; }
+    label { display: block; margin-top: 1rem; font-size: 0.85rem; color: #9aa0a6; }
+    input, select { width: 100%; box-sizing: border-box; margin-top: 0.25rem; padding: 0.5rem;
+      background: #0e1016; color: #e8eaed; border: 1px solid #2a2f3a; border-radius: 6px; }
+    button { margin-top: 1rem; margin-right: 0.5rem; padding: 0.5rem 1rem; background: #c4a35a; border: 0;
+      border-radius: 6px; font-weight: 600; cursor: pointer; }
+    button.secondary { background: #2a2f3a; color: #e8eaed; }
+    .hint { font-size: 0.8rem; color: #9aa0a6; margin-top: 0.35rem; }
+    #msg { margin-top: 0.75rem; white-space: pre-wrap; }
+    #msg.ok { color: #8bd49a; }
+    #msg.err { color: #f0a0a0; }
+    code { background: #1a1d27; padding: 0.1rem 0.3rem; border-radius: 4px; }
+    .callout { margin-top: 1rem; padding: 0.75rem; border: 1px solid #2a2f3a; border-radius: 8px;
+      background: #1a1d27; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <h1>Bucket-HUB Capture</h1>
+  <div class="callout">
+    <strong>Firefox + Proton (recommended)</strong><br/>
+    Use the public Hub URL so browser traffic stays on Proton VPN.
+    First open <code>https://bucket-hub.stackrise.com.au/</code> in Firefox and complete Cloudflare Access login.
+    Do not use the LAN IP if you want every browser hop on Proton.
+  </div>
+  <label>Hub base URL
+    <input id="hubBase" type="text" placeholder="https://bucket-hub.stackrise.com.au" autocomplete="off"/>
+  </label>
+  <p class="hint">Preferred: <code>https://bucket-hub.stackrise.com.au</code>. LAN <code>http://192.168.50.138:3000</code> is debug-only and conflicts with full-tunnel Proton.</p>
+  <label>Capture token
+    <input id="captureToken" type="password" autocomplete="off"/>
+  </label>
+  <label>Default file type
+    <select id="defaultKind">
+      <option value="auto">Auto</option>
+      <option value="media">Video / YouTube</option>
+      <option value="website">Website</option>
+      <option value="github">GitHub</option>
+      <option value="hf">Hugging Face</option>
+    </select>
+  </label>
+  <p class="hint">Folder targets are configured on the Hub (<code>capture-folders.json</code>), not in this Options page.</p>
+  <button type="button" id="save">Save</button>
+  <button type="button" id="test" class="secondary">Test connection</button>
+  <div id="msg"></div>
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+{
+  "broadcast": "192.168.50.255",
+  "machines": [
+    {
+      "id": "pi",
+      "label": "Pi",
+      "lan_ip": "192.168.50.138",
+      "mac": "00:00:00:00:00:00",
+      "probe_url": "http://192.168.50.138:3000/",
+      "wake": false,
+      "sleep": false,
+      "hub_host": true
+    },
+    {
+      "id": "mac",
+      "label": "Mac",
+      "lan_ip": "192.168.50.19",
+      "mac": "00:00:00:00:00:00",
+      "probe_url": "http://192.168.50.19/",
+      "wake": true,
+      "sleep": true,
+      "ssh": {
+        "host": "192.168.50.19",
+        "user": "USER",
+        "sleep_cmd": "pmset sleepnow"
+      }
+    },
+    {
+      "id": "ubuntu",
+      "label": "Ubuntu",
+      "lan_ip": "192.168.50.65",
+      "mac": "00:00:00:00:00:00",
+      "probe_url": "http://192.168.50.65:11400/ui/",
+      "wake": true,
+      "sleep": true,
+      "ssh": {
+        "host": "192.168.50.65",
+        "user": "bucket",
+        "sleep_cmd": "systemctl suspend"
+      }
+    },
+    {
+      "id": "tnas",
+      "label": "TNAS",
+      "lan_ip": "192.168.50.186",
+      "mac": "00:00:00:00:00:00",
+      "probe_url": "http://192.168.50.186/",
+      "wake": true,
+      "sleep": false
+    },
+    {
+      "id": "bucket",
+      "label": "Bucket",
+      "lan_ip": "192.168.50.222",
+      "mac": "00:00:00:00:00:00",
+      "probe_url": "http://192.168.50.222:11400/ui/",
+      "wake": true,
+      "sleep": true,
+      "ssh": {
+        "host": "192.168.50.222",
+        "user": "bucket",
+        "sleep_cmd": "systemctl suspend"
+      }
+    }
+  ]
+}

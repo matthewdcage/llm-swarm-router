@@ -1,0 +1,406 @@
+/* Bucket-HUB design language v2.1 — a11y contrast + focus */
+:root {
+  --hub-bg: hsl(240 12% 7%);
+  --hub-raised: hsl(240 10% 11%);
+  --hub-raised-2: hsl(240 10% 14%);
+  --hub-border: hsl(240 8% 26%);
+  --hub-border-strong: hsl(240 8% 36%);
+  --hub-text: hsl(40 10% 96%);
+  /* ~72% L for WCAG AA UI text on near-black */
+  --hub-muted: hsl(240 8% 72%);
+  --hub-label: hsl(40 8% 82%);
+  --hub-accent: #c4a35a;
+  --hub-accent-dim: hsl(40 40% 18%);
+  --hub-accent-ink: hsl(240 12% 8%);
+  --hub-ok: hsl(145 45% 52%);
+  --hub-warn: hsl(32 85% 55%);
+  --hub-fail: hsl(0 72% 62%);
+  --hub-info: hsl(210 75% 65%);
+  --hub-input: hsl(240 14% 6%);
+  --hub-chip: hsl(240 10% 15%);
+  --hub-radius: 12px;
+  --hub-radius-sm: 8px;
+  --hub-space-1: 0.25rem;
+  --hub-space-2: 0.5rem;
+  --hub-space-3: 0.75rem;
+  --hub-space-4: 1rem;
+  --hub-space-5: 1.5rem;
+  --hub-font: "IBM Plex Sans", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --hub-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --hub-focus: 0 0 0 3px var(--hub-accent);
+  --hub-focus-offset: 2px;
+
+  /* Back-compat aliases used by form.html / embeds */
+  --bg: var(--hub-bg);
+  --card: var(--hub-raised);
+  --border: var(--hub-border);
+  --text: var(--hub-text);
+  --muted: var(--hub-muted);
+  --accent: var(--hub-accent);
+  --ok: var(--hub-ok);
+  --fail: var(--hub-fail);
+  --input: var(--hub-input);
+  --chip: var(--hub-chip);
+  --chip-on: var(--hub-accent-dim);
+}
+
+/* Glance iframe chrome */
+iframe.hub-workspace,
+.page iframe {
+  border-radius: var(--hub-radius) !important;
+  border: 1px solid var(--hub-border) !important;
+  background: var(--hub-bg) !important;
+  min-height: 12rem;
+}
+
+/* Skeleton while iframe paints */
+.widget-content:has(iframe):empty,
+.iframe-widget iframe:not([src]) {
+  background: linear-gradient(
+    90deg,
+    var(--hub-raised) 0%,
+    var(--hub-raised-2) 50%,
+    var(--hub-raised) 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* Reachability / monitor: healthy = green, not warning red */
+.monitor-site .status-icon.ok,
+.monitor-list .site .ok,
+.widget-type-monitor .status.available,
+.monitor .icon.available {
+  color: var(--hub-ok) !important;
+}
+.monitor-site .status-icon.error,
+.monitor-list .site .error,
+.widget-type-monitor .status.unavailable {
+  color: var(--hub-fail) !important;
+}
+
+.monitor-list a.available svg,
+.monitor-site.available svg {
+  color: var(--hub-ok);
+  fill: var(--hub-ok);
+}
+
+/* Keyboard focus (shared surfaces) */
+:focus-visible {
+  outline: 3px solid var(--hub-accent);
+  outline-offset: var(--hub-focus-offset, 2px);
+}
+
+/* Standalone Hub pages in Glance iframes (/indexers, /chat, …) */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body.hub-surface {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--hub-text);
+  background: radial-gradient(
+    1200px 520px at 18% -8%,
+    hsl(240 16% 12%),
+    var(--hub-bg)
+  );
+  font-family: var(--hub-font);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.hub-surface-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--hub-border);
+  background: hsl(240 12% 9% / 0.94);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.hub-surface-header h1 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.hub-surface-header .hub-back {
+  color: var(--hub-muted);
+  text-decoration: none;
+  font-size: 0.82rem;
+}
+
+.hub-surface-header .hub-back:hover {
+  color: var(--hub-accent);
+}
+
+.hub-surface-header .hub-toolbar {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+}
+
+.hub-surface-main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0.65rem 1rem 1.5rem;
+}
+
+.hub-surface .hub-lede {
+  margin: 0 0 0.5rem;
+  color: var(--hub-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.hub-surface .hub-lede a {
+  color: var(--hub-accent);
+}
+
+.hub-surface .hub-meta-line {
+  margin: 0 0 0.65rem;
+  color: var(--hub-muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.hub-stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 0.45rem;
+  margin-bottom: 0.65rem;
+}
+
+.hub-stat-card {
+  background: var(--hub-raised);
+  border: 1px solid var(--hub-border);
+  border-radius: var(--hub-radius-sm);
+  padding: 0.55rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.hub-stat-card .label {
+  font-size: 0.62rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--hub-muted);
+}
+
+.hub-stat-card .value {
+  font-size: 1.15rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--hub-text);
+}
+
+.hub-stat-card .meta {
+  font-size: 0.68rem;
+  color: var(--hub-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hub-surface-section {
+  background: var(--hub-raised);
+  border: 1px solid var(--hub-border);
+  border-radius: var(--hub-radius);
+  padding: 0.55rem 0.65rem 0.35rem;
+  overflow: auto;
+}
+
+.hub-surface button,
+.hub-surface .btn {
+  background: var(--hub-accent);
+  color: var(--hub-accent-ink);
+  border: 0;
+  border-radius: var(--hub-radius-sm);
+  padding: 0.4rem 0.7rem;
+  font-weight: 650;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  min-height: 2rem;
+}
+
+.hub-surface button.secondary,
+.hub-surface .btn.secondary {
+  background: transparent;
+  color: var(--hub-muted);
+  border: 1px solid var(--hub-border);
+}
+
+.hub-surface button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+table.hub-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+table.hub-data-table th,
+table.hub-data-table td {
+  text-align: left;
+  padding: 0.42rem 0.45rem;
+  border-bottom: 1px solid var(--hub-border);
+  vertical-align: top;
+}
+
+table.hub-data-table th {
+  color: var(--hub-muted);
+  font-weight: 650;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+table.hub-data-table tbody tr:hover {
+  background: hsl(240 10% 13% / 0.65);
+}
+
+.hub-surface code,
+.hub-surface .mono {
+  font-family: var(--hub-mono);
+  font-size: 0.72rem;
+  word-break: break-all;
+}
+
+.hub-surface a.site-link {
+  color: var(--hub-info);
+  text-decoration: none;
+}
+
+.hub-surface a.site-link:hover {
+  text-decoration: underline;
+  color: var(--hub-accent);
+}
+
+.hub-status-pill {
+  display: inline-block;
+  padding: 0.1rem 0.42rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  border: 1px solid var(--hub-border);
+  text-transform: lowercase;
+}
+
+.hub-status-pill.healthy {
+  color: var(--hub-ok);
+  border-color: hsl(145 30% 32%);
+}
+
+.hub-status-pill.empty {
+  color: var(--hub-warn);
+  border-color: hsl(32 40% 32%);
+}
+
+.hub-status-pill.error,
+.hub-status-pill.degraded {
+  color: var(--hub-fail);
+  border-color: hsl(0 40% 32%);
+}
+
+.hub-status-pill.off,
+.hub-status-pill.not_configured,
+.hub-status-pill.unknown {
+  color: var(--hub-muted);
+}
+
+.hub-surface .err {
+  color: var(--hub-fail);
+  font-size: 0.74rem;
+}
+
+.hub-mirror-panel {
+  margin: 0.35rem 0 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px dashed var(--hub-border);
+  border-radius: var(--hub-radius-sm);
+  background: hsl(240 10% 9% / 0.6);
+  font-size: 0.72rem;
+}
+
+.hub-mirror-panel h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--hub-muted);
+  font-weight: 650;
+}
+
+.hub-mirror-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: flex-end;
+  margin-bottom: 0.65rem;
+  padding: 0.5rem 0.55rem;
+  border: 1px solid var(--hub-border);
+  border-radius: var(--hub-radius-sm);
+  background: var(--hub-raised);
+}
+
+.hub-mirror-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.68rem;
+  color: var(--hub-muted);
+  min-width: 8rem;
+  flex: 1 1 140px;
+}
+
+.hub-mirror-form input,
+.hub-mirror-form select {
+  background: var(--hub-input);
+  border: 1px solid var(--hub-border);
+  border-radius: 6px;
+  color: var(--hub-text);
+  padding: 0.35rem 0.45rem;
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.hub-mirror-list {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.hub-mirror-list th,
+.hub-mirror-list td {
+  padding: 0.28rem 0.35rem;
+  border-bottom: 1px solid var(--hub-border);
+  vertical-align: top;
+}
+
+.hub-mirror-list th {
+  font-size: 0.62rem;
+  color: var(--hub-muted);
+  text-transform: uppercase;
+}
+
+.hub-mirror-list button.linkish {
+  background: none;
+  border: none;
+  color: var(--hub-fail);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 0;
+}

@@ -1,0 +1,12 @@
+{
+  "type_folder_map": {
+    "media": { "drive_id": "nas", "folder_id": "media_archive" },
+    "video": { "drive_id": "nas", "folder_id": "media_archive" },
+    "website": { "drive_id": "nas", "folder_id": "inbox" },
+    "github": { "drive_id": "nas", "folder_id": "inbox" },
+    "hf": { "drive_id": "nas", "folder_id": "ai_language" },
+    "http": { "drive_id": "nas", "folder_id": "inbox" },
+    "magnet": { "drive_id": "nas", "folder_id": "inbox" },
+    "default": { "drive_id": "nas", "folder_id": "inbox" }
+  }
+}

@@ -1,0 +1,2 @@
+gp-treemap @0.6.2 — https://github.com/imbue-ai/gp-treemap
+GPL-2.0 — GrandPerspective lineage; attribution to Erwin Bonsma required.

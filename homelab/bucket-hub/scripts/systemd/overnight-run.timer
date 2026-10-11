@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Bucket-HUB overnight plan at 22:00 Brisbane
+
+[Timer]
+# Pi host timezone should be Australia/Brisbane (22:00 local)
+OnCalendar=*-*-* 22:00:00
+Persistent=true
+Unit=overnight-run.service
+
+[Install]
+WantedBy=timers.target

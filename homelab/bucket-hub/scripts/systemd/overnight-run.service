@@ -1,0 +1,13 @@
+[Unit]
+Description=Bucket-HUB overnight schedule runner
+After=network-online.target hub-form.service
+
+[Service]
+Type=oneshot
+Environment=HUB_BASE=http://127.0.0.1:3020
+Environment=JOBS_DIR=%h/homelab/data/hub-jobs
+Environment=HUB_TZ=Australia/Brisbane
+ExecStart=%h/homelab/scripts/overnight-run.py
+
+[Install]
+WantedBy=timers.target

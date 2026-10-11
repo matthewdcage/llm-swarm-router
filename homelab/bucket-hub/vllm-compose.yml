@@ -1,0 +1,34 @@
+# Ubuntu ai-server — on-demand vLLM (Qwen2.5-Coder-14B AWQ). Not autostarted on boot.
+# Start: ~/homelab/scripts/ai-server-llm.sh start
+services:
+  vllm-coder:
+    image: vllm/vllm-openai:v0.8.5.post1
+    container_name: vllm-coder
+    restart: "no"
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      - "8000:8000"
+    volumes:
+      - /models:/models
+    command:
+      - --model
+      - /models/weights/qwen2.5-coder-14b-instruct-awq
+      - --served-model-name
+      - qwen2.5-coder-14b
+      - --quantization
+      - awq
+      - --gpu-memory-utilization
+      - "0.90"
+      - --max-model-len
+      - "16384"
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"

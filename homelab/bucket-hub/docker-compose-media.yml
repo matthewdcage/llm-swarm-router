@@ -1,0 +1,200 @@
+# Ubuntu download + media plane (linux/amd64)
+# WAN downloaders share Gluetun (Proton). Jellyfin is LAN-only.
+# Library layout on Expansion HDD: /mnt/external/movies/{torrents,tv,movies,music}
+services:
+  gluetun:
+    image: qmcgaw/gluetun:v3.40.0
+    container_name: gluetun
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./data/gluetun:/gluetun
+    ports:
+      - "6800:6800"
+      - "6888:6888"
+      - "6888:6888/udp"
+      - "8089:8081"
+      - "8888:8080"
+      - "9117:9117"
+      - "8191:8191"
+      - "7878:7878"
+      - "8989:8989"
+      - "8686:8686"
+      - "9696:9696"
+    environment:
+      TZ: Australia/Brisbane
+      VPN_SERVICE_PROVIDER: protonvpn
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY: ${WIREGUARD_PRIVATE_KEY}
+      WIREGUARD_ADDRESSES: ${WIREGUARD_ADDRESSES}
+      SERVER_COUNTRIES: ${VPN_SERVER_COUNTRIES:-United States}
+      VPN_PORT_FORWARDING: ${VPN_PORT_FORWARDING:-on}
+      VPN_PORT_FORWARDING_PROVIDER: protonvpn
+      VPN_IPv6: "off"
+      DOT: "on"
+      UPDATER_PERIOD: 24h
+
+  aria2:
+    image: p3terx/aria2-pro:latest
+    container_name: aria2
+    restart: unless-stopped
+    network_mode: service:gluetun
+    depends_on:
+      - gluetun
+    environment:
+      PUID: 1000
+      PGID: 1000
+      UMASK_SET: "022"
+      RPC_SECRET: ${ARIA2_RPC_SECRET:-homelab-aria2}
+      RPC_PORT: 6800
+      LISTEN_PORT: 6888
+    volumes:
+      - ./aria2:/config
+      - /mnt/external/movies/torrents:/mnt/torrents
+      - /mnt/media:/media
+
+  ariang:
+    image: p3terx/ariang:latest
+    container_name: ariang
+    restart: unless-stopped
+    ports:
+      - "8088:6880"
+    depends_on:
+      - aria2
+
+  metube:
+    image: ghcr.io/alexta69/metube:latest
+    container_name: metube
+    restart: unless-stopped
+    network_mode: service:gluetun
+    depends_on:
+      - gluetun
+    volumes:
+      - /mnt/media/Media/YouTube Videos:/downloads
+      - ./data/ytdlp/cookies.txt:/cookies/cookies.txt
+    environment:
+      UID: "1000"
+      GID: "1000"
+      YTDL_OPTIONS: '{"cookiefile":"/cookies/cookies.txt"}'
+
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    network_mode: service:gluetun
+    depends_on:
+      - gluetun
+    volumes:
+      - ./data/searxng:/etc/searxng:rw
+    environment:
+      SEARXNG_BASE_URL: http://192.168.50.65:8888/
+      SEARXNG_SECRET: ${SEARXNG_SECRET}
+
+  jackett:
+    image: lscr.io/linuxserver/jackett:latest
+    container_name: jackett
+    restart: unless-stopped
+    network_mode: service:gluetun
+    depends_on:
+      - gluetun
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: Australia/Brisbane
+      AUTO_UPDATE: "true"
+    volumes:
+      - ./data/jackett:/config
+      - ./data/jackett-downloads:/downloads
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    restart: unless-stopped
+    network_mode: service:gluetun
+    depends_on:
+      - gluetun
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: Australia/Brisbane
+    volumes:
+      - ./data/prowlarr:/config
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    restart: unless-stopped
+    network_mode: service:gluetun
+    depends_on:
+      - gluetun
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: Australia/Brisbane
+    volumes:
+      - ./data/radarr:/config
+      - /mnt/external/movies:/data
+      - /mnt/external/movies/torrents:/mnt/torrents
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    restart: unless-stopped
+    network_mode: service:gluetun
+    depends_on:
+      - gluetun
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: Australia/Brisbane
+    volumes:
+      - ./data/sonarr:/config
+      - /mnt/external/movies:/data
+      - /mnt/external/movies/torrents:/mnt/torrents
+
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    container_name: lidarr
+    restart: unless-stopped
+    network_mode: service:gluetun
+    depends_on:
+      - gluetun
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: Australia/Brisbane
+    volumes:
+      - ./data/lidarr:/config
+      - /mnt/external/movies:/data
+      - /mnt/external/movies/torrents:/mnt/torrents
+
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: jellyfin
+    restart: unless-stopped
+    ports:
+      - "8096:8096"
+    volumes:
+      - ./data/jellyfin/config:/config
+      - ./data/jellyfin/cache:/cache
+      - /mnt/media:/media:ro
+      - /mnt/external/movies/movies:/movies:ro
+      - /mnt/external/movies/tv:/tv:ro
+      - /mnt/external/movies/torrents:/torrents:ro
+      - /mnt/external/movies/music:/music:ro
+    environment:
+      JELLYFIN_PublishedServerUrl: "http://192.168.50.65:8096"
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    restart: unless-stopped
+    network_mode: service:gluetun
+    depends_on:
+      - gluetun
+    environment:
+      LOG_LEVEL: info
+      TZ: Australia/Brisbane

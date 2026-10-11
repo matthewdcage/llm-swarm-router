@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Overnight plan — Bucket-HUB</title>
+  <style>
+    :root {
+      --bg: hsl(240 10% 8%);
+      --panel: hsl(240 12% 11%);
+      --border: hsl(240 8% 22%);
+      --text: hsl(40 20% 92%);
+      --muted: hsl(240 5% 62%);
+      --accent: hsl(40 70% 55%);
+      --ok: hsl(145 40% 50%);
+      --warn: hsl(35 80% 55%);
+      --danger: hsl(0 72% 52%);
+      --lane-h: 2.6rem;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(1200px 600px at 20% -10%, hsl(240 18% 14%), var(--bg));
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1rem;
+      padding: 0.85rem 1.25rem; border-bottom: 1px solid var(--border);
+      background: hsl(240 12% 9% / 0.92); position: sticky; top: 0; z-index: 30;
+    }
+    header h1 { margin: 0; font-size: 1.15rem; }
+    header a.back { color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    .toolbar { margin-left: auto; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    .btn {
+      border: 1px solid var(--border); background: var(--panel); color: var(--text);
+      padding: 0.4rem 0.85rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem;
+    }
+    .btn.primary { border-color: var(--accent); color: var(--accent); }
+    .mode-pill {
+      font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em;
+      padding: 0.25rem 0.55rem; border-radius: 999px; border: 1px solid hsl(145 40% 40%);
+      color: var(--ok);
+    }
+    main { max-width: 1400px; margin: 0 auto; padding: 1rem 1.25rem 2rem; }
+    .gantt-panel {
+      background: hsl(240 12% 10% / 0.9); border: 1px solid var(--border);
+      border-radius: 14px; padding: 1rem; margin-bottom: 1rem;
+      box-shadow: 0 8px 32px hsl(240 20% 4% / 0.35);
+    }
+    .gantt-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem; }
+    .gantt-head h2 { margin: 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+    .gantt-head .window-label { color: var(--accent); font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+    .gantt-wrap { overflow-x: auto; padding-bottom: 0.25rem; }
+    .gantt-grid {
+      position: relative; min-width: 720px;
+      background: repeating-linear-gradient(
+        90deg,
+        hsl(240 10% 14%) 0,
+        hsl(240 10% 14%) calc(100% / 8 - 1px),
+        hsl(240 8% 18%) calc(100% / 8 - 1px),
+        hsl(240 8% 18%) calc(100% / 8)
+      );
+      border: 1px solid var(--border); border-radius: 10px;
+    }
+    .gantt-hours {
+      display: grid; grid-template-columns: repeat(8, 1fr);
+      font-size: 0.68rem; color: var(--muted); padding: 0.35rem 0.5rem 0;
+      font-variant-numeric: tabular-nums;
+    }
+    .gantt-hours span { text-align: center; }
+    .gantt-lanes { position: relative; min-height: 3rem; padding: 0.35rem 0 0.5rem; }
+    .gantt-bar {
+      position: absolute; height: calc(var(--lane-h) - 0.35rem); top: 0.2rem;
+      border-radius: 8px; border: 1px solid hsl(0 0% 100% / 0.08);
+      display: flex; align-items: center; padding: 0 0.5rem;
+      font-size: 0.72rem; font-weight: 600; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; cursor: grab; transition: box-shadow 0.15s, transform 0.15s;
+      box-shadow: 0 2px 8px hsl(0 0% 0% / 0.25);
+    }
+    .gantt-bar:hover { transform: translateY(-1px); box-shadow: 0 4px 14px hsl(0 0% 0% / 0.35); z-index: 5; }
+    .gantt-bar .cap { opacity: 0.75; font-weight: 400; margin-left: 0.35rem; font-size: 0.65rem; }
+    .gantt-bar.type-machine_wake { background: linear-gradient(135deg, hsl(210 55% 38%), hsl(210 45% 28%)); }
+    .gantt-bar.type-mount_check { background: linear-gradient(135deg, hsl(200 40% 35%), hsl(200 35% 25%)); }
+    .gantt-bar.type-llm_start, .gantt-bar.type-llm_stop { background: linear-gradient(135deg, hsl(145 45% 32%), hsl(145 40% 22%)); }
+    .gantt-bar.type-dsh_research, .gantt-bar.type-research_synthesis { background: linear-gradient(135deg, hsl(270 45% 38%), hsl(270 40% 28%)); }
+    .gantt-bar.type-dsh_log_review, .gantt-bar.type-log_review { background: linear-gradient(135deg, hsl(320 40% 36%), hsl(320 35% 26%)); }
+    .gantt-bar.type-sync_job { background: linear-gradient(135deg, hsl(35 50% 38%), hsl(35 45% 28%)); }
+    .gantt-bar.type-queue_drain, .gantt-bar.type-storage_scan { background: linear-gradient(135deg, hsl(240 25% 35%), hsl(240 20% 25%)); }
+    .gantt-bar.type-machine_sleep { background: linear-gradient(135deg, hsl(240 15% 32%), hsl(240 12% 22%)); }
+    .gantt-bar.disabled { opacity: 0.35; filter: grayscale(0.6); }
+    .gantt-legend { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; margin-top: 0.75rem; font-size: 0.75rem; color: var(--muted); }
+    .gantt-legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .gantt-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+    .run-status {
+      margin-top: 0.75rem; padding: 0.55rem 0.75rem; border-radius: 8px;
+      border: 1px solid var(--border); font-size: 0.82rem; display: none;
+    }
+    .run-status.show { display: block; }
+    .run-status.running { border-color: var(--accent); color: var(--accent); }
+    .run-status.done { border-color: var(--ok); color: var(--ok); }
+    .layout { display: grid; grid-template-columns: 200px 1fr; gap: 1rem; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+    .panel {
+      background: hsl(240 12% 10% / 0.85); border: 1px solid var(--border);
+      border-radius: 12px; padding: 0.85rem;
+    }
+    .panel h2 {
+      margin: 0 0 0.75rem; font-size: 0.78rem; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--muted);
+    }
+    .palette-item {
+      border: 1px solid var(--border); border-radius: 10px; padding: 0.5rem 0.65rem;
+      margin-bottom: 0.45rem; background: var(--panel); cursor: pointer; font-size: 0.85rem;
+      display: flex; align-items: center; gap: 0.45rem;
+    }
+    .palette-item:hover { border-color: var(--accent); }
+    .palette-item .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .step-card {
+      border: 1px solid var(--border); border-radius: 12px; padding: 0.65rem 0.75rem;
+      margin-bottom: 0.55rem; background: var(--panel); cursor: grab;
+      border-left: 4px solid var(--accent);
+    }
+    .step-card.disabled { opacity: 0.45; }
+    .step-card .top { display: flex; justify-content: space-between; gap: 0.5rem; align-items: flex-start; }
+    .step-card strong { font-size: 0.92rem; }
+    .step-card .badge {
+      font-size: 0.68rem; padding: 0.12rem 0.45rem; border-radius: 999px;
+      border: 1px solid var(--border); color: var(--muted); white-space: nowrap;
+    }
+    .step-card .meta { font-size: 0.78rem; color: var(--muted); margin-top: 0.35rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    .step-card input[type="number"] {
+      width: 3.2rem; background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; padding: 0.15rem 0.35rem; font-size: 0.8rem;
+    }
+    .warn-banner {
+      margin: 0 0 1rem; padding: 0.65rem 0.85rem; border-radius: 8px;
+      border: 1px solid var(--warn); color: var(--warn); font-size: 0.85rem; display: none;
+    }
+    .warn-banner.show { display: block; }
+    .sortable-ghost { opacity: 0.35; }
+    .hint { font-size: 0.78rem; color: var(--muted); margin: 0 0 0.75rem; line-height: 1.45; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js" defer></script>
+</head>
+<body>
+  <header>
+    <a class="back" href="/">← Hub</a>
+    <h1>Overnight plan</h1>
+    <span class="mode-pill">Done or timeout → next</span>
+    <div class="toolbar">
+      <button type="button" class="btn" id="btnSave">Save</button>
+      <button type="button" class="btn primary" id="btnRun">Run now</button>
+    </div>
+  </header>
+  <main>
+    <div id="warnBanner" class="warn-banner"></div>
+    <section class="gantt-panel">
+      <div class="gantt-head">
+        <h2>Night window</h2>
+        <span class="window-label" id="windowLabel">22:00 → 06:00</span>
+      </div>
+      <p class="hint">Each block is a <strong>time budget</strong> (max). The runner moves on as soon as the step finishes <em>or</em> when the budget expires — so fast steps never bottleneck the queue.</p>
+      <div class="gantt-wrap">
+        <div class="gantt-grid" id="ganttGrid">
+          <div class="gantt-hours" id="ganttHours"></div>
+          <div class="gantt-lanes" id="ganttLanes"></div>
+        </div>
+      </div>
+      <div class="gantt-legend">
+        <span><i style="background:hsl(145 45% 40%)"></i> LLM</span>
+        <span><i style="background:hsl(270 45% 45%)"></i> DeepSeek research</span>
+        <span><i style="background:hsl(320 40% 42%)"></i> DeepSeek log review</span>
+        <span><i style="background:hsl(210 55% 42%)"></i> Machines / mounts</span>
+      </div>
+      <div id="runStatus" class="run-status"></div>
+    </section>
+    <div class="layout">
+      <section class="panel">
+        <h2>Add step</h2>
+        <div id="palette"></div>
+      </section>
+      <section class="panel">
+        <h2>Run order (drag to reorder)</h2>
+        <div id="stepList"></div>
+      </section>
+    </div>
+  </main>
+  <script src="/assets/hub-overnight.js?v=20260826d" defer></script>
+</body>
+</html>

@@ -1,0 +1,108 @@
+# Bucket-HUB SSH — paste-ready (no private keys)
+
+Use on the **Mac** first. Then paste the “authorized_keys” block on Pi and ai-server if a host rejects Cursor SSH.
+
+Do not commit private keys. Do not paste secrets into Claude.
+
+================================================================================
+1) Mac — append to ~/.ssh/config (if missing)
+================================================================================
+
+Host stackrise-pi minecraft-pi
+  HostName 100.85.42.0
+  User bucket
+  IdentityFile ~/.ssh/id_ed25519_pi
+  IdentitiesOnly yes
+
+Host ai-server
+  HostName 192.168.50.65
+  User bucket
+  IdentityFile ~/.ssh/id_ed25519_pi
+  IdentityFile ~/.ssh/id_ed25519_bucket
+  IdentitiesOnly yes
+
+Host ai-server-ts
+  HostName 100.112.168.40
+  User bucket
+  IdentityFile ~/.ssh/id_ed25519_pi
+  IdentityFile ~/.ssh/id_ed25519_bucket
+  IdentitiesOnly yes
+
+# Optional LAN Pi (when on home Wi-Fi)
+Host stackrise-pi-lan
+  HostName 192.168.50.138
+  User bucket
+  IdentityFile ~/.ssh/id_ed25519_pi
+  IdentitiesOnly yes
+
+chmod 600 ~/.ssh/config
+
+Test:
+  ssh -o ConnectTimeout=10 stackrise-pi 'hostname; systemctl --user is-active hub-form.service'
+  ssh -o ConnectTimeout=10 ai-server-ts 'hostname; systemctl --user is-active hub-worker.service'
+
+================================================================================
+2) Pi — allow the Mac key (run ON the Pi after you ssh in once)
+================================================================================
+
+# If ~/.ssh/id_ed25519_pi.pub exists on the Mac, print it there:
+#   cat ~/.ssh/id_ed25519_pi.pub
+# Then on Pi:
+
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+# Paste ONE line from the Mac .pub file:
+# echo 'ssh-ed25519 AAAA... comment' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+
+# Hub paths (do not delete)
+#   ~/homelab/hub-form/          deployed UI + app.py
+#   ~/homelab/data/hub-jobs/     job JSON
+#   ~/.config/systemd/user/hub-form.service
+
+================================================================================
+3) ai-server — same key in authorized_keys (run ON ubuntu)
+================================================================================
+
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+# echo 'ssh-ed25519 AAAA... comment' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+
+# Worker:
+#   ~/homelab/scripts/hub-worker.py
+#   ~/homelab/scripts/hub-worker.env     # secrets — never copy to git
+#   ~/homelab/docker-compose.yml
+
+================================================================================
+4) Cursor / Claude Code deploy (run on Mac from repo root)
+================================================================================
+
+# Hub API + UI → Pi
+rsync -av \
+  homelab/bucket-hub/app.py \
+  homelab/bucket-hub/form.html \
+  homelab/bucket-hub/job_health.py \
+  homelab/bucket-hub/machines_ctl.py \
+  homelab/bucket-hub/hub-overnight.js \
+  homelab/bucket-hub/overnight.html \
+  stackrise-pi:~/homelab/hub-form/
+ssh stackrise-pi 'systemctl --user restart hub-form.service'
+
+# Worker → ai-server (Tailscale)
+rsync -av \
+  homelab/bucket-hub/hub-worker.py \
+  homelab/bucket-hub/job_health.py \
+  homelab/bucket-hub/hub_torrent_parse.py \
+  homelab/bucket-hub/download_destinations.py \
+  homelab/bucket-hub/media_pipeline.py \
+  ai-server-ts:~/homelab/scripts/
+ssh ai-server-ts 'systemctl --user restart hub-worker.service'
+
+================================================================================
+5) What Cursor needs (already on maintainer Mac)
+================================================================================
+
+- Private keys stay on the Mac: ~/.ssh/id_ed25519_pi (and optionally id_ed25519_bucket)
+- Claude Project does NOT get these keys
+- After you paste SSH-PASTE.txt Host blocks, Cursor can ssh stackrise-pi and ai-server-ts

@@ -1,0 +1,449 @@
+/* Bucket-HUB Glance chrome — design language + header injections */
+@import url("/assets/hub-design.css?v=20260826a11y");
+
+:root {
+  --hub-accent: #c4a35a;
+  --hub-border: hsl(240 8% 20%);
+  --hub-card: hsl(240 10% 11%);
+  --hub-bg: hsl(240 12% 7%);
+  --hub-radius: 12px;
+  --hub-ok: hsl(145 42% 48%);
+  --hub-fail: hsl(0 68% 58%);
+}
+
+iframe {
+  border-radius: var(--hub-radius) !important;
+  border: 1px solid var(--hub-border) !important;
+  background: var(--hub-bg) !important;
+  min-height: 8rem;
+}
+
+.page .widget,
+.widget-content {
+  border-radius: var(--hub-radius);
+}
+
+/* Reachability / monitor: healthy green, failure red only */
+.monitor-site .status-icon.ok,
+.monitor-list .site .ok,
+.widget-type-monitor .status.available {
+  color: var(--hub-ok) !important;
+}
+.monitor-site .status-icon.error,
+.monitor-list .site .error,
+.widget-type-monitor .status.unavailable {
+  color: var(--hub-fail) !important;
+}
+/* Soften default warning triangles on available rows when Glance uses one icon */
+.monitor-site:not(.error) svg[class*="alert"],
+.monitor-site:not(.error) .mdi-alert {
+  color: var(--hub-ok);
+  opacity: 0.85;
+}
+
+.header.hub-header-has-vpn {
+  position: relative;
+}
+
+.hub-vpn-badge {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: min(52vw, 28rem);
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid hsl(240 8% 22%);
+  background: hsl(240 10% 10% / 0.92);
+  color: hsl(240 5% 70%);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px hsl(240 10% 6% / 0.4);
+}
+
+.hub-vpn-badge::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
+}
+
+.hub-vpn-badge.ok {
+  color: hsl(145 40% 55%);
+  border-color: hsl(145 30% 28%);
+}
+
+.hub-vpn-badge.ok::before {
+  animation: hub-vpn-pulse 1.6s ease-in-out infinite;
+}
+
+.hub-vpn-badge.bad {
+  color: hsl(0 65% 62%);
+  border-color: hsl(0 40% 32%);
+}
+
+.hub-vpn-badge.unk {
+  color: hsl(240 5% 55%);
+}
+
+@keyframes hub-vpn-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 hsl(145 40% 55% / 0.55);
+  }
+  50% {
+    opacity: 0.45;
+    box-shadow: 0 0 0 6px hsl(145 40% 55% / 0);
+  }
+}
+
+@media (max-width: 900px) {
+  .hub-vpn-badge {
+    max-width: min(70vw, 18rem);
+    font-size: 0.7rem;
+    padding: 0.22rem 0.55rem;
+  }
+}
+
+/* Header tray — hide Glance theme picker; larger requests bell */
+#hub-storage-btn,
+.header .theme-picker,
+.mobile-navigation-actions .theme-picker {
+  display: none !important;
+}
+
+.header.hub-header-has-tray {
+  position: relative;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+}
+
+.header.hub-header-has-tray .nav {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+#hub-header-tray {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  margin-left: 0.35rem;
+  z-index: 42;
+}
+
+.hub-header-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 3.1rem;
+  height: 3.1rem;
+  margin: 0;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid hsl(240 8% 24%);
+  background: hsl(240 12% 9% / 0.95);
+  color: hsl(240 5% 78%);
+  text-decoration: none;
+  box-shadow: 0 0 0 1px hsl(240 10% 4% / 0.5);
+  cursor: pointer;
+  box-sizing: border-box;
+  appearance: none;
+  font: inherit;
+}
+
+.hub-header-btn:hover {
+  border-color: hsl(240 10% 40%);
+  color: hsl(40 90% 70%);
+}
+
+#hub-requests-btn svg {
+  width: 1.55rem;
+  height: 1.55rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#hub-requests-count {
+  position: absolute;
+  top: -0.1rem;
+  right: -0.1rem;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: hsl(0 72% 52%);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.35rem;
+  text-align: center;
+  box-shadow: 0 0 0 2px hsl(240 12% 9%);
+}
+
+#hub-requests-count.hidden {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .hub-header-btn {
+    width: 2.65rem;
+    height: 2.65rem;
+  }
+
+  #hub-requests-btn svg {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+}
+
+/* Requests review modal */
+body.hub-modal-open {
+  overflow: hidden;
+}
+
+.hub-modal.hidden {
+  display: none !important;
+}
+
+.hub-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 4.5rem 1rem 1.5rem;
+  box-sizing: border-box;
+}
+
+.hub-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: hsl(240 12% 4% / 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.hub-modal-panel {
+  position: relative;
+  z-index: 1;
+  width: min(32rem, calc(100vw - 1.5rem));
+  max-height: min(78vh, 40rem);
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  border: 1px solid hsl(240 8% 22%);
+  background: hsl(240 12% 9%);
+  box-shadow: 0 18px 48px hsl(240 20% 2% / 0.55);
+  color: hsl(240 5% 82%);
+  overflow: hidden;
+}
+
+.hub-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.15rem 0.45rem;
+}
+
+.hub-modal-header h2 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 650;
+  color: hsl(40 45% 72%);
+  line-height: 1.25;
+}
+
+#hub-requests-modal-count {
+  font-weight: 500;
+  color: hsl(240 5% 60%);
+  font-size: 0.92em;
+}
+
+.hub-modal-close {
+  width: 2.4rem;
+  height: 2.4rem;
+  border: 1px solid hsl(240 8% 24%);
+  border-radius: 999px;
+  background: hsl(240 10% 12%);
+  color: hsl(240 5% 70%);
+  font-size: 1.45rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.hub-modal-close:hover {
+  color: hsl(40 90% 70%);
+  border-color: hsl(240 10% 40%);
+}
+
+.hub-modal-sub {
+  margin: 0;
+  padding: 0 1.15rem 0.7rem;
+  font-size: 1rem;
+  color: hsl(240 5% 58%);
+  line-height: 1.35;
+}
+
+.hub-modal-list {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 0 0.9rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.hub-modal-empty {
+  margin: 0.65rem 0.3rem;
+  font-size: 1.05rem;
+  color: hsl(240 5% 55%);
+}
+
+.hub-modal-msg {
+  margin: 0;
+  min-height: 1.25rem;
+  padding: 0 1.15rem 0.9rem;
+  font-size: 0.95rem;
+  color: hsl(240 5% 55%);
+}
+
+.hub-modal-msg.ok {
+  color: hsl(145 40% 55%);
+}
+
+.hub-modal-msg.err {
+  color: hsl(0 65% 62%);
+}
+
+.hub-req-item {
+  border: 1px solid hsl(240 8% 20%);
+  border-radius: 10px;
+  background: hsl(240 10% 11%);
+  padding: 0.85rem 0.9rem;
+}
+
+.hub-req-top {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+
+.hub-req-top strong {
+  font-size: 1.15rem;
+  color: hsl(240 5% 90%);
+  line-height: 1.3;
+}
+
+.hub-req-by {
+  font-size: 0.95rem;
+  color: hsl(40 45% 65%);
+}
+
+.hub-req-status {
+  margin-left: auto;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: hsl(40 50% 58%);
+}
+
+.hub-req-body,
+.hub-req-meta,
+.hub-req-err {
+  font-size: 0.98rem;
+  color: hsl(240 5% 62%);
+  word-break: break-word;
+  margin-bottom: 0.35rem;
+  line-height: 1.4;
+}
+
+.hub-req-err {
+  color: hsl(0 65% 62%);
+}
+
+.hub-req-actions {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+
+.hub-req-url {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid hsl(240 8% 24%);
+  background: hsl(240 12% 8%);
+  color: hsl(240 5% 85%);
+  padding: 0.55rem 0.65rem;
+  font-size: 1rem;
+  line-height: 1.3;
+}
+
+.hub-req-btn {
+  border-radius: 8px;
+  border: 1px solid hsl(240 8% 28%);
+  background: hsl(240 10% 14%);
+  color: hsl(240 5% 80%);
+  padding: 0.55rem 0.85rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.hub-req-btn:hover {
+  border-color: hsl(240 10% 42%);
+  color: hsl(40 90% 70%);
+}
+
+.hub-req-btn.approve {
+  border-color: hsl(145 30% 32%);
+  color: hsl(145 40% 58%);
+}
+
+.hub-req-btn.dismiss {
+  border-color: hsl(0 35% 34%);
+  color: hsl(0 55% 65%);
+}
+
+@media (max-width: 520px) {
+  .hub-modal {
+    padding: 3.75rem 0.65rem 0.65rem;
+    justify-content: center;
+  }
+
+  .hub-modal-panel {
+    width: 100%;
+    max-height: min(82vh, 42rem);
+  }
+
+  .hub-req-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .hub-req-url {
+    grid-column: 1 / -1;
+  }
+}

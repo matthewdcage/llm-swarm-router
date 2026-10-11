@@ -1,0 +1,33 @@
+# SearXNG — Bucket-HUB private search (WAN via Gluetun / Proton)
+# https://github.com/searxng/searxng
+use_default_settings: true
+
+general:
+  instance_name: "Bucket-HUB SearXNG"
+  enable_metrics: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en"
+  formats:
+    - html
+    - json
+
+server:
+  # Prefer SEARXNG_SECRET env; keep a placeholder so the container can boot offline.
+  secret_key: "change-me-via-SEARXNG_SECRET"
+  limiter: false
+  image_proxy: false
+  method: "GET"
+
+ui:
+  static_use_hash: true
+
+engines:
+  - name: wikidata
+    disabled: true
+  - name: ahmia
+    disabled: true
+  - name: torch
+    disabled: true

@@ -1,0 +1,23 @@
+# MeTube + YouTube cookies (Proton / Gluetun)
+
+Replace the `metube:` service block (or merge volumes/environment).
+
+```yaml
+  metube:
+    image: ghcr.io/alexta69/metube:latest
+    container_name: metube
+    restart: unless-stopped
+    network_mode: service:gluetun
+    depends_on:
+      - gluetun
+    volumes:
+      - /mnt/media/Media/YouTube Videos:/downloads
+      - ./data/ytdlp/cookies.txt:/cookies/cookies.txt:ro
+    environment:
+      UID: "1000"
+      GID: "1000"
+      # Deno is already in the image; cookies required for Proton exit IPs
+      YTDL_OPTIONS: '{"cookiefile":"/cookies/cookies.txt"}'
+```
+
+Create `./data/ytdlp/cookies.txt` before `compose up` (empty file is OK until you export real cookies). Hub worker reads the same path: `~/homelab/data/ytdlp/cookies.txt`.

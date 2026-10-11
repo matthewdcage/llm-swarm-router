@@ -1,0 +1,29 @@
+{
+  "github": {
+    "enabled": true,
+    "label": "GitHub",
+    "engine": "native"
+  },
+  "hf": {
+    "enabled": true,
+    "label": "Hugging Face",
+    "engine": "native"
+  },
+  "web": {
+    "enabled": true,
+    "label": "Web",
+    "engine": "searxng",
+    "categories": "general"
+  },
+  "youtube": {
+    "enabled": true,
+    "label": "YouTube",
+    "engine": "searxng",
+    "categories": "videos"
+  },
+  "torrent": {
+    "enabled": true,
+    "label": "Torrent",
+    "engine": "jackett"
+  }
+}

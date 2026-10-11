@@ -1,0 +1,5 @@
+# Live secrets / host inventory — never commit
+machines.json
+*.env
+hub-worker.env
+**/hub-worker.env

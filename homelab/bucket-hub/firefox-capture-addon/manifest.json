@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Bucket-HUB Capture",
+  "version": "1.0.7",
+  "description": "Send the current page or link to Bucket-HUB download queue (Proton egress).",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "bucket-hub-capture@local",
+      "strict_min_version": "128.0"
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "storage",
+    "contextMenus",
+    "tabs",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://bucket-hub.stackrise.com.au/*",
+    "http://192.168.50.138:3000/*",
+    "http://192.168.50.138:3020/*",
+    "http://100.85.42.0:3000/*",
+    "http://100.85.42.0:3020/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_title": "Send to Bucket-HUB",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  }
+}

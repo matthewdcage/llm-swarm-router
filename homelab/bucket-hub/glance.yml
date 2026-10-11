@@ -1,0 +1,294 @@
+# Bucket-HUB — Glance (local-first overview)
+# Front door: hub-gateway on :3000 (same-origin /hub-form + /status)
+# Remote: https://bucket-hub.stackrise.com.au → :3000 — see docs/CLOUDFLARE-HUB.md
+server:
+  host: 0.0.0.0
+  port: 8080
+  assets-path: /app/assets
+
+branding:
+  app-name: Bucket-HUB
+  hide-footer: true
+
+document:
+  head: |
+    <script defer src="/assets/hub-vpn.js?v=20260826v2"></script>
+    <script defer src="/assets/hub-requests.js?v=20260826v2"></script>
+
+theme:
+  background-color: 240 10 8
+  primary-color: 40 45 65
+  positive-color: 145 40 50
+  negative-color: 0 65 60
+  contrast-multiplier: 1.15
+  custom-css-file: /assets/glance-hub.css
+
+pages:
+  # Daily driver first — Storage / Chat / Overnight; Dev last (ops)
+  - name: Hub
+    width: wide
+    show-mobile-header: true
+    columns:
+      - size: full
+        widgets:
+          - type: iframe
+            title: Workspace
+            source: /hub-form/?panel=hub&v=20261010s01search
+            height: 1280
+
+  - name: Jellyfin
+    slug: jellyfin
+    width: wide
+    show-mobile-header: true
+    columns:
+      - size: full
+        widgets:
+          - type: iframe
+            title: Jellyfin
+            # Same-origin via Caddy /jellyfin (LAN IP in iframe hangs off-LAN / Tailscale-only clients)
+            source: /jellyfin/
+            height: 920
+
+  - name: Storage Overview
+    slug: storage-overview
+    width: wide
+    show-mobile-header: true
+    columns:
+      - size: full
+        widgets:
+          - type: iframe
+            title: Storage
+            # Same-origin /storage (LAN + Access); Glance tab Storage Overview
+            source: /storage
+            height: 980
+
+  - name: Chat
+    slug: chat
+    width: wide
+    show-mobile-header: true
+    columns:
+      - size: full
+        widgets:
+          - type: iframe
+            title: Chat
+            source: /chat
+            height: 920
+
+  - name: Indexers
+    slug: indexers
+    width: wide
+    show-mobile-header: true
+    columns:
+      - size: full
+        widgets:
+          - type: iframe
+            title: Torrent indexers
+            source: /indexers
+            height: 720
+
+  - name: Overnight plan
+    slug: overnight-plan
+    width: wide
+    show-mobile-header: true
+    columns:
+      - size: full
+        widgets:
+          - type: iframe
+            title: Overnight plan
+            source: /overnight
+            height: 980
+
+  - name: Dev
+    width: wide
+    show-mobile-header: true
+    columns:
+      - size: small
+        widgets:
+          - type: bookmarks
+            groups:
+              - title: Logs & status
+                color: 200 30 40
+                links:
+                  - title: Hub logs
+                    url: /status/
+                    icon: mdi:text-box-outline
+                  - title: Overnight summary
+                    url: /status/last-night.html
+                    icon: mdi:moon-waning-crescent
+                  - title: Drain archive
+                    url: /status/last-night-archive.html
+                    icon: mdi:archive-outline
+                  - title: Hub form (full)
+                    url: /hub-form/
+                    icon: mdi:download
+                  - title: Chat
+                    url: /chat
+                    icon: mdi:robot-outline
+                  - title: Overnight plan
+                    url: /overnight
+                    icon: mdi:calendar-clock
+              - title: Containers
+                color: 145 40 50
+                links:
+                  - title: Dozzle
+                    url: http://192.168.50.138:8888
+                    icon: mdi:docker
+                  - title: Uptime Kuma
+                    url: http://192.168.50.138:3001
+                    icon: si:uptimekuma
+              - title: LAN tools
+                color: 40 45 65
+                links:
+                  - title: AriaNg
+                    url: http://192.168.50.65:8088
+                    icon: si:aria2
+                  - title: MeTube
+                    url: http://192.168.50.65:8089
+                    icon: si:youtube
+                  - title: Jellyfin
+                    url: http://192.168.50.65:8096
+                    icon: si:jellyfin
+                  - title: Jackett
+                    url: http://192.168.50.65:9117
+                    icon: mdi:magnet
+                  - title: SearXNG
+                    url: http://192.168.50.65:8888
+                    icon: mdi:search-web
+                  - title: TNAS
+                    url: http://192.168.50.186/
+                    icon: mdi:harddisk
+
+          - type: monitor
+            cache: 1m
+            title: LAN / Tailscale only
+            hide-by-default: false
+            style: compact
+            sites:
+              - title: AriaNg
+                url: http://192.168.50.65:8088
+                icon: si:aria2
+              - title: MeTube
+                url: http://192.168.50.65:8089
+                icon: si:youtube
+              - title: Jellyfin
+                url: http://192.168.50.65:8096
+                icon: si:jellyfin
+              - title: Jackett
+                url: http://192.168.50.65:9117
+                icon: mdi:magnet
+              - title: SearXNG
+                url: http://192.168.50.65:8888
+                icon: mdi:search-web
+              - title: Uptime
+                url: http://192.168.50.138:3001
+                icon: si:uptimekuma
+              - title: TNAS
+                url: http://192.168.50.186/
+                icon: mdi:harddisk
+              - title: netllm Mac
+                url: http://192.168.50.19:11400/ui/
+                icon: si:apple
+              - title: netllm Ubuntu
+                url: http://192.168.50.65:11400/ui/
+                icon: mdi:server
+
+          - type: monitor
+            cache: 1m
+            title: Reachability
+            style: compact
+            sites:
+              - title: Bucket-HUB
+                url: /
+                icon: mdi:view-dashboard
+              - title: Hub form
+                url: /hub-form/
+                icon: mdi:download
+              - title: Logs
+                url: /status/
+                icon: mdi:text-box-outline
+              - title: Overnight plan
+                url: /overnight
+                icon: mdi:calendar-clock
+              - title: Chat
+                url: /chat
+                icon: mdi:robot-outline
+
+          - type: docker-containers
+            title: Processes
+            hide-by-default: false
+            running-only: true
+            containers:
+              glance:
+                name: Glance
+                hide: false
+                url: /
+              hub-gateway:
+                name: Hub gateway
+                hide: false
+                url: /
+              hub-form:
+                name: Hub form
+                hide: false
+                url: /hub-form/
+              uptime-kuma:
+                name: Uptime Kuma
+                hide: false
+                url: http://192.168.50.138:3001
+              dozzle:
+                name: Dozzle
+                hide: false
+                url: http://192.168.50.138:8888
+              webdav:
+                name: WebDAV
+                hide: false
+                url: http://192.168.50.138:8087
+              status-nginx:
+                name: Status
+                hide: false
+                url: /status/
+
+          - type: docker-containers
+            title: Pi stack
+            hide-by-default: false
+            running-only: false
+            containers:
+              glance:
+                name: Glance
+                hide: false
+                url: /
+              hub-gateway:
+                name: Hub gateway
+                hide: false
+                url: /
+              hub-form:
+                name: Hub form
+                hide: false
+                url: /hub-form/
+              uptime-kuma:
+                name: Uptime Kuma
+                hide: false
+                url: http://192.168.50.138:3001
+              dozzle:
+                name: Dozzle
+                hide: false
+                url: http://192.168.50.138:8888
+              webdav:
+                name: WebDAV
+                hide: false
+                url: http://192.168.50.138:8087
+              status-nginx:
+                name: Status
+                hide: false
+                url: /status/
+
+      - size: full
+        widgets:
+          - type: iframe
+            title: Logs
+            source: /status/
+            height: 720
+
+          - type: iframe
+            title: Drain archive
+            source: /status/last-night-archive.html
+            height: 360

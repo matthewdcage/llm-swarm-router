@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Torrent indexers — Bucket-HUB</title>
+  <link rel="stylesheet" href="/assets/hub-design.css?v=20261009mirrors3" />
+</head>
+<body class="hub-surface">
+  <header class="hub-surface-header">
+    <a class="hub-back" href="/" target="_top">← Hub</a>
+    <h1>Torrent indexers</h1>
+    <div class="hub-toolbar">
+      <button type="button" class="secondary" id="importAllHintsBtn">Import all hints</button>
+      <button type="button" class="secondary" id="checkMirrorsBtn">Check mirrors</button>
+      <button type="button" class="secondary" id="refreshBtn">Refresh scan</button>
+    </div>
+  </header>
+  <main class="hub-surface-main">
+    <p class="hub-lede">
+      Jackett on ai-server (Proton egress). Track multiple mirrors per site (e.g. several 1337x domains).
+      Find URLs on the
+      <a id="megaLink" href="#" target="_blank" rel="noopener">Movies &amp; TV megathread</a>,
+      <a id="megaAnimeLink" href="#" target="_blank" rel="noopener">Anime</a>,
+      or <a id="megaGamesLink" href="#" target="_blank" rel="noopener">Games megathread</a>,
+      paste below, or import catalog hints then <strong>Check mirrors</strong> on VPN.
+    </p>
+    <div class="hub-mirror-panel" style="margin-bottom:0.65rem">
+      <h4>Find new URLs</h4>
+      <p class="hub-meta-line" style="margin:0 0 0.4rem">
+        Megathread torrent sections list official mirrors; domains rotate. Import hints copies catalog <code>reference_urls</code> into your tracked list (editable). Jackett Site Link is still updated manually on ai-server.
+      </p>
+      <label class="hub-meta-line" style="display:flex;align-items:center;gap:0.35rem;margin:0 0 0.45rem">
+        <input type="checkbox" id="checkIncludeHints" checked />
+        Include megathread hints when checking mirrors (not only your tracked URLs)
+      </label>
+    </div>
+    <div class="hub-stat-row" aria-label="Indexer summary">
+      <div class="hub-stat-card">
+        <span class="label">In Jackett</span>
+        <span class="value" id="statAccess">—</span>
+        <span class="meta" id="statAccessMeta">catalog configured</span>
+      </div>
+      <div class="hub-stat-card">
+        <span class="label">Healthy</span>
+        <span class="value" id="statHealthy">—</span>
+        <span class="meta" id="statHealthyMeta">probe returned hits</span>
+      </div>
+      <div class="hub-stat-card">
+        <span class="label">Last scan</span>
+        <span class="value" id="statScan" style="font-size:0.82rem">—</span>
+        <span class="meta" id="statQuery">—</span>
+      </div>
+    </div>
+    <p class="hub-meta-line" id="meta"></p>
+
+    <form class="hub-mirror-form" id="addMirrorForm">
+      <label>
+        Indexer
+        <select id="mirrorIndexer" required></select>
+      </label>
+      <label>
+        Mirror URL
+        <input id="mirrorUrl" type="url" placeholder="https://…/" required autocomplete="off" />
+      </label>
+      <label>
+        Label (optional)
+        <input id="mirrorLabel" type="text" maxlength="120" placeholder="forum tip" />
+      </label>
+      <button type="submit">Add mirror</button>
+    </form>
+
+    <form class="hub-mirror-form" id="bulkMirrorForm">
+      <label style="flex:1 1 100%">
+        Bulk paste (one URL per line)
+        <textarea id="bulkMirrorUrls" rows="3" placeholder="https://www.1337x.to/&#10;https://1337x.to/" style="width:100%;resize:vertical;font:inherit"></textarea>
+      </label>
+      <label>
+        For indexer
+        <select id="bulkMirrorIndexer" required></select>
+      </label>
+      <button type="submit" class="secondary">Add all</button>
+    </form>
+
+    <section class="hub-surface-section" aria-label="Indexer table">
+      <table class="hub-data-table">
+        <thead>
+          <tr>
+            <th>Indexer</th>
+            <th>Status</th>
+            <th>Site URL</th>
+            <th>Probe</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="rows"><tr><td colspan="5">Loading…</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+  <script>
+    let lastData = null;
+
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function pillClass(st, configured) {
+      if (st === 'healthy') return 'healthy';
+      if (st === 'empty') return 'empty';
+      if (!configured || st === 'not_configured') return 'not_configured';
+      if (st === 'unknown') return 'unknown';
+      return st === 'degraded' ? 'degraded' : 'error';
+    }
+
+    function hasMirrorCheck(chk) {
+      return chk && (chk.ok === true || chk.ok === false || chk.http_status || chk.error);
+    }
+
+    function mirrorCheckPill(chk) {
+      if (!hasMirrorCheck(chk)) return '<span class="hub-status-pill off">not checked</span>';
+      if (chk.matches_jackett) return '<span class="hub-status-pill healthy">matches Jackett</span>';
+      if (chk.ok) return '<span class="hub-status-pill empty">reachable</span>';
+      return '<span class="hub-status-pill error">unreachable</span>';
+    }
+
+    function formatScanTime(iso) {
+      if (!iso) return '—';
+      try {
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return iso;
+        return d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+      } catch (e) {
+        return iso;
+      }
+    }
+
+    function renderMirrorPanel(row) {
+      const mirrors = row.mirror_candidates || [];
+      if (!mirrors.length) {
+        return `<div class="hub-mirror-panel"><h4>Mirrors</h4><span class="hub-meta-line">No mirrors — add one above or see megathread hints after catalog seed.</span></div>`;
+      }
+      const lines = mirrors.map((m) => {
+        const chk = m.check;
+        const src = m.source === 'megathread' ? 'hint' : m.source;
+        let actions = '—';
+        if (m.editable) {
+          actions = `<button type="button" class="linkish" data-remove-mirror data-iid="${esc(row.jackett_id)}" data-url="${esc(m.url)}">Remove</button>`;
+        } else if (m.source === 'megathread') {
+          actions = `<button type="button" class="linkish" data-import-hints data-iid="${esc(row.jackett_id)}">Track</button>`;
+        }
+        const removeBtn = actions;
+        const detail = chk && chk.http_status
+          ? `HTTP ${chk.http_status}${chk.latency_ms != null ? ` · ${chk.latency_ms}ms` : ''}`
+          : (chk && chk.error ? esc(chk.error) : '—');
+        return `<tr>
+          <td><a class="site-link" href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.url)}</a>${m.label ? `<br><span class="hub-meta-line">${esc(m.label)}</span>` : ''}</td>
+          <td>${mirrorCheckPill(chk)}</td>
+          <td>${esc(src)}</td>
+          <td><code class="mono">${detail}</code></td>
+          <td>${removeBtn}</td>
+        </tr>`;
+      }).join('');
+      const checked = row.candidates_checked_at ? `Checked ${formatScanTime(row.candidates_checked_at)}` : 'Mirrors not checked on VPN yet';
+      return `<div class="hub-mirror-panel">
+        <h4>Mirrors · ${esc(checked)} <button type="button" class="secondary" style="margin-left:0.5rem;padding:0.15rem 0.45rem;font-size:0.68rem" data-import-hints data-iid="${esc(row.jackett_id)}">Import hints</button></h4>
+        <table class="hub-mirror-list">
+          <thead><tr><th>URL</th><th>VPN check</th><th>Source</th><th>Detail</th><th></th></tr></thead>
+          <tbody>${lines}</tbody>
+        </table>
+      </div>`;
+    }
+
+    function populateIndexerSelect(rows) {
+      const opts = (rows || []).map((r) => {
+        const label = r.label || r.jackett_id;
+        return `<option value="${esc(r.jackett_id)}">${esc(label)}</option>`;
+      }).join('');
+      const fallback = opts || '<option value="">—</option>';
+      ['mirrorIndexer', 'bulkMirrorIndexer'].forEach((id) => {
+        const sel = document.getElementById(id);
+        if (sel) sel.innerHTML = fallback;
+      });
+    }
+
+    async function importHints(jackettId, all) {
+      const r = await fetch('/api/torrent/indexers/candidates/import-hints', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(all ? { all: true } : { jackett_id: jackettId }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      return r.json();
+    }
+
+    function updateSummary(data) {
+      const sum = data.summary || {};
+      document.getElementById('statAccess').textContent = sum.access_label || '—';
+      document.getElementById('statHealthy').textContent = sum.active_label || '—';
+      document.getElementById('statScan').textContent = data.snapshot_at ? formatScanTime(data.snapshot_at) : 'Never';
+      const query = document.getElementById('statQuery');
+      query.textContent = data.probe_query
+        ? `Query: “${data.probe_query}”`
+        : (data.snapshot_at ? '' : 'Run refresh to probe');
+      const meta = document.getElementById('meta');
+      const mirrorNote = data.candidates_checked_at
+        ? `Mirror VPN check ${formatScanTime(data.candidates_checked_at)}.`
+        : 'Use Check mirrors after adding URLs.';
+      meta.textContent = data.snapshot_at
+        ? `Tracked ${sum.total || sum.catalog_total || '—'} indexers. ${mirrorNote}`
+        : `No Jackett health scan yet. ${mirrorNote}`;
+    }
+
+    async function load() {
+      const r = await fetch('/api/torrent/indexers');
+      const data = await r.json();
+      lastData = data;
+      const mega = document.getElementById('megaLink');
+      if (data.megathread_url) mega.href = data.megathread_url;
+      const megaAnime = document.getElementById('megaAnimeLink');
+      if (megaAnime && data.megathread_anime_url) megaAnime.href = data.megathread_anime_url;
+      const megaGames = document.getElementById('megaGamesLink');
+      if (megaGames && data.megathread_games_url) megaGames.href = data.megathread_games_url;
+      updateSummary(data);
+      populateIndexerSelect(data.indexers);
+      const tb = document.getElementById('rows');
+      const rows = data.indexers || [];
+      if (!rows.length) {
+        tb.innerHTML = '<tr><td colspan="5">No indexers in catalog.</td></tr>';
+        return;
+      }
+      tb.innerHTML = rows.map((row) => {
+        const st = row.status || (row.configured ? 'unknown' : 'not_configured');
+        const pillCls = pillClass(st, row.configured);
+        const label = row.label || row.jackett_id;
+        const catTags = (row.categories || []).map((c) =>
+          `<span class="hub-status-pill not_configured" style="margin:0 0.2rem 0.15rem 0;font-size:0.62rem">${esc(c)}</span>`
+        ).join('');
+        const site = row.site_url
+          ? `<a class="site-link" href="${esc(row.site_url)}" target="_blank" rel="noopener">${esc(row.site_url)}</a>`
+          : '—';
+        const probe = row.probe_url
+          ? `${row.result_count ?? '—'} hits · max seed ${row.max_seeders ?? '—'}<br><code class="mono">${esc(row.probe_url)}</code>`
+          : '—';
+        const notes = [
+          row.megathread_anchor ? `Wiki: ${esc(row.megathread_anchor)}` : '',
+          row.notes,
+          row.megathread_section ? `Megathread: ${row.megathread_section}` : '',
+          row.last_error ? `<span class="err">${esc(row.last_error)}</span>` : '',
+        ].filter(Boolean).join('<br>');
+        return `<tr>
+          <td><strong>${esc(label)}</strong><br><code class="mono">${esc(row.jackett_id || '')}</code>${catTags ? `<br>${catTags}` : ''}</td>
+          <td><span class="hub-status-pill ${pillCls}">${esc(st)}</span></td>
+          <td>${site}</td>
+          <td>${probe}</td>
+          <td>${notes || '—'}</td>
+        </tr>
+        <tr><td colspan="5">${renderMirrorPanel(row)}</td></tr>`;
+      }).join('');
+    }
+
+    async function getEditableCandidates(jackettId) {
+      const r = await fetch('/api/torrent/indexers/candidates');
+      const data = await r.json();
+      const block = (data.store?.by_jackett_id || {})[jackettId];
+      return (block && block.candidates) ? [...block.candidates] : [];
+    }
+
+    async function saveCandidates(jackettId, candidates) {
+      const r = await fetch('/api/torrent/indexers/candidates', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jackett_id: jackettId, candidates }),
+      });
+      if (!r.ok) {
+        const detail = await r.text();
+        throw new Error(detail || 'save failed');
+      }
+    }
+
+    document.getElementById('addMirrorForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const iid = document.getElementById('mirrorIndexer').value;
+      const url = document.getElementById('mirrorUrl').value.trim();
+      const label = document.getElementById('mirrorLabel').value.trim();
+      if (!iid || !url) return;
+      const existing = await getEditableCandidates(iid);
+      existing.push({ url, label, source: 'manual', added_at: new Date().toISOString() });
+      try {
+        await saveCandidates(iid, existing);
+        document.getElementById('mirrorUrl').value = '';
+        document.getElementById('mirrorLabel').value = '';
+        await load();
+      } catch (err) {
+        alert('Could not add mirror — check URL (https, public host).');
+      }
+    });
+
+    document.getElementById('rows').addEventListener('click', async (e) => {
+      const importBtn = e.target.closest('[data-import-hints]');
+      if (importBtn) {
+        const iid = importBtn.getAttribute('data-iid');
+        try {
+          await importHints(iid, false);
+          await load();
+        } catch (err) {
+          alert('Import failed');
+        }
+        return;
+      }
+      const btn = e.target.closest('[data-remove-mirror]');
+      if (!btn) return;
+      const iid = btn.getAttribute('data-iid');
+      const url = btn.getAttribute('data-url');
+      const existing = await getEditableCandidates(iid);
+      const next = existing.filter((c) => c.url !== url);
+      await saveCandidates(iid, next);
+      await load();
+    });
+
+    document.getElementById('importAllHintsBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('importAllHintsBtn');
+      btn.disabled = true;
+      try {
+        const res = await importHints(null, true);
+        await load();
+        btn.textContent = `Imported ${res.added || 0}`;
+        setTimeout(() => { btn.textContent = 'Import all hints'; btn.disabled = false; }, 3000);
+      } catch (err) {
+        btn.disabled = false;
+        alert('Import failed');
+      }
+    });
+
+    document.getElementById('bulkMirrorForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const iid = document.getElementById('bulkMirrorIndexer').value;
+      const raw = document.getElementById('bulkMirrorUrls').value || '';
+      const lines = raw.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+      if (!iid || !lines.length) return;
+      const existing = await getEditableCandidates(iid);
+      for (const line of lines) {
+        existing.push({ url: line, label: 'bulk paste', source: 'manual', added_at: new Date().toISOString() });
+      }
+      try {
+        await saveCandidates(iid, existing);
+        document.getElementById('bulkMirrorUrls').value = '';
+        await load();
+      } catch (err) {
+        alert('Could not add URLs — check https and public hosts.');
+      }
+    });
+
+    document.getElementById('refreshBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('refreshBtn');
+      btn.disabled = true;
+      btn.textContent = 'Scanning…';
+      await fetch('/api/torrent/indexers/refresh', { method: 'POST' });
+      setTimeout(async () => {
+        await load();
+        btn.disabled = false;
+        btn.textContent = 'Refresh scan';
+      }, 12000);
+    });
+
+    document.getElementById('checkMirrorsBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('checkMirrorsBtn');
+      btn.disabled = true;
+      btn.textContent = 'Checking…';
+      const includeRefs = document.getElementById('checkIncludeHints')?.checked ?? true;
+      await fetch('/api/torrent/indexers/candidates/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ include_references: includeRefs }),
+      });
+      setTimeout(async () => {
+        await load();
+        btn.disabled = false;
+        btn.textContent = 'Check mirrors';
+      }, 15000);
+    });
+
+    load();
+    setInterval(load, 30000);
+  </script>
+</body>
+</html>

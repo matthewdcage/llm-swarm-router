@@ -1,0 +1,73 @@
+# Bucket-HUB front door — same origin for Glance + form + status + storage
+# LAN/Tailscale: http://<pi>:3000
+# Hosted: https://bucket-hub.stackrise.com.au → this :3000
+{
+	auto_https off
+}
+
+:3000 {
+	encode gzip
+
+	# Storage visual inspector (exact path only — not /storage-overview Glance tab)
+	handle /storage {
+		reverse_proxy host.docker.internal:3020
+	}
+
+	# Chat wrapper (LLM toggle + DeepSeek Harness iframe)
+	handle /chat {
+		reverse_proxy host.docker.internal:3020
+	}
+
+	# Overnight schedule planner
+	handle /overnight {
+		reverse_proxy host.docker.internal:3020
+	}
+
+	# Jackett indexer health (Glance tab)
+	handle /indexers {
+		reverse_proxy host.docker.internal:3020
+	}
+
+	# Download queue + Hub panels (Glance iframe: /hub-form/?panel=hub → backend serves /)
+	@hubform path /hub-form /hub-form/*
+	handle @hubform {
+		uri strip_prefix /hub-form
+		reverse_proxy host.docker.internal:3020
+	}
+
+	# Jellyfin (Glance iframe — same origin; Pi proxies to ai-server on LAN)
+	# Jellyfin Dashboard → Networking → Base URL: /jellyfin (no spaces)
+	@jellyfin path /jellyfin /jellyfin/*
+	handle @jellyfin {
+		reverse_proxy 192.168.50.65:8096 {
+			flush_interval -1
+			header_up Host {host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Prefix /jellyfin
+		}
+	}
+
+	# Glance internal API (page content, widgets) — must match before /api/*
+	handle /api/pages/* {
+		reverse_proxy glance:8080
+	}
+
+	# Hub API (shared by chat, storage, overnight, and hub-form pages)
+	handle /api/* {
+		reverse_proxy host.docker.internal:3020
+	}
+
+	# Hub form assets (overnight JS + design tokens when proxied via gateway)
+	handle /assets/hub-overnight.js {
+		reverse_proxy host.docker.internal:3020
+	}
+	handle /assets/hub-design.css {
+		reverse_proxy host.docker.internal:3020
+	}
+
+	# Glance UI (everything else)
+	handle {
+		reverse_proxy glance:8080
+	}
+}

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Bucket-HUB Capture</title>
+  <style>
+    :root { --bg:#12141c; --card:#1a1d27; --border:#2a2f3a; --text:#e8eaed; --muted:#9aa0a6; --accent:#c4a35a; --ok:#6bcf7f; --fail:#f07178; }
+    body { margin:0; padding:0.75rem; width:320px; background:var(--bg); color:var(--text);
+      font: 13px/1.4 ui-monospace, Menlo, Monaco, monospace; }
+    h1 { font-size:0.85rem; margin:0 0 0.5rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); }
+    label { display:block; font-size:0.7rem; color:var(--muted); text-transform:uppercase; margin:0.45rem 0 0.2rem; }
+    input, select { width:100%; box-sizing:border-box; background:#0e1016; color:var(--text);
+      border:1px solid var(--border); border-radius:6px; padding:0.4rem 0.5rem; font:inherit; }
+    .row { display:flex; gap:0.35rem; margin-top:0.65rem; }
+    button { flex:1; background:var(--accent); color:#12141c; border:0; border-radius:6px;
+      padding:0.45rem; font-weight:600; cursor:pointer; font:inherit; }
+    button.secondary { background:transparent; color:var(--muted); border:1px solid var(--border); }
+    #status { margin-top:0.5rem; font-size:0.75rem; color:var(--muted); min-height:2.4em; white-space:pre-wrap; }
+    #status.ok { color:var(--ok); } #status.err { color:var(--fail); }
+    button:disabled { opacity:0.65; cursor:default; }
+    .url { word-break:break-all; font-size:0.72rem; color:var(--muted); margin:0.25rem 0 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Send to Bucket-HUB</h1>
+  <div class="url" id="pageUrl">…</div>
+  <label>File type</label>
+  <select id="kind">
+    <option value="auto">Auto</option>
+    <option value="media">Video / YouTube</option>
+    <option value="website">Website</option>
+    <option value="github">GitHub</option>
+    <option value="hf">Hugging Face</option>
+  </select>
+  <label>Drive / folder (optional)</label>
+  <select id="dest"><option value="">Auto from file type</option></select>
+  <div class="row">
+    <button type="button" id="send">Send</button>
+    <button type="button" class="secondary" id="opts">Options</button>
+  </div>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

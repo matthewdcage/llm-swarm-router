@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "ai_ml",
+      "label": "AI / ML",
+      "description": "Recent HN + GitHub activity around AI, LLMs, and ML tooling",
+      "sources": [
+        {
+          "type": "hn",
+          "query": "LLM OR \"large language\" OR AI model",
+          "tags": "story",
+          "hits": 12
+        },
+        {
+          "type": "github",
+          "query": "LLM OR transformers stars:>50",
+          "per_page": 8
+        }
+      ]
+    },
+    {
+      "id": "hn_front",
+      "label": "Hacker News",
+      "description": "High-signal HN stories from the last month",
+      "sources": [
+        {
+          "type": "hn",
+          "query": "",
+          "tags": "front_page",
+          "hits": 16
+        },
+        {
+          "type": "hn",
+          "query": "show hn",
+          "tags": "story",
+          "hits": 8
+        }
+      ]
+    },
+    {
+      "id": "unrestricted",
+      "label": "Unrestricted models",
+      "description": "Open-weight / uncensored model repos on GitHub and Hugging Face",
+      "sources": [
+        {
+          "type": "github",
+          "query": "uncensored OR abliterated OR \"open weight\" model stars:>20",
+          "per_page": 8
+        },
+        {
+          "type": "hf",
+          "query": "uncensored OR abliterated OR dolphin",
+          "limit": 8
+        }
+      ]
+    }
+  ]
+}

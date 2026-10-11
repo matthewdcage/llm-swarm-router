@@ -1,0 +1,287 @@
+{
+  "source_note": "Jackett IDs + reference_urls maintained from r/Piracy megathreads (Movies & TV, Anime, Games). Verify live wiki before trusting mirrors — Hub does not scrape Reddit. Add indexers in Jackett UI on ai-server; catalog rows are tracking hints only.",
+  "catalog_version": "2026-10-09",
+  "last_verified_note": "2026-10-09: jackett_id cross-checked against Jackett container /app/Jackett/Definitions/*.yml on ai-server; removed torlock/magnetdl (no definition).",
+  "megathread_url": "https://www.reddit.com/r/Piracy/wiki/megathread/movies_and_tv/",
+  "megathread_anime_url": "https://www.reddit.com/r/Piracy/wiki/megathread/anime/",
+  "megathread_games_url": "https://www.reddit.com/r/Piracy/wiki/megathread/games/",
+  "indexers": [
+    {
+      "jackett_id": "thepiratebay",
+      "label": "The Pirate Bay",
+      "categories": ["movies", "tv", "general"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — The Pirate Bay",
+      "reference_urls": [
+        "https://thepiratebay.org/",
+        {"url": "https://thepiratebay10.org/", "label": "mirror .10 — verify wiki"}
+      ]
+    },
+    {
+      "jackett_id": "1337x",
+      "label": "1337x",
+      "categories": ["movies", "tv", "general"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — 1337x",
+      "reference_urls": [
+        {"url": "https://www.1337x.to/", "label": "www (common)"},
+        {"url": "https://1337x.to/", "label": "apex"},
+        {"url": "https://www.1337x.st/", "label": "mirror .st"},
+        {"url": "https://www.1337x.gd/", "label": "mirror .gd"}
+      ],
+      "notes": "Often Cloudflare-blocked on VPN exits; try mirrors on VPN then update Site Link in Jackett."
+    },
+    {
+      "jackett_id": "torrentgalaxyclone",
+      "label": "TorrentGalaxy (clone)",
+      "categories": ["movies", "tv", "general"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — TorrentGalaxy",
+      "reference_urls": [
+        "https://torrentgalaxy.to/",
+        {"url": "https://torrentgalaxy.mx/", "label": "mirror .mx — verify wiki"}
+      ]
+    },
+    {
+      "jackett_id": "therarbg",
+      "label": "TheRARBG",
+      "categories": ["movies", "tv", "general"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — RARBG-style",
+      "reference_urls": ["https://therarbg.com/"],
+      "notes": "Community RARBG-style indexer; good for TV/movie packs."
+    },
+    {
+      "jackett_id": "limetorrents",
+      "label": "LimeTorrents",
+      "categories": ["movies", "tv", "general"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — LimeTorrents",
+      "reference_urls": [
+        "https://www.limetorrents.lol/",
+        {"url": "https://www.limetorrents.fun/", "label": "mirror .fun"}
+      ]
+    },
+    {
+      "jackett_id": "eztv",
+      "label": "EZTV",
+      "categories": ["tv"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — EZTV",
+      "reference_urls": [
+        {"url": "https://eztvx.to/", "label": "eztvx (common)"},
+        {"url": "https://eztv.re/", "label": "eztv.re"},
+        {"url": "https://eztv.tf/", "label": "eztv.tf"}
+      ],
+      "notes": "TV-focused; mirrors move often — use Check mirrors on VPN, then Jackett Site Link."
+    },
+    {
+      "jackett_id": "yts",
+      "label": "YTS",
+      "categories": ["movies"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — YTS",
+      "reference_urls": [
+        "https://yts.mx/",
+        {"url": "https://yts.lt/", "label": "mirror .lt"},
+        {"url": "https://yts.rs/", "label": "mirror .rs"}
+      ]
+    },
+    {
+      "jackett_id": "kickasstorrents-ws",
+      "label": "KickassTorrents (.ws)",
+      "categories": ["movies", "tv", "general"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — KickassTorrents",
+      "reference_urls": ["https://kickasstorrents.ws/"]
+    },
+    {
+      "jackett_id": "torrentdownload",
+      "label": "TorrentDownload",
+      "categories": ["movies", "tv", "general"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — general meta",
+      "reference_urls": ["https://www.torrentdownload.info/"]
+    },
+    {
+      "jackett_id": "torrentdownloads",
+      "label": "TorrentDownloads",
+      "categories": ["movies", "tv", "general"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — TorrentDownloads",
+      "reference_urls": [
+        "https://www.torrentdownloads.me/",
+        {"url": "https://torrentdownloads.pro/", "label": "mirror — verify wiki"}
+      ]
+    },
+    {
+      "jackett_id": "extratorrent-st",
+      "label": "ExtraTorrent.st",
+      "categories": ["movies", "tv", "general"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — ExtraTorrent",
+      "reference_urls": ["https://extratorrent.st/"]
+    },
+    {
+      "jackett_id": "torrentproject2",
+      "label": "TorrentProject2",
+      "categories": ["movies", "tv", "general"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — meta search",
+      "reference_urls": ["https://torrentproject2.com/"]
+    },
+    {
+      "jackett_id": "magnetdownload",
+      "label": "MagnetDownload",
+      "categories": ["movies", "tv", "general"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — magnet search",
+      "reference_urls": [
+        "https://www.magnetdownload.com/",
+        {"url": "https://magnetdownload.com/", "label": "apex"}
+      ]
+    },
+    {
+      "jackett_id": "uindex",
+      "label": "uIndex",
+      "categories": ["movies", "tv", "general"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — meta",
+      "reference_urls": ["https://uindex.org/"]
+    },
+    {
+      "jackett_id": "ilcorsaroblu",
+      "label": "Il Corsaro Blu",
+      "categories": ["movies", "tv", "general"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — Italian / general",
+      "reference_urls": ["https://ilcorsaroblu.org/"],
+      "notes": "Jackett definition ilcorsaroblu (not ilcorsaronero)."
+    },
+    {
+      "jackett_id": "bitmagnet",
+      "label": "BitMagnet",
+      "categories": ["movies", "tv", "general"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Torrent Sites — DHT / meta",
+      "reference_urls": ["https://bitmagnet.io/"],
+      "notes": "DHT-oriented; may need local BitMagnet instance — confirm Jackett indexer settings."
+    },
+    {
+      "jackett_id": "internetarchive",
+      "label": "Internet Archive",
+      "categories": ["general"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "Legal / archival",
+      "reference_urls": ["https://archive.org/"],
+      "notes": "Public-domain and licensed uploads; not a typical scene indexer."
+    },
+    {
+      "jackett_id": "showrss",
+      "label": "ShowRSS",
+      "categories": ["tv"],
+      "megathread_section": "Movies & TV",
+      "megathread_anchor": "RSS / TV automation",
+      "reference_urls": ["https://showrss.info/"],
+      "notes": "RSS feed oriented; pair with Sonarr-style workflows."
+    },
+    {
+      "jackett_id": "nyaasi",
+      "label": "Nyaa.si",
+      "categories": ["anime", "tv"],
+      "megathread_section": "Anime",
+      "megathread_anchor": "Nyaa.si",
+      "reference_urls": ["https://nyaa.si/"]
+    },
+    {
+      "jackett_id": "tokyotosho",
+      "label": "Tokyo Toshokan",
+      "categories": ["anime", "tv"],
+      "megathread_section": "Anime",
+      "megathread_anchor": "Tokyo Toshokan",
+      "reference_urls": ["https://www.tokyotosho.info/"]
+    },
+    {
+      "jackett_id": "animetosho-xyz",
+      "label": "AnimeTosho",
+      "categories": ["anime", "tv"],
+      "megathread_section": "Anime",
+      "megathread_anchor": "AnimeTosho",
+      "reference_urls": ["https://animetosho.org/"]
+    },
+    {
+      "jackett_id": "acgrip",
+      "label": "ACG.RIP",
+      "categories": ["anime", "tv"],
+      "megathread_section": "Anime",
+      "megathread_anchor": "ACG / Chinese anime",
+      "reference_urls": ["https://acg.rip/"]
+    },
+    {
+      "jackett_id": "mikan",
+      "label": "Mikan Project",
+      "categories": ["anime", "tv"],
+      "megathread_section": "Anime",
+      "megathread_anchor": "Mikan",
+      "reference_urls": ["https://mikanani.me/"]
+    },
+    {
+      "jackett_id": "shanaproject",
+      "label": "Shana Project",
+      "categories": ["anime", "tv"],
+      "megathread_section": "Anime",
+      "megathread_anchor": "Shana Project",
+      "reference_urls": ["https://www.shanaproject.com/"]
+    },
+    {
+      "jackett_id": "dmhy",
+      "label": "DMHY",
+      "categories": ["anime", "tv"],
+      "megathread_section": "Anime",
+      "megathread_anchor": "DMHY / Share",
+      "reference_urls": ["https://share.dmhy.org/"]
+    },
+    {
+      "jackett_id": "gamestorrents",
+      "label": "GamesTorrents",
+      "categories": ["games"],
+      "megathread_section": "Games",
+      "megathread_anchor": "Torrent Sites — GamesTorrents",
+      "reference_urls": ["https://www.gamestorrents.fm/"]
+    },
+    {
+      "jackett_id": "skidrowrepack",
+      "label": "Skidrow Repacks",
+      "categories": ["games"],
+      "megathread_section": "Games",
+      "megathread_anchor": "Repack sites — Skidrow",
+      "reference_urls": ["https://skidrowrepack.com/"],
+      "notes": "Repack announcements; Jackett searches configured mirrors."
+    },
+    {
+      "jackett_id": "plugintorrent",
+      "label": "Plugintorrent",
+      "categories": ["games"],
+      "megathread_section": "Games",
+      "megathread_anchor": "Torrent Sites — games",
+      "reference_urls": ["https://plugintorrent.com/"]
+    },
+    {
+      "jackett_id": "pctorrent",
+      "label": "PC Torrent",
+      "categories": ["games"],
+      "megathread_section": "Games",
+      "megathread_anchor": "Torrent Sites — PC games",
+      "reference_urls": ["https://pctorrent.com/"],
+      "notes": "Jackett id pctorrent (not pc-torrent)."
+    },
+    {
+      "jackett_id": "linuxtracker",
+      "label": "LinuxTracker",
+      "categories": ["games", "general"],
+      "megathread_section": "Games",
+      "megathread_anchor": "Linux game torrents",
+      "reference_urls": ["https://linuxtracker.org/"]
+    }
+  ]
+}
