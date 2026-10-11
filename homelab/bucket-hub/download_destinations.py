@@ -5,8 +5,10 @@ Keep in sync with ``docker-compose.yml`` aria2 volume mounts on ai-server.
 
 from __future__ import annotations
 
+import posixpath
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 # p3terx/aria2-pro can shadow VOLUME /downloads with container storage — use a
 # dedicated bind target on ai-server (see homelab docker-compose aria2 volumes).
@@ -76,6 +78,73 @@ def aria2_dir_for(dest: str) -> tuple[str, str | None]:
         rel = dest[len("/mnt/tnas/") :]
         return f"/media/_nas_staging/{rel}", dest
     raise RuntimeError(f"unsupported destination_path: {dest}")
+
+
+MOVIES_TORRENTS_HOST = "/mnt/external/movies/torrents"
+
+
+def _norm_host_path(dest: str) -> str:
+    return posixpath.normpath((dest or "").strip())
+
+
+def _is_movies_torrents_inbox(dest: str) -> bool:
+    text = (dest or "").strip()
+    if not text:
+        return False
+    return text.rstrip("/") == MOVIES_TORRENTS_HOST or text.startswith(
+        MOVIES_TORRENTS_HOST + "/"
+    )
+
+
+def aria2_dir_for_job(dest: str) -> tuple[str, str | None]:
+    """Single source of truth for aria2 RPC ``dir``.
+
+    Any destination equal to or under the Expansion HDD torrents inbox uses the
+    flat container dir ``/mnt/torrents``. Traversal out of that inbox raises
+    ``ValueError``. Other dests match ``aria2_dir_for``.
+    """
+    text = (dest or "").strip()
+    if _is_movies_torrents_inbox(text):
+        norm = _norm_host_path(text)
+        if not (norm == MOVIES_TORRENTS_HOST or norm.startswith(MOVIES_TORRENTS_HOST + "/")):
+            raise ValueError(f"destination escapes torrents inbox: {dest}")
+        return ARIA2_TORRENTS_CONTAINER_DIR, None
+    return aria2_dir_for(text)
+
+
+def aria2_opts_for_job(job: dict[str, Any]) -> dict[str, str]:
+    """Begin / resume / re-add options; ``dir`` is always ``aria2_dir_for_job``."""
+    dest = str(job.get("destination_path") or "")
+    aria_dir, _post = aria2_dir_for_job(dest) if dest else ("", None)
+    return {
+        "dir": aria_dir,
+        "file-allocation": "none",
+        "bt-metadata-only": "false",
+    }
+
+
+def metadata_retry_scan_dir(job: dict[str, Any], aria2_host_dir: Path | str | None) -> Path:
+    """Scan the real release folder, never a Hub-invented Show/Season dest."""
+    dest = str(job.get("destination_path") or "")
+    if aria2_host_dir:
+        host = Path(aria2_host_dir)
+        if _is_movies_torrents_inbox(dest):
+            return host
+        return host
+    return Path(dest)
+
+
+def host_dirs_to_ensure(dest: str) -> list[Path]:
+    """Directories the worker may mkdir. Nested torrents inbox dests stay flat."""
+    text = (dest or "").strip()
+    if _is_movies_torrents_inbox(text):
+        return [Path(MOVIES_TORRENTS_HOST)]
+    if text.startswith("/mnt/tnas"):
+        rel = text[len("/mnt/tnas/") :]
+        return [Path("/mnt/media/_nas_staging") / rel]
+    if text:
+        return [Path(text)]
+    return []
 
 
 def validate_aria2_destination(

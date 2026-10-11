@@ -23,6 +23,8 @@ from pydantic import BaseModel, Field, field_validator
 import llm_ctl
 import machines_ctl
 from download_destinations import aria2_destination_catalog, validate_aria2_destination
+from index_writer import append_entry, entry_from_job
+from job_kinds import is_aria2_job
 from torrent_indexer_catalog import normalize_hub_category
 from torrent_indexer_urls import (
     attach_candidates_to_indexers,
@@ -59,6 +61,8 @@ CHAT_PATH = Path(__file__).with_name("chat.html")
 OVERNIGHT_PATH = Path(__file__).with_name("overnight.html")
 OVERNIGHT_JS_PATH = Path(__file__).with_name("hub-overnight.js")
 HUB_DESIGN_CSS_PATH = Path(__file__).with_name("hub-design.css")
+HUB_ESCAPE_JS_PATH = Path(__file__).with_name("static") / "hub-escape.js"
+DOWNLOAD_INDEX_FILE = JOBS_DIR / "download-index.jsonl"
 DEFAULT_OVERNIGHT_SCHEDULE = Path(__file__).with_name("overnight-schedule.default.json")
 OVERNIGHT_SCHEDULE_FILE = JOBS_DIR / "overnight-schedule.json"
 OVERNIGHT_STATE_FILE = JOBS_DIR / "overnight-run-state.json"
@@ -2338,6 +2342,8 @@ class JobUpdate(BaseModel):
     aria2_gid: str | None = None
     media_pipeline: dict[str, Any] | None = None
     agent_review: dict[str, Any] | None = None
+    download_dir: str | None = None
+    index_entry: dict[str, Any] | None = None
 
 
 @app.patch("/api/jobs/{job_id}")
@@ -2374,11 +2380,27 @@ def patch_job(
         job["aria2_gid"] = body.aria2_gid
     if body.media_pipeline is not None:
         job["media_pipeline"] = body.media_pipeline
+    if body.download_dir is not None:
+        job["download_dir"] = body.download_dir
+    if body.index_entry is not None:
+        job["index_entry"] = body.index_entry
     if "agent_review" in body.model_fields_set:
         if body.agent_review is None:
             job.pop("agent_review", None)
         else:
             job["agent_review"] = body.agent_review
+    if job.get("status") in ("done", "error") and prev_status not in ("done", "error"):
+        entry = job.get("index_entry")
+        if not isinstance(entry, dict):
+            entry = entry_from_job(job)
+        if job.get("status") == "error":
+            entry = dict(entry)
+            entry["status"] = "failed"
+        try:
+            append_entry(DOWNLOAD_INDEX_FILE, entry)
+            job["index_entry"] = entry
+        except Exception as exc:  # noqa: BLE001
+            print(f"download index append failed: {exc}", flush=True)
     _write_job(job)
     try:
         from notify import maybe_notify_job
@@ -2390,15 +2412,12 @@ def patch_job(
 
 
 def _is_aria2_job(job: dict[str, Any]) -> bool:
-    if job.get("worker") == "aria2":
-        return True
-    kind = (job.get("kind") or "http").lower()
-    return kind in ("http", "magnet")
+    return is_aria2_job(job)
 
 
 def _job_kind_bucket(job: dict[str, Any]) -> str:
-    kind = (job.get("kind") or "http").lower()
-    if _is_aria2_job(job):
+    kind = str(job.get("kind") or "").strip().lower()
+    if is_aria2_job(job):
         return "aria2"
     if kind == "video":
         return "video"
@@ -2862,6 +2881,17 @@ def hub_design_css() -> FileResponse:
     return FileResponse(
         HUB_DESIGN_CSS_PATH,
         media_type="text/css; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.get("/assets/hub-escape.js")
+def hub_escape_js() -> FileResponse:
+    if not HUB_ESCAPE_JS_PATH.is_file():
+        raise HTTPException(404, "hub-escape.js missing")
+    return FileResponse(
+        HUB_ESCAPE_JS_PATH,
+        media_type="application/javascript; charset=utf-8",
         headers={"Cache-Control": "public, max-age=3600"},
     )
 

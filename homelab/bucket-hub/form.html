@@ -1633,6 +1633,7 @@
   </div>
 
 
+<script src="/assets/hub-escape.js?v=20261012"></script>
 <script>
 // Works at :3020 root and under gateway /hub-form/ (Glance + Cloudflare)
 const HUB_PREFIX = (location.pathname.match(/^(\/hub-form)(?=\/|$)/) || [])[1] || '';
@@ -1841,10 +1842,16 @@ function applyTorrentCategoryDefaults(catId) {
   if (!moviesId || userPickedDrive) return;
   const drive = (library.drives || {})[moviesId];
   if (!drive || drive.mounted === false) return;
-  if (catId === 'tv' || catId === 'movies') {
+    if (catId === 'tv' || catId === 'movies') {
     selectDrive(moviesId, { fromCategoryDefault: true });
+    const folders = drive.folders || [];
+    if (catId === 'tv') {
+      const torrentsFolder = folders.find(f =>
+        f.id === 'torrents' || f.name === 'torrents' || f.rel === 'torrents'
+      );
+      if (torrentsFolder) selectFolder(torrentsFolder.id);
+    }
     if (catId === 'movies') {
-      const folders = drive.folders || [];
       const moviesFolder = folders.find(f =>
         f.id === 'movies' || f.name === 'movies' || f.rel === 'movies'
       );
@@ -2002,7 +2009,7 @@ function updateTorrentSearchHint() {
   if (searchSource === 'torrent' && torrentCat === 'tv') {
     input.placeholder = 'Show + season (e.g. Breaking Bad season 1)';
     if (hint) {
-      hint.textContent = 'TV search uses Jackett indexers on ai-server — use “season 1” not “s1”. Packs queue to Movies → torrents/<show>/Season NN.';
+      hint.textContent = 'Downloads go to the torrents inbox. Sonarr files episodes into TV › Show › Season N.';
     }
   } else if (searchSource === 'torrent' && torrentCat === 'movies') {
     input.placeholder = 'Movie title (e.g. Dune 2021)';
@@ -2057,18 +2064,7 @@ function torrentTvShowName(item) {
 }
 
 function torrentTvDestinationParts(item) {
-  const show = torrentTvShowName(item);
-  if (!show) return ['torrents'];
-  const parts = ['torrents', show];
-  const nums = seasonNumbersForItem(item);
-  if (nums.length === 1) {
-    parts.push(`Season ${String(nums[0]).padStart(2, '0')}`);
-  } else if (nums.length >= 2) {
-    const lo = String(nums[0]).padStart(2, '0');
-    const hi = String(nums[nums.length - 1]).padStart(2, '0');
-    parts.push(`Season ${lo}-${hi}`);
-  }
-  return parts;
+  return ['torrents'];
 }
 
 function torrentTvDestinationRel(item) {
@@ -2109,7 +2105,7 @@ async function ensureTorrentShowFolder(item) {
   applyTorrentCategoryDefaults(torrentCat);
   const moviesId = driveId || resolveMoviesExpansionDriveId();
   if (!moviesId) return null;
-  const relWanted = torrentTvDestinationRel(item);
+  const relWanted = 'torrents';
   try {
     const folder = await ensureLibraryFolderRel(moviesId, relWanted);
     if (!folder) return null;
@@ -3038,6 +3034,7 @@ async function cancelJob(id, { purge = false } = {}) {
 function isAria2Job(j) {
   if (!j) return false;
   if (j.worker === 'aria2') return true;
+  if (j.worker) return false;
   const k = (j.kind || '').toLowerCase();
   return k === 'magnet' || k === 'http';
 }
@@ -3352,11 +3349,6 @@ function applySearchSort() {
   });
 }
 
-function escHtml(s) {
-  return String(s == null ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 function torrentTagSlug(label) {
   return String(label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
@@ -3479,7 +3471,7 @@ function renderSearchResults() {
         <div class="detail-actions">
           <button type="button" data-queue="${i}"${queueBtnDisabled}>${alreadyQueued ? 'Queued' : 'Queue download'}</button>
           <button type="button" class="secondary" data-use="${i}">Fill form</button>
-          ${item.url ? `<a class="btn secondary" style="padding:0.25rem 0.45rem;font-size:0.7rem;display:inline-flex;align-items:center" href="${escHtml(String(item.url).replace(/\\.git$/, ''))}" target="_blank" rel="noopener">Open source</a>` : ''}
+          ${item.url && safeHref(String(item.url).replace(/\\.git$/, '')) ? `<a class="btn secondary" style="padding:0.25rem 0.45rem;font-size:0.7rem;display:inline-flex;align-items:center" href="${escAttr(safeHref(String(item.url).replace(/\\.git$/, '')))}" target="_blank" rel="noopener">Open source</a>` : (item.url ? `<span class="btn secondary">${escHtml(redactSecrets(item.url))}</span>` : '')}
         </div>
         <div id="searchHf-${i}" class="hidden"></div>
       </div>
@@ -3632,9 +3624,11 @@ async function pickResult(item, opts) {
       release_kind: releaseKindForItem(item),
       show_title_guess: item.show_title_guess || parseShowFolderName(item.title || ''),
     };
-    const destRel = await ensureTorrentShowFolder(item);
-    if (destRel) {
-      pendingTorrentDestRel = destRel;
+    if (doQueue) {
+      const destRel = await ensureTorrentShowFolder(item);
+      if (destRel) pendingTorrentDestRel = destRel;
+    } else {
+      pendingTorrentDestRel = torrentTvDestinationRel(item);
     }
   } else {
     pendingTorrentDestRel = null;
@@ -3754,13 +3748,13 @@ async function loadNightSummary() {
         steps.map(s => {
           const dot = s.ok ? '🟢' : '🔴';
           const dur = s.duration_s != null ? `${Math.round(s.duration_s)}s` : '';
-          const err = s.error ? ` — ${s.error}` : '';
+          const errHtml = s.error ? `<div style="color:var(--red);font-size:0.7rem;padding-left:1.4rem">${escHtml(s.error)}</div>` : '';
           const timeout = s.timed_out ? ' (timed out)' : '';
           return `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.15rem 0;font-size:0.78rem">
             <span>${dot}</span>
-            <span style="flex:1">${s.label || s.type || '?'}</span>
+            <span style="flex:1">${escHtml(s.label || s.type || '?')}</span>
             <span style="color:var(--text-sub);font-size:0.7rem">${dur}${timeout}</span>
-          </div>${err ? `<div style="color:var(--red);font-size:0.7rem;padding-left:1.4rem">${err}</div>` : ''}`;
+          </div>${errHtml}`;
         }).join('');
     } else {
       stepsEl.innerHTML = '<p class="sub">No overnight run recorded.</p>';
@@ -3780,7 +3774,7 @@ async function loadNightSummary() {
       const topJobs = items.slice(0, 3).map(j => {
         const st = j.status === 'done' ? '✓' : (j.status === 'error' ? '✗' : '·');
         const stColor = j.status === 'done' ? 'var(--green,#4caf50)' : (j.status === 'error' ? 'var(--red,#d93025)' : 'var(--text-sub)');
-        return `<div style="display:flex;gap:0.35rem;font-size:0.78rem;padding:0.1rem 0"><span style="color:${stColor}">${st}</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${j.title || j.kind || '?'}</span></div>`;
+        return `<div style="display:flex;gap:0.35rem;font-size:0.78rem;padding:0.1rem 0"><span style="color:${stColor}">${st}</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(j.title || j.kind || '?')}</span></div>`;
       }).join('');
       jobsEl.innerHTML = jobHead + topJobs;
     } else {
@@ -3789,7 +3783,7 @@ async function loadNightSummary() {
 
     if (warnings.length > 0) {
       warnEl.innerHTML = '<div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--amber,#e6a817);margin-bottom:0.2rem">Warnings</div>' +
-        warnings.map(w => `<div style="font-size:0.75rem;color:var(--amber,#e6a817);padding:0.1rem 0">⚠ ${w}</div>`).join('');
+        warnings.map(w => `<div style="font-size:0.75rem;color:var(--amber,#e6a817);padding:0.1rem 0">⚠ ${escHtml(w)}</div>`).join('');
     } else {
       warnEl.innerHTML = '';
     }
@@ -3801,17 +3795,17 @@ async function loadNightSummary() {
 }
 
 function renderJobRow(j) {
-  const tags = (j.tags || []).map(t => `<span class="tag">#${t}</span>`).join('');
-  const err = j.error ? `<div class="url">${humanError(j.error)}</div>` : '';
-  const cancelBtn = (j.status === 'queued' || j.status === 'running' || j.status === 'claimed' || j.status === 'paused') ? `<button type="button" class="secondary cancel" data-cancel="${j.id}" data-purge="${isAria2Job(j) ? '1' : '0'}" style="color:#d93025">Cancel</button>` : '';
-  const retry = (j.status === 'error' || j.status === 'done') ? `<button type="button" class="secondary retry" data-retry="${j.id}">Retry</button>` : '';
-  const approve = j.status === 'review' ? `<div class="approve-row" style="display:grid;grid-template-columns:1fr auto;gap:0.35rem;margin-top:0.35rem"><input type="text" class="review-url" data-job="${j.id}" placeholder="Paste URL to approve"/><button type="button" class="secondary approve" data-approve="${j.id}">Approve</button></div>` : '';
-  const by = j.requested_by ? `<span class="tag">@${j.requested_by}</span>` : '';
+  const tags = (j.tags || []).map(t => `<span class="tag">#${escHtml(t)}</span>`).join('');
+  const err = j.error ? `<div class="url">${escHtml(humanError(j.error))}</div>` : '';
+  const cancelBtn = (j.status === 'queued' || j.status === 'running' || j.status === 'claimed' || j.status === 'paused') ? `<button type="button" class="secondary cancel" data-cancel="${escAttr(j.id)}" data-purge="${isAria2Job(j) ? '1' : '0'}" style="color:#d93025">Cancel</button>` : '';
+  const retry = (j.status === 'error' || j.status === 'done') ? `<button type="button" class="secondary retry" data-retry="${escAttr(j.id)}">Retry</button>` : '';
+  const approve = j.status === 'review' ? `<div class="approve-row" style="display:grid;grid-template-columns:1fr auto;gap:0.35rem;margin-top:0.35rem"><input type="text" class="review-url" data-job="${escAttr(j.id)}" placeholder="Paste URL to approve"/><button type="button" class="secondary approve" data-approve="${escAttr(j.id)}">Approve</button></div>` : '';
+  const by = j.requested_by ? `<span class="tag">@${escHtml(j.requested_by)}</span>` : '';
   const line = j.kind === 'sync'
-    ? `${j.source_folder_name || ''} → ${j.folder_name || ''} · ${j.source_path || ''} → ${j.destination_path || ''}`
-    : `${j.folder_name || ''} · ${j.destination_path || ''}`;
-  const urlLine = j.url ? `<div class="url">${j.url}</div>` : (j.notes ? `<div class="url">${j.notes}</div>` : '');
-  return `<div class="job"><div class="top"><strong>${j.title || j.kind}</strong><span>${by}<span class="status-${j.status}">${j.status}</span>${approve}${cancelBtn}${retry}</span></div>
+    ? `${escHtml(j.source_folder_name || '')} → ${escHtml(j.folder_name || '')} · ${escHtml(j.source_path || '')} → ${escHtml(j.destination_path || '')}`
+    : `${escHtml(j.folder_name || '')} · ${escHtml(j.destination_path || '')}`;
+  const urlLine = j.url ? `<div class="url">${escHtml(redactSecrets(j.url))}</div>` : (j.notes ? `<div class="url">${escHtml(j.notes)}</div>` : '');
+  return `<div class="job"><div class="top"><strong>${escHtml(j.title || j.kind)}</strong><span>${by}<span class="status-${escAttr(j.status)}">${escHtml(j.status)}</span>${approve}${cancelBtn}${retry}</span></div>
     ${urlLine}${err}
     <div>${line} ${tags}</div></div>`;
 }
@@ -3831,8 +3825,8 @@ async function approveReview(id, url) {
 }
 
 function renderLillyInboxRow(j, { compact } = {}) {
-  const err = j.error ? `<div class="url">${humanError(j.error)}</div>` : '';
-  const body = j.url ? `<div class="url">${j.url}</div>` : `<div class="url">${j.notes || j.title || ''}</div>`;
+  const err = j.error ? `<div class="url">${escHtml(humanError(j.error))}</div>` : '';
+  const body = j.url ? `<div class="url">${escHtml(redactSecrets(j.url))}</div>` : `<div class="url">${escHtml(j.notes || j.title || '')}</div>`;
   const retry = (j.status === 'error' || j.status === 'done') ? `<button type="button" class="secondary retry" data-retry="${j.id}">Retry</button>` : '';
   let actions = retry;
   if (j.status === 'review') {
@@ -3849,9 +3843,9 @@ function renderLillyInboxRow(j, { compact } = {}) {
       </div>`;
     }
   }
-  return `<div class="job"><div class="top"><strong>${j.title || j.kind}</strong><span class="status-${j.status}">${j.status}</span></div>
+  return `<div class="job"><div class="top"><strong>${escHtml(j.title || j.kind)}</strong><span class="status-${escAttr(j.status)}">${escHtml(j.status)}</span></div>
     ${body}${err}
-    <div class="url">${j.folder_name || ''} · ${j.created_at ? j.created_at.slice(0, 16).replace('T', ' ') : ''}</div>
+    <div class="url">${escHtml(j.folder_name || '')} · ${escHtml(j.created_at ? j.created_at.slice(0, 16).replace('T', ' ') : '')}</div>
     ${actions}</div>`;
 }
 
@@ -4491,8 +4485,9 @@ function renderQueueDetail(j) {
   el.innerHTML = `
     <div class="top"><strong>${escHtml(j.title || j.kind || j.id)}</strong>
       <span class="queue-status-pill ${escHtml(queuePillStatusClass(j))}">${escHtml(statusLabel(j.status, j))}</span></div>
-    ${j.url ? `<div class="url">${escHtml(j.url)}</div>` : ''}
+    ${j.url ? `<div class="url">${escHtml(redactSecrets(j.url))}</div>` : ''}
     ${j.notes ? `<div class="url">${escHtml(j.notes)}</div>` : ''}
+    ${j.download_dir ? `<div class="url">Downloaded to ${escHtml(j.download_dir)}${(j.media_pipeline && (j.media_pipeline.sonarr === 'added' || j.media_pipeline.sonarr === 'exists')) ? ' · Sonarr will file this under TV › ' + escHtml((j.torrent_meta && j.torrent_meta.show_title_guess) || 'Show') : ''}</div>` : ''}
     ${j.error ? `<div class="url">${escHtml(j.error_display || humanError(j.error))}</div>` : ''}
     ${archiveDetail || (pct != null ? `<div class="url">Progress ${pct}%${escHtml(aria2ThroughputHint(j))}</div>` : (aria2ThroughputHint(j) ? `<div class="url">${escHtml(aria2ThroughputHint(j).replace(/^ · /, ''))}</div>` : ''))}
     <div class="url">${escHtml(j.id)} · ${escHtml(kindLabel(j))} · ${escHtml(j.folder_name || j.destination_path || '')}</div>

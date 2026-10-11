@@ -24,8 +24,14 @@ from urllib.parse import quote, urlencode, urlparse
 from download_destinations import (
     ARIA2_TORRENTS_CONTAINER_DIR,
     aria2_dir_for,
+    aria2_dir_for_job,
+    aria2_opts_for_job,
+    host_dirs_to_ensure,
+    metadata_retry_scan_dir,
     validate_aria2_destination,
 )
+from index_writer import build_torrent_entry
+from job_kinds import dispatch_route, is_aria2_job
 from hub_torrent_parse import (
     classify_release_kind,
     season_numbers_from_title,
@@ -1898,13 +1904,7 @@ def resume_aria2_job(job: dict[str, Any]) -> None:
         raise RuntimeError("missing aria2_gid")
     print(f"resume aria2 {job['id']} gid={gid}", flush=True)
     dest = str(job.get("destination_path") or "")
-    aria_dir, _post = aria2_dir_for(dest) if dest else ("", None)
-    opts = {
-        "dir": aria_dir,
-        "file-allocation": "none",
-        "bt-metadata-only": "false",
-        **ARIA2_LEECH_OPTS,
-    }
+    opts = {**aria2_opts_for_job(job), **ARIA2_LEECH_OPTS}
     wait_aria2(
         gid,
         str(job["id"]),
@@ -2223,10 +2223,7 @@ def run_purge_job(job: dict[str, Any]) -> None:
 
 
 def _is_aria2_job_kind(job: dict[str, Any]) -> bool:
-    if job.get("worker") == "aria2":
-        return True
-    kind = (job.get("kind") or "http").lower()
-    return kind in ("http", "magnet")
+    return is_aria2_job(job)
 
 
 JACKETT_HOST_INDEXERS = Path.home() / "homelab/data/jackett/Jackett/Indexers"
@@ -3088,7 +3085,10 @@ def _aria2_wait_step(track: dict[str, Any]) -> str:
             if switched_to_data:
                 track["meta_retries"] = meta_retries
                 return "running"
-            scan = Path(dest_path) if dest_path else _aria2_host_download_dir(gid)
+            host_scan = _aria2_host_download_dir(gid)
+            scan = metadata_retry_scan_dir(
+                {"destination_path": dest_path}, host_scan
+            ) if dest_path or host_scan else None
             if scan and not scan.is_dir():
                 scan = scan.parent
             if (
@@ -3171,11 +3171,11 @@ def wait_aria2(
 
 def _complete_aria2_post_download(job: dict[str, Any], gid: str) -> None:
     dest = str(job.get("destination_path") or "")
-    aria_dir, post_copy = aria2_dir_for(dest) if dest else ("", None)
+    _aria_dir, post_copy = aria2_dir_for_job(dest) if dest else ("", None)
     host_dl = _aria2_host_download_dir(str(gid))
+    sidecar_dir: Path | None = None
     if host_dl is not None:
         sidecar_dir = host_dl if host_dl.is_dir() else host_dl.parent
-        write_hub_job_sidecar(sidecar_dir, job)
     if dest.startswith(MOVIES_USB_ROOT):
         notify_media_libraries_after_torrent(job, str(gid))
     elif post_copy:
@@ -3184,6 +3184,40 @@ def _complete_aria2_post_download(job: dict[str, Any], gid: str) -> None:
         write_tags_sidecar(post_copy, job)
     elif not host_dl and dest:
         write_tags_sidecar(dest, job)
+    download_rel = None
+    files: list[str] = []
+    if sidecar_dir and sidecar_dir.is_dir():
+        try:
+            download_rel = str(sidecar_dir.relative_to(Path(MOVIES_USB_ROOT)))
+        except ValueError:
+            download_rel = sidecar_dir.name
+        files = [
+            str(p.relative_to(sidecar_dir))
+            for p in sidecar_dir.rglob("*")
+            if p.is_file() and not p.name.startswith(".")
+        ]
+    pipeline = job.get("media_pipeline") if isinstance(job.get("media_pipeline"), dict) else {}
+    if download_rel or files:
+        try:
+            fresh = hub_get_job(str(job.get("id") or ""))
+            pipeline = fresh.get("media_pipeline") or pipeline
+        except Exception:
+            pass
+        entry = build_torrent_entry(job, download_rel, files, pipeline)
+        job["index_entry"] = entry
+        job["download_dir"] = download_rel
+        if sidecar_dir is not None:
+            write_hub_job_sidecar(sidecar_dir, job)
+        try:
+            update_job(
+                str(job["id"]),
+                download_dir=download_rel,
+                index_entry=entry,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"index_entry patch failed: {exc}", flush=True)
+    elif sidecar_dir is not None:
+        write_hub_job_sidecar(sidecar_dir, job)
 
 
 def _begin_aria2_track(job: dict[str, Any]) -> dict[str, Any]:
@@ -3197,20 +3231,11 @@ def _begin_aria2_track(job: dict[str, Any]) -> dict[str, Any]:
     )
     if preflight:
         raise RuntimeError(preflight)
-    ensure_host_dir(dest)
-    if dest.rstrip("/") == "/mnt/external/movies":
-        ensure_host_dir("/mnt/external/movies/torrents")
-    aria_dir, post_copy = aria2_dir_for(dest)
-    if dest.startswith("/mnt/external/movies/torrents"):
-        aria_dir = ARIA2_TORRENTS_CONTAINER_DIR
-    if post_copy:
-        ensure_host_dir("/mnt/media/_nas_staging/" + dest[len("/mnt/tnas/") :])
-    opts: dict[str, str] = {
-        "dir": aria_dir,
-        "file-allocation": "none",
-        "bt-metadata-only": "false",
-        **ARIA2_LEECH_OPTS,
-    }
+    for folder in host_dirs_to_ensure(dest):
+        ensure_host_dir(str(folder))
+    aria_dir, post_copy = aria2_dir_for_job(dest)
+    opts: dict[str, str] = {**aria2_opts_for_job(job), **ARIA2_LEECH_OPTS}
+    opts["dir"] = aria_dir
     _aria2_purge_stopped_results()
     url = str(job["url"])
     magnet_for_wait: str | None = None
@@ -3369,9 +3394,9 @@ def _attach_resumable_aria2_to_supervisor(job: dict[str, Any]) -> bool:
 
 
 def _dispatch_claimed_job(job: dict[str, Any], vpn: tuple[bool, str]) -> None:
-    kind = (job.get("kind") or "http").lower()
+    kind = str(job.get("kind") or "").strip().lower()
     jid = str(job["id"])
-    if kind in ("http", "magnet"):
+    if dispatch_route(job) == "aria2":
         if not _aria2_can_dispatch_more():
             update_job(jid, status="queued", error=None)
             return
@@ -3394,7 +3419,7 @@ def _dispatch_claimed_job(job: dict[str, Any], vpn: tuple[bool, str]) -> None:
             flush=True,
         )
         return
-    if kind == "video" and HUB_SLOT_VIDEO > 0:
+    if dispatch_route(job) == "video" and HUB_SLOT_VIDEO > 0:
         if not vpn[0]:
             update_job(jid, status="queued", error=None)
             return
@@ -4847,16 +4872,17 @@ def run_storage_scan(req: dict[str, Any]) -> None:
 
 
 def process(job: dict[str, Any]) -> None:
-    kind = job.get("kind") or "http"
+    kind = str(job.get("kind") or "").strip().lower()
+    route = dispatch_route(job)
     if kind == "sync":
         run_sync_job(job)
     elif kind == "storage_delete":
         run_storage_delete_job(job)
-    elif kind in ("http", "magnet"):
+    elif route == "aria2":
         run_aria2_job(job)
         _finalize_after_aria2(job["id"])
         return
-    elif kind == "video":
+    elif route == "video" or kind == "video":
         run_video_job(job)
     elif kind == "github":
         run_github_job(job)
