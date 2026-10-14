@@ -29,8 +29,18 @@ from netllm_core.models import (
     Backend,
 )
 from netllm_core.source_identity import resolve_source
-from netllm_discovery.local import scan_local_providers, scan_results_to_backends
+from netllm_discovery.local import (
+    loopback_async_client,
+    scan_local_providers,
+    scan_results_to_backends,
+)
+from netllm_discovery.strata import (
+    StrataCapacityError,
+    StrataLoadError,
+    ensure_strata_loaded,
+)
 from netllm_sdk_openai.client import OpenAIUpstream
+from netllm_sdk_openai.errors import OpenAIUpstreamError
 
 from netllm_agent.metrics import BACKEND_HEALTH, BACKEND_IN_FLIGHT
 
@@ -156,6 +166,23 @@ class BackendsMixin:
                     )
                 )
         return local
+
+    async def ensure_backend_ready(self, backend: Backend) -> None:
+        """Provider-specific pre-proxy steps (Strata load-on-request)."""
+        if backend.provider != "strata" or not self.config.routing.strata_auto_load:
+            return
+        if backend.health.engine_loaded is True:
+            return
+        api_key = backend.resolve_api_key() or None
+        try:
+            async with loopback_async_client() as client:
+                await ensure_strata_loaded(backend.base_url, client, api_key=api_key)
+        except StrataCapacityError as exc:
+            raise OpenAIUpstreamError(str(exc), status_code=503) from exc
+        except StrataLoadError as exc:
+            raise OpenAIUpstreamError(str(exc), status_code=502) from exc
+        if backend.health is not None:
+            backend.health.engine_loaded = True
 
     def invalidate_local_scan_cache(self) -> None:
         """Drop the TTL-cached provider scan.

@@ -140,11 +140,10 @@ SWIFT_PROVIDERS_MARKER = "static let providers = ["
 
 
 def _apply_swift_providers_roster(workspace: Workspace) -> None:
-    from netllm_core.local_providers import providers_for_platform
+    from netllm_core.local_providers import local_provider_ids
 
-    # The roster on disk, before the fixture entry: the real registry's darwin
-    # roster. Rebuilt rather than hardcoded so this edit tracks the registry.
-    real = [pid for pid in providers_for_platform("darwin") if pid != FIXTURE_ID]
+    # Full checkbox roster (superset of per-platform defaults).
+    real = [pid for pid in local_provider_ids() if pid != FIXTURE_ID]
     old = SWIFT_PROVIDERS_MARKER + ", ".join(f'"{pid}"' for pid in real) + "]"
     new = (
         SWIFT_PROVIDERS_MARKER
@@ -408,15 +407,16 @@ def stage_macos_discovery_checkboxes(workspace: Workspace) -> None:
     `sys.platform` to darwin for the same reason, since the checked-in Swift
     file only ever ships to macOS and oMLX is Apple-Silicon only.
     """
-    from netllm_core.local_providers import providers_for_platform
+    from netllm_core.local_providers import local_provider_ids, providers_for_platform
 
     roster = swift_providers_roster(workspace.read(SWIFT_SETTINGS))
-    assert roster == providers_for_platform("darwin"), (
-        f"{SWIFT_SETTINGS}'s `providers` roster is {roster}, but the registry's "
-        f"darwin roster is {providers_for_platform('darwin')}. The macOS "
-        "Settings discovery section draws one checkbox per entry in that "
-        "array, so a provider missing from it cannot be enabled from the app. "
-        "Guard: tests/test_contract.py::test_swift_default_providers_match_python"
+    darwin = providers_for_platform("darwin")
+    assert set(darwin).issubset(set(roster)), (
+        f"{SWIFT_SETTINGS}'s `providers` roster must include every darwin "
+        f"default; got {roster}, expected superset of {darwin}"
+    )
+    assert set(roster) <= set(local_provider_ids()), (
+        f"{SWIFT_SETTINGS}'s `providers` roster has unknown ids: {roster}"
     )
 
 

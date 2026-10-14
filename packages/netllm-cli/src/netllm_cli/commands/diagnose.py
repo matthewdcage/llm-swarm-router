@@ -225,6 +225,8 @@ DOCTOR_CHECK_IDS = (
     "swarm.mdns_available",
     "cli.global_path",
     "backends.local_online",
+    "discovery.strata_unloaded",
+    "discovery.strata_omlx_port",
     "cloud.anthropic_key",
     "agent.lan_ip",
     "agent.supervisor",
@@ -477,6 +479,41 @@ def doctor(  # noqa: PLR0912, PLR0915 - one check per branch by design
             fix="" if online else default_provider_port_hint(),
         )
     )
+
+    strata_online = [
+        r for r in results if r.get("id") == "strata" and r.get("status") == "online"
+    ]
+    strata_unloaded = [r for r in strata_online if r.get("engine_loaded") is False]
+    if strata_unloaded:
+        urls = ", ".join(str(r.get("url", "?")) for r in strata_unloaded)
+        checks.append(
+            doctor_check(
+                "discovery.strata_unloaded",
+                ok=True,
+                severity="warn",
+                title="Strata is reachable but no model is loaded yet",
+                detail=(
+                    f"{urls} — when routing.strata_auto_load is true, netllm "
+                    "POSTs /load before the first routed request"
+                ),
+                fix="Wait for auto-load on first chat, or load a model in Strata",
+            )
+        )
+
+    if "omlx" in cfg.discovery.providers and "strata" in cfg.discovery.providers:
+        checks.append(
+            doctor_check(
+                "discovery.strata_omlx_port",
+                ok=True,
+                severity="warn",
+                title="oMLX and Strata both use default port 8080",
+                detail=(
+                    "Discovery fingerprints each URL once; enable only one "
+                    "provider per host unless you pin custom endpoints"
+                ),
+                fix="See docs/strata-integration.md",
+            )
+        )
 
     has_anthropic_backend = any(
         b.provider == "anthropic" for b in cfg.routing.backends if b.enabled
