@@ -34,6 +34,8 @@ Logs: `journalctl --user -u netllm -f` and `~/.local/state/netllm/logs/agent.log
 
 **Status:** `netllm status` · dashboard http://127.0.0.1:11400/ui/
 
+**Strata (optional local engine):** Linux defaults include discovery for [Strata](strata-integration.md) on port 8080 when `strata` is in `[discovery].providers`.
+
 ## Source install (development)
 
 ```bash

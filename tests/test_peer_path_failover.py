@@ -60,6 +60,7 @@ async def test_run_attempt_retries_peer_vpn_path() -> None:
     service.pool.release = MagicMock()
     service.pool.backends = [backend]
     service._update_health_metrics = MagicMock()
+    service.ensure_backend_ready = AsyncMock()
     adapter.service = service
     recorder = MagicMock()
 

@@ -175,7 +175,10 @@ def test_swift_default_providers_match_python(
             if part.strip()
         ]
         break
-    assert swift_defaults == default_discovery_providers()
+    from netllm_core.local_providers import local_provider_ids
+
+    assert set(default_discovery_providers()).issubset(set(swift_defaults))
+    assert set(swift_defaults) <= set(local_provider_ids())
 
 
 def test_cloud_provider_api_key_env_is_derivable() -> None:

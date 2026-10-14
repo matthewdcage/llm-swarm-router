@@ -205,6 +205,7 @@ async def _run_attempt(
         BACKEND_IN_FLIGHT.labels(backend=use_backend.base_url).set(backend.in_flight)
         t0 = time.monotonic()
         try:
+            await service.ensure_backend_ready(use_backend)
             invocation = adapter.build_invocation(plan, use_backend)
             result = await adapter.invoke(plan, invocation)
             result = adapter.restore_model(plan, invocation, result)
@@ -329,6 +330,7 @@ async def _connect_stream(
         BACKEND_IN_FLIGHT.labels(backend=use_backend.base_url).set(backend.in_flight)
         t0 = time.monotonic()
         try:
+            await service.ensure_backend_ready(use_backend)
             invocation = adapter.build_invocation(plan, use_backend)
             stream = adapter.invoke_stream(plan, invocation).__aiter__()
             try:

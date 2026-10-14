@@ -105,7 +105,12 @@ async def test_custom_endpoint_scan_uses_url_api_key() -> None:
     ]
 
     async def fake_probe(
-        url: str, client, api_key: str = "", *, diagnose: bool = False
+        url: str,
+        client,
+        api_key: str = "",
+        *,
+        provider_id: str = "",
+        diagnose: bool = False,
     ):
         if api_key == "custom-secret" and url == "http://127.0.0.1:9000/v1":
             return {

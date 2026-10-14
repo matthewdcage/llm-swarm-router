@@ -80,7 +80,12 @@ async def test_scan_finds_omlx_on_alternate_port(
     monkeypatch.setenv("OMLX_PORT", "8088")
 
     async def fake_probe(
-        url: str, client, api_key: str = "", *, diagnose: bool = False
+        url: str,
+        client,
+        api_key: str = "",
+        *,
+        provider_id: str = "",
+        diagnose: bool = False,
     ) -> dict | None:
         if url == "http://127.0.0.1:8088/v1":
             return {
@@ -110,7 +115,12 @@ async def test_scan_prefers_vllm_url_with_models_over_auth_only_port() -> None:
     }
 
     async def fake_probe(
-        url: str, client, api_key: str = "", *, diagnose: bool = False
+        url: str,
+        client,
+        api_key: str = "",
+        *,
+        provider_id: str = "",
+        diagnose: bool = False,
     ) -> dict | None:
         if url == "http://127.0.0.1:8000/v1":
             return {
@@ -155,7 +165,12 @@ async def test_scan_finds_vllm() -> None:
     cfg = NetllmConfig()
 
     async def fake_probe(
-        url: str, client, api_key: str = "", *, diagnose: bool = False
+        url: str,
+        client,
+        api_key: str = "",
+        *,
+        provider_id: str = "",
+        diagnose: bool = False,
     ) -> dict | None:
         if url == "http://127.0.0.1:8000/v1":
             return {
@@ -192,7 +207,12 @@ async def test_scan_uses_config_provider_url_before_scan() -> None:
     seen: list[str] = []
 
     async def fake_probe(
-        url: str, client, api_key: str = "", *, diagnose: bool = False
+        url: str,
+        client,
+        api_key: str = "",
+        *,
+        provider_id: str = "",
+        diagnose: bool = False,
     ) -> dict | None:
         seen.append(url)
         if url == "http://127.0.0.1:9999/v1":
