@@ -391,8 +391,14 @@ class SwarmRegistry:
                 if online and not active_kind:
                     active = url
                     active_kind = kind
-            peer.address_health = health_rows
-            peer.active_listen_url = active if active_kind else peer.active_listen_url
+            # A heartbeat during the await replaces the PeerRecord object;
+            # write to whatever record is current, not the one we planned on.
+            current = self.peers.get(peer.agent_id)
+            if current is None:
+                continue
+            current.address_health = health_rows
+            if active_kind:
+                current.active_listen_url = active
 
     def stale_peers(self, max_age_s: float | None = None) -> list[str]:
         max_age = (

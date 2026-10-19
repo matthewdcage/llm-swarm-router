@@ -115,3 +115,24 @@ async def test_real_probe_times_out_on_unresponsive_candidate() -> None:
         assert status["status"] == "timeout"
     finally:
         sock.close()
+
+
+async def test_results_land_on_record_replaced_by_heartbeat_mid_probe() -> None:
+    registry = _multihomed_registry()
+    with patch.object(swarm_mod, "_probe_agent_health", _fake_probe):
+        registry.schedule_peer_routing_refresh()
+        task = registry._peer_route_task
+        assert task is not None
+        await asyncio.sleep(0)
+        # Heartbeat re-registers the peer while probes are in flight.
+        registry.register_peer(
+            PeerRecord(
+                agent_id="bdda899d",
+                listen_url=LIVE_LAN,
+                reachable_at=[{"url": LIVE_LAN, "kind": "lan"}],
+            )
+        )
+        await task
+    peer = registry.peers["bdda899d"]
+    assert peer.address_health, "probe results were written to a stale record"
+    assert peer.active_listen_url == LIVE_LAN
