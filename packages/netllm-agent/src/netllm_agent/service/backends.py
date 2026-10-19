@@ -88,7 +88,7 @@ class BackendsMixin:
                     self._local_scan_cache = local
                     self._local_scan_at = time.monotonic()
         if self.config.routing.allow_remote:
-            self.swarm.refresh_peer_routing_if_stale()
+            self.swarm.schedule_peer_routing_refresh()
             remote = self.swarm.peer_agent_backends()
         else:
             remote = []

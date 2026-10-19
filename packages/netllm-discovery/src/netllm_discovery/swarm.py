@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
-from netllm_core.health import probe_agent_health_sync
+from netllm_core.health import agent_root_from_base_url, status_from_exception
 from netllm_core.models import Backend, BackendHealth, NetllmConfig
 
 from netllm_discovery.lan import is_lan_reachable_agent_url, peer_candidate_listen_urls
@@ -34,6 +34,24 @@ DEFAULT_DISCOVERY_SOURCE = "heartbeat"
 MAX_PEER_PROVIDERS = 32
 # Same reasoning for the alternate-address set on a multi-homed host.
 MAX_PEER_ALSO_REACHABLE = 8
+# Candidate-path probing (refresh_peer_routing). Dead candidates cost at most
+# one timeout in total because every path is probed concurrently.
+PEER_ROUTE_REFRESH_S = 15.0
+PEER_ROUTE_PROBE_TIMEOUT_S = 2.0
+
+
+async def _probe_agent_health(
+    client: httpx.AsyncClient, url: str, headers: dict[str, str]
+) -> dict[str, Any]:
+    """GET ``/health`` on a candidate agent root — reachability only."""
+    health_url = agent_root_from_base_url(url).rstrip("/") + "/health"
+    try:
+        resp = await client.get(health_url, headers=headers)
+    except Exception as exc:
+        return status_from_exception(exc, PEER_ROUTE_PROBE_TIMEOUT_S)
+    if resp.status_code == 200:
+        return {"status": "online", "http_status": 200}
+    return {"status": "error", "http_status": resp.status_code}
 
 
 def normalize_peer_providers(raw: Any) -> list[dict[str, Any]]:
@@ -216,6 +234,7 @@ class SwarmRegistry:
         self._url_discovery: dict[str, str] = {}
         self._task: asyncio.Task[None] | None = None
         self._peer_route_refresh_at: float = 0.0
+        self._peer_route_task: asyncio.Task[None] | None = None
 
     def overlay_discovery_enabled(self) -> bool:
         return (
@@ -304,25 +323,62 @@ class SwarmRegistry:
         if previous.address_health and not record.address_health:
             record.address_health = list(previous.address_health)
 
-    def refresh_peer_routing_if_stale(self, *, force: bool = False) -> None:
-        """Probe peer candidate URLs and pick the best reachable listen URL."""
-        interval = 15.0
-        now = time.monotonic()
-        if not force and now - self._peer_route_refresh_at < interval:
+    def peer_routing_due(self) -> bool:
+        return time.monotonic() - self._peer_route_refresh_at >= PEER_ROUTE_REFRESH_S
+
+    def schedule_peer_routing_refresh(self) -> None:
+        """Start a background candidate-path probe when one is due.
+
+        Never awaited by callers: this sits on the request and heartbeat
+        path (``refresh_local_backends``), and a multi-homed peer can
+        advertise addresses that black-hole (VPN, VMware/Hyper-V host-only
+        adapters). Probing those inline used to block the event loop for
+        ``timeout × dead candidates`` every refresh interval, which stalled
+        the whole router while such a peer was joined.
+        """
+        if not self.peer_routing_due():
             return
-        self._peer_route_refresh_at = now
-        headers = self._auth_headers()
-        for peer in self.peers.values():
-            candidates = peer_candidate_listen_urls(
-                peer.listen_url,
-                also_reachable_at=peer.also_reachable_at,
-                reachable_at=peer.reachable_at,
+        if self._peer_route_task is not None and not self._peer_route_task.done():
+            return
+        # Claim the slot before the task runs so concurrent callers in the
+        # same tick do not each spawn a probe.
+        self._peer_route_refresh_at = time.monotonic()
+        self._peer_route_task = asyncio.create_task(self.refresh_peer_routing())
+
+    async def refresh_peer_routing(self) -> None:
+        """Probe peer candidate URLs concurrently and pick the best reachable one."""
+        self._peer_route_refresh_at = time.monotonic()
+        headers = self._auth_headers() or {}
+        plan = [
+            (
+                peer,
+                peer_candidate_listen_urls(
+                    peer.listen_url,
+                    also_reachable_at=peer.also_reachable_at,
+                    reachable_at=peer.reachable_at,
+                ),
             )
+            for peer in list(self.peers.values())
+        ]
+        try:
+            async with httpx.AsyncClient(timeout=PEER_ROUTE_PROBE_TIMEOUT_S) as client:
+                results = await asyncio.gather(
+                    *(
+                        _probe_agent_health(client, url, headers)
+                        for _peer, candidates in plan
+                        for url, _kind in candidates
+                    )
+                )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("peer route refresh failed: %s", exc)
+            return
+        it = iter(results)
+        for peer, candidates in plan:
             health_rows: list[dict[str, Any]] = []
             active = peer.listen_url.rstrip("/")
             active_kind = ""
             for url, kind in candidates:
-                status = probe_agent_health_sync(url, headers=headers or None)
+                status = next(it)
                 online = status.get("status") == "online"
                 health_rows.append(
                     {
