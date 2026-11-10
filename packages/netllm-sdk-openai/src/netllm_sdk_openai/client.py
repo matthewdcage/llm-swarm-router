@@ -29,9 +29,14 @@ class OpenAIUpstream:
         connect_timeout: float = 5.0,
         read_timeout: float = 120.0,
         default_headers: dict[str, str] | None = None,
+        max_retries: int = 0,
     ) -> None:
         timeout = httpx_timeout(connect_timeout, read_timeout)
-        extra: dict[str, Any] = {}
+        # The router owns retries: it fails over to another backend with a
+        # per-request exclusion set. The SDK default (2) would replay the
+        # call on the same slow or busy node first, hiding the failure from
+        # failover for up to three read timeouts.
+        extra: dict[str, Any] = {"max_retries": max_retries}
         if default_headers:
             extra["default_headers"] = default_headers
         self._async = AsyncOpenAI(
