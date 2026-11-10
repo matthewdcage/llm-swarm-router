@@ -822,7 +822,10 @@ async def test_stream_session_threads_measured_ttft_into_telemetry(
     recorder = AttemptRecorder(service, plan)  # type: ignore[arg-type]
 
     async def upstream():
-        await asyncio.sleep(0.01)
+        # time.monotonic() ticks every ~15.6 ms on Windows, and the ledger
+        # drops zero-length TTFT samples. A 10 ms wait could therefore read as
+        # 0 ms there; 60 ms spans several ticks on every platform.
+        await asyncio.sleep(0.06)
         yield 'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n'
 
     session = StreamSession(
@@ -843,10 +846,11 @@ async def test_stream_session_threads_measured_ttft_into_telemetry(
     telemetry = service.telemetry
     latency = telemetry.ledger.latency_payload()
     assert latency["ttft_samples"] == 1
-    # 10 ms of upstream silence before the first token, and the role frame did
-    # not stop the clock.
+    # 60 ms of upstream silence before the first token, and the role frame did
+    # not stop the clock. Lower bound is loose: it only has to prove the clock
+    # ran past the role-only opener.
     assert latency["ttft_p50_ms"] is not None
-    assert latency["ttft_p50_ms"] >= 5.0
+    assert latency["ttft_p50_ms"] >= 20.0
 
     windows = telemetry.ledger.windows_payload()
     assert windows["by_backend"]["alpha"]["requests"]["60"] == 1
