@@ -325,6 +325,9 @@ const state = {
   logsPollTimer: null,
   logs: null,
   adminWarned: false,
+  // Set by api() on any 401/403; decides between the token bar and a banner.
+  accessDenied: false,
+  clusterToken: "",
   /** True when GET /config differs from last-saved baseline while draft is dirty. */
   configDrift: false,
   lastUpdatedAt: null,
@@ -467,14 +470,50 @@ function asObject(value) {
 const API_TIMEOUT_MS = 15000;
 const API_DEEP_TIMEOUT_MS = 60000;
 
+/*
+ * The swarm cluster token, for a browser that is not on the agent's own
+ * machine (a headless Linux or Windows node has no other GUI). Admin routes
+ * accept "local client or Bearer cluster token"; without a way to send the
+ * token this dashboard was permanently read-only from anywhere else.
+ *
+ * sessionStorage, not localStorage: the token is a mesh credential, so it
+ * lasts for the tab and is gone when the tab closes.
+ */
+const CLUSTER_TOKEN_KEY = "netllm.clusterToken";
+
+function storedClusterToken() {
+  try {
+    return window.sessionStorage.getItem(CLUSTER_TOKEN_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function storeClusterToken(token) {
+  try {
+    if (token) window.sessionStorage.setItem(CLUSTER_TOKEN_KEY, token);
+    else window.sessionStorage.removeItem(CLUSTER_TOKEN_KEY);
+  } catch {
+    /* storage blocked: the token then only lasts for this page load */
+  }
+  state.clusterToken = token || "";
+}
+
 async function api(path, options = {}) {
   const { timeoutMs = API_TIMEOUT_MS, ...init } = options;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const token = state.clusterToken || storedClusterToken();
+  if (token) {
+    init.headers = { ...(init.headers || {}), Authorization: `Bearer ${token}` };
+  }
   try {
     // The signal covers the body read too, not just the headers: a response
     // whose stream never completes hangs res.json() exactly as hard.
     const res = await fetch(path, { ...init, signal: controller.signal });
+    if (res.status === 401 || res.status === 403) {
+      state.accessDenied = true;
+    }
     if (!res.ok) {
       const text = await res.text();
       let message = text || `${res.status} ${res.statusText}`;
@@ -1402,6 +1441,8 @@ function setByPath(obj, path, value) {
 /* ---------------- loaders ---------------- */
 
 async function loadCore(deepStatus = false) {
+  // Re-derived on every pass: api() sets it again if a route still refuses.
+  state.accessDenied = false;
   const statusPath = deepStatus
     ? "/netllm/v1/status?probe=1&probe_peers=1&scan=1"
     : "/netllm/v1/status";
@@ -1470,7 +1511,82 @@ async function loadCore(deepStatus = false) {
 function warnAdminLimited(message) {
   if (state.adminWarned) return;
   state.adminWarned = true;
+  // Access was refused, not merely unavailable: offer the way in instead of a
+  // banner telling the user to go and sit at the other machine.
+  if (state.accessDenied) {
+    renderAuthBar();
+    return;
+  }
   setBanner(message, "warn");
+}
+
+/*
+ * Read-only bar with a token field, shown when the agent refused an admin
+ * route. Built with DOM calls like everything else here; the token never
+ * touches the page as text.
+ */
+function renderAuthBar(note = "") {
+  const bar = document.getElementById("auth-bar");
+  if (!bar) return;
+  bar.textContent = "";
+  bar.hidden = false;
+  const rejected = !!(state.clusterToken || storedClusterToken());
+  bar.appendChild(
+    textEl(
+      "span",
+      "auth-bar-text",
+      note ||
+        (rejected
+          ? "That token was not accepted. Settings stay read-only until the agent's swarm cluster token is entered."
+          : "Read-only: this browser is not on the agent's own machine. Enter the swarm cluster token to change settings.")
+    )
+  );
+  const form = el("form", "auth-bar-form");
+  const input = el("input");
+  input.type = "password";
+  input.id = "auth-token-input";
+  input.autocomplete = "off";
+  input.placeholder = "Cluster token";
+  input.setAttribute("aria-label", "Swarm cluster token");
+  const submit = textEl("button", "", "Unlock");
+  submit.type = "submit";
+  submit.id = "auth-token-submit";
+  form.append(input, submit);
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const token = input.value.trim();
+    if (!token) return;
+    submit.disabled = true;
+    await unlockWithToken(token);
+  };
+  bar.appendChild(form);
+}
+
+function hideAuthBar() {
+  const bar = document.getElementById("auth-bar");
+  if (!bar) return;
+  bar.hidden = true;
+  bar.textContent = "";
+}
+
+async function unlockWithToken(token) {
+  storeClusterToken(token);
+  state.accessDenied = false;
+  state.adminWarned = false;
+  // Drop the placeholder draft built while locked so the real config loads.
+  if (!state.config) state.configDraft = null;
+  await refresh();
+  if (state.accessDenied) {
+    storeClusterToken("");
+    state.clusterToken = "";
+    renderAuthBar(
+      "That token was not accepted. If this agent has no cluster token yet, create one on its own machine with: netllm swarm-token --create"
+    );
+    return;
+  }
+  hideAuthBar();
+  setBanner("");
+  toast("Unlocked for this tab");
 }
 
 // Section key -> default draft object, built by walking a fetched
@@ -1982,11 +2098,22 @@ async function refresh() {
       loadHarnessRegistry(),
     ]);
   } catch (e) {
-    // Without this the promise rejects into nothing: the page keeps showing
-    // the last good data behind a green "Running" badge, which is the most
-    // misleading state the dashboard can be in.
-    state.healthy = false;
-    setBanner(`Could not reach the agent: ${e.message}`, "error");
+    if (state.accessDenied) {
+      // The agent answered and said no: with a cluster token set, even the
+      // status route needs it from another machine. That is "locked", not
+      // "unreachable" — keep the health badge honest and ask for the token.
+      if (!state.configDraft) state.configDraft = emptyConfigDraft();
+      if (!state.adminWarned) {
+        state.adminWarned = true;
+        renderAuthBar();
+      }
+    } else {
+      // Without this the promise rejects into nothing: the page keeps showing
+      // the last good data behind a green "Running" badge, which is the most
+      // misleading state the dashboard can be in.
+      state.healthy = false;
+      setBanner(`Could not reach the agent: ${e.message}`, "error");
+    }
   }
   // Settled either way — from here on the pages render real (or empty) data
   // rather than the boot placeholder.
