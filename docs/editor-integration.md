@@ -26,7 +26,7 @@ Use the same pattern for **Cursor, Claude Code, Codex, Honcho, Hermes Agent, Con
 | OpenAI-compatible base URL | `http://127.0.0.1:11400/v1` on the same machine, `http://<gateway-ip>:11400/v1` for a LAN gateway, or `http://host.docker.internal:11400/v1` when the client runs in Docker and netllm on the host |
 | API key | `netllm-local` (placeholder; real keys only for optional cloud failover) |
 | Model ID | Unchanged from your current setup; must match `./netllm models` exactly |
-| Backend URLs (oMLX, Ollama, LM Studio, vLLM) | **`~/.config/netllm/config.toml` only** — discovery, Settings UI, or `[[routing.backends]]`. Do not keep per-machine URL lists in each client. |
+| Backend URLs (oMLX, Ollama, LM Studio, vLLM, Strata, FreeToken) | **`~/.config/netllm/config.toml` only** — discovery, Settings UI, or `[[routing.backends]]`. Do not keep per-machine URL lists in each client. Strata: [strata-integration.md](strata-integration.md). |
 | Multi-machine swarm | Run `./netllm serve --host 0.0.0.0` on each node; clients still use **one** netllm URL. Peers merge automatically (`./netllm peers`). Optional: `./netllm gateway` on one host, then point clients at that agent only. |
 
 **Anthropic Messages API clients** (Claude Code native path, some agents): use `http://127.0.0.1:11400` (no `/v1`) and `ANTHROPIC_API_KEY=netllm-local`.

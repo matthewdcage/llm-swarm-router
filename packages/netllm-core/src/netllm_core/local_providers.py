@@ -152,6 +152,18 @@ LOCAL_PROVIDERS: dict[str, LocalProviderSpec] = {
         api_key_env="FREETOKEN_API_KEY",
         offline_hint="run [cyan]ft serve[/] (or start the [cyan]ft daemon[/])",
     ),
+    # Strata (Niko1221): OpenAI-compatible MoE engine; default :8080 overlaps oMLX
+    # on macOS — platforms exclude darwin so init does not enable both scanners.
+    "strata": LocalProviderSpec(
+        id="strata",
+        display_name="Strata",
+        short_label="Strata",
+        default_ports=(8080,),
+        platforms=("linux", "win32"),
+        port_env="STRATA_PORT",
+        api_key_env="STRATA_API_KEY",
+        offline_hint="start Strata (see docs/strata-integration.md)",
+    ),
 }
 
 # `custom` is not a discoverable provider -- it has no ports, no probe and no

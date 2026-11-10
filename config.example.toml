@@ -31,12 +31,12 @@ advertise = true
 
 [discovery]
 # macOS default (netllm init): omlx, ollama, lmstudio, vllm
-# Linux default (netllm init): ollama, lmstudio, vllm, freetoken (no omlx)
+# Linux default (netllm init): ollama, lmstudio, vllm, freetoken, strata (no omlx)
 # Windows default (netllm init): ollama, lmstudio, vllm
 # freetoken (FreeToken `ft serve`, :1919) rejects `response_format`; netllm
 # forwards request bodies verbatim, so clients must not send it there.
 # netllm:generated:begin:local-provider-ids
-providers = ["omlx", "ollama", "lmstudio", "vllm", "freetoken"]
+providers = ["omlx", "ollama", "lmstudio", "vllm", "freetoken", "strata"]
 # netllm:generated:end:local-provider-ids
 custom_endpoints = []
 # Base URLs discovery must never register — e.g. an unrelated service squatting
@@ -96,6 +96,7 @@ follow_gateway = true
 # Peer-only: adopt gateway spillover / max_in_flight from heartbeats at
 # runtime when follow_gateway is also true (never persisted).
 # follow_gateway_capacity = false
+# strata_auto_load = true  # POST /load on Strata backends before proxying when unloaded
 # Gateway-led mesh capacity coordinator (opt-in). When "gateway" and
 # agent.role is "gateway", selection uses gossiped peer admission policy.
 # mesh_coordinator = "off"

@@ -1,0 +1,10 @@
+{
+  "data": [
+    {
+      "id": "strata",
+      "object": "model",
+      "owned_by": "strata",
+      "state": "unloaded"
+    }
+  ]
+}

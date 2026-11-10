@@ -276,6 +276,18 @@ def test_invocation_matches_legacy_oracle_modulo_d18(case: tuple) -> None:
     legacy = legacy_invocation(aliases, pools, backend, requested)
     if resolution.upstream_model == legacy:
         return
+    pool_subst = legacy_resolve_via_pool(pools, backend, requested, aliases)
+    if (
+        pool_subst is not None
+        and legacy == pool_subst
+        and resolution.stage == "passthrough"
+        and legacy != requested
+    ):
+        # D20 invocation: legacy matcher B walked unioned pool models on the
+        # host; unified resolve substitutes only within pools that list the
+        # requested name (same guard as candidacy — D19/D20).
+        assert resolver._pools_containing(requested)
+        return
     # The one declared divergence class (D18): the group arm now matches
     # with the same three arms candidacy always used, so it lands on a
     # served ID where matcher B fell through (or picked a different one).

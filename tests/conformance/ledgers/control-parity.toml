@@ -180,3 +180,22 @@ Write-only, same contract as BackendOverride.api_key — \
 ConfigStore.blankSourceSecret relies on empty-preserves-stored.\
 """
 expires = "never — write-only secrets are deliberately not round-tripped through a client"
+
+[[field]]
+surface = "dashboard"
+key = "routing.strata_auto_load"
+reason = """
+Toggle for Strata POST /load before proxy. The Routing page renders every \
+routing.* schema field via routingFieldInto → renderSchemaField; kit \
+marker drift (body vs host) prevents schema_rendered classification.\
+"""
+expires = "phase-10 — align routing.js marker in kit_config_surfaces or cite field in source"
+
+[[field]]
+surface = "macos"
+key = "routing.strata_auto_load"
+reason = """
+Same routing section schema form as other RoutingConfig booleans; no \
+hand-written Swift toggle.\
+"""
+expires = "phase-10"

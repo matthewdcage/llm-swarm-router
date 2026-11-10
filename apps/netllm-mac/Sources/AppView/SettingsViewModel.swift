@@ -187,6 +187,8 @@ final class SettingsViewModel {
         "ollama": "OLLAMA_API_KEY",
         "lmstudio": "LMSTUDIO_API_KEY",
         "vllm": "VLLM_API_KEY",
+        "freetoken": "FREETOKEN_API_KEY",
+        "strata": "STRATA_API_KEY",
     ]
 
     private func upsertBackendAPIKey(url: String, apiKey: String, provider: String) {
@@ -226,7 +228,7 @@ final class SettingsViewModel {
         "auto", "local_first", "local_spillover", "failover", "round_robin",
         "least_load", "latency_weighted", "batch_shard",
     ]
-    static let providers = ["omlx", "ollama", "lmstudio", "vllm"]
+    static let providers = ["omlx", "ollama", "lmstudio", "vllm", "freetoken", "strata"]
 
     /// Display label and first scan port per discovery provider.
     ///
@@ -246,6 +248,7 @@ final class SettingsViewModel {
         (id: "lmstudio", label: "LM Studio", port: 1234),
         (id: "vllm", label: "vLLM", port: 8000),
         (id: "freetoken", label: "FreeToken", port: 1919),
+        (id: "strata", label: "Strata", port: 8080),
     ]
 
     static func localProviderLabel(_ id: String) -> String {

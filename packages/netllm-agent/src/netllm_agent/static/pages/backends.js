@@ -273,6 +273,15 @@ function localBackendCard(b) {
   // this card could describe a backend's state without ever saying whether
   // that state was seconds or hours old.
   card.appendChild(textEl("div", "field-help", backendProbeAgeText(b)));
+  if (b.provider === "strata" && b.health?.engine_loaded === false) {
+    card.appendChild(
+      textEl(
+        "div",
+        "field-help",
+        "Strata engine is unloaded — netllm will POST /load before routing when strata_auto_load is enabled."
+      )
+    );
+  }
 
   const stats = el("div", "stat-row");
   stats.appendChild(statBlock("Models", String(backendModelCount(b))));

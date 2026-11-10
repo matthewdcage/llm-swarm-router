@@ -20,6 +20,7 @@ const PROVIDERS_BOOTSTRAP = [
   "lmstudio",
   "vllm",
   "freetoken",
+  "strata",
   // netllm:generated:end:local-provider-ids
 ];
 let PROVIDERS = [...PROVIDERS_BOOTSTRAP];

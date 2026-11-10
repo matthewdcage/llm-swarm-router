@@ -77,6 +77,7 @@ ProviderId = Literal[
     "lmstudio",
     "vllm",
     "freetoken",
+    "strata",
     "custom",
     "anthropic",
     "openai",
@@ -424,6 +425,8 @@ class RoutingConfig(ConfigModel):
     # source (audit F-20).
     upstream_connect_timeout_s: float = Field(default=5.0, gt=0.0)
     upstream_read_timeout_s: float = Field(default=120.0, gt=0.0)
+    # When true, POST /load on Strata backends before proxying if unloaded.
+    strata_auto_load: bool = True
     # Set once ensure_lan_mesh_defaults() has upgraded a LAN-bound
     # config; prevents re-overriding an explicit user strategy choice.
     lan_defaults_applied: bool = Field(
@@ -692,6 +695,8 @@ class BackendHealth(BaseModel):
     # the same sentinel last_check uses, so "never" stays distinguishable
     # from "probed at the epoch".
     last_check_epoch_s: float = 0.0
+    # Strata: engine process loaded (from GET /health), distinct from model list.
+    engine_loaded: bool | None = None
 
 
 class Backend(BaseModel):

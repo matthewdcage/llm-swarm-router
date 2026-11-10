@@ -19,6 +19,12 @@ from netllm_core.local_providers import (
 )
 from netllm_core.models import Backend, BackendHealth, NetllmConfig, infer_api_format
 
+from netllm_discovery.strata import (
+    fetch_strata_loaded,
+    parse_strata_models_payload,
+    probe_strata_identity,
+)
+
 # Display name + default scan ports (localhost); config provider_urls are tried first.
 #
 # Derived from netllm_core.local_providers -- the single roster (PROGRAM.md
@@ -240,16 +246,69 @@ def _api_key_for_provider(provider_id: str, config: NetllmConfig) -> str:
     return _api_key_for_provider_id(provider_id)
 
 
+async def _probe_omlx_identity(base_url: str, client: httpx.AsyncClient) -> bool:
+    return (await probe_omlx_admin(base_url, client)) is not None
+
+
+async def _classify_provider_at_url(
+    base_url: str,
+    client: httpx.AsyncClient,
+    enabled: set[str],
+    config: NetllmConfig,
+) -> str | None:
+    """Disambiguate oMLX vs Strata (both default to :8080)."""
+    key_strata = resolve_api_key_for_url(base_url, "strata", config)
+    if "strata" in enabled and await probe_strata_identity(
+        base_url, client, api_key=key_strata or None
+    ):
+        return "strata"
+    if "omlx" in enabled and await _probe_omlx_identity(base_url, client):
+        return "omlx"
+    return None
+
+
+async def _enrich_strata_probe(
+    base_url: str,
+    client: httpx.AsyncClient,
+    api_key: str,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    models_url = base_url.rstrip("/") + "/models"
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        resp = await client.get(models_url, headers=headers, timeout=5.0)
+        if resp.status_code == 200:
+            body = resp.json()
+            if isinstance(body, dict):
+                ids, loaded = parse_strata_models_payload(body)
+                if ids:
+                    result = {
+                        **result,
+                        "models": ids,
+                        "model_count": len(ids),
+                    }
+                result = {**result, "engine_loaded": loaded}
+    except Exception:
+        pass
+    health_loaded = await fetch_strata_loaded(base_url, client, api_key=api_key or None)
+    if health_loaded is not None:
+        result = {**result, "engine_loaded": health_loaded}
+    return result
+
+
 async def _probe_url(
     base_url: str,
     client: httpx.AsyncClient,
     api_key: str,
     *,
+    provider_id: str = "",
     diagnose: bool = False,
 ) -> dict[str, Any] | None:
     result = await probe_openai_compat(base_url, client, api_key=api_key or None)
     if result.get("status") != "online":
         return None
+    if provider_id == "strata":
+        result = await _enrich_strata_probe(base_url, client, api_key, result)
     if not diagnose:
         # Routine scans must stay read-only: the 1-token inference test
         # forces the provider to LOAD a chat model, which on a
@@ -289,6 +348,7 @@ async def _probe_provider(
                 url,
                 client,
                 resolve_api_key_for_url(url, provider_id, config),
+                provider_id=provider_id,
                 diagnose=diagnose,
             )
             for url in candidate_urls
@@ -322,6 +382,45 @@ async def _probe_provider(
         "models": [],
         "probed_urls": candidate_urls,
     }
+
+
+async def _dedupe_scan_results(
+    results: list[dict[str, Any]],
+    client: httpx.AsyncClient,
+    enabled: set[str],
+    config: NetllmConfig,
+) -> list[dict[str, Any]]:
+    """One online row per base URL; fingerprint oMLX vs Strata on shared ports."""
+    online_by_url: dict[str, list[dict[str, Any]]] = {}
+    rest: list[dict[str, Any]] = []
+    for row in results:
+        url = normalize_openai_base_url(str(row.get("base_url") or ""))
+        if row.get("status") == "online" and url:
+            online_by_url.setdefault(url, []).append(row)
+        else:
+            rest.append(row)
+
+    deduped: list[dict[str, Any]] = []
+    for url, rows in online_by_url.items():
+        if len(rows) == 1:
+            deduped.append(rows[0])
+            continue
+        classified = await _classify_provider_at_url(url, client, enabled, config)
+        if classified:
+            pick = next((r for r in rows if r.get("id") == classified), rows[0])
+            spec = get_local_provider_spec(classified)
+            name = spec.display_name if spec else classified
+            deduped.append({**pick, "id": classified, "name": name})
+        else:
+            deduped.append(rows[0])
+
+    taken = {normalize_openai_base_url(str(r.get("base_url") or "")) for r in deduped}
+    for row in rest:
+        url = normalize_openai_base_url(str(row.get("base_url") or ""))
+        if url and url in taken:
+            continue
+        deduped.append(row)
+    return deduped
 
 
 async def scan_local_providers(
@@ -399,6 +498,7 @@ async def scan_local_providers(
                 )
         if tasks:
             results = list(await asyncio.gather(*tasks))
+            results = await _dedupe_scan_results(results, local_client, enabled, cfg)
 
     seen_urls: set[str] = set()
     deduped: list[dict[str, Any]] = []
@@ -445,6 +545,7 @@ def scan_results_to_backends(
                     model_count=r.get("model_count", 0),
                     models=r.get("models") or [],
                     detail=r.get("detail"),
+                    engine_loaded=r.get("engine_loaded"),
                     latency_p50_ms=float(r["latency_ms"])
                     if r.get("latency_ms") is not None
                     else None,
