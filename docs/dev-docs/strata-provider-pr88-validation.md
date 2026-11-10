@@ -11,10 +11,10 @@ Public validation notes for co-developers (no host-specific secrets or paths).
 
 | Area | Paths |
 |------|--------|
-| Registry | `packages/netllm-core/local_providers.py`, `models.py`, generated `dashboard.js`, `config.example.toml` |
-| Discovery | `packages/netllm-discovery/strata.py`, `local.py` |
+| Registry | `packages/netllm-core/src/netllm_core/local_providers.py`, `models.py`, generated `dashboard.js`, `config.example.toml` |
+| Discovery | `packages/netllm-discovery/src/netllm_discovery/strata.py`, `local.py` |
 | Agent | `service/backends.py`, `service/engine.py`, `static/pages/backends.js` |
-| CLI | `packages/netllm-cli/commands/diagnose.py` |
+| CLI | `packages/netllm-cli/src/netllm_cli/commands/diagnose.py` |
 | macOS | `apps/netllm-mac/.../SettingsViewModel.swift` |
 | Docs | `docs/strata-integration.md`, `linux-install.md`, `editor-integration.md` |
 | Tests | `test_strata_*.py`, `test_provider_fingerprint.py`, conformance + contract updates |
