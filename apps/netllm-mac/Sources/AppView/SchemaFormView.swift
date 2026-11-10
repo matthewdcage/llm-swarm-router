@@ -46,12 +46,14 @@ struct SchemaFieldOverride {
 /// Renders every editable (non-read-only) field of one config schema
 /// section against a `[String: JSONValue]` draft — the Swift twin of
 /// dashboard.js's `renderSchemaForm`/`schemaFieldsCard`
-/// (docs/config-schema-rewrite-plan.md §5 phase 4). Covers
-/// toggle/select/number/text/list_strings/secret; dict_list_strings and
-/// list/dict-of-object widgets stay hand-tuned per call site (see
-/// discoveryTab's provider_urls and routingTab's model_pools/sources
-/// editors in SettingsWindowView) rather than fully generic, matching how
-/// far this phase's risk-scoped migration goes — see the plan doc for why.
+/// (docs/config-schema-rewrite-plan.md §5 phase 4). Covers every widget
+/// the schema emits: toggle/select/number/text/secret/list_strings plus the
+/// structured ones (dict_strings, dict_list_strings, dict, list, object),
+/// which recurse through `item_schema`. Some call sites still hand-tune
+/// their top-level collections (discoveryTab's provider_urls, routingTab's
+/// model_pools) for suggestions and layout; the generic widgets are what
+/// keep a nested structured field (a source's model_rewrites / scenarios /
+/// match) editable instead of being overwritten by a string.
 struct SchemaFormView: View {
     let fields: [ConfigSchemaField]
     @Binding var draft: [String: JSONValue]
@@ -145,11 +147,29 @@ private struct SchemaFieldRow: View {
                     suggestions: override?.suggestions ?? []
                 )
             }
-        default:
-            // "text" and any widget not yet given a dedicated Swift
-            // control (secret/list_strings/dict_list_strings/list/dict —
-            // see dashboard.js's equivalents) render as a plain text
-            // field rather than silently omitting the field.
+        case "dict_strings":
+            SchemaStringDictField(label: label, value: valueBinding)
+        case "dict_list_strings":
+            SchemaStringListDictField(label: label, value: valueBinding)
+        case "object":
+            SchemaObjectField(
+                label: label,
+                itemSchema: field.itemSchema ?? [],
+                value: valueBinding
+            )
+        case "dict":
+            SchemaObjectDictField(
+                label: label,
+                itemSchema: field.itemSchema ?? [],
+                value: valueBinding
+            )
+        case "list":
+            SchemaObjectListField(
+                label: label,
+                itemSchema: field.itemSchema ?? [],
+                value: valueBinding
+            )
+        case "text":
             HStack {
                 Text(label)
                 TextField(
@@ -160,6 +180,260 @@ private struct SchemaFieldRow: View {
                     )
                 )
             }
+        default:
+            // A widget this app has no control for. Never fall back to a
+            // text field: its binding writes a string, which would replace
+            // a structured value the moment the user typed in it.
+            HStack {
+                Text(label)
+                Spacer()
+                Text("Edit in the dashboard")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var valueBinding: Binding<JSONValue> {
+        Binding(
+            get: { currentValue },
+            set: { setValue($0) }
+        )
+    }
+}
+
+// MARK: - Structured widgets
+
+/// "Add" row for a keyed collection: a free-typed key, refused when blank
+/// or already present.
+private struct SchemaAddKeyRow: View {
+    let placeholder: String
+    let existing: Set<String>
+    let onAdd: (String) -> Void
+
+    @State private var newKey = ""
+
+    private var trimmed: String {
+        newKey.trimmingCharacters(in: .whitespaces)
+    }
+
+    var body: some View {
+        HStack {
+            TextField(placeholder, text: $newKey)
+            Button("Add") {
+                onAdd(trimmed)
+                newKey = ""
+            }
+            .disabled(trimmed.isEmpty || existing.contains(trimmed))
+        }
+    }
+}
+
+private struct SchemaRemoveButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(role: .destructive, action: action) {
+            Image(systemName: "minus.circle")
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
+/// dict[str, str] with user-typed keys (a source's model_rewrites).
+private struct SchemaStringDictField: View {
+    let label: String
+    @Binding var value: JSONValue
+
+    private var entries: [String: JSONValue] { value.objectValue ?? [:] }
+    private var keys: [String] { entries.keys.sorted() }
+
+    private func update(_ key: String, _ newValue: JSONValue?) {
+        var next = entries
+        next[key] = newValue
+        value = .object(next)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.caption.weight(.medium))
+            ForEach(keys, id: \.self) { key in
+                HStack {
+                    Text(key).font(.caption.monospaced())
+                    Image(systemName: "arrow.right")
+                        .foregroundStyle(.secondary)
+                    TextField(
+                        "",
+                        text: Binding(
+                            get: { entries[key]?.stringValue ?? "" },
+                            set: { update(key, .string($0)) }
+                        )
+                    )
+                    SchemaRemoveButton { update(key, nil) }
+                }
+            }
+            SchemaAddKeyRow(placeholder: "New key", existing: Set(keys)) { key in
+                update(key, .string(""))
+            }
+        }
+    }
+}
+
+/// dict[str, list[str]] with user-typed keys (routing.model_aliases).
+private struct SchemaStringListDictField: View {
+    let label: String
+    @Binding var value: JSONValue
+
+    private var entries: [String: JSONValue] { value.objectValue ?? [:] }
+    private var keys: [String] { entries.keys.sorted() }
+
+    private func update(_ key: String, _ newValue: JSONValue?) {
+        var next = entries
+        next[key] = newValue
+        value = .object(next)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.caption.weight(.medium))
+            ForEach(keys, id: \.self) { key in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(key).font(.caption.monospaced())
+                        Spacer()
+                        SchemaRemoveButton { update(key, nil) }
+                    }
+                    EditableStringList(
+                        items: Binding(
+                            get: {
+                                entries[key]?.arrayValue?.compactMap(\.stringValue) ?? []
+                            },
+                            set: { update(key, .strings($0)) }
+                        ),
+                        placeholder: "",
+                        defaultNew: ""
+                    )
+                }
+            }
+            SchemaAddKeyRow(placeholder: "New key", existing: Set(keys)) { key in
+                update(key, .strings([]))
+            }
+        }
+    }
+}
+
+/// One nested model rendered through its own `item_schema` (a source's
+/// `match`).
+private struct SchemaObjectField: View {
+    let label: String
+    let itemSchema: [ConfigSchemaField]
+    @Binding var value: JSONValue
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.caption.weight(.medium))
+            SchemaFormView(
+                fields: itemSchema,
+                draft: Binding(
+                    get: { value.objectValue ?? [:] },
+                    set: { value = .object($0) }
+                )
+            )
+            .padding(.leading, 8)
+        }
+    }
+}
+
+/// dict[str, model] with user-typed keys (a source's scenarios).
+private struct SchemaObjectDictField: View {
+    let label: String
+    let itemSchema: [ConfigSchemaField]
+    @Binding var value: JSONValue
+
+    private var entries: [String: JSONValue] { value.objectValue ?? [:] }
+    private var keys: [String] { entries.keys.sorted() }
+
+    private func update(_ key: String, _ newValue: JSONValue?) {
+        var next = entries
+        next[key] = newValue
+        value = .object(next)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.caption.weight(.medium))
+            ForEach(keys, id: \.self) { key in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(key).font(.caption.monospaced())
+                        Spacer()
+                        SchemaRemoveButton { update(key, nil) }
+                    }
+                    SchemaFormView(
+                        fields: itemSchema,
+                        draft: Binding(
+                            get: { entries[key]?.objectValue ?? [:] },
+                            set: { update(key, .object($0)) }
+                        )
+                    )
+                    .padding(.leading, 8)
+                }
+            }
+            SchemaAddKeyRow(placeholder: "New name", existing: Set(keys)) { key in
+                update(key, .object([:]))
+            }
+        }
+    }
+}
+
+/// list[model] rendered row by row through `item_schema`. Bindings are
+/// bounds-checked: a row removed while a text field still holds focus must
+/// not index past the end.
+private struct SchemaObjectListField: View {
+    let label: String
+    let itemSchema: [ConfigSchemaField]
+    @Binding var value: JSONValue
+
+    private var rows: [JSONValue] { value.arrayValue ?? [] }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).font(.caption.weight(.medium))
+            ForEach(Array(rows.indices), id: \.self) { index in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("#\(index + 1)").font(.caption.monospaced())
+                        Spacer()
+                        SchemaRemoveButton {
+                            var next = rows
+                            guard next.indices.contains(index) else { return }
+                            next.remove(at: index)
+                            value = .array(next)
+                        }
+                    }
+                    SchemaFormView(
+                        fields: itemSchema,
+                        draft: Binding(
+                            get: {
+                                rows.indices.contains(index)
+                                    ? rows[index].objectValue ?? [:]
+                                    : [:]
+                            },
+                            set: { newValue in
+                                var next = rows
+                                guard next.indices.contains(index) else { return }
+                                next[index] = .object(newValue)
+                                value = .array(next)
+                            }
+                        )
+                    )
+                    .padding(.leading, 8)
+                }
+            }
+            Button("Add") {
+                value = .array(rows + [.object([:])])
+            }
+            .buttonStyle(.borderless)
         }
     }
 }

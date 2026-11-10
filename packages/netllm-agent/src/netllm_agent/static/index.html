@@ -117,6 +117,9 @@
       <!-- setBanner() writes save results and "Could not reach the agent" here;
            without a live region none of it is announced. -->
       <div id="global-banner" role="status" aria-live="polite" hidden></div>
+      <!-- Shown when the agent refuses an admin route: read-only notice plus a
+           cluster-token field (renderAuthBar in dashboard.js). -->
+      <div id="auth-bar" role="region" aria-label="Access" hidden></div>
 
       <main class="content" id="page-main" tabindex="-1">
         <!-- The page key stays `overview`: it is the same key in `const PAGES`,

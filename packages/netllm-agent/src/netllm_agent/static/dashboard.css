@@ -587,6 +587,38 @@ button.small,
   background: var(--ok-tint);
 }
 
+#auth-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 9px 20px;
+  font: 400 12.5px system-ui, sans-serif;
+  border-bottom: 1px solid var(--border);
+  background: var(--warn-tint);
+  color: var(--text);
+  flex: none;
+}
+
+#auth-bar[hidden] {
+  display: none;
+}
+
+.auth-bar-text {
+  flex: 1 1 320px;
+}
+
+.auth-bar-form {
+  display: flex;
+  gap: 8px;
+  flex: 0 1 340px;
+}
+
+.auth-bar-form input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 #toast {
   position: fixed;
   left: 50%;
