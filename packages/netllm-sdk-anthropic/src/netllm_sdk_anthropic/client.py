@@ -27,6 +27,7 @@ class AnthropicUpstream:
         connect_timeout: float = 5.0,
         read_timeout: float = 120.0,
         auth_mode: str = "api_key",
+        max_retries: int = 0,
     ) -> None:
         import httpx
 
@@ -34,7 +35,13 @@ class AnthropicUpstream:
         # "bearer": Authorization: Bearer <token> (WIF tokens, Anthropic
         # plan_token mode) instead of the default x-api-key header.
         key_kwarg = "auth_token" if auth_mode == "bearer" else "api_key"
-        kwargs: dict[str, Any] = {key_kwarg: api_key, "timeout": timeout}
+        # The router owns retries (failover with per-request exclusion); the
+        # SDK default (2) would replay on the same node before failover runs.
+        kwargs: dict[str, Any] = {
+            key_kwarg: api_key,
+            "timeout": timeout,
+            "max_retries": max_retries,
+        }
         if base_url:
             kwargs["base_url"] = base_url.rstrip("/")
         if default_headers:
