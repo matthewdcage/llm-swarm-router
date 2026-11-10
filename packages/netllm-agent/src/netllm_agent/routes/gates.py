@@ -34,10 +34,20 @@ class AccessGates:
         self.cfg = cfg
 
     def _is_local_client(self, request: Request) -> bool:
-        from netllm_core.platform import local_admin_client_hosts
+        from netllm_core.platform import (
+            is_browser_safe_local_request,
+            local_admin_client_hosts,
+        )
 
         client_host = (request.client.host if request.client else "").lower()
-        return client_host in local_admin_client_hosts()
+        if client_host not in local_admin_client_hosts():
+            return False
+        return is_browser_safe_local_request(
+            client_host=client_host,
+            host_header=request.headers.get("host", ""),
+            origin=request.headers.get("origin"),
+            sec_fetch_site=request.headers.get("sec-fetch-site"),
+        )
 
     def _presents_cluster_token(self, request: Request, token: str) -> bool:
         auth = request.headers.get("Authorization", "")

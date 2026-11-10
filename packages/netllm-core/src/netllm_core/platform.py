@@ -46,6 +46,82 @@ def local_admin_client_hosts() -> frozenset[str]:
     return _local_admin_hosts
 
 
+def _host_only(netloc: str) -> str:
+    """Hostname from a ``Host`` header or URL netloc (port and brackets off)."""
+    from urllib.parse import urlsplit
+
+    try:
+        return (urlsplit(f"//{netloc.strip()}").hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def _is_ip_literal(host: str) -> bool:
+    import ipaddress
+
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
+def local_host_names() -> frozenset[str]:
+    """DNS names that legitimately address this machine in a ``Host`` header."""
+    names = {"localhost"}
+    try:
+        hostname = socket.gethostname().lower()
+    except OSError:
+        hostname = ""
+    if hostname:
+        names.update({hostname, f"{hostname}.local", hostname.split(".")[0]})
+        names.add(f"{hostname.split('.')[0]}.local")
+    return frozenset(names)
+
+
+def is_browser_safe_local_request(
+    *,
+    client_host: str,
+    host_header: str,
+    origin: str | None,
+    sec_fetch_site: str | None,
+) -> bool:
+    """Whether a request from a local IP may be trusted as "this machine".
+
+    A local source address proves only that the *browser* is local, not that
+    the page driving it is ours. Two attacks ride on that gap:
+
+    - **Cross-site request forgery** — any page can POST to
+      ``http://127.0.0.1:11400``. Browsers attach ``Origin`` to such requests,
+      and it will not match our ``Host``.
+    - **DNS rebinding** — a page rebinds its own domain to 127.0.0.1 so its
+      requests are same-origin. ``Origin`` then matches ``Host``, but ``Host``
+      is the attacker's domain rather than an IP literal or one of our names.
+
+    Non-browser clients (CLI, menubar app, harnesses, peers) send neither
+    header and address the agent by IP or a local name, so they are unaffected.
+    """
+    host = _host_only(host_header)
+    if not host:
+        return False
+    # Starlette's TestClient: never the peer address of a real socket.
+    in_process_test = client_host == "testclient" and host == "testserver"
+    if not (in_process_test or _is_ip_literal(host) or host in local_host_names()):
+        return False
+    if (sec_fetch_site or "").lower() in ("cross-site", "same-site"):
+        return False
+    if origin is not None:
+        from urllib.parse import urlsplit
+
+        try:
+            origin_netloc = urlsplit(origin.strip()).netloc.lower()
+        except ValueError:
+            return False
+        if not origin_netloc or origin_netloc != host_header.strip().lower():
+            return False
+    return True
+
+
 def default_log_dir() -> Path:
     if is_darwin():
         return Path.home() / "Library" / "Application Support" / "netllm" / "logs"

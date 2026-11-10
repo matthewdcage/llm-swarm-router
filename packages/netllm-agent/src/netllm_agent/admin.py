@@ -35,15 +35,30 @@ from netllm_core.models import (
     listen_port,
     save_config,
 )
-from netllm_core.platform import local_admin_client_hosts
+from netllm_core.platform import (
+    is_browser_safe_local_request,
+    local_admin_client_hosts,
+)
 
 from netllm_agent.service import AgentService
 
 
+def is_trusted_local_request(request: Request) -> bool:
+    """Local source address *and* not a browser request forged by another site."""
+    client_host = (request.client.host if request.client else "").lower()
+    if client_host not in local_admin_client_hosts():
+        return False
+    return is_browser_safe_local_request(
+        client_host=client_host,
+        host_header=request.headers.get("host", ""),
+        origin=request.headers.get("origin"),
+        sec_fetch_site=request.headers.get("sec-fetch-site"),
+    )
+
+
 def require_admin_access(request: Request, cfg: NetllmConfig) -> None:
     """Allow admin routes from this host or with a valid cluster token."""
-    client_host = (request.client.host if request.client else "").lower()
-    if client_host in local_admin_client_hosts():
+    if is_trusted_local_request(request):
         return
     token = (cfg.swarm.cluster_token or "").strip()
     if token:
