@@ -337,7 +337,8 @@ def test_admin_allows_same_host_lan_ip(_mock_hosts: object) -> None:
     cfg = NetllmConfig()
     request = MagicMock()
     request.client.host = "10.0.0.9"
-    request.headers.get.return_value = ""
+    # A real same-host caller addresses the agent by IP and sends no Origin.
+    request.headers = {"host": "10.0.0.9:11400"}
     require_admin_access(request, cfg)
 
 
