@@ -326,3 +326,86 @@ def test_status_reports_cluster_token_presence() -> None:
     with TestClient(create_app(cfg)) as client:
         data = client.get("/netllm/v1/status").json()
     assert data["cluster_token_set"] is True
+
+
+def _status_capturing_client(seen: dict[str, object]) -> type:
+    class FakeResp:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {"cluster_token_set": True}
+
+    class FakeClient:
+        def __init__(self, *a: object, **k: object) -> None:
+            pass
+
+        def __enter__(self) -> FakeClient:
+            return self
+
+        def __exit__(self, *a: object) -> None:
+            return None
+
+        def get(self, url: str, **k: object) -> FakeResp:
+            seen["url"] = url
+            seen["headers"] = k.get("headers")
+            return FakeResp()
+
+    return FakeClient
+
+
+def test_fetch_join_status_sends_token_to_secured_agent() -> None:
+    """Secured agents 401 a remote status probe without the bearer token."""
+    seen: dict[str, object] = {}
+    with patch.object(cli_join_swarm.httpx, "Client", _status_capturing_client(seen)):
+        cli_join_swarm._fetch_join_status("http://192.168.1.20:11400", "tok")
+    assert seen["url"] == "http://192.168.1.20:11400/netllm/v1/status"
+    assert seen["headers"] == {"Authorization": "Bearer tok"}
+
+
+def test_fetch_join_status_without_token_sends_no_auth() -> None:
+    seen: dict[str, object] = {}
+    with patch.object(cli_join_swarm.httpx, "Client", _status_capturing_client(seen)):
+        cli_join_swarm._fetch_join_status("http://192.168.1.20:11400")
+    assert seen["headers"] == {}
+
+
+def _status_401_client(seen: dict[str, object]) -> type:
+    class FakeResp:
+        status_code = 401
+
+        def raise_for_status(self) -> None:
+            raise AssertionError("401 must be handled before raise_for_status")
+
+    class FakeClient:
+        def __init__(self, *a: object, **k: object) -> None:
+            pass
+
+        def __enter__(self) -> FakeClient:
+            return self
+
+        def __exit__(self, *a: object) -> None:
+            return None
+
+        def get(self, url: str, **k: object) -> FakeResp:
+            return FakeResp()
+
+    return FakeClient
+
+
+@pytest.mark.parametrize(
+    ("token", "title"),
+    [("wrong", "Invalid cluster token"), ("", "Cluster token required")],
+)
+def test_fetch_join_status_401_explains_token_problem(token: str, title: str) -> None:
+    import typer as _typer
+
+    with (
+        patch.object(cli_join_swarm.httpx, "Client", _status_401_client({})),
+        patch.object(cli_join_swarm, "print_error") as mock_error,
+        pytest.raises(_typer.Exit),
+    ):
+        cli_join_swarm._fetch_join_status("http://192.168.1.20:11400", token)
+    assert mock_error.call_args.args[0] == title
