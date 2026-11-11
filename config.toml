@@ -1,0 +1,13 @@
+
+[routing.model_pools.pool]
+enabled = true
+hosts = ["peer:098fceb0", "peer:48cacec9"]
+models = ["nemotron-3.5-lightning-30b", "qwen3.8-27b"]
+
+[routing.model_pools.pool-2]
+enabled = false
+hosts = ["peer:098fceb0"]
+models = ["bge-m3:latest"]
+
+[routing.model_aliases]
+"qwen3.8-27b" = ["qwen3:8-27b"]
