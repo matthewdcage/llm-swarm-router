@@ -1,0 +1,30 @@
+{"object": "list", "data": [{"id": "Qwen3.8-Flash-Next-Uncen
+evalkit: strata-4090 @ http://127.0.0.1:18095 model=Qwen3.8-Flash-Next-Uncensored-NVFP4 -> /mnt/nvme-models/strata-eval/results/strata-4090-20261019T194449
+
+== perf
+  [PASS] perf/decode_short_prompt 
+  [PASS] perf/prefill_1k 
+  [PASS] perf/prefill_8k 
+  [PASS] perf/prefill_32k 
+  [PASS] perf/prefill_128k 
+  [PASS] perf/concurrency_1 
+  [PASS] perf/concurrency_2 
+  [PASS] perf/prefix_cache_16k 
+  [PASS] perf/multiturn_followup_ttft_8k 
+
+{
+ "label": "strata-4090",
+ "base": "http://127.0.0.1:18095",
+ "model": "Qwen3.8-Flash-Next-Uncensored-NVFP4",
+ "seconds": 169.1,
+ "suites": {
+  "perf": {
+   "pass": 9,
+   "fail": 0,
+   "skip": 0
+  }
+ }
+}
+RUN_DIR /mnt/nvme-models/strata-eval/results/strata-4090-20261019T194449
+
+[exited with code 0]

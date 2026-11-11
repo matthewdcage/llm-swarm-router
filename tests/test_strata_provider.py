@@ -66,3 +66,12 @@ def test_strata_discovered_by_default_on_linux_not_darwin(
     assert "strata" in default_discovery_providers()
     monkeypatch.setattr(sys, "platform", "darwin")
     assert "strata" not in default_discovery_providers()
+
+
+def test_parse_strata_models_payload_reads_status_value() -> None:
+    from netllm_discovery.strata import parse_strata_models_payload
+
+    base = {"id": "m", "object": "model"}
+    assert parse_strata_models_payload({"data": [{**base, "status": {"value": "unloaded"}}]}) == (["m"], False)
+    assert parse_strata_models_payload({"data": [{**base, "status": {"value": "loaded"}}]}) == (["m"], True)
+    assert parse_strata_models_payload({"data": [{**base, "state": "unloaded"}]}) == (["m"], False)

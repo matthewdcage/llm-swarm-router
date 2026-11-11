@@ -75,7 +75,13 @@ def parse_strata_models_payload(body: dict[str, Any]) -> tuple[list[str], bool]:
         mid = item.get("id")
         if mid:
             ids.append(str(mid))
-        state = str(item.get("state") or "").lower()
+        # Older Strata builds report a flat ``state``; 0.2.x reports
+        # ``status: {"value": "loaded" | "unloaded"}``.
+        raw = item.get("state")
+        if raw is None:
+            status = item.get("status")
+            raw = status.get("value") if isinstance(status, dict) else status
+        state = str(raw or "").lower()
         if state == "unloaded":
             loaded = False
     return ids, loaded

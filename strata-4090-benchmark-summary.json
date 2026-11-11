@@ -1,0 +1,13 @@
+{
+ "label": "strata-4090",
+ "base": "http://127.0.0.1:18095",
+ "model": "Qwen3.8-Flash-Next-Uncensored-NVFP4",
+ "seconds": 169.1,
+ "suites": {
+  "perf": {
+   "pass": 9,
+   "fail": 0,
+   "skip": 0
+  }
+ }
+}
